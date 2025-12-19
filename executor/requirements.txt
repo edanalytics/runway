@@ -1,0 +1,6 @@
+awscli
+boto3
+chardet
+earthmover==0.4.7
+lightbeam==0.1.10
+requests

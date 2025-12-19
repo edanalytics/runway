@@ -1,0 +1,77 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "NestJS API",
+      "request": "attach",
+      "type": "node",
+      "port": 9229,
+      "restart": true,
+      // "sourceMapPathOverrides": {
+      //   "webpack:///./*": "${workspaceFolder}/api/*"
+      // }
+      "cwd": "${workspaceRoot}/app/api"
+    },
+    {
+      "name": "Debug Jest Integration Tests",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": [
+        "--inspect-brk",
+        "${workspaceRoot}/app/node_modules/.bin/jest",
+        "--runInBand",
+        "--config",
+        "app/api/jest.config.integration.ts"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+
+    {
+      "name": "ts-node",
+      "type": "node",
+      "request": "launch",
+      "args": ["${relativeFile}"],
+      "runtimeArgs": [
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "env": {
+        "TS_NODE_PROJECT": "tsconfig.base.json"
+      },
+      "cwd": "${workspaceRoot}",
+      "protocol": "inspector",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "ts-node:api",
+      "type": "node",
+      "request": "launch",
+      "args": ["${relativeFile}"],
+      "runtimeArgs": [
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "env": {
+        "TS_NODE_PROJECT": "api/tsconfig.app.json"
+      },
+      "cwd": "${workspaceRoot}",
+      "protocol": "inspector",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "msedge",
+      "request": "launch",
+      "name": "Launch client",
+      "url": "http://localhost:4200",
+      "webRoot": "${workspaceFolder}/app/fe/"
+    }
+  ]
+}

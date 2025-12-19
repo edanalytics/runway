@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template deploys the build process for the Job Executor.
+Parameters: 
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  GitHubConnectionArn:
+    Description: Can be found or created in CodePipeline console, settings, connections.
+    Type: String
+  GitHubRepo:
+    Type: String
+    Description: GitHub repo name to build from
+  GitHubBranch:
+    Type: String
+    Description: Name of the branch in the GitHub repo to build from.
+  CreateS3Bucket:
+    Type: String
+    Description: Create the S3 bucket named 'job-executor-codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
+    Default: 'The S3 Bucket already exists'
+    AllowedValues:
+      - 'Create the S3 Bucket'
+      - 'The S3 Bucket already exists'
+
+Conditions:
+  DoCreateS3Bucket: !Equals [!Ref CreateS3Bucket, 'Create the S3 Bucket']
+
+Resources: 
+  JobExecutorEcrRepository:
+    Type: AWS::ECR::Repository
+    # checkov:skip=CKV_AWS_51: "Ensure ECR Image Tags are immutable"
+    # The app uses the 'latest' image tag from ECR 
+    # checkov:skip=CKV_AWS_136: "Ensure that ECR repositories are encrypted using KMS"
+    # ECR repos are already encrypted with AES-256
+    Properties:
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryName: !Sub '${EnvLabel}-job-executor-repo'
+      EmptyOnDelete: true
+  
+  ArtifactStoreBucket:
+    Type: AWS::S3::Bucket
+    Condition: DoCreateS3Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'job-executor-codepipeline-artifact-store-${AWS::Region}-${AWS::AccountId}'
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: EnvLabel
+          Value: !Sub '${EnvLabel}-job-executor'
+  
+  CodePipelineRole: 
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: AllowActions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:codestar-connections:${AWS::Region}:${AWS::AccountId}:connection/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:s3:::*'
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuildBatches
+                  - codebuild:StartBuildBatch
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/*'
+              - Effect: Allow
+                Action: 
+                  - ecr:DescribeImages
+                Resource: 
+                  - !GetAtt JobExecutorEcrRepository.Arn
+    
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      PipelineType: V2
+      ArtifactStore:
+        Location: !Sub 'job-executor-codepipeline-artifact-store-${AWS::Region}-${AWS::AccountId}'
+        Type: S3
+      Name: !Sub '${EnvLabel}-job-executor-pipeline'
+      RestartExecutionOnUpdate: True
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      Triggers:
+        - GitConfiguration:
+            SourceActionName: Source
+            Push:
+              - Branches:
+                  Includes:
+                    - !Ref GitHubBranch
+                FilePaths:
+                  Includes:
+                    - 'executor/**'
+          ProviderType: CodeStarSourceConnection
+      Stages:
+        - Name: SourceStage
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              RunOrder: 1
+              Configuration:
+                BranchName: !Ref GitHubBranch
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: !Ref GitHubRepo
+                OutputArtifactFormat: CODE_ZIP
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Region: !Ref 'AWS::Region'
+        - Name: BuildStage
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              RunOrder: 1
+              Configuration:
+                EnvironmentVariables: !Sub |
+                  [
+                      {
+                          "name": "ECR_REPO_NAME",
+                          "value": "${JobExecutorEcrRepository}",
+                          "type": "PLAINTEXT"
+                      }
+                  ]
+                ProjectName: !Ref CodeBuild
+              OutputArtifacts:
+                - Name: BuildArtifact
+              InputArtifacts:
+                - Name: SourceArtifact
+              Region: !Ref 'AWS::Region'
+              Namespace: BuildVariables
+  
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CodeBuildBasePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:s3:::job-executor-codepipeline-artifact-store-${AWS::Region}-${AWS::AccountId}*'
+              - Effect: Allow
+                Action:
+                  - codebuild:CreateReportGroup
+                  - codebuild:CreateReport
+                  - codebuild:UpdateReport
+                  - codebuild:BatchPutTestCases
+                  - codebuild:BatchPutCodeCoverages
+                Resource: !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/*'
+        - PolicyName: EcrPushImages
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:StartImageScan
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:GetAuthorizationToken
+                  - ecr:DescribeRepositories
+                  - ecr:UploadLayerPart
+                  - ecr:ListImages
+                  - ecr:InitiateLayerUpload
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                Resource:
+                  - !GetAtt JobExecutorEcrRepository.Arn
+              - Effect: Allow
+                Action: 
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+
+  CodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${EnvLabel}-job-executor-build'
+      Description: !Sub 'Job Executor Build project for ${EnvLabel}'
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: executor/buildspec.yml
+      Artifacts:
+        Type: CODEPIPELINE
+        Name: !Sub '${EnvLabel}-job-executor-build'
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        ComputeType: BUILD_GENERAL1_LARGE
+        PrivilegedMode: true
+        ImagePullCredentialsType: CODEBUILD
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      TimeoutInMinutes: 15
+      QueuedTimeoutInMinutes: 120
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: !Sub '/aws/codebuild/${EnvLabel}-job-executor-build'
+          Status: ENABLED
+      Visibility: PRIVATE
+
+
+Outputs: 
+  JobExecutorEcrRepoUri:
+    Description: URI of the ECR Repository
+    Value: !GetAtt 'JobExecutorEcrRepository.RepositoryUri'

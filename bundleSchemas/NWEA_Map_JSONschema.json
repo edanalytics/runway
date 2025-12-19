@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "title": "NWEA Map configuration",
+  "description": "Use this form to configure your NWEA Map assessment data for loading into Ed-Fi.",
+  "required": [
+    "STUDENT_ID_NAME",
+    "INPUT_FILE"
+  ],
+  "properties": {
+    "INPUT_FILE": {
+      "type": "string",
+      "format": "data-url",
+      "title": "Assessment File",
+      "description": "The assessment file to be loaded"
+    },
+    "STUDENT_ID_NAME": {
+      "type": "string",
+      "title": "Ed-Fi studentUniqueId column",
+      "description": "Which column to use as the Ed-Fi studentUniqueId. Can be one of the native columns in the assessment file or a value mapped from a crosswalk (must be supplied)",
+      "examples": [
+        "StudentID",
+        "Student_StateID"
+      ]
+    },
+    "STUDENT_ID_XWALK": {
+      "type": "string",
+      "format": "data-url",
+      "title": "Student ID crosswalk",
+      "description": "A two-column CSV mapping from and ID included in the assessment file and to the studentUniqueId value in Ed-Fi"
+    }
+  },
+  "if": {
+    "required": [
+      "STUDENT_ID_XWALK"
+    ]
+  },
+  "then": {
+    "properties": {
+      "STUDENT_ID_JOIN_COLUMN": {
+        "type": "string",
+        "title": "Student ID join column for crosswalk",
+        "description": "Declare which column in the assessment file should be used for the crosswalk join",
+        "enum": [
+          "StudentID",
+          "Student_StateID"
+        ]
+      }
+    }
+  }
+}

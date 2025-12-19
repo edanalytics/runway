@@ -1,0 +1,38 @@
+import { Module } from '@nestjs/common';
+import { APP_GUARD, RouterModule } from '@nestjs/core';
+import { AuthModule } from '../auth/auth.module';
+import { AuthenticatedGuard } from '../auth/login/authenticated.guard';
+import { UsersModule } from '../users/users.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { routes } from './routes';
+import { ServicesModule } from './services.module';
+import { OdsConfigModule } from '../ods-config/ods-config.module';
+import { SchoolYearsModule } from '../school-year/school-years.module';
+import { JobTemplatesModule } from '../job-templates/job-templates.module';
+import { JobsModule } from '../jobs/jobs.module';
+import { EarthbeamApiModule } from '../earthbeam/api/earthbeam-api.module';
+import { EarthbeamApiAuthModule } from '../earthbeam/api/auth/earthbeam-api-auth.module';
+
+const resourceModules = [
+  UsersModule,
+  OdsConfigModule,
+  JobsModule,
+  JobTemplatesModule,
+  SchoolYearsModule,
+  EarthbeamApiModule,
+  EarthbeamApiAuthModule,
+];
+
+@Module({
+  imports: [ServicesModule, RouterModule.register(routes), AuthModule, ...resourceModules],
+  controllers: [AppController],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: AuthenticatedGuard,
+    },
+  ],
+})
+export class AppModule {}

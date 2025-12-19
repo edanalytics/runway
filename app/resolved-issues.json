@@ -1,0 +1,12 @@
+[
+  {
+    "id": "SWRM-201-@prisma/client-5.16.2-postinstall",
+    "paths": ["@prisma/client"],
+    "notes": "Prisma client uses postinstall for one of the few valid reasons. It compiles your typed DB client based on your schema file. See https://blog.sandworm.dev/dissecting-npm-malware-five-packages-and-their-evil-install-scripts#heading-when-are-install-scripts-useful"
+  },
+  {
+    "id": "SWRM-201-@prisma/engines-5.16.2-postinstall",
+    "paths": ["@prisma/client>prisma>@prisma/engines"],
+    "notes": "Prisma engines uses the postinstall script to download binaries appropriate for the target machine. See https://www.npmjs.com/package/@prisma/engines"
+  }
+]

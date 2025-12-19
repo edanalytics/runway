@@ -1,0 +1,1 @@
+ALTER TABLE public.run DROP COLUMN IF EXISTS unmatched_students_info; 

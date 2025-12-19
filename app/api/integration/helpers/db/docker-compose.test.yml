@@ -1,0 +1,33 @@
+services:
+  test-db:
+    image: postgres:15
+    container_name: runway-test-db
+    env_file:
+      - ../../../.env.test
+    environment:
+      # Override host since Docker needs internal networking
+      POSTGRES_HOST: test-db
+      # Override port because pg should listen on 5432 internally
+      POSTGRES_PORT: 5432
+    ports:
+      - '5433:5432' # Use different port to avoid conflicts
+    healthcheck:
+      # requiring a host *should* fix the issue where pg_isready responds true prematurely
+      # but if it doesn't, the commented out test below should work
+      # https://github.com/docker-library/postgres/issues/880#issuecomment-1005100839
+      test: pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1
+      # require three successive successful pg_isready calls because the postgres
+      # container starts a temporary server on startup and then restarts... which
+      # makes just one pg_isready call unreliable
+      # test: |
+      #   pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} && sleep 0.25 &&
+      #   pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} && sleep 0.25 &&
+      #   pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} && sleep 0.25
+      interval: 0.25s
+      timeout: 5s
+      retries: 10
+    # Don't persist data between test runs
+    command: postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+
+volumes:
+  test_db_data:

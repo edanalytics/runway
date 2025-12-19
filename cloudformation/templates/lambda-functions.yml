@@ -1,0 +1,727 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Deploys Lambda Functions used as Custom Resources and environment management.
+Parameters:
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  S3BucketSourceCode:
+    Type: String
+    Description: This provides the name of the S3 bucket where the Lambda source code
+      resides. In this case, lambda source code is in the same S3 bucket.
+  S3KeySourceCode:
+    Type: String
+    Description: This provides the folder name inside the S3 bucket where the Lambda
+      source code resides.
+  SNSTopicArn:
+    Description: ARN of SNS topic to publish Route53 HealthCheck Alarms
+    Type: String
+  SlackWebhookURL: 
+    Description: Provide a webhook URL for the slack channel that will receive events from the app
+    Type: String 
+  VpcId:
+    Description: An existing VPC ID for this deployment.
+    Type: String
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in one of the Availability Zones above
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in the other Availability Zone above
+
+Conditions:
+  EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
+  EnableSlackAlerting: !Not [!Equals [!Ref SlackWebhookURL, '']]
+
+Resources:
+  CRHelperLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleRuntimes:
+        - python3.13
+      Content:
+        S3Bucket: !Ref 'S3BucketSourceCode'
+        S3Key: !Sub '${S3KeySourceCode}/crhelper-lambda-layer-python3-13.zip'
+      Description: AWS CloudFormation helper lambda layer
+      LayerName: !Sub '${EnvLabel}-CRHelper-python3-13'
+  LambdaDefaultSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Lambda Function default Security Group for the ${VpcId} vpc'
+      GroupName: !Sub '${EnvLabel}-LambdaDefaultSG'
+      VpcId: !Ref VpcId
+  LambdaDefaultSGParameter: 
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Description: !Sub 'Default Security Group for the ${VpcId} vpc'
+      Name: !Sub '/environments/${EnvLabel}/LambdaDefaultSG'
+      Type: String
+      Value: !Ref 'LambdaDefaultSG'
+
+  East1AlarmRole:
+    Condition: EnableHealthCheck
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvLabel}-East1Alarm-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: 'AllowActions'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:DeleteAlarms
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:cloudwatch:us-east-1:${AWS::AccountId}:alarm:*'
+  East1AlarmFunction:
+    Condition: EnableHealthCheck
+    Type: AWS::Lambda::Function
+    # checkov:skip=CKV_AWS_116: "Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)"
+    # CloudFormation custom resource handlers don't need a DLQ
+    Properties:
+      Handler: index.lambda_handler
+      Layers:
+        - !Ref 'CRHelperLambdaLayer'
+      Description: Creates a Route53 Healthcheck Alarm in us-east-1
+      FunctionName: !Sub '${EnvLabel}-East1Alarm'
+      Role: !GetAtt 'East1AlarmRole.Arn'
+      Runtime: python3.13
+      Timeout: 120
+      ReservedConcurrentExecutions: 2
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref 'LambdaDefaultSG'
+        SubnetIds: 
+          - !Ref PrivateSubnet1Id
+          - !Ref PrivateSubnet2Id
+      Code:
+        ZipFile: |
+          import boto3
+          import time
+          import signal
+          from botocore.config import Config
+          from crhelper import CfnResource
+
+          helper = CfnResource()
+          us_east_1 = Config(
+                  region_name = 'us-east-1'
+              )
+
+          def lambda_handler(event, context):
+              signal.alarm(int((context.get_remaining_time_in_millis() / 1000) - 1))
+              helper(event, context)
+
+          @helper.create
+          def create(event, _):   
+              env_label = event['ResourceProperties']['EnvLabel']
+              sns_arn = event['ResourceProperties']['SNSTopicArn']
+              health_check = event['ResourceProperties']['Route53HealthCheck']
+              alarm_label = event['ResourceProperties']['AlarmLabel']
+              alarm_name = f"{env_label}-{alarm_label}-HealthCheck-Alarm"
+
+              if check_for_alarm(alarm_name):
+                print("Alarm already exists")
+              else:
+                create_alarm(sns_arn, health_check, alarm_name)
+
+          @helper.update
+          def update(event, context):
+              env_label = event['ResourceProperties']['EnvLabel']
+              sns_arn = event['ResourceProperties']['SNSTopicArn']
+              health_check = event['ResourceProperties']['Route53HealthCheck']
+              alarm_label = event['ResourceProperties']['AlarmLabel']
+              alarm_name = f"{env_label}-{alarm_label}-HealthCheck-Alarm"
+
+              create_alarm(sns_arn, health_check, alarm_name)
+
+          @helper.delete
+          def delete(event, _):
+              env_label = event['ResourceProperties']['EnvLabel']
+              alarm_label = event['ResourceProperties']['AlarmLabel']
+              alarm_name = f"{env_label}-{alarm_label}-HealthCheck-Alarm"
+
+              if check_for_alarm(alarm_name):
+                client = boto3.client('cloudwatch', config=us_east_1)
+                client.delete_alarms(AlarmNames=[alarm_name])
+
+          def create_alarm(sns_arn, health_check, alarm_name):
+              client = boto3.client('cloudwatch', config=us_east_1)
+              client.put_metric_alarm(
+                  AlarmName=alarm_name,
+                  ActionsEnabled=True,
+                  AlarmActions=[sns_arn],
+                  AlarmDescription='Route53_HealthCheck',
+                  Dimensions=[
+                      {
+                        'Name': 'HealthCheckId',
+                        'Value': health_check
+                      },
+                  ],
+                  MetricName='HealthCheckStatus',
+                  Statistic='Minimum',
+                  Namespace='AWS/Route53',
+                  Threshold=1,
+                  ComparisonOperator='LessThanThreshold',
+                  Period=60,
+                  DatapointsToAlarm=1,
+                  EvaluationPeriods=1
+              )
+
+          def check_for_alarm(alarm_name):
+              client = boto3.client('cloudwatch', config=us_east_1)
+              response=client.describe_alarms(AlarmNames=[alarm_name])
+              if response['MetricAlarms']:
+                  print(response['MetricAlarms'])
+                  return True
+              return False
+  East1AlarmFunctionVersion:
+    Condition: EnableHealthCheck
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref 'East1AlarmFunction'
+  East1AlarmRetention:
+    Condition: EnableHealthCheck
+    DependsOn: SetCloudWatchRetentionVersion
+    Type: Custom::CloudWatchRetention
+    Properties:
+      ServiceToken: !GetAtt 'SetCloudWatchRetentionLambdaFunction.Arn'
+      logGroupName: !Sub '/aws/lambda/${East1AlarmFunction}'
+      retentionInDays: 365
+  
+  SetCloudWatchRetentionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AllowedActionsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - logs:PutRetentionPolicy
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+  SetCloudWatchRetentionLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    DeletionPolicy: Delete
+    # checkov:skip=CKV_AWS_116: "Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)"
+    # CloudFormation custom resource handlers don't need a DLQ
+    Properties:
+      FunctionName: !Sub '${EnvLabel}-SetCloudWatchRetention'
+      Layers:
+        - !Ref 'CRHelperLambdaLayer'
+      Handler: index.lambda_handler
+      Description: CloudFormation Custom Resource provider.  Sets retention on CloudWatch Log Groups.
+      Runtime: python3.13
+      MemorySize: 128
+      Role: !GetAtt SetCloudWatchRetentionRole.Arn
+      ReservedConcurrentExecutions: 10
+      Timeout: 20
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref 'LambdaDefaultSG'
+        SubnetIds: 
+          - !Ref PrivateSubnet1Id
+          - !Ref PrivateSubnet2Id
+      Code:
+        ZipFile: |
+          import json
+          import botocore
+          import boto3
+          import signal
+          from crhelper import CfnResource
+
+          helper = CfnResource()
+
+          def lambda_handler(event, context):
+              signal.alarm(int((context.get_remaining_time_in_millis() / 1000) - 1))
+              helper(event, context)
+              
+
+          @helper.create    
+          def create(event, _):
+              client = boto3.client('logs')
+              log_group_name = event['ResourceProperties']['logGroupName']
+
+              try:
+                  response = client.create_log_group(
+                      logGroupName=log_group_name
+                  )
+                  print('log group created')
+              
+              except botocore.exceptions.ClientError as error:
+                  if 'ResourceAlreadyExistsException' in str(error):
+                      print('log group already exists')
+                  
+              response = client.put_retention_policy(
+                  logGroupName=log_group_name,
+                  retentionInDays=int(event['ResourceProperties']['retentionInDays'])
+              )
+
+              
+          @helper.update
+          @helper.delete
+          def no_op(_, __):
+              pass
+
+
+          def timeout_handler(_signal, _frame):
+              '''Handle SIGALRM'''
+              raise Exception('lambda function timeout exceeded')
+
+
+          signal.signal(signal.SIGALRM, timeout_handler)
+  SetCloudWatchRetentionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref 'SetCloudWatchRetentionLambdaFunction'
+  SetCloudWatchRetentionRetention:
+    DependsOn: SetCloudWatchRetentionVersion
+    Type: Custom::CloudWatchRetention
+    Properties:
+      ServiceToken: !GetAtt 'SetCloudWatchRetentionLambdaFunction.Arn'
+      logGroupName: !Sub '/aws/lambda/${SetCloudWatchRetentionLambdaFunction}'
+      retentionInDays: 365
+  
+  GetBsResourcesRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AllowedActionsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticbeanstalk:DescribeEnvironmentResources
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - autoscaling:DescribeAutoScalingGroups
+                  - cloudformation:ListStackResources
+                Resource:
+                  - '*'
+  GetBsResourcesLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    DeletionPolicy: Delete
+    # checkov:skip=CKV_AWS_116: "Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)"
+    # CloudFormation custom resource handlers don't need a DLQ
+    Properties:
+      Layers:
+        - !Ref 'CRHelperLambdaLayer'
+      Handler: index.handler
+      Runtime: python3.13
+      MemorySize: 128
+      Role: !GetAtt GetBsResourcesRole.Arn
+      ReservedConcurrentExecutions: 3
+      Timeout: 10
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref 'LambdaDefaultSG'
+        SubnetIds: 
+          - !Ref PrivateSubnet1Id
+          - !Ref PrivateSubnet2Id
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+          import cfnresponse
+          import signal
+          import traceback
+          from crhelper import CfnResource
+
+          helper = CfnResource()
+
+          def handler(event, context):
+              signal.alarm(int((context.get_remaining_time_in_millis() / 1000) - 1))
+              helper(event, context)
+
+          @helper.create
+          @helper.update
+          def create(event, _): 
+              beanstalk_env_name = event['ResourceProperties']['BeanstalkEnvName']
+              try:
+                    client = boto3.client('elasticbeanstalk')
+                    response = client.describe_environment_resources(
+                        EnvironmentName=beanstalk_env_name
+                    )
+              except:
+                    error_msg = f'An error occurred while describing the elasticbeanstalk environment {beanstalk_env_name}'
+                    print(error_msg)
+                    traceback.print_exc()
+                    raise ValueError(error_msg)
+                    exit(1)
+              ASGName = response['EnvironmentResources']['AutoScalingGroups'][0]['Name']
+              LBArn = response['EnvironmentResources']['LoadBalancers'][0]['Name']
+              print(ASGName)
+              print(LBArn)
+
+              try:
+                    client = boto3.client('elbv2')
+                    response = client.describe_target_groups(
+                        LoadBalancerArn=LBArn
+                    )
+              except:
+                    error_msg = f'An error occurred while describing the target groups for ALB {LBArn}'
+                    print(error_msg)
+                    traceback.print_exc()
+                    raise ValueError(error_msg)
+                    exit(1)
+              TGArn = response['TargetGroups'][0]['TargetGroupArn']
+              print(TGArn)
+              
+              helper.Data.update(
+                  {
+                      "ASGName": ASGName,
+                      "LBArn": LBArn,
+                      "TGArn": TGArn
+                  }
+              )
+
+          @helper.delete
+          def no_op(_, __):
+              pass
+            
+          def timeout_handler(_signal, _frame):
+              '''Handle SIGALRM'''
+              raise Exception('Time exceeded')
+
+          signal.signal(signal.SIGALRM, timeout_handler)
+  GetBsResourceVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref 'GetBsResourcesLambdaFunction'
+  GetBsResourcesRetention:
+    DependsOn: SetCloudWatchRetentionVersion
+    Type: Custom::CloudWatchRetention
+    Properties:
+      ServiceToken: !GetAtt 'SetCloudWatchRetentionLambdaFunction.Arn'
+      logGroupName: !Sub '/aws/lambda/${GetBsResourcesLambdaFunction}'
+      retentionInDays: 365
+  
+  EncryptionKeyGeneratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/SecretsManagerReadWrite
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+  EncryptionKeyGeneratorFunction:
+    Type: AWS::Lambda::Function
+    # checkov:skip=CKV_AWS_116:Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)
+    # CloudFormation custom resource handlers don't need a DLQ
+    Properties:
+      Handler: index.lambda_handler
+      Layers:
+        - !Ref 'CRHelperLambdaLayer'
+      Description: CloudFormation Custom Resource provider.  Creates and stores a base64 encoded 256-bit key
+      FunctionName: !Sub '${EnvLabel}-EncryptionKeyGenerator'
+      Role: !GetAtt 'EncryptionKeyGeneratorRole.Arn'
+      ReservedConcurrentExecutions: 1
+      Runtime: python3.13
+      Timeout: 30
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref 'LambdaDefaultSG'
+        SubnetIds: 
+          - !Ref PrivateSubnet1Id
+          - !Ref PrivateSubnet2Id
+      Code:
+        ZipFile: |
+          import base64
+          import secrets
+          import boto3
+          import signal
+          import json
+          from crhelper import CfnResource
+
+          helper = CfnResource()
+
+          def lambda_handler(event, context):
+              signal.alarm(int((context.get_remaining_time_in_millis() / 1000) - 1))
+              helper(event, context)
+
+
+          @helper.create
+          def create(event, _):
+              client = boto3.client('secretsmanager')
+              name = event['ResourceProperties']['SecretName']
+
+              secret_exists = check_for_secret(name)
+
+              if not secret_exists:
+                  print("The secret named " + name + " did not exist...creating it now.")
+                  token = secrets.token_bytes(32)
+                  b64_token = base64.b64encode(token).decode('utf-8')
+
+                  response = client.create_secret(
+                      Name=name,
+                      Description='A 256-bit encryption key',
+                       # checkov:skip=CKV_SECRET_6: SecretString is handled in Secrets Manager
+                      SecretString=b64_token
+                  )
+
+                  print("This secret was successfully created during the deployment and named " + name)
+              else:
+                  print("The secret named " + name + " ALREADY EXISTED in the AWS account and therefore the deployment DID NOT create a secret with this name.")
+
+
+          def check_for_secret(secret_name):
+              sm             = boto3.client('secretsmanager')
+              response        = sm.list_secrets(
+                  Filters=[
+                      {
+                          'Key': 'name',
+                          'Values': [
+                              secret_name
+                          ]
+                      }
+                  ]
+              )
+
+              found = False
+
+              for key in response['SecretList']:
+                  if key['Name'] == secret_name:
+                      found = True
+
+              return found
+
+
+          @helper.update
+          def no_op(_, __):
+              pass
+
+
+          @helper.delete
+          def delete(event, _):
+              client = boto3.client('secretsmanager')
+              name = event['ResourceProperties']['SecretName']
+              
+              secret_exists = check_for_secret(name)
+              
+              if secret_exists:
+                  print(f'Secret {name} was found. Deleting.')
+                  client = boto3.client('secretsmanager')
+                  response = client.delete_secret(
+                      SecretId=name,
+                      ForceDeleteWithoutRecovery=True
+                  )
+                  print(f'Secret {name} was deleted without recovery.')
+              else:
+                  print(f'Secret {name} was not found.')
+                  
+
+          def timeout_handler(_signal, _frame):
+              '''Handle SIGALRM'''
+              raise Exception('lambda function timeout exceeded')
+
+
+          signal.signal(signal.SIGALRM, timeout_handler)
+  EncryptionKeyGeneratorVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref 'EncryptionKeyGeneratorFunction'
+  EncryptionKeyGeneratorRetention:
+    DependsOn: SetCloudWatchRetentionVersion
+    Type: Custom::CloudWatchRetention
+    Properties:
+      ServiceToken: !GetAtt 'SetCloudWatchRetentionLambdaFunction.Arn'
+      logGroupName: !Sub '/aws/lambda/${EncryptionKeyGeneratorFunction}'
+      retentionInDays: 365
+  PostgresEncryptionKeySecret:
+    DependsOn: EncryptionKeyGeneratorVersion
+    Type: Custom::PostgresEncryptionKeySecret
+    Properties:
+      ServiceToken: !GetAtt 'EncryptionKeyGeneratorFunction.Arn'
+      SecretName: !Sub '${EnvLabel}-PostgresEncryptionKeySecret'
+  JwtEncryptionKeySecret:
+    DependsOn: EncryptionKeyGeneratorVersion
+    Type: Custom::JwtEncryptionKeySecret
+    Properties:
+      ServiceToken: !GetAtt 'EncryptionKeyGeneratorFunction.Arn'
+      SecretName: !Sub '${EnvLabel}-JwtEncryptionKeySecret'
+
+  ApplicationEventsToSlackRole: 
+    Condition: EnableSlackAlerting
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvLabel}-Application-Events-To-Slack-Role'
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+  ApplicationEventsToSlackFunction: 
+    Condition: EnableSlackAlerting
+    Type: AWS::Lambda::Function
+    # checkov:skip=CKV_AWS_173:Check encryption settings for Lambda environment variable
+    # checkov:skip=CKV_AWS_116:Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)
+    Properties:
+      Runtime: python3.13
+      Role: !GetAtt 'ApplicationEventsToSlackRole.Arn'
+      ReservedConcurrentExecutions: 10
+      Handler: index.lambda_handler
+      Description: Lambda function that will push Application Events to Slack.
+      FunctionName: !Sub '${EnvLabel}-ApplicationEventsToSlack'
+      Timeout: 120
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref 'LambdaDefaultSG'
+        SubnetIds: 
+          - !Ref PrivateSubnet1Id
+          - !Ref PrivateSubnet2Id
+      Environment:
+        Variables:
+          SlackWebhookURL: !Ref SlackWebhookURL
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import urllib3
+
+          http = urllib3.PoolManager()
+          url = os.environ['SlackWebhookURL']
+
+          def lambda_handler(event, context):
+              print(type(event))
+              print("Received event: " + json.dumps(event, indent=2))
+
+              filtered_event = event
+
+              for key in ["version", "id", "account", "time", "region", "resources"]:
+                  if key in filtered_event:
+                      del filtered_event[key]
+
+              detail = filtered_event.get("detail", {})
+              status = str(detail.get("status", "")).lower()
+              completed_with_errors = detail.get("completedWithErrors", False)
+
+              if status == "error":
+                  color = "danger" 
+              elif completed_with_errors == True:
+                  color = "warning"
+              elif status == "success":
+                  color = "good"     
+              else:
+                  color = "default" 
+
+              slack_message = {
+                  "attachments": [
+                      {
+                          "color": color,
+                          "text": f"```{json.dumps(filtered_event, indent=2)}```"
+                      }
+                  ]
+              }
+              
+              try:
+                  resp = http.request(
+                      "POST", 
+                      url, 
+                      body=json.dumps(slack_message).encode('utf-8')
+                  )
+                  print(
+                  {
+                      "message": slack_message,
+                      "status_code": resp.status,
+                      "response": resp.data.decode('utf-8'),
+                  }
+              )
+              except Exception as e:
+                  print(f"Failed to post message to Slack: {e}")
+                  raise e
+
+  ApplicationEventsToSlackVersion: 
+    Condition: EnableSlackAlerting
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref ApplicationEventsToSlackFunction
+  ApplicationEventsToSlackRetention: 
+    Condition: EnableSlackAlerting
+    DependsOn: SetCloudWatchRetentionVersion
+    Type: Custom::CloudWatchRetention
+    Properties:
+      ServiceToken: !GetAtt 'SetCloudWatchRetentionLambdaFunction.Arn'
+      logGroupName: !Sub '/aws/lambda/${ApplicationEventsToSlackFunction}'
+      retentionInDays: 365
+
+Outputs:
+  East1AlarmLambdaArn:
+    Condition: EnableHealthCheck
+    Description: ARN for the East1 Alarm Function
+    Value: !GetAtt 'East1AlarmFunction.Arn'
+  CRHelperLambdaLayer:
+    Description: ARN for the CRHelperLambdaLayer
+    Value: !Ref CRHelperLambdaLayer
+  GetBsResourcesLambdaArn:
+    Description: ARN for the Get Beanstalk Resources Lambda Function
+    Value: !GetAtt 'GetBsResourcesLambdaFunction.Arn'
+    Export:
+      Name: !Sub '${AWS::StackName}-GetBsResourcesLambdaArn'
+  LambdaDefaultSG:
+    Description: The default security group for lambdas
+    Value: !Ref LambdaDefaultSG
+  ApplicationEventsToSlackFunctionArn: 
+    Condition: EnableSlackAlerting
+    Description: ARN of the ApplicationEventsToSlackFunction
+    Value: !GetAtt 'ApplicationEventsToSlackFunction.Arn'

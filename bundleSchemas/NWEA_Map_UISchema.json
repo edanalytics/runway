@@ -1,0 +1,12 @@
+{
+  "INPUT_FILE": {
+    "ui:options": {
+      "accept": ".csv"
+    }
+  },
+  "STUDENT_ID_XWALK": {
+    "ui:options": {
+      "accept": ".csv"
+    }
+  }
+}
