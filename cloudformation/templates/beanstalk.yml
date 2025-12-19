@@ -503,6 +503,9 @@ Resources:
         - Namespace: aws:autoscaling:launchconfiguration
           OptionName: SecurityGroups
           Value: !Ref BeanstalkEC2ServerSecurityGroup
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: RootVolumeSize
+          Value: 12
         - Namespace: aws:autoscaling:trigger
           OptionName: Unit
           Value: Percent
