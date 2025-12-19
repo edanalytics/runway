@@ -1,0 +1,441 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator json {
+  provider = "prisma-json-types-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://app:dev@localhost:5432/runway_local?schema=public&sslmode=disable"
+}
+
+model Schemaversion {
+  version BigInt    @id
+  name    String?
+  md5     String?
+  runAt   DateTime? @map("run_at") @db.Timestamptz(6)
+
+  @@map("schemaversion")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model Partner {
+  id                            String                    @id @db.VarChar
+  name                          String                    @db.VarChar
+  createdById                   Int?                      @map("created_by_id")
+  createdOn                     DateTime                  @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                  Int?                      @map("modified_by_id")
+  modifiedOn                    DateTime                  @default(now()) @map("modified_on") @db.Timestamp(6)
+  descriptorNamespace           String?                   @map("descriptor_namespace") @db.VarChar
+  idpId                         String?                   @map("idp_id") @db.VarChar
+  customDescriptorMapping       CustomDescriptorMapping[]
+  userPartnerCreatedByIdTouser  User?                     @relation("partner_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  identityProvider              IdentityProvider?         @relation(fields: [idpId], references: [id], onUpdate: NoAction)
+  userPartnerModifiedByIdTouser User?                     @relation("partner_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  partnerEarthmoverBundle       PartnerEarthmoverBundle[]
+  tenant                        Tenant[]
+
+  @@map("partner")
+}
+
+model Tenant {
+  code                         String       @db.VarChar
+  partnerId                    String       @map("partner_id") @db.VarChar
+  createdById                  Int?         @map("created_by_id")
+  createdOn                    DateTime     @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                 Int?         @map("modified_by_id")
+  modifiedOn                   DateTime     @default(now()) @map("modified_on") @db.Timestamp(6)
+  job                          Job[]
+  odsConfig                    OdsConfig[]
+  userTenantCreatedByIdTouser  User?        @relation("tenant_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userTenantModifiedByIdTouser User?        @relation("tenant_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  partner                      Partner      @relation(fields: [partnerId], references: [id], onUpdate: NoAction)
+  userTenant                   UserTenant[]
+
+  @@id([code, partnerId])
+  @@map("tenant")
+}
+
+model User {
+  id                                                               Int                       @id @default(autoincrement())
+  email                                                            String?                   @db.VarChar
+  givenName                                                        String                    @map("given_name") @db.VarChar
+  familyName                                                       String                    @map("family_name") @db.VarChar
+  idpId                                                            String                    @map("idp_id") @db.VarChar
+  externalUserId                                                   String                    @map("external_user_id") @db.VarChar
+  createdById                                                      Int?                      @map("created_by_id")
+  createdOn                                                        DateTime                  @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                                                     Int?                      @map("modified_by_id")
+  modifiedOn                                                       DateTime                  @default(now()) @map("modified_on") @db.Timestamp(6)
+  bundleDescriptorMappingBundleDescriptorMappingCreatedByIdTouser  BundleDescriptorMapping[] @relation("bundle_descriptor_mapping_created_by_idTouser")
+  bundleDescriptorMappingBundleDescriptorMappingModifiedByIdTouser BundleDescriptorMapping[] @relation("bundle_descriptor_mapping_modified_by_idTouser")
+  customDescriptorMappingCustomDescriptorMappingCreatedByIdTouser  CustomDescriptorMapping[] @relation("custom_descriptor_mapping_created_by_idTouser")
+  customDescriptorMappingCustomDescriptorMappingModifiedByIdTouser CustomDescriptorMapping[] @relation("custom_descriptor_mapping_modified_by_idTouser")
+  identityProviderIdentityProviderCreatedByIdTouser                IdentityProvider[]        @relation("identity_provider_created_by_idTouser")
+  identityProviderIdentityProviderModifiedByIdTouser               IdentityProvider[]        @relation("identity_provider_modified_by_idTouser")
+  jobJobCreatedByIdTouser                                          Job[]                     @relation("job_created_by_idTouser")
+  jobJobModifiedByIdTouser                                         Job[]                     @relation("job_modified_by_idTouser")
+  jobFileJobFileCreatedByIdTouser                                  JobFile[]                 @relation("job_file_created_by_idTouser")
+  jobFileJobFileModifiedByIdTouser                                 JobFile[]                 @relation("job_file_modified_by_idTouser")
+  jobNoteJobNoteCreatedByIdTouser                                  JobNote[]                 @relation("job_note_created_by_idTouser")
+  jobNoteJobNoteModifiedByIdTouser                                 JobNote[]                 @relation("job_note_modified_by_idTouser")
+  odsConfigOdsConfigCreatedByIdTouser                              OdsConfig[]               @relation("ods_config_created_by_idTouser")
+  odsConfigOdsConfigModifiedByIdTouser                             OdsConfig[]               @relation("ods_config_modified_by_idTouser")
+  odsConnectionOdsConnectionCreatedByIdTouser                      OdsConnection[]           @relation("ods_connection_created_by_idTouser")
+  odsConnectionOdsConnectionModifiedByIdTouser                     OdsConnection[]           @relation("ods_connection_modified_by_idTouser")
+  oidcConfigOidcConfigCreatedByIdTouser                            OidcConfig[]              @relation("oidc_config_created_by_idTouser")
+  oidcConfigOidcConfigModifiedByIdTouser                           OidcConfig[]              @relation("oidc_config_modified_by_idTouser")
+  partnerPartnerCreatedByIdTouser                                  Partner[]                 @relation("partner_created_by_idTouser")
+  partnerPartnerModifiedByIdTouser                                 Partner[]                 @relation("partner_modified_by_idTouser")
+  runRunCreatedByIdTouser                                          Run[]                     @relation("run_created_by_idTouser")
+  runRunModifiedByIdTouser                                         Run[]                     @relation("run_modified_by_idTouser")
+  tenantTenantCreatedByIdTouser                                    Tenant[]                  @relation("tenant_created_by_idTouser")
+  tenantTenantModifiedByIdTouser                                   Tenant[]                  @relation("tenant_modified_by_idTouser")
+  userUserCreatedByIdTouser                                        User?                     @relation("user_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  otherUserUserCreatedByIdTouser                                   User[]                    @relation("user_created_by_idTouser")
+  eaAppsOidcUserIdpIdToeaAppsOidc                                  IdentityProvider          @relation("user_idp_idToea_apps_oidc", fields: [idpId], references: [id], onUpdate: NoAction)
+  userUserModifiedByIdTouser                                       User?                     @relation("user_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  otherUserUserModifiedByIdTouser                                  User[]                    @relation("user_modified_by_idTouser")
+  userTenant                                                       UserTenant[]
+
+  @@unique([externalUserId, idpId], map: "unique_external_user_id")
+  @@map("user")
+}
+
+model UserTenant {
+  userId     Int    @map("user_id")
+  tenantCode String @map("tenant_code") @db.VarChar
+  partnerId  String @map("partner_id") @db.VarChar
+  tenant     Tenant @relation(fields: [tenantCode, partnerId], references: [code, partnerId], onDelete: Cascade, onUpdate: NoAction)
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([userId, tenantCode, partnerId])
+  @@map("user_tenant")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model OidcConfig {
+  id                               String             @id @db.VarChar
+  issuer                           String             @db.VarChar
+  clientId                         String             @map("client_id") @db.VarChar
+  clientSecret                     String             @map("client_secret") @db.VarChar
+  userIdClaim                      String             @map("user_id_claim") @db.VarChar
+  tenantCodeClaim                  String             @map("tenant_code_claim") @db.VarChar
+  createdById                      Int?               @map("created_by_id")
+  createdOn                        DateTime           @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                     Int?               @map("modified_by_id")
+  modifiedOn                       DateTime           @default(now()) @map("modified_on") @db.Timestamp(6)
+  usePkce                          Boolean?           @default(false) @map("use_pkce")
+  scopes                           String?            @default("openid profile email") @db.VarChar
+  requireRole                      Boolean?           @default(true) @map("require_role")
+  rolesClaim                       String?            @map("roles_claim") @db.VarChar
+  requiredRoles                    String[]           @map("required_roles") @db.VarChar
+  embeddedClaimsClaim              String?            @map("embedded_claims_claim") @db.VarChar
+  partnerClaim                     String?            @map("partner_claim") @db.VarChar
+  identityProvider                 IdentityProvider[]
+  userOidcConfigCreatedByIdTouser  User?              @relation("oidc_config_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userOidcConfigModifiedByIdTouser User?              @relation("oidc_config_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+
+  @@map("oidc_config")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model IdentityProvider {
+  id                                     String      @id @db.VarChar
+  feHome                                 String      @map("fe_home") @db.VarChar
+  oidcConfigId                           String?     @map("oidc_config_id") @db.VarChar
+  createdById                            Int?        @map("created_by_id")
+  createdOn                              DateTime    @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                           Int?        @map("modified_by_id")
+  modifiedOn                             DateTime    @default(now()) @map("modified_on") @db.Timestamp(6)
+  userIdentityProviderCreatedByIdTouser  User?       @relation("identity_provider_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userIdentityProviderModifiedByIdTouser User?       @relation("identity_provider_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  oidcConfig                             OidcConfig? @relation(fields: [oidcConfigId], references: [id], onUpdate: NoAction)
+  partners                               Partner[]
+  userUserIdpIdToeaAppsOidc              User[]      @relation("user_idp_idToea_apps_oidc")
+
+  @@map("identity_provider")
+}
+
+model SchoolYear {
+  id            String          @id @db.VarChar
+  startYear     Int             @map("start_year")
+  endYear       Int             @map("end_year")
+  job           Job[]
+  odsConnection OdsConnection[]
+
+  @@map("school_year")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model OdsConfig {
+  id                                               Int             @id @default(autoincrement())
+  tenantCode                                       String          @map("tenant_code") @db.VarChar
+  activeConnectionId                               Int?            @map("active_connection_id")
+  retired                                          Boolean         @default(false)
+  retiredOn                                        DateTime?       @map("retired_on") @db.Timestamp(6)
+  createdById                                      Int?            @map("created_by_id")
+  createdOn                                        DateTime        @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                                     Int?            @map("modified_by_id")
+  modifiedOn                                       DateTime        @default(now()) @map("modified_on") @db.Timestamp(6)
+  partnerId                                        String          @map("partner_id") @db.VarChar
+  job                                              Job[]
+  activeConnection                                 OdsConnection?  @relation("ods_config_connection", fields: [activeConnectionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  userOdsConfigCreatedByIdTouser                   User?           @relation("ods_config_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userOdsConfigModifiedByIdTouser                  User?           @relation("ods_config_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  tenant                                           Tenant          @relation(fields: [tenantCode, partnerId], references: [code, partnerId], onDelete: Cascade, onUpdate: NoAction)
+  odsConnectionOdsConnectionOdsConfigIdToodsConfig OdsConnection[] @relation("ods_connection_ods_config_idToods_config")
+
+  @@map("ods_config")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model OdsConnection {
+  id                                           Int             @id @default(autoincrement())
+  odsConfigId                                  Int             @map("ods_config_id")
+  schoolYearId                                 String          @map("school_year_id") @db.VarChar
+  host                                         String          @db.VarChar
+  clientId                                     String          @map("client_id") @db.VarChar
+  clientSecret                                 String          @map("client_secret") @db.VarChar
+  lastUseResult                                OdsAuthResponse @default(success) @map("last_use_result")
+  lastUseOn                                    DateTime?       @map("last_use_on") @db.Timestamp(6)
+  retired                                      Boolean         @default(false)
+  retiredOn                                    DateTime?       @map("retired_on") @db.Timestamp(6)
+  createdById                                  Int?            @map("created_by_id")
+  createdOn                                    DateTime        @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                                 Int?            @map("modified_by_id")
+  modifiedOn                                   DateTime        @default(now()) @map("modified_on") @db.Timestamp(6)
+  odsConfig                                    OdsConfig[]     @relation("ods_config_connection")
+  userOdsConnectionCreatedByIdTouser           User?           @relation("ods_connection_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userOdsConnectionModifiedByIdTouser          User?           @relation("ods_connection_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  odsConfigOdsConnectionOdsConfigIdToodsConfig OdsConfig       @relation("ods_connection_ods_config_idToods_config", fields: [odsConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  schoolYear                                   SchoolYear      @relation(fields: [schoolYearId], references: [id], onUpdate: NoAction)
+
+  @@map("ods_connection")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model Job {
+  id               Int                  @id @default(autoincrement())
+  name             String               @db.VarChar
+  odsId            Int                  @map("ods_id")
+  schoolYearId     String               @map("school_year_id") @db.VarChar
+  template         Json
+  configStatus     JobConfigStatus      @default(initialized) @map("config_status")
+  tenantCode       String               @map("tenant_code") @db.VarChar
+  inputParams      Json?                @map("input_params")
+  previousJobId    Int?                 @map("previous_job_id")
+  createdById      Int?                 @map("created_by_id")
+  createdOn        DateTime             @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById     Int?                 @map("modified_by_id")
+  modifiedOn       DateTime             @default(now()) @map("modified_on") @db.Timestamp(6)
+  fileProtocol     FileStorageProtocol? @map("file_protocol")
+  fileBucketOrHost String?              @map("file_bucket_or_host") @db.VarChar
+  fileBasePath     String?              @map("file_base_path") @db.VarChar
+  partnerId        String               @map("partner_id") @db.VarChar
+  isResolved       Boolean              @default(false) @map("is_resolved")
+  createdBy        User?                @relation("job_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  modifiedBy       User?                @relation("job_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  odsConfig        OdsConfig            @relation(fields: [odsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  job              Job?                 @relation("jobTojob", fields: [previousJobId], references: [id], onUpdate: NoAction)
+  otherJob         Job[]                @relation("jobTojob")
+  schoolYear       SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant           Tenant               @relation(fields: [tenantCode, partnerId], references: [code, partnerId], onDelete: Cascade, onUpdate: NoAction)
+  files            JobFile[]            @relation("fileToJob")
+  notes            JobNote[]            @relation("noteToJob")
+  runs             Run[]                @relation("jobRun")
+
+  @@map("job")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model Run {
+  id                        Int             @id @default(autoincrement())
+  jobId                     Int             @map("job_id")
+  status                    RunStatus       @default(new)
+  createdById               Int?            @map("created_by_id")
+  createdOn                 DateTime        @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById              Int?            @map("modified_by_id")
+  modifiedOn                DateTime        @default(now()) @map("modified_on") @db.Timestamp(6)
+  summary                   Json?           @db.Json
+  unmatchedStudentsInfo     Json?           @map("unmatched_students_info")
+  userRunCreatedByIdTouser  User?           @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  job                       Job             @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  userRunModifiedByIdTouser User?           @relation("run_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  runError                  RunError[]
+  runOutputFile             RunOutputFile[]
+  runUpdate                 RunUpdate[]
+
+  @@map("run")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model JobFile {
+  jobId                         Int        @map("job_id")
+  templateKey                   String     @map("template_key") @db.VarChar
+  nameFromUser                  String     @map("name_from_user") @db.VarChar
+  path                          String     @db.VarChar
+  type                          String     @db.VarChar
+  status                        FileStatus @default(url_generated)
+  createdById                   Int?       @map("created_by_id")
+  createdOn                     DateTime   @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                  Int?       @map("modified_by_id")
+  modifiedOn                    DateTime   @default(now()) @map("modified_on") @db.Timestamp(6)
+  nameInternal                  String     @map("name_internal") @db.VarChar
+  userJobFileCreatedByIdTouser  User?      @relation("job_file_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  job                           Job        @relation("fileToJob", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  userJobFileModifiedByIdTouser User?      @relation("job_file_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+
+  @@id([jobId, templateKey])
+  @@map("job_file")
+}
+
+model RunError {
+  id         Int      @id @default(autoincrement())
+  runId      Int      @map("run_id")
+  code       String   @db.VarChar
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamp(6)
+  payload    Json?    @db.Json
+  run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("run_error")
+}
+
+model RunOutputFile {
+  runId Int    @map("run_id")
+  name  String @db.VarChar
+  path  String @db.VarChar
+  run   Run    @relation(fields: [runId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([runId, name])
+  @@map("run_output_file")
+}
+
+model RunUpdate {
+  runId      Int      @map("run_id")
+  action     String   @db.VarChar
+  status     String   @db.VarChar
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamp(6)
+  run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([runId, action, status])
+  @@map("run_update")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model EarthmoverBundle {
+  key                     String                    @id @db.VarChar
+  bundleDescriptorMapping BundleDescriptorMapping[]
+  customDescriptorMapping CustomDescriptorMapping[]
+  partnerEarthmoverBundle PartnerEarthmoverBundle[]
+
+  @@map("earthmover_bundle")
+}
+
+model PartnerEarthmoverBundle {
+  partnerId           String           @map("partner_id") @db.VarChar
+  earthmoverBundleKey String           @map("earthmover_bundle_key") @db.VarChar
+  earthmoverBundle    EarthmoverBundle @relation(fields: [earthmoverBundleKey], references: [key], onDelete: Cascade, onUpdate: NoAction)
+  partner             Partner          @relation(fields: [partnerId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([partnerId, earthmoverBundleKey])
+  @@map("partner_earthmover_bundle")
+}
+
+model BundleDescriptorMapping {
+  bundleKey                                     String                    @map("bundle_key") @db.VarChar
+  descriptorType                                String                    @map("descriptor_type") @db.VarChar
+  /// [DescriptorMappingLHSColumns]
+  leftHandSideColumns                           Json                      @map("left_hand_side_columns")
+  edfiDefaultDescriptor                         String                    @map("edfi_default_descriptor") @db.VarChar
+  createdById                                   Int?                      @map("created_by_id")
+  createdOn                                     DateTime                  @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                                  Int?                      @map("modified_by_id")
+  modifiedOn                                    DateTime                  @default(now()) @map("modified_on") @db.Timestamp(6)
+  earthmoverBundle                              EarthmoverBundle          @relation(fields: [bundleKey], references: [key], onDelete: Cascade, onUpdate: NoAction)
+  userBundleDescriptorMappingCreatedByIdTouser  User?                     @relation("bundle_descriptor_mapping_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userBundleDescriptorMappingModifiedByIdTouser User?                     @relation("bundle_descriptor_mapping_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  customDescriptorMapping                       CustomDescriptorMapping[]
+
+  @@id([bundleKey, descriptorType, leftHandSideColumns, edfiDefaultDescriptor])
+  @@map("bundle_descriptor_mapping")
+}
+
+model CustomDescriptorMapping {
+  bundleKey                                     String                  @map("bundle_key") @db.VarChar
+  descriptorType                                String                  @map("descriptor_type") @db.VarChar
+  /// [DescriptorMappingLHSColumns]
+  leftHandSideColumns                           Json                    @map("left_hand_side_columns")
+  partnerId                                     String                  @map("partner_id") @db.VarChar
+  customDescriptor                              String?                 @map("custom_descriptor") @db.VarChar
+  createdById                                   Int?                    @map("created_by_id")
+  createdOn                                     DateTime                @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                                  Int?                    @map("modified_by_id")
+  modifiedOn                                    DateTime                @default(now()) @map("modified_on") @db.Timestamp(6)
+  edfiDefaultDescriptor                         String                  @map("edfi_default_descriptor") @db.VarChar
+  earthmoverBundle                              EarthmoverBundle        @relation(fields: [bundleKey], references: [key], onDelete: Cascade, onUpdate: NoAction, map: "custom_descriptor_mapping_bundle_key_fkey1")
+  userCustomDescriptorMappingCreatedByIdTouser  User?                   @relation("custom_descriptor_mapping_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userCustomDescriptorMappingModifiedByIdTouser User?                   @relation("custom_descriptor_mapping_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  partner                                       Partner                 @relation(fields: [partnerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "custom_descriptor_mapping_partner_id_fkey1")
+  bundleDescriptorMapping                       BundleDescriptorMapping @relation(fields: [bundleKey, descriptorType, leftHandSideColumns, edfiDefaultDescriptor], references: [bundleKey, descriptorType, leftHandSideColumns, edfiDefaultDescriptor], onDelete: Cascade, onUpdate: NoAction, map: "custom_descriptor_mapping_to_bundle_descriptor_mapping_fkey")
+
+  @@id([partnerId, bundleKey, descriptorType, leftHandSideColumns, edfiDefaultDescriptor])
+  @@map("custom_descriptor_mapping")
+}
+
+model JobNote {
+  id                            Int      @id @default(autoincrement())
+  jobId                         Int      @map("job_id")
+  noteText                      String   @map("note_text")
+  createdById                   Int?     @map("created_by_id")
+  createdOn                     DateTime @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                  Int?     @map("modified_by_id")
+  modifiedOn                    DateTime @default(now()) @map("modified_on") @db.Timestamp(6)
+  createdBy                     User?    @relation("job_note_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  job                           Job      @relation("noteToJob", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  modifiedBy User?              @relation("job_note_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+
+  @@map("job_note")
+}
+
+enum OdsAuthResponse {
+  success
+  error
+
+  @@map("ods_auth_response")
+}
+
+enum RunStatus {
+  new
+  running
+  success
+  error
+
+  @@map("run_status")
+}
+
+enum FileStatus {
+  url_generated
+  upload_complete
+  upload_error
+
+  @@map("file_status")
+}
+
+enum JobConfigStatus {
+  initialized
+  file_upload_complate
+  input_complete
+  submitted
+
+  @@map("job_config_status")
+}
+
+enum FileStorageProtocol {
+  file
+  s3
+
+  @@map("file_storage_protocol")
+}

@@ -1,0 +1,21 @@
+services:
+  schemaspy:
+    image: schemaspy/schemaspy
+    container_name: schemaspy
+    environment:
+      - DB_HOST=$POSTGRES_HOST
+      - DB_PORT=$POSTGRES_PORT
+      - DB_NAME=$POSTGRES_DB
+      - DB_USER=$POSTGRES_USER
+      - DB_PASS=$POSTGRES_PASSWORD
+      - DB_TYPE=pgsql
+    volumes:
+      - ./output:/output
+    command: >
+      -t pgsql
+      -host host.docker.internal
+      -port $POSTGRES_PORT
+      -db $POSTGRES_DB
+      -u $POSTGRES_USER
+      -p $POSTGRES_PASSWORD
+      -s public

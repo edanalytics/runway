@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template will deploy the ECS Cluster and Task Definition.  
+Parameters:
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  JobExecutorEcrRepoUri:
+    Description: ARN of the Job Executor docker image repo in ECR
+    Type: String
+  CreateEcsServiceLinkedRole:
+    Type: String
+    Description: If an ECS Service Linked Role already exists in this account, select False.
+    AllowedValues:
+         - 'True'
+         - 'False'
+  DataBucketName: 
+    Type: String
+    Description: Name of the S3 bucket for data integration files.
+  DomainName:
+    Type: String
+    Description: Fully Qualified Domain Name for the environment.
+  S3AccessLoggingBucket: 
+    Description: Provide a name for the destination S3 bucket where your Data Integration S3 Bucket Access Logs will be saved. 
+    Type: String
+    
+Conditions:
+  DoCreateEcsServiceLinkedRole: !Equals
+    - !Ref CreateEcsServiceLinkedRole
+    - 'True'
+  EnableS3AccessLogging: !Not [!Equals [!Ref S3AccessLoggingBucket, '']]
+
+Resources: 
+  EcsTaskExecutionRole: 
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns: 
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: EcsTaskExecutionPolicy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+  EcsCluster: 
+    Type: AWS::ECS::Cluster
+    Properties: 
+      CapacityProviders: 
+        - FARGATE_SPOT
+        - FARGATE
+      ClusterName: !Sub 'Job-Executor-${EnvLabel}'
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enhanced
+      Tags: 
+        - Key: EnvLabel
+          Value: !Ref 'EnvLabel'
+  EcsTaskDefinitionSmall: 
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      Family: !Sub '${EnvLabel}-JobExecutorSmall'
+      ContainerDefinitions: 
+        - 
+          Cpu: 0
+          Environment: 
+            - Name: targetName
+              Value: defaultTarget
+            - Name: sourceName
+              Value: defaultSource
+          Ulimits:
+            - Name: 'nofile'
+              SoftLimit: 10240
+              HardLimit: 65535
+          Essential: true
+          Image: !Sub '${JobExecutorEcrRepoUri}:latest'
+          LogConfiguration: 
+            LogDriver: 'awslogs'
+            Options:
+              awslogs-create-group: true
+              awslogs-group: !Sub '/ecs/JobExecutorSmall-${EnvLabel}'
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: 'ecs'
+          Name: !Sub '${EnvLabel}-JobExecutorSmall'
+          WorkingDirectory: '/executor'
+      Cpu: '2048'
+      Memory: '4096'
+      NetworkMode: 'awsvpc'
+      RequiresCompatibilities: 
+        - FARGATE
+      Tags: 
+        - Key: 'Environment'
+          Value: !Ref 'EnvLabel'
+      ExecutionRoleArn: !GetAtt 'EcsTaskExecutionRole.Arn'
+  EcsTaskDefinitionMedium: 
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      Family: !Sub '${EnvLabel}-JobExecutorMedium'
+      ContainerDefinitions: 
+        - 
+          Cpu: 0
+          Environment: 
+            - Name: targetName
+              Value: defaultTarget
+            - Name: sourceName
+              Value: defaultSource
+          Ulimits:
+            - Name: 'nofile'
+              SoftLimit: 20480
+              HardLimit: 65535
+          Essential: true
+          Image: !Sub '${JobExecutorEcrRepoUri}:latest'
+          LogConfiguration: 
+            LogDriver: 'awslogs'
+            Options:
+              awslogs-create-group: true
+              awslogs-group: !Sub '/ecs/JobExecutorMedium-${EnvLabel}'
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: 'ecs'
+          Name: !Sub '${EnvLabel}-JobExecutorMedium'
+          WorkingDirectory: '/executor'
+      Cpu: '4096'
+      Memory: '8192'
+      NetworkMode: 'awsvpc'
+      RequiresCompatibilities: 
+        - FARGATE
+      Tags: 
+        - Key: 'Environment'
+          Value: !Ref 'EnvLabel'
+      ExecutionRoleArn: !GetAtt 'EcsTaskExecutionRole.Arn'
+  EcsTaskDefinitionLarge: 
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      Family: !Sub '${EnvLabel}-JobExecutorLarge'
+      ContainerDefinitions: 
+        - 
+          Cpu: 0
+          Environment: 
+            - Name: targetName
+              Value: defaultTarget
+            - Name: sourceName
+              Value: defaultSource
+          Ulimits:
+            - Name: 'nofile'
+              SoftLimit: 40960
+              HardLimit: 65535
+          Essential: true
+          Image: !Sub '${JobExecutorEcrRepoUri}:latest'
+          LogConfiguration: 
+            LogDriver: 'awslogs'
+            Options:
+              awslogs-create-group: true
+              awslogs-group: !Sub '/ecs/JobExecutorLarge-${EnvLabel}'
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: 'ecs'
+          Name: !Sub '${EnvLabel}-JobExecutorLarge'
+          WorkingDirectory: '/executor'
+      Cpu: '8192'
+      Memory: '16384'
+      NetworkMode: 'awsvpc'
+      RequiresCompatibilities: 
+        - FARGATE
+      Tags: 
+        - Key: 'Environment'
+          Value: !Ref 'EnvLabel'
+      ExecutionRoleArn: !GetAtt 'EcsTaskExecutionRole.Arn'
+  EcsServiceLinkedRole:
+    Condition: DoCreateEcsServiceLinkedRole
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Type: 'AWS::IAM::ServiceLinkedRole'
+    Properties:
+      AWSServiceName: ecs.amazonaws.com
+      Description: 'Role to enable Amazon ECS to manage your cluster.'
+  DataIntegrationBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    # checkov:skip=CKV_AWS_21: "Ensure the S3 bucket has versioning enabled"
+    # Every object in this bucket has a unique path & name, no versioning is needed
+    Properties:
+      BucketName: !Ref DataBucketName
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - POST
+              - PUT
+            AllowedOrigins:
+              - !Sub 'https://${DomainName}'
+              - !Sub 'http://${DomainName}'
+              - !Sub 'https://*.${DomainName}'
+              - !Sub 'http://*.${DomainName}'
+            MaxAge: 3600
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration: !If 
+        - EnableS3AccessLogging
+        - DestinationBucketName: !Ref S3AccessLoggingBucket
+          LogFilePrefix: !Sub 's3/${DataBucketName}/'
+          TargetObjectKeyFormat:
+            PartitionedPrefix:
+              PartitionDateSource: EventTime
+        - !Ref "AWS::NoValue"
+      Tags:
+        - Key: EnvLabel
+          Value: !Ref EnvLabel
+  EcsClusterParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/ecs/environments/${EnvLabel}/EcsClusterArn'
+      Type: String
+      Value: !GetAtt EcsCluster.Arn
+      Description: ARN of the ECS Cluster
+  EcsTaskDefinitionSmallParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/ecs/environments/${EnvLabel}/EcsTaskDefinitionSmallArn'
+      Type: String
+      Value: !GetAtt EcsTaskDefinitionSmall.TaskDefinitionArn
+      Description: ARN of the ECS Task Definition for Small
+  EcsTaskDefinitionMediumParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/ecs/environments/${EnvLabel}/EcsTaskDefinitionMediumArn'
+      Type: String
+      Value: !GetAtt EcsTaskDefinitionMedium.TaskDefinitionArn
+      Description: ARN of the ECS Task Definition for Medium
+  EcsTaskDefinitionLargeParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/ecs/environments/${EnvLabel}/EcsTaskDefinitionLargeArn'
+      Type: String
+      Value: !GetAtt EcsTaskDefinitionLarge.TaskDefinitionArn
+      Description: ARN of the ECS Task Definition for Large

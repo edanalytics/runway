@@ -1,0 +1,12 @@
+{
+  "extends": ["../.eslintrc.json"],
+  "ignorePatterns": ["!**/*", "schemaspy/**/*"],
+  "overrides": [
+    {
+      "files": "**/*.controller.ts",
+      "rules": {
+        "@typescript-eslint/no-unused-vars": "off" // NestJS requires declaration of all path segments as method params for proper OpenAPI
+      }
+    }
+  ]
+}

@@ -1,0 +1,404 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This template creates an RDS Postgres databaste instance'
+Parameters:
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  DeployAlerts: 
+    Description: Deploy SNS topic and database monitoring alerts?
+    Type: String
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+  VpcId:
+    Description: An existing VPC ID for this deployment.
+    Type: String
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in one of the Availability Zones above
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in the other Availability Zone above
+  ParentSSHBastionStack:
+    Description: 'Optional - Stack name of parent SSH server stack.'
+    Type: String
+  DBName:
+    Description: 'Optional - Name of blank database to create when deploying the db instance.  Ignored if DBSnapshotIdentifier is set.'
+    Type: String
+  DBSnapshotIdentifier:
+    Description: 'Optional - Name or Amazon Resource Name (ARN) of the DB snapshot from which you want to restore (leave blank to create an empty database).'
+    Type: String
+  DBAllocatedStorage:
+    Description: 'The allocated storage size, specified in GB (ignored when DBSnapshotIdentifier is set, value used from snapshot).'
+    Type: Number
+    MinValue: 5 
+    MaxValue: 16384 
+  DBInstanceClass:
+    Description: 'The instance type of database server.'
+    Type: String
+  DBBackupRetentionPeriod:
+    Description: 'The number of days to keep snapshots of the database.'
+    Type: Number
+    MinValue: 0
+    MaxValue: 35
+  DBMultiAZ:
+    Description: 'Specifies if the database instance is deployed to multiple Availability Zones for HA.'
+    Type: String
+    AllowedValues: [true, false]
+  PreferredBackupWindow:
+    Description: 'The daily time range in UTC during which you want to create automated backups.'
+    Type: String
+  PreferredMaintenanceWindow:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+  EngineVersion:
+    Description: 'PostgreSQL version.'
+    Type: String
+    AllowedValues: ['13.18', '14.15', '15.12', '16.6'] # aws rds describe-db-engine-versions --engine postgres --query "DBEngineVersions[].EngineVersion"
+  EnableIAMDatabaseAuthentication:
+    Description: 'Enable mapping of AWS Identity and Access Management (IAM) accounts to database accounts (https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/UsingWithRDS.IAMDBAuth.html).'
+    Type: String
+    AllowedValues: ['true', 'false']
+Conditions:
+  HasSSHBastionSecurityGroup: !Not [!Equals [!Ref ParentSSHBastionStack, '']]
+  HasAlertTopic: !Equals [!Ref DeployAlerts, 'Yes']
+  HasDBSnapshotIdentifier: !Not [!Equals [!Ref DBSnapshotIdentifier, '']]
+  NotDBSnapshotIdentifier: !Not [!Condition HasDBSnapshotIdentifier]
+Mappings: 
+  DBFamilyMap: 
+    '13.18':
+      'family': 'postgres13'
+    '14.15':
+      'family': 'postgres14'
+    '15.12':
+      'family': 'postgres15'
+    '16.6':
+      'family': 'postgres16'
+Resources:
+  KmsKey:
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Type: AWS::KMS::Key
+    # checkov:skip=CKV_AWS_33: Ensure KMS key policy does not contain wildcard (*) principal
+    # Wildcard principal is scoped by Conditions
+    Properties:
+      Description: !Sub 'KMS key for the ${EnvLabel} Environment RDS'
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: !Sub '${EnvLabel}-rds-kms-key'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action:
+            - 'kms:Encrypt'
+            - 'kms:Decrypt'
+            - 'kms:ReEncrypt*'
+            - 'kms:GenerateDataKey*'
+            - 'kms:CreateGrant'
+            - 'kms:ListGrants'
+            - 'kms:DescribeKey'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'kms:CallerAccount': !Ref 'AWS::AccountId'
+                'kms:ViaService': !Sub 'rds.${AWS::Region}.amazonaws.com'
+  RdsKMSCMKAlias:
+    Type: 'AWS::KMS::Alias'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Condition: NotDBSnapshotIdentifier
+    Properties:
+      AliasName: !Sub 
+        - 'alias/${DBInstance}/${StackGuid}'
+        - StackGuid: !Select [ 2, !Split [ '/', !Ref 'AWS::StackId'] ]
+      TargetKeyId: !Ref KmsKey
+  PostgresMasterSecret:
+    Condition: NotDBSnapshotIdentifier
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    # checkov:skip=CKV_AWS_149: Ensure that Secrets Manager secret is encrypted using KMS CMK
+    Properties:
+      Name: !Sub '${EnvLabel}-PostgresMasterSecret'
+      Description: !Sub 'PostgreSQL Master User Secret for Environment ${EnvLabel}'
+      Tags:
+        - Key: EnvLabel
+          Value: !Ref EnvLabel
+        - Key: DatabaseEngine
+          Value: 'RDS PostgreSQL'
+        - Key: StackID
+          Value: !Ref 'AWS::StackId'
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "postgres"}'
+        GenerateStringKey: "password"
+        ExcludePunctuation: true
+        PasswordLength: 32
+  PostgresSecretResourcePolicy:
+    Condition: NotDBSnapshotIdentifier
+    Type: AWS::SecretsManager::ResourcePolicy
+    Properties:
+      SecretId: !Ref PostgresMasterSecret
+      ResourcePolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Deny"
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: "secretsmanager:DeleteSecret"
+            Resource: "*"
+  SecretTargetAttachment:
+    Condition: NotDBSnapshotIdentifier
+    Type: 'AWS::SecretsManager::SecretTargetAttachment'
+    Properties:
+      TargetId: !Ref DBInstance
+      SecretId: !Ref PostgresMasterSecret
+      TargetType: 'AWS::RDS::DBInstance'
+  DatabaseSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Ref 'AWS::StackName'
+      VpcId: !Ref VpcId
+  DatabaseSecurityGroupInSSHBastion:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Condition: HasSSHBastionSecurityGroup
+    Properties:
+      Description: 'Allow access from the SSH server'
+      GroupId: !Ref DatabaseSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: {'Fn::ImportValue': !Sub '${ParentSSHBastionStack}-SecurityGroup'}
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: !Ref 'AWS::StackName'
+      SubnetIds:
+        - !Ref 'PrivateSubnet1Id'
+        - !Ref 'PrivateSubnet2Id'   
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties: 
+      Description: !Sub '${EnvLabel}-ParameterGroup'
+      Family: !FindInMap [DBFamilyMap, !Ref EngineVersion, "family"] 
+      Parameters:
+        rds.force_ssl: 1
+  DBInstance:
+    DeletionPolicy: Snapshot # default
+    UpdateReplacePolicy: Snapshot
+    Type: 'AWS::RDS::DBInstance'
+    # checkov:skip=CKV_AWS_157: "Ensure that RDS instances have Multi-AZ enabled"
+    # DBMultiAZ Parameter is used to choose whether to enable it for a deployment
+    # checkov:skip=CKV_AWS_16: "Ensure all data stored in the RDS is securely encrypted at rest"
+    # StorageEncrypted is set to true of there is no DB Snapshot
+    # checkov:skip=CKV_AWS_161: "Ensure RDS database has IAM authentication enabled"
+    Properties:
+      AllocatedStorage: !If [HasDBSnapshotIdentifier, !Ref 'AWS::NoValue', !Ref DBAllocatedStorage]
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      CopyTagsToSnapshot: true
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Sub '${EnvLabel}-psql'
+      DBParameterGroupName: !Ref DBParameterGroup
+      DBSnapshotIdentifier: !If [HasDBSnapshotIdentifier, !Ref DBSnapshotIdentifier, !Ref 'AWS::NoValue']
+      DBName: !If [NotDBSnapshotIdentifier, !Ref DBName, !Ref 'AWS::NoValue']
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      EnableIAMDatabaseAuthentication: !Ref EnableIAMDatabaseAuthentication
+      Engine: postgres
+      EngineVersion: !If [HasDBSnapshotIdentifier, !Ref 'AWS::NoValue', !Ref EngineVersion]
+      KmsKeyId: !If [NotDBSnapshotIdentifier, !Ref KmsKey, !Ref 'AWS::NoValue']
+      MasterUsername: !If [HasDBSnapshotIdentifier, !Ref 'AWS::NoValue', 'postgres']
+      MasterUserPassword: !If
+      - HasDBSnapshotIdentifier
+      - !Ref 'AWS::NoValue'
+      - !Sub '{{resolve:secretsmanager:${PostgresMasterSecret}:SecretString:password}}'
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt MonitoringRole.Arn
+      MultiAZ: !Ref DBMultiAZ
+      PreferredBackupWindow: !Ref PreferredBackupWindow
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      StorageType: gp2
+      StorageEncrypted: !If [HasDBSnapshotIdentifier, !Ref 'AWS::NoValue', true]
+      VPCSecurityGroups:
+      - !Ref DatabaseSecurityGroup
+  MonitoringRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "monitoring.rds.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+  DatabaseSNSTopic:
+    Condition: HasAlertTopic
+    Type: AWS::SNS::Topic
+    # checkov:skip=CKV_AWS_26: "Ensure all data stored in the SNS topic is encrypted"
+    Properties:
+      TopicName: !Sub '${EnvLabel}-Postgres'
+  DatabaseBurstBalanceTooLowAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmActions: [!Ref DatabaseSNSTopic]
+      AlarmDescription: 'Average database storage burst balance over last 10 minutes too low, expect a significant performance drop soon.'
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 1
+      MetricName: BurstBalance
+      Namespace: 'AWS/RDS'
+      OKActions: [!Ref DatabaseSNSTopic]
+      Period: 600
+      Statistic: Average
+      Threshold: 20
+  DatabaseCPUUtilizationTooHighAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmActions: [!Ref DatabaseSNSTopic]
+      AlarmDescription: 'Average database CPU utilization over last 10 minutes too high.'
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 1
+      MetricName: CPUUtilization
+      Namespace: 'AWS/RDS'
+      OKActions: [!Ref DatabaseSNSTopic]
+      Period: 600
+      Statistic: Average
+      Threshold: 80
+  DatabaseCPUCreditBalanceTooLowAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmActions: [!Ref DatabaseSNSTopic]
+      AlarmDescription: 'Average database CPU credit balance over last 10 minutes too low, expect a significant performance drop soon.'
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 1
+      MetricName: CPUCreditBalance
+      Namespace: 'AWS/RDS'
+      OKActions: [!Ref DatabaseSNSTopic]
+      Period: 600
+      Statistic: Average
+      Threshold: 20
+  DatabaseDiskQueueDepthTooHighAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmActions: [!Ref DatabaseSNSTopic]
+      AlarmDescription: 'Average database disk queue depth over last 10 minutes too high, performance may suffer.'
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 1
+      MetricName: DiskQueueDepth
+      Namespace: 'AWS/RDS'
+      OKActions: [!Ref DatabaseSNSTopic]
+      Period: 600
+      Statistic: Average
+      Threshold: 64
+  DatabaseFreeableMemoryTooLowAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmActions: [!Ref DatabaseSNSTopic]
+      AlarmDescription: 'Average database freeable memory over last 10 minutes too low, performance may suffer.'
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 1
+      MetricName: FreeableMemory
+      Namespace: 'AWS/RDS'
+      OKActions: [!Ref DatabaseSNSTopic]
+      Period: 600
+      Statistic: Average
+      Threshold: 64000000 # 64 Megabyte in Byte
+  DatabaseFreeStorageSpaceTooLowAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmActions: [!Ref DatabaseSNSTopic]
+      AlarmDescription: 'Average database free storage space over last 10 minutes too low.'
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 1
+      MetricName: FreeStorageSpace
+      Namespace: 'AWS/RDS'
+      OKActions: [!Ref DatabaseSNSTopic]
+      Period: 600
+      Statistic: Average
+      Threshold: 2000000000 # 2 Gigabyte in Byte
+  DatabaseSwapUsageTooHighAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmActions: [!Ref DatabaseSNSTopic]
+      AlarmDescription: 'Average database swap usage over last 10 minutes too high, performance may suffer.'
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 1
+      MetricName: SwapUsage
+      Namespace: 'AWS/RDS'
+      OKActions: [!Ref DatabaseSNSTopic]
+      Period: 600
+      Statistic: Average
+      Threshold: 256000000 # 256 Megabyte in Byte
+  DatabaseEventSubscription:
+    Condition: HasAlertTopic
+    Type: 'AWS::RDS::EventSubscription'
+    Properties:
+      EventCategories:
+      - failover
+      - failure
+      - 'low storage'
+      - maintenance
+      - 'read replica'
+      - recovery
+      SnsTopicArn: !Ref DatabaseSNSTopic
+      SourceIds: [!Ref DBInstance]
+      SourceType: 'db-instance'
+Outputs:
+  StackName:
+    Description: 'Stack name.'
+    Value: !Sub '${AWS::StackName}'
+  InstanceName:
+    Description: 'The name of the database instance.'
+    Value: !Ref DBInstance
+    Export:
+      Name: !Sub '${AWS::StackName}-InstanceName'
+  DNSName:
+    Description: 'The connection endpoint for the database.'
+    Value: !GetAtt 'DBInstance.Endpoint.Address'
+    Export:
+      Name: !Sub '${AWS::StackName}-DNSName'
+  SecurityGroupId:
+    Description: 'The security group used to manage access to RDS Postgres.'
+    Value: !Ref DatabaseSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'

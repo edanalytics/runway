@@ -1,0 +1,573 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template deploys the build process for the App.
+Parameters:
+  GitHubConnectionArn:
+    Description: Can be found or created in CodePipeline console, settings, connections.
+    Type: String
+  EnvLabel:
+    Description: Provide a unique label for your environment to identify resources.  You cannot use a name that is already in use.
+    Type: String
+  GitHubRepo:
+    Type: String
+    Description: GitHub repo name to build from
+  GitHubBranch:
+    Type: String
+    Description: Name of the branch in the GitHub repo to build from.
+  BsAppName:
+    Type: String
+    Description: Name of the Beanstalk application to deploy to.
+  BsEnvName:
+    Type: String
+    Description: Name of the Beanstalk environment to deploy to.
+  CreateS3Bucket:
+    Type: String
+    Description: Create the S3 bucket named 'codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
+    AllowedValues:
+      - 'Create the S3 Bucket'
+      - 'The S3 Bucket already exists'
+  ViteApiUrl: 
+    Type: String
+    Description: Value for the VITE_API_URL build variable
+  DistributionId:
+    Type: String
+    Description: Value for the DISTRIBUTION_ID build variable
+  FeBucketName: 
+    Type: String
+    Description: Name of the S3 bucket to deploy to.
+  ViteAlternateMatomoUrl:
+    Type: String
+    Description: Value for the VITE_ALTERNATE_MATOMO_URL build variable
+  ViteAlternateMatomoSiteId:
+    Type: String
+    Description: Value for the VITE_ALTERNATE_MATOMO_SITE_ID build variable
+  ViteAlternateMatomoSubdomain: 
+    Type: String
+    Description: Value for the VITE_ALTERNATE_MATOMO_SUBDOMAIN build variable.
+  LambdaDefaultSG:
+    Type: String
+    Description: Default security group for Lambda functions
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in one of the Availability Zones above
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in the other Availability Zone above
+
+Conditions:
+  DoCreateS3Bucket: !Equals [!Ref CreateS3Bucket, 'Create the S3 Bucket']
+
+Resources:
+  ArtifactStoreBucket:
+    Type: AWS::S3::Bucket
+    Condition: DoCreateS3Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    # checkov:skip=CKV_AWS_21: "Ensure the S3 bucket has versioning enabled"
+    # Every object in this bucket has a unique path & name, no versioning is needed
+    # checkov:skip=CKV_AWS_18: Ensure the S3 bucket has access logging enabled
+    # S3 bucket does not need access logging enabled as it is not publicly accessible and does not contain PII.
+    Properties:
+      BucketName: !Sub 'codepipeline-artifact-store-${AWS::Region}-${AWS::AccountId}'
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: EnvLabel
+          Value: !Ref EnvLabel
+
+  AppEcrRepository:
+    Type: AWS::ECR::Repository
+    # checkov:skip=CKV_AWS_51: "Ensure ECR Image Tags are immutable"
+    # The app uses the 'latest' image tag from ECR 
+    # checkov:skip=CKV_AWS_136: "Ensure that ECR repositories are encrypted using KMS"
+    # ECR repos are already encrypted with AES-256
+    Properties:
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryName: !Sub '${EnvLabel}-app-repo'
+      EmptyOnDelete: true
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    # checkov:skip=CKV_AWS_108: "Ensure IAM policies does not allow data exfiltration"
+    # checkov:skip=CKV_AWS_109: "Ensure IAM policies does not allow permissions management without constraints"
+    # checkov:skip=CKV_AWS_107: "Ensure IAM policies does not allow credentials exposure"
+    # checkov:skip=CKV_AWS_111: "Ensure IAM policies does not allow write access without constraints"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: AllowActions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'iam:PassRole'
+                Resource:
+                  - '*'
+                Condition:
+                  StringEqualsIfExists:
+                    'iam:PassedToService':
+                      - cloudformation.amazonaws.com
+                      - elasticbeanstalk.amazonaws.com
+                      - ec2.amazonaws.com
+                      - ecs-tasks.amazonaws.com
+              - Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:codestar-connections:${AWS::Region}:${AWS::AccountId}:connection/*'
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:ListFunctions
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                  - ssm:PutParameter
+                  - ssm:AddTagsToResource
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:*'
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuildBatches
+                  - codebuild:StartBuildBatch
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/*'
+              - Effect: Allow
+                Action: 
+                  - ecr:DescribeImages
+                Resource: 
+                  - !GetAtt AppEcrRepository.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:PutRetentionPolicy
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+              - Effect: Allow
+                Action:
+                  - elasticbeanstalk:*
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - autoscaling:*
+                  - cloudwatch:*
+                  - s3:*
+                  - sns:*
+                  - cloudformation:*
+                  - rds:*
+                  - sqs:*
+                  - ecs:*
+                Resource: '*'
+
+  CodeBuildBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:     
+      PolicyName: !Sub ${EnvLabel}-CodeBuildBasePolicy
+      Roles:
+        - !Ref CodeBuildRoleBE
+        - !Ref CodeBuildRoleFE
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:GetBucketAcl
+              - s3:GetBucketLocation
+            Resource: 
+              - !Sub 'arn:${AWS::Partition}:s3:::codepipeline-artifact-store-${AWS::Region}-${AWS::AccountId}*'
+          - Effect: Allow
+            Action:
+              - codebuild:CreateReportGroup
+              - codebuild:CreateReport
+              - codebuild:UpdateReport
+              - codebuild:BatchPutTestCases
+              - codebuild:BatchPutCodeCoverages
+            Resource: !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/*'
+
+  CodeBuildRoleBE:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: EcrPushImages
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:StartImageScan
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:GetAuthorizationToken
+                  - ecr:DescribeRepositories
+                  - ecr:UploadLayerPart
+                  - ecr:ListImages
+                  - ecr:InitiateLayerUpload
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                Resource:
+                  - !GetAtt AppEcrRepository.Arn
+              - Effect: Allow
+                Action: 
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+  
+  CodeBuildRoleFE:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      PipelineType: V2
+      ArtifactStore:
+        Location: !Sub 'codepipeline-artifact-store-${AWS::Region}-${AWS::AccountId}'
+        Type: S3
+      Name: !Sub '${EnvLabel}-pipeline'
+      RestartExecutionOnUpdate: True
+      RoleArn: !GetAtt 'PipelineRole.Arn'
+      Triggers:
+        - GitConfiguration:
+            SourceActionName: Source
+            Push:
+              - Branches:
+                  Includes:
+                    - !Ref GitHubBranch
+                FilePaths:
+                  Includes:
+                    - 'app/**'
+          ProviderType: CodeStarSourceConnection
+      Stages:
+        - Name: SourceStage
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              RunOrder: 1
+              Configuration:
+                BranchName: !Ref GitHubBranch
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: !Ref GitHubRepo
+                OutputArtifactFormat: CODE_ZIP
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Region: !Ref 'AWS::Region'
+        - Name: BuildStage
+          Actions:
+            - Name: BuildBE
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              RunOrder: 1
+              Configuration:
+                EnvironmentVariables: !Sub |
+                  [
+                      {
+                          "name": "ECR_REPO_NAME",
+                          "value": "${AppEcrRepository}",
+                          "type": "PLAINTEXT"
+                      }
+                  ]
+                ProjectName: !Ref CodeBuildBE
+              OutputArtifacts:
+                - Name: BuildArtifactBE
+              InputArtifacts:
+                - Name: SourceArtifact
+              Region: !Ref 'AWS::Region'
+              Namespace: BuildVariablesBE
+            - Name: BuildFE
+              ActionTypeId: 
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              RunOrder: 1
+              Configuration: 
+                EnvironmentVariables: !Sub |
+                  [
+                      {
+                          "name": "DISTRIBUTION_ID",
+                          "value": "${DistributionId}",
+                          "type": "PLAINTEXT"
+                      },
+                      {
+                          "name": "VITE_API_URL",
+                          "value": "${ViteApiUrl}",
+                          "type": "PLAINTEXT"
+                      },
+                      {
+                          "name": "BUCKET_ID",
+                          "value": "${FeBucketName}",
+                          "type": "PLAINTEXT"
+                      },
+                      {
+                          "name": "VITE_ALTERNATE_MATOMO_URL",
+                          "value": "${ViteAlternateMatomoUrl}",
+                          "type": "PLAINTEXT"
+                      },
+                      {
+                          "name": "VITE_ALTERNATE_MATOMO_SITE_ID",
+                          "value": "${ViteAlternateMatomoSiteId}",
+                          "type": "PLAINTEXT"
+                      }, 
+                      {
+                          "name": "VITE_ALTERNATE_MATOMO_SUBDOMAIN",
+                          "value": "${ViteAlternateMatomoSubdomain}",
+                          "type": "PLAINTEXT"
+                      }
+                  ]
+                ProjectName: !Ref CodeBuildFE
+              OutputArtifacts: 
+                - Name: BuildArtifactFE
+              InputArtifacts: 
+                - Name: SourceArtifact
+              Region: !Ref 'AWS::Region'
+              Namespace: BuildVariablesFE
+        - Name: DeployStageBE
+          Actions:
+            - Name: DeployBE
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ElasticBeanstalk
+                Version: 1
+              RunOrder: 1
+              Configuration:
+                ApplicationName: !Ref BsAppName
+                EnvironmentName: !Ref BsEnvName
+              InputArtifacts: 
+                - Name: BuildArtifactBE
+              Region: !Ref 'AWS::Region'
+              Namespace: DeployVariablesBE
+        - Name: DeployStageFE
+          Actions:
+            - Name: DeployFE
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: S3
+                Version: 1
+              RunOrder: 1
+              Configuration:
+                BucketName: !Ref FeBucketName
+                Extract: true
+              InputArtifacts:
+                - Name: BuildArtifactFE
+              Region: !Ref 'AWS::Region'
+              Namespace: DeployVariablesFE
+        - Name: CloudFrontInvalidationStage
+          Actions:
+            - Name: CloudFrontInvalidation
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: 1
+              RunOrder: 1
+              Configuration:
+                FunctionName: !Ref CloudFrontInvalidationFunction
+                UserParameters: !Ref DistributionId
+              Region: !Ref 'AWS::Region'
+              Namespace: CloudFrontInvalidateVariables
+
+  CodeBuildBE:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${EnvLabel}-BE-build'
+      Description: !Sub 'BackEnd build project for ${EnvLabel}'
+      Source: 
+        Type: CODEPIPELINE
+        BuildSpec: app/api/buildspec.yml
+      Artifacts:
+        Type: CODEPIPELINE
+        Name: !Sub '${EnvLabel}-BE-build'
+      Environment: 
+        Type: ARM_CONTAINER
+        Image: aws/codebuild/amazonlinux2-aarch64-standard:3.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        PrivilegedMode: true
+        ImagePullCredentialsType: CODEBUILD
+      ServiceRole: !GetAtt 'CodeBuildRoleBE.Arn'
+      TimeoutInMinutes: 15
+      QueuedTimeoutInMinutes: 120
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: !Sub '/aws/codebuild/${EnvLabel}-BE-build'
+          Status: ENABLED
+      Visibility: PRIVATE
+  
+  CodeBuildFE:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${EnvLabel}-FE-build'
+      Description: !Sub 'FrontEnd build project for ${EnvLabel}'
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: app/fe/buildspec.yml
+      Artifacts:
+        Type: CODEPIPELINE
+        Name: !Sub '${EnvLabel}-FE-build'
+      Environment:
+        Type: ARM_CONTAINER
+        Image: aws/codebuild/amazonlinux2-aarch64-standard:3.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        PrivilegedMode: false
+        ImagePullCredentialsType: CODEBUILD
+      ServiceRole: !GetAtt 'CodeBuildRoleFE.Arn'
+      TimeoutInMinutes: 15
+      QueuedTimeoutInMinutes: 60
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: !Sub '/aws/codebuild/${EnvLabel}-FE-build'
+          Status: ENABLED
+      Visibility: PRIVATE
+  
+  CloudFrontInvalidationRole: 
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AllowActions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DistributionId}'
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobSuccessResult
+                  - codepipeline:PutJobFailureResult
+                Resource: '*'
+  
+  CloudFrontInvalidationFunction:
+    Type: AWS::Lambda::Function
+    # checkov:skip=CKV_AWS_116: "Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)"
+    Properties:
+      Handler: index.lambda_handler
+      Description: This fucntion clears the CloudFront cache. 
+      FunctionName: !Sub '${EnvLabel}-CloudFrontInvalidation'
+      Role: !GetAtt 'CloudFrontInvalidationRole.Arn'
+      Runtime: python3.13
+      Timeout: 120
+      ReservedConcurrentExecutions: 1
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref 'LambdaDefaultSG'
+        SubnetIds: 
+          - !Ref 'PrivateSubnet1Id'
+          - !Ref 'PrivateSubnet2Id'
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+          from datetime import datetime, timedelta
+
+          cf = boto3.client("cloudfront")
+          code_pipeline = boto3.client('codepipeline')
+
+          def lambda_handler(event, context):
+            try:
+              job_id = event["CodePipeline.job"]["id"]
+
+              if "UserParameters" not in event["CodePipeline.job"]["data"]["actionConfiguration"]["configuration"]:
+                  raise KeyError("Missing DistributionId user parameter.")
+              DistributionId = event["CodePipeline.job"]["data"]["actionConfiguration"]["configuration"]["UserParameters"]
+
+              cf.create_invalidation(
+                DistributionId=DistributionId,
+                InvalidationBatch={
+                    "Paths": {"Quantity": 1, "Items": ["/*"]},
+                    "CallerReference": datetime.now().isoformat()
+                    + "_lambda-cloudfront-invalidation",
+                }
+              )
+
+              code_pipeline.put_job_success_result(jobId=job_id)
+            
+            except Exception as e:
+              print('Function failed due to exception.') 
+              print(e)
+
+              code_pipeline.put_job_failure_result(
+                jobId=job_id,
+                failureDetails={
+                    "type": "JobFailed",
+                    "message": "Function exception: " + str(e),
+                }
+              )
+              raise
+
+Outputs: 
+  AppEcrRepoUri:
+    Description: URI of the ECR Repository
+    Value: !GetAtt 'AppEcrRepository.RepositoryUri'

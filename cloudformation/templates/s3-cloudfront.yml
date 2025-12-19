@@ -1,0 +1,483 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template creates an s3 bucket and cloudfront distribution to serve content from the s3 location to the internet.
+Parameters:
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  S3BucketName:
+    Type: String
+    Description: Provide a name for the S3 bucket containing the front end files.
+  CreateS3Bucket:
+    Type: String
+    Description: Create the S3 bucket named above?  Do not change this value if updating an existing stack.
+    Default: 'Create the S3 Bucket'
+    AllowedValues:
+      - 'Create the S3 Bucket'
+      - 'The S3 Bucket already exists'
+  DomainName:
+    Type: String
+    Description: Domain Name for the environment
+  WildcardDomain:
+    Type: String
+    Description: Accept requests from *.DomainName ?
+    Default: 'No'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+  HostedZoneId:
+    Description: A Route53 HostedZone is required.  Select the zone for this environment.
+    Type: AWS::Route53::HostedZone::Id
+  DefaultRootObject:
+    Type: String
+    Description: The file to serve when the root DomainName is requested.
+    Default: index.html
+  RedirectErrors:
+    Description: Redirect 400, 403, and 404 errors to the DefaultRootObject.
+    Type: String
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+  ViewerProtocolPolicy:
+    Description: HTTP Behavior
+    Type: String
+    Default: 'redirect-to-https'
+    AllowedValues:
+      - 'allow-all'
+      - 'redirect-to-https'
+      - 'https-only'
+  AllowedMethods:
+    Description: HTTP Methods allowed
+    Type: CommaDelimitedList
+    Default: 'GET,HEAD,OPTIONS'
+    AllowedValues:
+      - 'GET,HEAD'
+      - 'GET,HEAD,OPTIONS'
+      - 'GET,HEAD,OPTIONS,PUT,PATCH,POST,DELETE'
+  CachedMethods:
+    Description: HTTP Methods cached
+    Type: CommaDelimitedList
+    Default: 'GET,HEAD,OPTIONS'
+    AllowedValues:
+      - 'GET,HEAD'
+      - 'GET,HEAD,OPTIONS'
+  CachePolicy:
+    Description: Cache Policy
+    Type: String
+    Default: CachingOptimized
+    AllowedValues:
+      - CachingOptimized
+      - CachingOptimizedForUncompressedObjects
+      - CachingDisabled
+  Compress:
+    Description: Compress CloudFront responses
+    Type: String
+    Default: True
+    AllowedValues:
+      - True
+      - False
+  ResponseHeadersPolicy:
+    Description: Response Headers Policy
+    Type: String
+    Default: CORS-with-preflight-and-SecurityHeadersPolicy
+    AllowedValues:
+      - SimpleCORS
+      - CORS-With-Preflight
+      - SecurityHeadersPolicy
+      - CORS-and-SecurityHeadersPolicy
+      - CORS-with-preflight-and-SecurityHeadersPolicy
+  SNSTopicArn:
+    Description: ARN of SNS topic to publish Route53 HealthCheck Alarms
+    Type: String
+  East1AlarmLambdaArn:
+    Type: String
+    Description: ARN of the East1 Alarm Lambda Function
+  CRHelperLambdaLayer:
+    Type: String
+    Description: ARN for the CRHelperLambdaLayer
+  LambdaDefaultSG:
+    Type: String
+    Description: Default security group for Lambda functions
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in one of the Availability Zones above
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in the other Availability Zone above
+
+Conditions:
+  DoCreateS3Bucket: !Equals [!Ref CreateS3Bucket, 'Create the S3 Bucket']
+  DoWildcardDomain: !Equals [!Ref WildcardDomain, 'Yes']
+  DoRedirectErrors: !Equals [!Ref RedirectErrors, 'Yes']
+  EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
+
+Mappings:
+  CachePolicyMap:
+    CachingOptimized:
+      ID: 658327ea-f89d-4fab-a63d-7e88639e58f6
+    CachingOptimizedForUncompressedObjects:
+      ID: b2884449-e4de-46a7-ac36-70bc7f1ddd6d
+    CachingDisabled:
+      ID: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+  ResponseHeadersPolicyMap:
+    SimpleCORS:
+      ID: 60669652-455b-4ae9-85a4-c4c02393f86c
+    CORS-With-Preflight:
+      ID: 5cc3b908-e619-4b99-88e5-2cf7f45965bd
+    SecurityHeadersPolicy:
+      ID: 67f7725c-6f97-4210-82d7-5512b31e9d03
+    CORS-and-SecurityHeadersPolicy:
+      ID: e61eb60c-9c35-4d20-a928-2b84e02af89c
+    CORS-with-preflight-and-SecurityHeadersPolicy:
+      ID: eaab4381-ed33-4a86-88ca-d9558dc6cd63
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Condition: DoCreateS3Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    # checkov:skip=CKV_AWS_18: Ensure the S3 bucket has access logging enabled
+    # S3 bucket does not need access logging enabled as it is not publicly accessible and does not contain PII.
+    # checkov:skip=CKV_AWS_21: "Ensure the S3 bucket has versioning enabled"
+    # This bucket does not need versioning
+    Properties:
+      BucketName: !Ref S3BucketName
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: EnvLabel
+          Value: !Ref EnvLabel
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !If [ DoCreateS3Bucket, !Ref S3Bucket, !Ref S3BucketName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - 's3:GetObject'
+            Effect: Allow
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${S3BucketName}/*'
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentity}'
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub '${S3BucketName}-OAI'
+  East1CertRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: 'AllowActions'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - acm:DescribeCertificate
+                  - acm:RequestCertificate
+                  - acm:DeleteCertificate
+                  - route53:ChangeResourceRecordSets
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:route53:::hostedzone/${HostedZoneId}'
+                  - !Sub 'arn:${AWS::Partition}:acm:us-east-1:${AWS::AccountId}:certificate/*'
+              - Effect: Allow
+                Action:
+                  - acm:ListCertificates
+                  - route53:ListHostedZonesByName
+                Resource: '*'
+  East1CertFunction:
+    Type: AWS::Lambda::Function
+    # checkov:skip=CKV_AWS_116: "Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)"
+    # CloudFormation custom resource handlers don't need a DLQ
+    Properties:
+      Handler: index.lambda_handler
+      Layers:
+        - !Ref 'CRHelperLambdaLayer'
+      Description: Creates and validates a certificate in us-east-1
+      FunctionName: !Sub '${EnvLabel}-east-1-cert'
+      Role: !GetAtt 'East1CertRole.Arn'
+      Runtime: python3.13
+      Timeout: 600
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref 'LambdaDefaultSG'
+        SubnetIds: 
+          - !Ref 'PrivateSubnet1Id'
+          - !Ref 'PrivateSubnet2Id'
+      ReservedConcurrentExecutions: 1
+      Code:
+        ZipFile: |
+          import boto3
+          import time
+          import signal
+          from botocore.config import Config
+          from crhelper import CfnResource
+
+          helper = CfnResource()
+          us_east_1 = Config(
+                  region_name = 'us-east-1'
+              )
+
+          def lambda_handler(event, context):
+              signal.alarm(int((context.get_remaining_time_in_millis() / 1000) - 1))
+              helper(event, context)
+
+          @helper.create
+          def create(event, _):   
+              domain_name = event['ResourceProperties']['DomainName'].lower()
+              hosted_zone = event['ResourceProperties']['HostedZone']
+              wildcard    = event['ResourceProperties']['Wildcard']
+              cert_exists = check_for_cert(domain_name)
+              alt_names=[f'*.{domain_name}'] if wildcard else []
+
+              if cert_exists:
+                  helper.Data['Arn'] = cert_exists
+              else:
+                  certificate_arn = request_certificate(domain_name, alt_names)
+                  validation_records = get_validation_records(certificate_arn)
+                  r53_response = route53(hosted_zone, 'UPSERT', validation_records)
+                  wait_for_validation(certificate_arn)
+                  helper.Data['Arn'] = certificate_arn
+
+          @helper.update
+          def no_op(_, __):
+              pass
+
+          @helper.delete
+          def delete(event, _):
+              domain_name = event['ResourceProperties']['DomainName'].lower()
+              hosted_zone = event['ResourceProperties']['HostedZone']
+              certificate_arn = check_for_cert(domain_name)
+              validation_records = get_validation_records(certificate_arn)
+              route53(hosted_zone, 'DELETE', validation_records)
+              delete_certificate(certificate_arn) 
+
+
+          def check_for_cert(domain_name):
+              client = boto3.client('acm', config=us_east_1)
+              paginator = client.get_paginator('list_certificates')
+              for page in paginator.paginate():
+                  for cert in page['CertificateSummaryList']:
+                      if cert['DomainName'] == domain_name:
+                          print(cert['CertificateArn'])
+                          return cert['CertificateArn']
+              print('Cert not found')            
+              return False
+              
+          def request_certificate(domain_name, alt_names):
+              client = boto3.client('acm', config=us_east_1)
+              response = client.request_certificate(
+                  DomainName=domain_name,
+                  ValidationMethod='DNS',
+                  SubjectAlternativeNames=alt_names
+              )
+              print('certificate_arn: {}'.format(response['CertificateArn']))
+              return response['CertificateArn']
+
+          def delete_certificate(cert_arn):
+              client = boto3.client('acm', config=us_east_1)
+              response = client.delete_certificate(
+                  CertificateArn=cert_arn
+              )
+              print(response)
+
+          def get_validation_records(cert_arn):
+              client = boto3.client('acm', config=us_east_1)
+              validation_records=[]
+              while validation_records == []:
+                  time.sleep(3)
+                  response = client.describe_certificate(
+                      CertificateArn=cert_arn
+                  )
+                  for option in response['Certificate']['DomainValidationOptions']:
+                      if ('ResourceRecord' in option.keys() and
+                          option['ValidationMethod'] == 'DNS' and
+                          option['ResourceRecord'] not in validation_records):
+                              print(option['ResourceRecord'])
+                              validation_records.append(option['ResourceRecord'])
+              return validation_records
+
+          def route53(zone, action, records):
+              print(f'hosted_zone_id: {zone}')
+              print(f'action: {action}')
+              print(records)
+              client = boto3.client('route53', config=us_east_1)
+              for record in records:
+                  r53_response = client.change_resource_record_sets(
+                      HostedZoneId=zone,
+                      ChangeBatch={
+                          'Comment': 'ACM Validation',
+                          'Changes': [
+                              {
+                                  'Action': action,
+                                  'ResourceRecordSet': {
+                                      'Name': record['Name'], # Name from ACM
+                                      'Type': record['Type'],
+                                      'TTL': 300,
+                                      'ResourceRecords': [
+                                          {
+                                              'Value': record['Value'] # Value from ACM
+                                          }
+                                      ]
+                                  }
+                              }
+                          ]
+                      }
+                  )
+              print(r53_response)
+              return r53_response
+
+          def wait_for_validation(cert_arn):
+              client = boto3.client('acm', config=us_east_1)
+              certificateStatus = 'PENDING_VALIDATION'
+              while certificateStatus == 'PENDING_VALIDATION':
+                  time.sleep(10)
+                  statusResponse = client.describe_certificate(
+                      CertificateArn=cert_arn
+                  )
+                  certificateStatus = statusResponse['Certificate']['Status']
+                  print('Certificate status: ' + certificateStatus)  
+  East1CertFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref 'East1CertFunction'
+  East1Cert:
+    Type: Custom::East1Cert
+    DependsOn: East1CertFunctionVersion
+    Properties:
+      ServiceToken: !GetAtt 'East1CertFunction.Arn'
+      DomainName: !Ref 'DomainName'
+      HostedZone: !Ref 'HostedZoneId'
+      Wildcard: !If [DoWildcardDomain, True, False]
+  CloudFront:
+    Type: AWS::CloudFront::Distribution
+    # checkov:skip=CKV_AWS_68: CloudFront Distribution should have WAF enabled
+    # CloudFront is in front of S3 in this case which hosts static files. We accept the risk for static content in forgoing WAF in this case.
+    # checkov:skip=CKV_AWS_86: Ensure CloudFront Distribution has Access Logging enabled
+    Properties:
+      DistributionConfig: 
+        Aliases: !If 
+          - DoWildcardDomain
+          - - !Ref DomainName
+            - !Sub '*.${DomainName}'
+          - - !Ref DomainName
+        Comment: !Sub '${EnvLabel} Front End'
+        CustomErrorResponses: !If 
+          - DoRedirectErrors
+          - - ErrorCode: 400
+              ErrorCachingMinTTL: 10
+              ResponseCode: 200
+              ResponsePagePath: !Sub '/${DefaultRootObject}'
+            - ErrorCode: 403
+              ErrorCachingMinTTL: 10
+              ResponseCode: 200
+              ResponsePagePath: !Sub '/${DefaultRootObject}'
+            - ErrorCode: 404
+              ErrorCachingMinTTL: 10
+              ResponseCode: 200
+              ResponsePagePath: !Sub '/${DefaultRootObject}'
+          - !Ref 'AWS::NoValue'
+        DefaultCacheBehavior: 
+          AllowedMethods: !Ref AllowedMethods
+          CachedMethods: !Ref CachedMethods
+          CachePolicyId: !FindInMap [ CachePolicyMap, !Ref CachePolicy, ID ]
+          Compress: !Ref Compress
+          SmoothStreaming: false
+          TargetOriginId: !Ref S3BucketName
+          ViewerProtocolPolicy: !Ref ViewerProtocolPolicy
+          ResponseHeadersPolicyId: !FindInMap [ ResponseHeadersPolicyMap, !Ref ResponseHeadersPolicy, ID ]
+        DefaultRootObject: !Ref DefaultRootObject
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        Origins: 
+          - ConnectionAttempts: 3
+            ConnectionTimeout: 10
+            DomainName: !If
+              - DoCreateS3Bucket
+              - !GetAtt 'S3Bucket.RegionalDomainName'
+              - !Sub '${S3BucketName}.s3.amazonaws.com'
+            Id: !Ref S3BucketName
+            S3OriginConfig: 
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        PriceClass: PriceClass_100
+        ViewerCertificate: 
+          AcmCertificateArn: !GetAtt 'East1Cert.Arn'
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+      Tags: 
+        - Key: EnvLabel
+          Value: !Ref EnvLabel
+  CloudFrontRoute53record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt 'CloudFront.DomainName'
+        HostedZoneId: 'Z2FDTNDATAQYW2'
+      Name: !Ref DomainName
+      HostedZoneId: !Ref HostedZoneId
+      Type: A
+  WildcardRoute53record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt 'CloudFront.DomainName'
+        HostedZoneId: 'Z2FDTNDATAQYW2'
+      Name: !Sub '*.${DomainName}'
+      HostedZoneId: !Ref HostedZoneId
+      Type: A
+  Route53HealthCheck:
+    Condition: EnableHealthCheck
+    Type: AWS::Route53::HealthCheck
+    Properties: 
+      HealthCheckConfig: 
+        Port: 443
+        Type: HTTPS
+        FullyQualifiedDomainName: !Ref 'DomainName'
+        RequestInterval: 30
+        FailureThreshold: 3
+        Regions: 
+            - us-east-1
+            - us-west-1
+            - us-west-2
+      HealthCheckTags:
+        - Key: Name
+          Value: !Sub '${EnvLabel}-FrontEnd-Route53-HealthCheck'
+  East1Route53HealthCheckAlarm:
+    Condition: EnableHealthCheck
+    Type: Custom::East1Alarm
+    DeletionPolicy: Delete
+    Properties:
+      ServiceToken: !Ref 'East1AlarmLambdaArn'
+      # checkov:skip=CKV_SECRET_6: "Base64 High Entropy String"
+      # The ServiceToken is not a secret.
+      EnvLabel: !Ref 'EnvLabel'
+      SNSTopicArn: !Ref 'SNSTopicArn'
+      Route53HealthCheck: !Ref 'Route53HealthCheck'
+      AlarmLabel: 'FrontEnd'
+
+Outputs:
+  DistributionId:
+    Description: Cloudfront Distribution ID
+    Value: !Ref CloudFront

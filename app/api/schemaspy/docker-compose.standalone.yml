@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  schemaspy:
+    image: schemaspy/schemaspy
+    container_name: schemaspy
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=starter
+      - DB_USER=starter
+      - DB_PASS=dev
+      - DB_TYPE=pgsql
+    volumes:
+      - ./output:/output
+    command: >
+      -t pgsql
+      -host db
+      -port 5432
+      -db starter
+      -u starter
+      -p dev
+      -s public
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+
+  db:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: starter
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: starter
+    healthcheck:
+      # the docker image immediately does a hard restart so we don't trust a single early success
+      test: 'pg_isready -d starter -U starter && sleep 1 && pg_isready -d starter -U starter && sleep 1 && pg_isready -d starter -U starter && sleep 1 && pg_isready -d starter -U starter'
+      start_period: 30s
+      retries: 10
+      interval: 1s
+
+  app:
+    build:
+      context: ../../..
+      dockerfile: ./api/Dockerfile
+    container_name: app
+    environment:
+      - POSTGRES_USER=starter
+      - POSTGRES_PASSWORD=dev
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=starter
+      - POSTGRES_SSL=false
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:3333/api/healthcheck || exit 1
+      interval: 1s
+      retries: 10
+      start_period: 10s
+      timeout: 1s
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pgdata:

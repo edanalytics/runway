@@ -1,0 +1,71 @@
+---
+# "realm" basically means User Pool or Tenant
+realm: example
+displayName: Example
+ssoSessionMaxLifespan: 7776000
+enabled: true
+clients:
+  - clientId: runway-local
+    name: 'Runway Local Dev'
+    enabled: true
+    rootUrl: http://localhost:3333
+    adminUrl: http://localhost:3333
+    baseUrl: http://localhost:3333
+    clientAuthenticatorType: client-secret
+    secret: big-secret-123
+    redirectUris:
+      - http://localhost:3333/api/auth/callback/local-keycloak
+    webOrigins:
+      - http://localhost:4200
+    protocolMappers:
+      # This is a small window into a very big and important
+      # feature, which is the mapping of nearly-arbitrary
+      # data from various sources into the tokens which are
+      # sent to client applications. This one just exposes
+      # the username of the impersonating user, if in fact
+      # the token is for a user who's being impersonated.
+      - name: Impersonator Username
+        protocol: openid-connect
+        protocolMapper: oidc-usersessionmodel-note-mapper
+        consentRequired: false
+        config:
+          user.session.note: IMPERSONATOR_USERNAME
+          id.token.claim: 'true'
+          access.token.claim: 'true'
+          claim.name: impersonator.username
+          jsonType.label: String
+      # Hardcoding tenant per client. This is probably not what real prod IdPs
+      # would do, but works locally and it's probably better than using
+      # `iss` or some other exist claim that's not really a tenant code.
+      - name: Tenant Code
+        protocol: openid-connect
+        protocolMapper: oidc-hardcoded-claim-mapper
+        consentRequired: false
+        config:
+          claim.name : tenant_code
+          claim.value : runway-local-example-tenant
+          id.token.claim: 'true'
+          access.token.claim: 'true'
+          claim.name: tenant_code
+          jsonType.label: String
+    attributes:
+      post.logout.redirect.uris: http://localhost:4200* 
+users:
+  - username: dev
+    credentials:
+      - type: password
+        value: dev
+    email: dev@example.com
+    enabled: true
+    firstName: Dev
+    lastName: D'Evdeverson
+    emailVerified: true
+  - username: admin
+    credentials:
+      - type: password
+        value: admin
+    email: admin@example.com
+    enabled: true
+    firstName: Admin
+    lastName: McAdminFace
+    emailVerified: true

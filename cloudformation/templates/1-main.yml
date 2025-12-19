@@ -1,0 +1,496 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template deploys FE and BE infrastructure for Runway app.
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment information
+        Parameters:
+          - S3SourceBucket
+          - EnvLabel
+          - DomainName
+          - HostedZoneId
+          - SNSTopicArn
+          - SlackWebhookURL
+          - S3AccessLoggingBucket
+      - Label:
+          default: Database (RDS Postgres) information
+        Parameters:
+          - DBInstanceClass
+          - EngineVersion
+          - DBName
+          - DBAllocatedStorage
+          - DBMultiAZ
+          - DBBackupRetentionPeriod
+          - PreferredBackupWindow
+          - PreferredMaintenanceWindow
+          - DBSnapshotIdentifier
+          - DeployAlerts
+          - ParentSSHBastionStack
+          - EnableIAMDatabaseAuthentication
+      - Label:
+          default: Elastic Beanstalk information
+        Parameters: 
+          - BeanstalkMinInstances
+          - BeanstalkMaxInstances
+          - InstanceTypes
+          - LogRetentionInDays
+          - HealthCheckPath
+          - CodeEnv
+          - WebACLArn
+          - DeploymentStrategy
+          - BeanstalkPlatformUpdateTime
+          - BundleBranch
+      - Label:
+          default: S3 Cloudfront Information
+        Parameters: 
+          - S3FrontEndBucket
+          - S3FrontEndBucketStatus
+          - WildcardDomain
+          - DefaultRootObject
+          - RedirectErrors
+          - ViewerProtocolPolicy
+          - AllowedMethods
+          - CachedMethods
+          - CachePolicy
+          - Compress
+          - ResponseHeadersPolicy
+      - Label:
+          default: App CodePipeline information
+        Parameters: 
+          - GitHubConnectionArn
+          - GitHubRepo
+          - GitHubBranch
+          - CreateS3Bucket
+          - ViteAlternateMatomoUrl
+          - ViteAlternateMatomoSiteId
+          - ViteAlternateMatomoSubdomain
+      - Label: 
+          default: ECS Information 
+        Parameters: 
+          - CreateEcsServiceLinkedRole
+      - Label: 
+          default: VPC Network Configuration
+        Parameters:
+          - VpcId
+          - PublicSubnet1Id
+          - PublicSubnet2Id
+          - PrivateSubnet1Id
+          - PrivateSubnet2Id
+
+Parameters: 
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  S3SourceBucket:
+    Type: String
+    Description: REQUIRED - This bucket contains the source files for CloudFormation, Lambda, Docker, etc.  MUST be in the same region as the CF Stack.  Recommended to have a separate bucket for each stack.
+  DeployAlerts:
+    Description: Deploy SNS topic and database monitoring alerts?
+    Type: String
+    Default: 'Yes'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+  VpcId:
+    Description: Choose an existing VPC ID for this deployment.
+    Type: AWS::EC2::VPC::Id
+  PublicSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Public Subnet in one of the Availability Zones above
+    ConstraintDescription: You must select an existing Public Subnet ID in the VPC selected for this deployment
+  PublicSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Public Subnet in the other Availability Zone above
+    ConstraintDescription: You must select an existing Public Subnet ID in the VPC selected for this deployment
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in one of the Availability Zones above
+    ConstraintDescription: You must select an existing Private Subnet ID in the VPC selected for this deployment
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in the other Availability Zone above
+    ConstraintDescription: You must select an existing Private Subnet ID in the VPC selected for this deployment
+  ParentSSHBastionStack:
+    Description: 'Optional - Stack name of parent SSH server stack, which is an EA specific template.'
+    Type: String
+  DBName:
+    Description: 'Optional - Name of blank database to create when deploying the db instance.  Ignored if DBSnapshotIdentifier is set.'
+    Type: String
+    Default: 'runway'
+  DBSnapshotIdentifier:
+    Description: 'Optional - Name or Amazon Resource Name (ARN) of the DB snapshot from which you want to restore (leave blank to create an empty database).'
+    Type: String
+  DBAllocatedStorage:
+    Description: 'The allocated storage size, specified in GB (ignored when DBSnapshotIdentifier is set, value used from snapshot).'
+    Type: Number
+    Default: 5
+    MinValue: 5
+    MaxValue: 16384
+  DBInstanceClass:
+    Description: 'The instance type of database server.'
+    Type: String
+    Default: 'db.t4g.micro'
+  DBBackupRetentionPeriod:
+    Description: 'The number of days to keep snapshots of the database.'
+    Type: Number
+    MinValue: 0
+    MaxValue: 35
+    Default: 7
+  DBMultiAZ:
+    Description: 'Specifies if the database instance is deployed to multiple Availability Zones for HA.'
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  PreferredBackupWindow:
+    Description: 'The daily time range (in UTC) during which you want to create automated backups.'
+    Type: String
+    Default: '09:54-10:24' 
+  PreferredMaintenanceWindow:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'sat:07:00-sat:07:30' 
+  EngineVersion:
+    Description: 'PostgreSQL version.'
+    Type: String
+    Default: '16.6'
+    AllowedValues: ['13.18', '14.15', '15.12', '16.6']
+  EnableIAMDatabaseAuthentication:
+    Description: 'Enable mapping of AWS Identity and Access Management (IAM) accounts to database accounts (https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/UsingWithRDS.IAMDBAuth.html).'
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false' 
+  BeanstalkMinInstances:
+    Type: Number
+    Description: Minimum Application Server Capacity for EB.
+    Default: 1
+  BeanstalkMaxInstances:
+    Type: Number
+    Description: Maximum Application Server Capacity for EB.
+    Default: 3
+  InstanceTypes:
+    Type: String
+    Description: Size of the EC2 machines to host the Docker containers
+    Default: t4g.medium,c6g.large
+  DomainName:
+    Type: String
+    Description: Fully Qualified Domain Name for the environment
+  HostedZoneId:
+    Description: Route53 HostedZone.  Select the zone for this environment.
+    Type: AWS::Route53::HostedZone::Id
+  LogRetentionInDays:
+    Description: Number of days to keep Beanstalk logs in CloudWatch Logs
+    Type: Number
+    Default: 365
+  HealthCheckPath:
+    Description: Application path for the load balancer to determine application health
+    Type: String
+    Default: /api/healthcheck
+  CodeEnv:
+    Description: Optional - Environment string that dictates which local config file is in use
+    Type: String
+  SNSTopicArn:
+    Description: Optional - ARN of SNS topic in us-east-1 to publish Route53 HealthCheck Alarms
+    Type: String
+  GitHubRepo: 
+    Type: String
+    Description: GitHub repo name to build from
+  GitHubBranch:
+    Type: String
+    Description: Name of the branch in the GitHub repo to build from.
+  GitHubConnectionArn:
+    Description: Can be found or created in CodePipeline console, settings, connections.
+    Type: String
+  CreateS3Bucket:
+    Type: String
+    Description: Create the S3 bucket named 'codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
+    Default: 'The S3 Bucket already exists'
+    AllowedValues:
+      - 'Create the S3 Bucket'
+      - 'The S3 Bucket already exists'
+  S3FrontEndBucket:
+    Type: String
+    Description: Name of the S3 bucket containing the front end web files
+  S3FrontEndBucketStatus:
+    Type: String
+    Description: Create the S3 bucket named above?  Do not change this value if updating an existing stack.
+    Default: 'Create the S3 Bucket'
+    AllowedValues:
+      - 'Create the S3 Bucket'
+      - 'The S3 Bucket already exists'
+  WildcardDomain:
+    Type: String
+    Description: Accept requests from *.DomainName ?
+    Default: 'Yes'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+  DefaultRootObject:
+    Type: String
+    Description: The file to serve when the root DomainName is requested.
+    Default: index.html
+  RedirectErrors:
+    Description: Redirect 400, 403, and 404 errors to the DefaultRootObject.
+    Type: String
+    Default: 'Yes'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+  ViewerProtocolPolicy:
+    Description: HTTP Behavior
+    Type: String
+    Default: 'redirect-to-https'
+    AllowedValues:
+      - 'allow-all'
+      - 'redirect-to-https'
+      - 'https-only'
+  AllowedMethods:
+    Description: HTTP Methods allowed
+    Type: String
+    Default: 'GET,HEAD,OPTIONS'
+    AllowedValues:
+      - 'GET,HEAD'
+      - 'GET,HEAD,OPTIONS'
+      - 'GET,HEAD,OPTIONS,PUT,PATCH,POST,DELETE'
+  CachedMethods:
+    Description: HTTP Methods cached
+    Type: String
+    Default: 'GET,HEAD,OPTIONS'
+    AllowedValues:
+      - 'GET,HEAD'
+      - 'GET,HEAD,OPTIONS'
+  CachePolicy:
+    Description: Cache Policy
+    Type: String
+    Default: CachingOptimized
+    AllowedValues:
+      - CachingOptimized
+      - CachingOptimizedForUncompressedObjects
+      - CachingDisabled
+  Compress:
+    Description: Compress CloudFront responses
+    Type: String
+    Default: True
+    AllowedValues:
+      - True
+      - False
+  ResponseHeadersPolicy:
+    Description: Response Headers Policy
+    Type: String
+    Default: CORS-with-preflight-and-SecurityHeadersPolicy
+    AllowedValues:
+      - SimpleCORS
+      - CORS-With-Preflight
+      - SecurityHeadersPolicy
+      - CORS-and-SecurityHeadersPolicy
+      - CORS-with-preflight-and-SecurityHeadersPolicy
+  CreateEcsServiceLinkedRole:
+    Type: String
+    Description: If an ECS Service Linked Role already exists in this account, select False.
+    AllowedValues:
+         - 'True'
+         - 'False'
+    Default: 'False'
+  WebACLArn:
+    Type: String
+    Description: Optional - provide the ARN of a WAF to attach to the Application Load Balancer.
+  ViteAlternateMatomoUrl:
+    Type: String
+    Description: Optional - Value for the VITE_ALTERNATE_MATOMO_URL build variable.
+  ViteAlternateMatomoSiteId:
+    Type: String
+    Description: Optional - Value for the VITE_ALTERNATE_MATOMO_SITE_ID build variable.
+  ViteAlternateMatomoSubdomain: 
+    Type: String
+    Description: Optional - Value for the VITE_ALTERNATE_MATOMO_SUBDOMAIN build variable.
+  DeploymentStrategy:
+    Type: String
+    Description: Beanstalk deployment strategy for platform updates and application versions.
+    AllowedValues:
+      - 'RollingWithAdditionalBatch'
+      - 'AllAtOnce'
+    Default: 'RollingWithAdditionalBatch'
+  BeanstalkPlatformUpdateTime:
+    Description: Optional - Specify the update day and time in UTC using the format 'Day:HH:MM' (e.g., Wed:15:30). Platform updates will be disabled if no value is specified. 
+    Type: String
+    AllowedPattern: '^$|^(Mon|Tue|Wed|Thu|Fri|Sat|Sun):(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$'
+  BundleBranch: 
+    Description: Name of the bundle branch in the earthmover Ed-Fi bundles repository
+    Type: String
+    Default: 'main'
+  SlackWebhookURL: 
+    Description: Optional - Provide a webhook URL for the slack channel that will receive events from the app
+    Type: String 
+  S3AccessLoggingBucket: 
+    Description: Optional - Provide a name for the destination S3 bucket where your Data Integration S3 Bucket Access Logs will be saved. 
+    Type: String
+  
+Conditions:
+  EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
+  EnableS3AccessLogging: !Not [!Equals [!Ref S3AccessLoggingBucket, '']]
+  EnableSlackAlerting: !Not [!Equals [!Ref SlackWebhookURL, '']]
+  
+Resources: 
+  RdsPostgresStack: 
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties: 
+      TemplateURL: !Sub 'https://${S3SourceBucket}.s3.amazonaws.com/templates/rds-postgres.yml'
+      Parameters:
+        EnvLabel: !Ref EnvLabel
+        DeployAlerts: !Ref DeployAlerts
+        VpcId: !Ref VpcId
+        PrivateSubnet1Id: !Ref PrivateSubnet1Id
+        PrivateSubnet2Id: !Ref PrivateSubnet2Id
+        ParentSSHBastionStack: !Ref ParentSSHBastionStack
+        DBName: !Ref DBName
+        DBSnapshotIdentifier: !Ref DBSnapshotIdentifier
+        DBAllocatedStorage: !Ref DBAllocatedStorage
+        DBInstanceClass: !Ref DBInstanceClass
+        DBBackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+        DBMultiAZ: !Ref DBMultiAZ
+        PreferredBackupWindow: !Ref PreferredBackupWindow
+        PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+        EngineVersion: !Ref EngineVersion
+        EnableIAMDatabaseAuthentication: !Ref EnableIAMDatabaseAuthentication
+  BeanstalkStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TemplateURL: !Sub 'https://${S3SourceBucket}.s3.amazonaws.com/templates/beanstalk.yml'
+      Parameters:
+        BeanstalkMinInstances: !Ref BeanstalkMinInstances
+        BeanstalkMaxInstances: !Ref BeanstalkMaxInstances
+        EnvLabel: !Ref EnvLabel
+        VpcId: !Ref VpcId
+        PublicSubnet1Id: !Ref PublicSubnet1Id
+        PublicSubnet2Id: !Ref PublicSubnet2Id
+        PrivateSubnet1Id: !Ref PrivateSubnet1Id
+        PrivateSubnet2Id: !Ref PrivateSubnet2Id
+        InstanceTypes: !Ref InstanceTypes
+        DomainName: !Sub 'api.${DomainName}'
+        HostedZoneId: !Ref HostedZoneId
+        DatabaseSecurityGroup: !GetAtt 'RdsPostgresStack.Outputs.SecurityGroupId'
+        LogRetentionInDays: !Ref LogRetentionInDays
+        HealthCheckPath: !Ref HealthCheckPath
+        CodeEnv: !Ref CodeEnv
+        FrontEndUrl: !Sub 'https://${DomainName}'
+        SNSTopicArn: !Ref SNSTopicArn
+        East1AlarmLambdaArn:
+          !If [EnableHealthCheck, !GetAtt 'LambdaFunctionsStack.Outputs.East1AlarmLambdaArn', '']
+        WebACLArn: !Ref 'WebACLArn'
+        DeploymentStrategy: !Ref DeploymentStrategy
+        BeanstalkPlatformUpdateTime: !Ref BeanstalkPlatformUpdateTime
+        BundleBranch: !Ref BundleBranch
+        ApplicationEventsToSlackFunctionArn: !If [EnableSlackAlerting, !GetAtt 'LambdaFunctionsStack.Outputs.ApplicationEventsToSlackFunctionArn', '']
+        SlackWebhookURL: !If [EnableSlackAlerting, !Ref SlackWebhookURL, '']
+  LambdaFunctionsStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TemplateURL: !Sub 'https://${S3SourceBucket}.s3.amazonaws.com/templates/lambda-functions.yml'
+      Parameters:
+        EnvLabel: !Ref EnvLabel
+        VpcId: !Ref VpcId
+        PrivateSubnet1Id: !Ref PrivateSubnet1Id
+        PrivateSubnet2Id: !Ref PrivateSubnet2Id
+        S3BucketSourceCode: !Ref S3SourceBucket
+        S3KeySourceCode: lambdas
+        SNSTopicArn: !Ref SNSTopicArn  
+        SlackWebhookURL: !If [EnableSlackAlerting, !Ref SlackWebhookURL, '']
+  FrontEndS3CloudFrontStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TemplateURL: !Sub 'https://${S3SourceBucket}.s3.amazonaws.com/templates/s3-cloudfront.yml'
+      Parameters:
+        EnvLabel: !Ref EnvLabel
+        S3BucketName: !Ref S3FrontEndBucket
+        CreateS3Bucket: !Ref S3FrontEndBucketStatus
+        DomainName: !Ref DomainName
+        WildcardDomain: !Ref WildcardDomain
+        HostedZoneId: !Ref HostedZoneId
+        DefaultRootObject: !Ref DefaultRootObject
+        RedirectErrors: !Ref RedirectErrors
+        ViewerProtocolPolicy: !Ref ViewerProtocolPolicy
+        AllowedMethods: !Ref AllowedMethods
+        CachedMethods: !Ref CachedMethods
+        CachePolicy: !Ref CachePolicy
+        Compress: !Ref Compress
+        ResponseHeadersPolicy: !Ref ResponseHeadersPolicy
+        SNSTopicArn: !Ref SNSTopicArn
+        East1AlarmLambdaArn: !If [EnableHealthCheck, !GetAtt 'LambdaFunctionsStack.Outputs.East1AlarmLambdaArn', '']
+        CRHelperLambdaLayer: !GetAtt 'LambdaFunctionsStack.Outputs.CRHelperLambdaLayer'
+        LambdaDefaultSG: !GetAtt 'LambdaFunctionsStack.Outputs.LambdaDefaultSG'
+        PrivateSubnet1Id: !Ref PrivateSubnet1Id
+        PrivateSubnet2Id: !Ref PrivateSubnet2Id
+  AppCodePipelineStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TemplateURL: !Sub 'https://${S3SourceBucket}.s3.amazonaws.com/templates/code-pipeline-app.yml'
+      Parameters:
+        GitHubBranch: !Ref GitHubBranch
+        GitHubConnectionArn: !Ref GitHubConnectionArn
+        EnvLabel: !Ref EnvLabel
+        GitHubRepo: !Ref GitHubRepo
+        BsAppName: !GetAtt 'BeanstalkStack.Outputs.ApplicationName'
+        BsEnvName: !GetAtt 'BeanstalkStack.Outputs.EnvironmentName'
+        CreateS3Bucket: !Ref CreateS3Bucket
+        ViteApiUrl: !Sub 'https://api.${DomainName}'
+        DistributionId: !GetAtt 'FrontEndS3CloudFrontStack.Outputs.DistributionId'
+        FeBucketName: !Ref S3FrontEndBucket
+        ViteAlternateMatomoUrl: !Ref ViteAlternateMatomoUrl
+        ViteAlternateMatomoSiteId: !Ref ViteAlternateMatomoSiteId
+        ViteAlternateMatomoSubdomain: !Ref ViteAlternateMatomoSubdomain
+        LambdaDefaultSG: !GetAtt 'LambdaFunctionsStack.Outputs.LambdaDefaultSG'
+        PrivateSubnet1Id: !Ref PrivateSubnet1Id
+        PrivateSubnet2Id: !Ref PrivateSubnet2Id
+  JobExecutorPipelineStack: 
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TemplateURL: !Sub 'https://${S3SourceBucket}.s3.amazonaws.com/templates/code-pipeline-executor.yml'
+      Parameters:
+        EnvLabel: !Ref EnvLabel
+        GitHubBranch: !Ref GitHubBranch
+        GitHubConnectionArn: !Ref GitHubConnectionArn
+        GitHubRepo: !Ref GitHubRepo
+        CreateS3Bucket: 'The S3 Bucket already exists'
+  EcsStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TemplateURL: !Sub 'https://${S3SourceBucket}.s3.amazonaws.com/templates/ecs.yml'
+      Parameters:
+        EnvLabel: !Ref 'EnvLabel'
+        JobExecutorEcrRepoUri: !GetAtt 'JobExecutorPipelineStack.Outputs.JobExecutorEcrRepoUri'
+        CreateEcsServiceLinkedRole: !Ref CreateEcsServiceLinkedRole
+        DataBucketName: !Sub '${EnvLabel}-${AWS::AccountId}-data-integration'
+        DomainName: !Ref DomainName
+        S3AccessLoggingBucket: !If [EnableS3AccessLogging, !Ref S3AccessLoggingBucket, '']
+  CloudWatchDashboardStack: 
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TemplateURL: !Sub 'https://${S3SourceBucket}.s3.amazonaws.com/templates/cloudwatch-dashboard.yml'
+      Parameters:
+        EnvLabel: !Ref EnvLabel
+        DBInstanceIdentifier: !GetAtt 'RdsPostgresStack.Outputs.InstanceName'
+        BeanstalkEnvName: !GetAtt 'BeanstalkStack.Outputs.EnvironmentName'
+        GetBsResourcesLambdaArn: !GetAtt 'LambdaFunctionsStack.Outputs.GetBsResourcesLambdaArn'
+        DistributionId: !GetAtt 'FrontEndS3CloudFrontStack.Outputs.DistributionId'
+
+Outputs:
+  TemplateVersion:
+    Description: The version of the cloudformation template
+    Value: '2.0.0'

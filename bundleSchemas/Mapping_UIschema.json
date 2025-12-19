@@ -1,0 +1,27 @@
+{
+    "ValueMap": {
+      "items": {
+        "from": {
+          "ui:options": {
+            "label": false,
+            "placeholder": "From"
+          },
+          "ui:style": {
+            "width": "150px",
+            "display": "inline-block",
+            "marginRight": "10px"
+          }
+        },
+        "to": {
+          "ui:options": {
+            "label": false,
+            "placeholder": "To"
+          },
+          "ui:style": {
+            "width": "150px",
+            "display": "inline-block"
+          }
+        }
+      }
+    }
+  }

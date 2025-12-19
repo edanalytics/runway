@@ -1,0 +1,1 @@
+ALTER TABLE public.run ADD COLUMN unmatched_students_info JSONB; 

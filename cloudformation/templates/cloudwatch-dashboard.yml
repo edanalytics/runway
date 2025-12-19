@@ -1,0 +1,588 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template creates a CloudWatch Dashboard.
+Parameters:
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  DBInstanceIdentifier:
+    Description: Database Instance Name
+    Type: String
+  BeanstalkEnvName:
+    Description: Name of Beanstalk Environment
+    Type: String
+  GetBsResourcesLambdaArn:
+    Description: ARN of Get Beanstalk Resources Lambda Function
+    Type: String
+  DistributionId:
+    Type: String
+    Description: CloudFront Distribution ID.
+
+Resources:
+  GetBsResourceInvocation:
+    Type: Custom::GetBsResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ServiceToken: !Ref GetBsResourcesLambdaArn
+      Region: !Ref 'AWS::Region'
+      BeanstalkEnvName: !Ref 'BeanstalkEnvName'
+
+  CloudWatchDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Ref 'EnvLabel'
+      DashboardBody: !Sub
+        - |
+          {
+            "widgets": [
+              {
+                "height": 3,
+                "width": 6,
+                "y": 0,
+                "x": 0,
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/ApplicationELB",
+                      "RequestCount",
+                      "LoadBalancer",
+                      "${ALBIdentifier}"
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "stat": "Sum",
+                  "period": 60,
+                  "title": "ALB Requests per minute"
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 3,
+                "x": 0,
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/ApplicationELB",
+                      "HealthyHostCount",
+                      "TargetGroup",
+                      "${TargetGroupIdentifier}",
+                      "LoadBalancer",
+                      "${ALBIdentifier}"
+                    ],
+                    [
+                      ".",
+                      "UnHealthyHostCount",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                    ]
+                  ],
+                  "period": 60,
+                  "region": "${AWS::Region}",
+                  "stat": "Average",
+                  "title": "ALB Target Group",
+                  "yAxis": {
+                    "left": {
+                      "min": 0
+                    }
+                  },
+                  "view": "timeSeries",
+                  "stacked": false
+                }
+              },
+              {
+                "height": 6,
+                "width": 6,
+                "y": 0,
+                "x": 6,
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [ 
+                      "AWS/ApplicationELB", 
+                      "TargetResponseTime", 
+                      "LoadBalancer", 
+                      "${ALBIdentifier}" 
+                    ],
+                    [ 
+                      "...", 
+                      { "stat": "Maximum" }
+                    ]
+                  ],  
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "ALB Target Response Time",
+                  "period": 60,
+                  "stat": "Average"
+                }
+              },
+              {
+                "height": 6,
+                "width": 6,
+                "y": 0,
+                "x": 12,
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [ 
+                      "AWS/EC2", 
+                      "NetworkIn", 
+                      "AutoScalingGroupName", 
+                      "${ASGName}"
+                    ],
+                    [ 
+                      ".", 
+                      "NetworkOut", 
+                      ".", 
+                      "." 
+                    ]
+                  ],
+                  "period": 60,
+                  "region": "${AWS::Region}",
+                  "sparkline": true,
+                  "view": "timeSeries",
+                  "stat": "Maximum",
+                  "title": "ASG/EC2 Network In/Out",
+                  "stacked": false
+                }
+              },
+              {
+                "height": 6,
+                "width": 6,
+                "y": 0,
+                "x": 18,
+                "type": "metric", 
+                "properties": {
+                  "metrics": [
+                    [ 
+                      "AWS/ApplicationELB",
+                      "HTTPCode_ELB_4XX_Count",
+                      "LoadBalancer",
+                      "${ALBIdentifier}"
+                    ],
+                    [
+                      ".",
+                      "HTTPCode_Target_5XX_Count",
+                      ".",
+                      "."
+                    ],
+                    [
+                      ".",
+                      "HTTPCode_Target_2XX_Count",
+                      ".",
+                      "."
+                    ],
+                    [
+                      ".",
+                      "HTTPCode_ELB_3XX_Count",
+                      ".",
+                      "."
+                    ],
+                    [
+                      ".",
+                      "HTTPCode_Target_4XX_Count",
+                      ".",
+                      "."
+                    ]
+                  ],
+                  "period": 60,
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "title": "ALB Response Codes",
+                  "stat": "Sum",
+                  "stacked": false
+                }
+              },
+              {
+                "height": 6,
+                "width": 6,
+                "y": 6,
+                "x": 0,
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/RDS",
+                      "CPUUtilization",
+                      "DBInstanceIdentifier",
+                      "${DBInstanceIdentifier}",
+                      { "label": "RDS" }
+                    ],
+                    [
+                      "AWS/EC2",
+                      "CPUUtilization",
+                      "AutoScalingGroupName",
+                      "${ASGName}",
+                      { "label": "ASG/EC2" }
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "CPU Utilization",
+                  "stat": "Average",
+                  "period": 60
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 6,
+                "x": 12,
+                "type": "metric", 
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/RDS", 
+                      "DatabaseConnections", 
+                      "DBInstanceIdentifier",
+                      "${DBInstanceIdentifier}"
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "stat": "Average",
+                  "period": 60,
+                  "title": "RDS Database Connections",
+                  "yAxis": {
+                    "left": {
+                      "showUnits": true
+                    }
+                  }
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 9,
+                "x": 12,
+                "type": "metric", 
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/RDS", 
+                      "ReadIOPS", 
+                      "DBInstanceIdentifier", 
+                      "${DBInstanceIdentifier}"
+                    ],
+                    [ 
+                      ".", 
+                      "WriteIOPS", 
+                      ".", 
+                      "."
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stat": "Average",
+                  "period": 60,
+                  "stacked": false,
+                  "yAxis": {
+                    "left": {
+                      "min": 0
+                    },
+                    "right": {
+                      "showUnits": true
+                    }
+                  },
+                  "region": "${AWS::Region}",
+                  "title": "RDS Read/Write IOPS",
+                  "legend": {
+                      "position": "bottom"
+                  }
+                }
+              },
+              {
+                "height": 6,
+                "width": 6,
+                "y": 6,
+                "x": 18,
+                "type": "metric", 
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/RDS", 
+                      "FreeableMemory", 
+                      "DBInstanceIdentifier",
+                      "${DBInstanceIdentifier}"
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "period": 60,
+                  "title": "RDS Freeable Memory"
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 12,
+                "x": 18,
+                "type": "metric", 
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/RDS", 
+                      "FreeStorageSpace", 
+                      "DBInstanceIdentifier",
+                      "${DBInstanceIdentifier}"
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "period": 60,
+                  "title": "RDS Free Storage Space",
+                  "yAxis": {
+                    "left": {
+                      "showUnits": true
+                    },
+                    "right": {
+                      "showUnits": true
+                    }
+                  }
+                }
+              },
+              {
+                "height": 6,
+                "width": 7,
+                "y": 15,
+                "x": 0,
+                "type": "log",
+                "properties": {
+                  "query": "SOURCE '/aws/elasticbeanstalk/${BeanstalkEnvName}/var/log/nginx/access.log' | fields @timestamp, @message \n| parse @message '* - - [*] \"* * *\" * * \"*\" \"*\"' as @client_ip, @timestamp, @method, @request, @protocol, @response_code, @size, @referrer, @user_agent \n| filter @message not like \"ELB-HealthChecker\" \n| filter @message not like \"Amazon-Route53-Health-Check-Service\" \n| parse @method \"GE*\" as MGET \n| parse @method \"POS*\" as MPOST \n| parse @method \"PU*\" as MPUT \n| parse @method \"DELET*\" as MDELETE \n| stats count(MGET) as GET, count(MPOST) as POST, count(MPUT) as PUT, count(MDELETE) as DELETE by bin(1m)",
+                  "region": "${AWS::Region}",
+                  "stacked": false,
+                  "title": "HTTP Methods",
+                  "view": "timeSeries"
+                }
+              },
+              {
+                "height": 6,
+                "width": 17,
+                "y": 15,
+                "x": 7,
+                "type": "log",
+                "properties": {
+                  "query": "SOURCE '/aws/elasticbeanstalk/${BeanstalkEnvName}/var/log/nginx/access.log' | fields @timestamp, @message \n| parse @message '* - - [*] \"* * *\" * * \"*\" \"*\"' as @client_ip, @timestamp, @method, @request, @protocol, @response_code, @size, @referrer, @user_agent \n| filter @message not like \"ELB-HealthChecker\" \n| filter @message not like \"Amazon-Route53-Health-Check-Service\" \n| parse @request /(?<base>^[^?]+)/ \n| parse base /(?<match>^(\\/[^\\/]+){1,4})/ \n| stats count(*) as total by concat(@method, \" \", match, \" \", @response_code) \n| sort total desc",
+                  "region": "${AWS::Region}",
+                  "stacked": false,
+                  "title": "Method/Resource/Response Distribution",
+                  "view": "pie"
+                }
+              },              
+              {
+                "height": 6,
+                "width": 24,
+                "y": 21,
+                "x": 0,
+                "type": "log",
+                "properties": {
+                  "query": "SOURCE '/aws/elasticbeanstalk/${BeanstalkEnvName}/var/log/nginx/access.log' | fields @timestamp, @message \n| parse @message '* - - [*] \"* * *\" * * \"*\" \"*\"' as @client_ip, @timestamp, @method, @request, @protocol, @response_code, @size, @referrer, @user_agent \n| filter @message not like \"ELB-HealthChecker\" \n| filter @message not like \"Amazon-Route53-Health-Check-Service\" \n| sort @timestamp desc\n| display @timestamp, @method, @request, @protocol, @response_code, @size, @referrer, @user_agent \n| limit 50",
+                  "region": "${AWS::Region}",
+                  "stacked": false,
+                  "title": "Log group: /aws/elasticbeanstalk/${BeanstalkEnvName}/var/log/nginx/access.log",
+                  "view": "table"
+                }
+              },
+              {
+                "height": 6,
+                "width": 24,
+                "y": 27,
+                "x": 0,
+                "type": "log",
+                "properties": {
+                  "query": "SOURCE '/aws/elasticbeanstalk/${BeanstalkEnvName}/var/log/eb-docker/containers/eb-current-app/stdouterr.log' | fields @timestamp, @message \n| sort @timestamp desc \n| limit 100",
+                  "region": "${AWS::Region}",
+                  "stacked": false,
+                  "view": "table"
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 12,
+                "x": 12,
+                "type": "metric", 
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/CloudFront", 
+                      "Requests", 
+                      "Region", 
+                      "Global",
+                      "DistributionId",
+                      "${DistributionId}"
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "period": 60,
+                  "region": "us-east-1",
+                  "title": "CloudFront - Viewer Requests",
+                  "stat": "Sum",
+                  "yAxis": {
+                    "left": {
+                      "showUnits": true
+                    }
+                  }
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 12,
+                "x": 0,
+                "type": "metric", 
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/CloudFront", 
+                      "BytesUploaded", 
+                      "Region", 
+                      "Global",
+                      "DistributionId",
+                      "${DistributionId}"
+                    ],
+                    [ 
+                      ".", 
+                      "BytesDownloaded", 
+                      ".", 
+                      ".",
+                      ".", 
+                      "."
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "period": 60,
+                  "region": "us-east-1",
+                  "title": "CloudFront - Bytes Uploaded & Downloaded by Viewers",
+                  "stat": "Sum",
+                  "yAxis": {
+                    "left": {
+                      "showUnits": true
+                    },
+                    "right": {
+                      "showUnits": true
+                    }
+                  }
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 12,
+                "x": 6,
+                "type": "metric", 
+                "properties": {
+                  "metrics": [
+                    [
+                      "AWS/CloudFront", 
+                      "TotalErrorRate", 
+                      "Region", 
+                      "Global",
+                      "DistributionId",
+                      "${DistributionId}"
+                    ],
+                    [ 
+                      ".", 
+                      "4xxErrorRate", 
+                      ".", 
+                      ".",
+                      ".", 
+                      "."
+                    ],
+                    [ 
+                      ".", 
+                      "5xxErrorRate", 
+                      ".", 
+                      ".",
+                      ".", 
+                      "."
+                    ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "period": 60,
+                  "region": "us-east-1",
+                  "title": "CloudFront - Error Rate",
+                  "yAxis": {
+                    "left": {
+                      "showUnits": true
+                    },
+                    "right": {
+                      "showUnits": true
+                    }
+                  }
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 6,
+                "x": 6,
+                "type": "metric",
+                "properties": {
+                    "metrics": [
+                        [ { "expression": "SEARCH('{CWAgent,AWSEBEnvironmentName,InstanceId} AWSEBEnvironmentName=\"${BeanstalkEnvName}\" MetricName=\"mem_used_percent\"', 'Average', 60)", "id": "e1", "period": 60 } ]
+                    ],
+                    "view": "timeSeries",
+                    "stacked": false,
+                    "region": "${AWS::Region}",
+                    "stat": "Average",
+                    "period": 60,
+                    "title": "EC2 Memory Used %"
+                }
+              },
+              {
+                "height": 3,
+                "width": 6,
+                "y": 9,
+                "x": 6,
+                "type": "metric",
+                "properties": {
+                    "metrics": [
+                        [ { "expression": "SEARCH('{CWAgent,AWSEBEnvironmentName,InstanceId,device,fstype,path} AWSEBEnvironmentName=\"${BeanstalkEnvName}\"', 'Average', 60)", "id": "e1", "period": 60 } ]
+                    ],
+                    "view": "timeSeries",
+                    "stacked": false,
+                    "region": "${AWS::Region}",
+                    "stat": "Average",
+                    "period": 60,
+                    "title": "EC2 Disk Used %"
+                }
+              },
+              {
+                "height": 6,
+                "width": 24,
+                "y": 33,
+                "x": 0,
+                "type": "log",
+                "properties": {
+                  "query": "SOURCE '/ecs/JobExecutorSmall-${EnvLabel}' |  parse  @message \"{'appDataBasePath': '*'\" as @s3path\n | filter !isblank(@s3path)\n | parse @s3path /(?<jobId>[^\\/]+)$/\n | sort @timestamp desc\n | display jobId,  @logStream, @s3path, @log, @timestamp",
+                  "region": "${AWS::Region}",
+                  "stacked": false,
+                  "view": "table"
+                }
+              }
+            ]
+          }
+        - ASGName: !GetAtt GetBsResourceInvocation.ASGName
+          DBInstanceIdentifier: !Ref 'DBInstanceIdentifier'
+          ALBIdentifier: !Join
+            - '/'
+            - - !Select [1, !Split ['/', !GetAtt GetBsResourceInvocation.LBArn]]
+              - !Select [2, !Split ['/', !GetAtt GetBsResourceInvocation.LBArn]]
+              - !Select [3, !Split ['/', !GetAtt GetBsResourceInvocation.LBArn]]
+          BeanstalkEnvName: !Ref 'BeanstalkEnvName'
+          TargetGroupIdentifier: !Select [5, !Split [':', !GetAtt GetBsResourceInvocation.TGArn]]

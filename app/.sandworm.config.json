@@ -1,0 +1,7 @@
+{
+  "audit": {
+    "skipTree": true,
+    "skipTreemap": true,
+    "failOn": ["*.critical"]
+  }
+}

@@ -1,0 +1,937 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template creates and configures the Web Application Firewall for your application.
+Parameters: 
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  CountAll:
+    Description: Do you want to override ALL rule actions to Count? If you choose 'No', some rules will still use Count by default as intended. 
+    Type: String
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+Conditions: 
+  OverrideToCount: !Equals [!Ref CountAll, 'Yes']
+
+Resources: 
+  RegionalWebAcl: 
+    UpdateReplacePolicy: 'Delete'
+    DeletionPolicy: 'Delete'
+    Type: 'AWS::WAFv2::WebACL'
+    # checkov:skip=CKV_AWS_192: "Ensure WAF prevents message lookup in Log4j2. See CVE-2021-44228 aka log4jshell"
+    # WAF does prevent it, unless the rule is overriden to Count by setting CountAll to True. Additionally, the app does not use Java. 
+    Properties: 
+      Description: 'A collection of rules to inspect and control web requests to your ALB - Application Load Balancer'
+      Name: !Sub '${EnvLabel}-waf'
+      DefaultAction:
+        Allow: {}
+      Scope: 'REGIONAL'
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        MetricName: !Sub '${EnvLabel}-waf'
+        CloudWatchMetricsEnabled: true
+      Rules: 
+        - Action: !If
+            - OverrideToCount
+            - Count: {}
+            - Block: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            MetricName: "Non-US-Countries"
+            CloudWatchMetricsEnabled: true
+          Priority: 0
+          Statement:
+            NotStatement:
+              Statement:
+                GeoMatchStatement:
+                  CountryCodes:
+                  - "US"
+          Name: "Non-US-Countries"
+        - OverrideAction: !If
+            - OverrideToCount
+            - Count: {}
+            - None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            MetricName: "AWS-AWSManagedRulesCommonRuleSet"
+            CloudWatchMetricsEnabled: true
+          Priority: 1
+          Statement:
+            ManagedRuleGroupStatement:
+              ManagedRuleGroupConfigs: []
+              VendorName: "AWS"
+              RuleActionOverrides: !If  
+                - OverrideToCount
+                - []
+                -  
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CrossSiteScripting_URIPATH_RC_COUNT"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CrossSiteScripting_BODY_RC_COUNT"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CrossSiteScripting_QUERYARGUMENTS_RC_COUNT"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CrossSiteScripting_COOKIE_RC_COUNT"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "UserAgent_BadBots_HEADER_RC_COUNT"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "NoUserAgent_HEADER"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "UserAgent_BadBots_HEADER"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SizeRestrictions_QUERYSTRING"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SizeRestrictions_Cookie_HEADER"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SizeRestrictions_BODY"
+                  - ActionToUse:
+                      Count: {}
+                    Name: "SizeRestrictions_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "EC2MetaDataSSRF_BODY"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "EC2MetaDataSSRF_COOKIE"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "EC2MetaDataSSRF_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "EC2MetaDataSSRF_QUERYARGUMENTS"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "GenericLFI_QUERYARGUMENTS"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "GenericLFI_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "GenericLFI_BODY"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "RestrictedExtensions_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "RestrictedExtensions_QUERYARGUMENTS"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "GenericRFI_QUERYARGUMENTS"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "GenericRFI_BODY"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "GenericRFI_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CrossSiteScripting_COOKIE"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CrossSiteScripting_QUERYARGUMENTS"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CrossSiteScripting_BODY"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CrossSiteScripting_URIPATH"
+              ExcludedRules: []
+              Name: "AWSManagedRulesCommonRuleSet"
+          Name: "AWS-AWSManagedRulesCommonRuleSet"
+        - OverrideAction: !If
+            - OverrideToCount
+            - Count: {}
+            - None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            MetricName: "AWS-AWSManagedRulesKnownBadInputsRuleSet"
+            CloudWatchMetricsEnabled: true
+          Priority: 2
+          Statement:
+            ManagedRuleGroupStatement:
+              ManagedRuleGroupConfigs: []
+              VendorName: "AWS"
+              RuleActionOverrides: !If  
+                - OverrideToCount
+                - []
+                -  
+                  - ActionToUse:
+                      Block: {}
+                    Name: "JavaDeserializationRCE_BODY"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "JavaDeserializationRCE_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "JavaDeserializationRCE_QUERYSTRING"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "JavaDeserializationRCE_HEADER"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "Host_localhost_HEADER"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "PROPFIND_METHOD"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "ExploitablePaths_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "Log4JRCE_QUERYSTRING"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "Log4JRCE_BODY"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "Log4JRCE_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "Log4JRCE_HEADER"
+              ExcludedRules: []
+              Name: "AWSManagedRulesKnownBadInputsRuleSet"
+          Name: "AWS-AWSManagedRulesKnownBadInputsRuleSet"
+        - OverrideAction: !If
+            - OverrideToCount
+            - Count: {}
+            - None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            MetricName: "AWS-AWSManagedRulesSQLiRuleSet"
+            CloudWatchMetricsEnabled: true
+          Priority: 3
+          Statement:
+            ManagedRuleGroupStatement:
+              ManagedRuleGroupConfigs: []
+              VendorName: "AWS"
+              RuleActionOverrides: !If  
+                - OverrideToCount
+                - []
+                -  
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SQLiExtendedPatterns_QUERYARGUMENTS"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SQLi_QUERYARGUMENTS"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SQLi_BODY"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SQLi_COOKIE"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SQLi_URIPATH"
+              ExcludedRules: []
+              Name: "AWSManagedRulesSQLiRuleSet"
+          Name: "AWS-AWSManagedRulesSQLiRuleSet"
+        - OverrideAction: !If
+            - OverrideToCount
+            - Count: {}
+            - None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            MetricName: "AWS-AWSManagedRulesLinuxRuleSet"
+            CloudWatchMetricsEnabled: true
+          Priority: 4
+          Statement:
+            ManagedRuleGroupStatement:
+              ManagedRuleGroupConfigs: []
+              VendorName: "AWS"
+              RuleActionOverrides: !If  
+                - OverrideToCount
+                - []
+                -  
+                  - ActionToUse:
+                      Block: {}
+                    Name: "LFI_URIPATH"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "LFI_QUERYSTRING"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "LFI_HEADER"
+              ExcludedRules: []
+              Name: "AWSManagedRulesLinuxRuleSet"
+          Name: "AWS-AWSManagedRulesLinuxRuleSet"
+        - OverrideAction: !If
+            - OverrideToCount
+            - Count: {}
+            - None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            MetricName: "AWS-AWSManagedRulesBotControlRuleSet"
+            CloudWatchMetricsEnabled: true
+          Priority: 5
+          Statement:
+            ManagedRuleGroupStatement:
+              ManagedRuleGroupConfigs:
+              - AWSManagedRulesBotControlRuleSet:
+                  InspectionLevel: "COMMON"
+              VendorName: "AWS"
+              RuleActionOverrides: !If  
+                - OverrideToCount
+                - []
+                -  
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryAdvertising"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryArchiver"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryContentFetcher"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryEmailClient"
+                  - ActionToUse:
+                      Count: {}
+                    Name: "CategoryHttpLibrary"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryLinkChecker"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryMiscellaneous"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryMonitoring"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryScrapingFramework"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategorySearchEngine"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategorySecurity"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategorySeo"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategorySocialMedia"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "CategoryAI"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SignalAutomatedBrowser"
+                  - ActionToUse:
+                      Block: {}
+                    Name: "SignalKnownBotDataCenter"
+                  - ActionToUse:
+                      Count: {}
+                    Name: "SignalNonBrowserUserAgent"
+              ExcludedRules: []
+              Name: "AWSManagedRulesBotControlRuleSet"
+          Name: "AWS-AWSManagedRulesBotControlRuleSet"
+        - OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            MetricName: "AWS-AWSManagedRulesAnonymousIpList"
+            CloudWatchMetricsEnabled: true
+          Priority: 6
+          Statement:
+            ManagedRuleGroupStatement:
+              ManagedRuleGroupConfigs: []
+              VendorName: "AWS"
+              RuleActionOverrides: []
+              ExcludedRules: []
+              Name: "AWSManagedRulesAnonymousIpList"
+          Name: "AWS-AWSManagedRulesAnonymousIpList"
+        - OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            MetricName: "AWS-AWSManagedRulesAmazonIpReputationList"
+            CloudWatchMetricsEnabled: true
+          Priority: 7
+          Statement:
+            ManagedRuleGroupStatement:
+              ManagedRuleGroupConfigs: []
+              VendorName: "AWS"
+              RuleActionOverrides: []
+              ExcludedRules: []
+              Name: "AWSManagedRulesAmazonIpReputationList"
+          Name: "AWS-AWSManagedRulesAmazonIpReputationList"
+  
+  WebAclLogging:
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Type: AWS::Logs::LogGroup
+    # checkov:skip=CKV_AWS_158: "Ensure that CloudWatch Log Group is encrypted by KMS"
+    # CloudWatch Log Group does not contain PII
+    Properties:
+         LogGroupClass: STANDARD
+         LogGroupName: !Sub 'aws-waf-logs-${EnvLabel}'
+         RetentionInDays: 365
+  
+  WebAclLoggingConfiguration:
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Type: "AWS::WAFv2::LoggingConfiguration"
+    Properties:
+         ResourceArn: !GetAtt RegionalWebAcl.Arn
+         LogDestinationConfigs: 
+           - !GetAtt WebAclLogging.Arn
+
+  WAFDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${EnvLabel}-WAF'
+      DashboardBody: !Sub
+        - |
+          {
+            "widgets": [
+              {
+                "height": 6,
+                "width": 12,
+                "y": 0,
+                "x": 0,
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                  [
+                      "AWS/WAFV2",
+                      "AllowedRequests",
+                      "WebACL",
+                      "${EnvLabel}-waf",
+                      "Region",
+                      "${AWS::Region}",
+                      "Rule", 
+                      "ALL"
+                  ],
+                  [
+                      ".",
+                      "CountedRequests",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                  ],
+                  [
+                      ".",
+                      "BlockedRequests",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                  ],
+                  [
+                      ".",
+                      "CaptchaRequests",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                  ],
+                  [
+                      ".",
+                      "ChallengeRequests",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                  ]
+                  ],
+                  "view": "singleValue",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "stat": "Sum",
+                  "title": "Total Number Statistics",
+                  "setPeriodToTimeRange": true,
+                  "period": 60
+                }
+              },
+              {
+                "height": 6,
+                "width": 12,
+                "y": 0,
+                "x": 12,
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                  [
+                      "AWS/WAFV2",
+                      "AllowedRequests",
+                      "WebACL",
+                      "${EnvLabel}-waf",
+                      "Region",
+                      "${AWS::Region}",
+                      "Rule", 
+                      "ALL"
+                  ],
+                  [
+                      ".",
+                      "CountedRequests",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                  ],
+                  [
+                      ".",
+                      "BlockedRequests",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                  ],
+                  [
+                      ".",
+                      "CaptchaRequests",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                  ],
+                  [
+                      ".",
+                      "ChallengeRequests",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                  ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "stat": "Sum",
+                  "period": 60,
+                  "title": "Total Graph Statistics"
+                }
+                },
+                {
+                "height": 6,
+                "width": 8,
+                "y": 6,
+                "x": 0,
+                "type": "metric",
+                "properties": {
+                    "metrics": [
+                    [
+                        "AWS/WAFV2",
+                        "BlockedRequests",
+                        "Region",
+                        "${AWS::Region}",
+                        "Rule",
+                        "Non-US-Countries",
+                        "WebACL",
+                        "${EnvLabel}-waf"
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".", 
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesCommonRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesKnownBadInputsRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesSQLiRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesLinuxRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesBotControlRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesAnonymousIpList",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesAmazonIpReputationList",
+                        ".",
+                        "."
+                      ]
+                    ],
+                    "view": "timeSeries",
+                    "stacked": false,
+                    "region": "${AWS::Region}",
+                    "stat": "Sum",
+                    "period": 60,
+                    "title": "BlockedRequests"
+                }
+                },
+                {
+                "height": 6,
+                "width": 8,
+                "y": 6,
+                "x": 8,
+                "type": "metric",
+                "properties": {
+                    "metrics": [
+                    [
+                        "AWS/WAFV2",
+                        "CountedRequests",
+                        "Region",
+                        "${AWS::Region}",
+                        "Rule",
+                        "Non-US-Countries",
+                        "WebACL",
+                        "${EnvLabel}-waf"
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".", 
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesCommonRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesKnownBadInputsRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesSQLiRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesLinuxRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesBotControlRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesAnonymousIpList",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesAmazonIpReputationList",
+                        ".",
+                        "."
+                      ]
+                    ],
+                    "view": "timeSeries",
+                    "stacked": false,
+                    "region": "${AWS::Region}",
+                    "stat": "Sum",
+                    "period": 60,
+                    "title": "CountedRequests"
+                }
+                },
+                {
+                "height": 6,
+                "width": 8,
+                "y": 6,
+                "x": 16,
+                "type": "metric",
+                "properties": {
+                    "metrics": [
+                    [
+                        "AWS/WAFV2",
+                        "CaptchaRequests",
+                        "Region",
+                        "${AWS::Region}",
+                        "Rule",
+                        "Non-US-Countries",
+                        "WebACL",
+                        "${EnvLabel}-waf"
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".", 
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesCommonRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesKnownBadInputsRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesSQLiRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesLinuxRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesBotControlRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesAnonymousIpList",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesAmazonIpReputationList",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        "ChallengeRequests",
+                        ".", 
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesCommonRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesKnownBadInputsRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesSQLiRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesLinuxRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesBotControlRuleSet",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesAnonymousIpList",
+                        ".",
+                        "."
+                    ],
+                    [
+                        ".",
+                        ".",
+                        ".",
+                        ".",
+                        ".", 
+                        "AWS-AWSManagedRulesAmazonIpReputationList",
+                        ".",
+                        "."
+                    ]
+                    ],
+                    "view": "timeSeries",
+                    "stacked": false,
+                    "region": "${AWS::Region}",
+                    "stat": "Sum",
+                    "period": 60,
+                    "title": "CaptchaRequests & ChallengeRequests"
+                }
+                },
+                {
+                "height": 8,
+                "width": 24,
+                "y": 12,
+                "x": 0,
+                "type": "log",
+                "properties": {
+                    "query": "SOURCE 'aws-waf-logs-${EnvLabel}' | fields @timestamp, @message \n| filter action = \"ALLOW\" \n| sort @timestamp desc \n| parse @message /\"name\":\"[Hh]ost\",\"value\":\"(?<host>[^\"]+)\"/ \n| parse @message /\"name\":\"[Uu]ser-[Aa]gent\",\"value\":\"(?<userAgent>[^\"]+)\"/ \n| filter httpRequest.uri not like \"/api/healthcheck\" \n| display @timestamp, action, httpRequest.country, httpRequest.clientIp, httpRequest.httpMethod, httpRequest.uri, host, userAgent",
+                    "region": "${AWS::Region}",
+                    "stacked": false,
+                    "view": "table",
+                    "title": "ALL Allowed Requests"
+                }
+                },
+                {
+                "height": 8,
+                "width": 24,
+                "y": 20,
+                "x": 0,
+                "type": "log",
+                "properties": {
+                    "query": "SOURCE 'aws-waf-logs-${EnvLabel}' | fields @timestamp, @message \n| sort @timestamp desc \n| filter action = \"BLOCK\" \n| parse @message /\"name\":\"[Hh]ost\",\"value\":\"(?<host>[^\"]+)\"/ \n| parse @message /\"name\":\"[Uu]ser-[Aa]gent\",\"value\":\"(?<userAgent>[^\"]+)\"/ \n| display @timestamp, action, httpRequest.country, httpRequest.clientIp, httpRequest.httpMethod, httpRequest.uri, host, userAgent",
+                    "region": "${AWS::Region}",
+                    "stacked": false,
+                    "view": "table",
+                    "title": "ALL Blocked Requests"
+                }
+                }
+            ]
+            }
+        - EnvLabel: !Ref EnvLabel
+
+Outputs:
+  BaseVersion:
+    Description: The version of the cloudformation template
+    Value: '1.0.0'
+  RegionalWebAclArn: 
+    Value: !GetAtt RegionalWebAcl.Arn
+    Description: ARN of the Web ACL used to create rules to inspect web requests. 
+    Export: 
+      Name: !Sub '${AWS::StackName}-RegionalWebAclArn'

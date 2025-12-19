@@ -1,0 +1,49 @@
+name: Compare template versions
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - cloudformation/**
+
+jobs:
+  version_check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Compare Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.ref}}
+
+      # - name: current directory
+      #   run: ls -la
+
+      - name: Get New Version
+        id: get_new_version
+        run: |
+          new_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          echo "${new_version}"
+
+      - name: Checkout Base Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.event.pull_request.base.ref}}
+
+      - name: Get Current Version
+        id: get_current_version
+        run: |
+          current_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')
+          echo "current_version=$current_version" >> $GITHUB_OUTPUT
+          echo "${current_version}"
+
+      - name: Compare Version Numbers
+        id: compare_versions
+        run: |
+          if [ "$(printf '%s\n' "${{ steps.get_current_version.outputs.current_version }}" "${{ steps.get_new_version.outputs.new_version }}" | sort -V | tail -n1)" = "${{ steps.get_current_version.outputs.current_version }}" ]; then
+            echo "Error: Please adjust version on new branch. It must be greater than version on base branch. Base branch version is ${{ steps.get_current_version.outputs.current_version }} and incoming branch version is ${{ steps.get_new_version.outputs.new_version }}"
+            exit 1
+          else
+            echo "Version check passed"
+          fi

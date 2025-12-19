@@ -1,0 +1,1 @@
+The JSON files in this directory can be used with [this React library](https://github.com/rjsf-team/react-jsonschema-form) ([playground here](https://rjsf-team.github.io/react-jsonschema-form/)) to define user inputs for a form associated with a bundle to collect input values for the bundle parameters.

@@ -1,0 +1,27 @@
+{
+    "title": "Descriptor Mapping",
+    "description": "This form allows you to set up a mapping between descriptor values",
+    "definitions": {
+      "ValueMap": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "type": "object",
+    "properties": {
+      "ValueMap": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/ValueMap"
+        },
+        "minItems": 1
+      }
+    }
+  }

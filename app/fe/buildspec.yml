@@ -1,0 +1,23 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - pwd
+      - cd app
+      - ls -la
+      - env
+  build:
+    commands:
+      - n 22
+      - npm ci
+      - npm run fe:build
+  post_build:
+    commands:
+      - ls
+      - ls dist
+      - ls dist/fe
+artifacts:
+  files:
+    - '**/*'
+  base-directory: app/dist/fe
+  

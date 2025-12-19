@@ -1,0 +1,165 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: app-ci-pipeline
+
+on:
+  pull_request:
+    branches: [main, development]
+    paths:
+      - "app/**"
+
+defaults:
+  run:
+    working-directory: ./app # Applies only to `run` steps, not `uses` steps
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+    # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: "npm"
+          cache-dependency-path: "app/package-lock.json"
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Sandworm Audit
+        run: npm run sandworm
+
+  # lint:
+  #   runs-on: ubuntu-latest
+
+  #   strategy:
+  #     matrix:
+  #       node-version: [22.x]
+  #   # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+
+  #   steps:
+  #     - name: Check out Git repository
+  #       uses: actions/checkout@v2
+
+  #     - uses: actions/checkout@v2
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v2
+  #       with:
+  #         node-version: 22
+  #         cache: "npm"
+
+  #     - name: Install Node.js dependencies
+  #       run: npm ci
+
+  #     - name: Generate Prisma client
+  #       run: npm run prisma:generate-client
+
+  #     - name: Lint
+  #       run: npm run lint
+
+  build_api:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+        # node-version: [22.x, 24.x] # TODO: test w/ 24.x as we get closer to the active LTS date
+        node-version: [22.x]
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: "npm"
+          cache-dependency-path: "app/package-lock.json" # Point to app directory
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npm run prisma:generate-client
+      - name: Build API
+        run: npm run api:build
+
+  typecheck_api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: "npm"
+          cache-dependency-path: "app/package-lock.json"
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npm run prisma:generate-client
+      - name: Typecheck API
+        run: npm run api:typecheck
+
+  build_fe:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+        # node-version: [22.x, 24.x] # TODO: test w/ 24.x as we get closer to the active LTS date
+        node-version: [22.x]
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: "npm"
+          cache-dependency-path: "app/package-lock.json"
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Build FE
+        run: npm run fe:build
+
+  typecheck_fe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: "npm"
+          cache-dependency-path: "app/package-lock.json"
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npm run prisma:generate-client
+      - name: Typecheck FE
+        run: npm run fe:typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+        # node-version: [22.x, 24.x] # TODO: test w/ 24.x as we get closer to the active LTS date
+        node-version: [22.x]
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: "npm"
+          cache-dependency-path: "app/package-lock.json"
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npm run prisma:generate-client
+      - name: Test API
+        run: npm run api:test
+      - name: Test Utils
+        run: npm run utils:test

@@ -1,0 +1,52 @@
+{
+  "name": "api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "api/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "api:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "api:build:development"
+        },
+        "production": {
+          "buildTarget": "api:build:production",
+          "inspect": false
+        }
+      }
+    },
+    "test-integration": {
+      "executor": "@nx/jest:jest",
+      "options": {
+        "jestConfig": "api/jest.config.integration.ts",
+        "passWithNoTests": true,
+        "runInBand": true
+      }
+    },
+    "test-unit": {
+      "executor": "@nx/jest:jest",
+      "options": {
+        "jestConfig": "api/jest.config.ts",
+        "passWithNoTests": true
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": ["nx test-integration api", "nx test-unit api"]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsc --noEmit --project ./api/tsconfig.app.json"
+      }
+    }
+  }
+}

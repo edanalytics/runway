@@ -1,0 +1,733 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template creates the ElasticBeanstalk applications.
+
+Parameters:
+  EnvLabel:
+    Description: Provide a label for your environment to identify resources easier.
+    Type: String
+  VpcId:
+    Description: An existing VPC ID for this deployment.
+    Type: String
+  PublicSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Public Subnet in one of the Availability Zones above
+  PublicSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Public Subnet in the other Availability Zone above
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in one of the Availability Zones above
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Subnet ID of a Private Subnet in the other Availability Zone above
+  InstanceTypes:
+    Type: String
+    Description: Size of the EC2 machines to host the Docker containers
+    Default: t4g.medium,c6g.large
+  BeanstalkMinInstances:
+    Type: Number
+    Description: Minimum Application Server Capacity for EB.
+  BeanstalkMaxInstances:
+    Type: Number
+    Description: Maximum Application Server Capacity for EB.
+  DomainName:
+    Type: String
+    Description: Domain Name for the environment
+  HostedZoneId:
+    Description: A Route53 HostedZone is required.  Select the zone for this environment.
+    Type: AWS::Route53::HostedZone::Id
+  DatabaseSecurityGroup:
+    Description: ID of the Security Group containing the database server
+    Type: String
+  LogRetentionInDays:
+    Description: Number of days to keep Beanstalk logs in CloudWatch Logs
+    Type: Number
+  CodeEnv:
+    Description: Environment string that dictates which local config file is in use
+    Type: String
+  HealthCheckPath:
+    Description: Application path for the load balancer to determine application health
+    Type: String
+  FrontEndUrl:
+    Type: String
+    Description: URL for front end
+  SNSTopicArn:
+    Description: ARN of SNS topic to publish Route53 HealthCheck Alarms
+    Type: String
+  East1AlarmLambdaArn:
+    Type: String
+    Description: ARN of the East1 Alarm Lambda Function
+  WebACLArn:
+    Description: WAF ARN
+    Type: String
+  DeploymentStrategy:
+    Type: String
+    Description: Beanstalk deployment strategy for platform updates and application versions.
+    AllowedValues:
+      - 'RollingWithAdditionalBatch'
+      - 'AllAtOnce'
+  BeanstalkPlatformUpdateTime: 
+    Description: Preferred time for Elastic Beanstalk automatic platform updates.  
+    Type: String
+  BundleBranch: 
+    Description: Name of the bundle branch in the earthmover Ed-Fi bundles repository
+    Type: String
+  ApplicationEventsToSlackFunctionArn:
+    Type: String
+    Description: ARN of the ApplicationEventsToSlackFunction
+  SlackWebhookURL: 
+    Description: Provide a webhook URL for the slack channel that will receive events from the app
+    Type: String 
+  
+Conditions:
+  EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
+  AttachWAF: !Not [!Equals [!Ref WebACLArn, '']]
+  UseRollingUpdates: !Equals
+    - !Ref 'DeploymentStrategy'
+    - 'RollingWithAdditionalBatch'
+  EnableBeanstalkPlatformUpdate: !Not [!Equals [!Ref BeanstalkPlatformUpdateTime, '']]
+  EnableSlackAlerting: !Not [!Equals [!Ref SlackWebhookURL, '']]
+
+Resources:
+  ElasticBeanstalkEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSElasticBeanstalkWebTier'
+        - 'arn:aws:iam::aws:policy/AWSElasticBeanstalkMulticontainerDocker'
+        - 'arn:aws:iam::aws:policy/AWSElasticBeanstalkWorkerTier'
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+      RoleName: !Sub '${EnvLabel}-elasticbeanstalk-ec2-role'
+      Policies:
+        - PolicyName: 'SecretsManager'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${EnvLabel}-*'
+        - PolicyName: 'DataIntegrationBucketAccess'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvLabel}-${AWS::AccountId}-data-integration'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvLabel}-${AWS::AccountId}-data-integration/*'
+        - PolicyName: 'EcsRunTask'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask
+                  - ecs:DescribeTasks
+                  - ecs:DescribeTaskDefinition
+                Resource: !Sub "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${EnvLabel}-JobExecutor*"
+              - Effect: Allow
+                Action: "iam:PassRole"
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
+        - PolicyName: 'AttachWebACL'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: elasticloadbalancing:SetWebACL
+                Resource: !Sub 'arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:loadbalancer/*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/beanstalk/environments/${EnvLabel}-Env/parameters/*'
+        - PolicyName: 'CloudWatchAgent'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ec2:DescribeTags
+                Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+        - PolicyName: 'AutoScaling'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:SetInstanceHealth
+                Resource: !Sub 'arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*'
+        - PolicyName: 'EventBridge'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+  ElasticBeanstalkEC2RoleWAFManagedPolicy:
+    Condition: AttachWAF
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: WAF
+            Effect: Allow
+            Action:
+              - 'wafv2:AssociateWebACL'
+              - 'wafv2:DisassociateWebACL'
+            Resource: !Ref 'WebACLArn'
+      Roles:
+        - !Ref ElasticBeanstalkEC2Role
+  WebACLArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub 'WAF for the ${EnvLabel} environment.'
+      Name: !Sub '/beanstalk/environments/${EnvLabel}-Env/parameters/WebACLArn'
+      Type: String
+      Value: !If ['AttachWAF', !Ref 'WebACLArn', 'no_waf']
+  ElasticBeanstalkEC2InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ElasticBeanstalkEC2Role
+  ElasticBeanstalkServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - elasticbeanstalk.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSElasticBeanstalkEnhancedHealth
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy
+      RoleName: !Sub '${EnvLabel}-elasticbeanstalk-service-role'
+      Policies:
+        - PolicyName: SNS
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - SNS:GetTopicAttributes
+                Resource: !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${EnvLabel}*'
+        - PolicyName: SSM
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/beanstalk/environments/${EnvLabel}-Env/parameters/ALBHostNameRestriction'
+  EcsTaskRole: 
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: 
+                - !GetAtt ElasticBeanstalkEC2Role.Arn
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: EcsTaskPolicy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:ListSecrets
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${EnvLabel}-PostgresMasterSecret*'
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                  - logs:PutRetentionPolicy
+                  - logs:DescribeLogStreams
+                  - logs:FilterLogEvents
+                  - logs:DescribeLogGroups
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${EnvLabel}-${AWS::AccountId}-data-integration*'
+      MaxSessionDuration: 43200
+  EcsTaskRoleArnParameter: 
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/ecs/environments/${EnvLabel}/EcsTaskRoleArn'
+      Type: 'String'
+      Value: !GetAtt 'EcsTaskRole.Arn'
+      Description: ARN of the ECS Task Role
+  BeanstalkEC2ServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvLabel}-Beanstalk'
+      GroupDescription: !Sub 'Beanstalk managed servers for the ${EnvLabel} environment'
+      VpcId: !Ref VpcId
+  BeanstalkLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvLabel}-LoadBalancer'
+      GroupDescription: !Sub 'Load Balancer SG for the ${EnvLabel} environment'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        # checkov:skip=CKV_AWS_260: Ensure no security groups allow ingress from 0.0.0.0:0 to port 80
+        # ALB redirects traffic on port 80 to port 443
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: '0.0.0.0/0'
+        Description: 'Allow HTTP access'
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: '0.0.0.0/0'
+        Description: 'Allow HTTPS access'
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: '0.0.0.0/0'
+        Description: 'Allow outbound HTTP access'
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: '0.0.0.0/0'
+        Description: 'Allow outbound HTTPS access'
+  DatabaseSecurityGroupInBeanstalk:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Allow Beanstalk EC2 to connect to the database
+      GroupId: !Ref DatabaseSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref BeanstalkEC2ServerSecurityGroup
+  ALBHostNameRestrictionParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub 'Web traffic for the ${EnvLabel} environment must match this host-header.'
+      Name: !Sub '/beanstalk/environments/${EnvLabel}-Env/parameters/ALBHostNameRestriction'
+      Type: String
+      Value: !Ref DomainName
+  BeanstalkApplication:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      ApplicationName: !Sub '${EnvLabel}-App'
+      Description: !Sub '${EnvLabel}-App'
+  BeanstalkSNSTopic:
+    Type: AWS::SNS::Topic
+    # checkov:skip=CKV_AWS_26: "Ensure all data stored in the SNS topic is encrypted"
+    Properties:
+      TopicName: !Sub '${EnvLabel}-Beanstalk'
+  BeanstalkSNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref 'BeanstalkSNSTopic'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action:
+              - SNS:GetTopicAttributes
+              - SNS:SetTopicAttributes
+              - SNS:AddPermission
+              - SNS:RemovePermission
+              - SNS:DeleteTopic
+              - SNS:Subscribe
+              - SNS:ListSubscriptionsByTopic
+              - SNS:Publish
+            Resource: !Ref 'BeanstalkSNSTopic'
+            Condition:
+              StringEquals:
+                AWS:SourceOwner: !Ref 'AWS::AccountId'
+  BeanstalkEnvironment:
+    DependsOn:
+      - ALBHostNameRestrictionParameter
+      - WebACLArnParameter
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref BeanstalkApplication
+      Description: 'Beanstalk environment'
+      EnvironmentName: !Sub '${EnvLabel}-Env'
+      OptionSettings:
+        - Namespace: aws:elasticbeanstalk:sns:topics
+          OptionName: Notification Topic ARN
+          Value: !Ref 'BeanstalkSNSTopic'
+        - Namespace: aws:elasticbeanstalk:healthreporting:system
+          OptionName: ConfigDocument
+          Value: |
+            {
+                "Version": 1,
+                "Rules": {
+                    "Environment": {
+                        "Application": {
+                            "ApplicationRequests4xx": {
+                                "Enabled": false
+                            }
+                        },
+                        "ELB": {
+                            "ELBRequests4xx": {
+                                "Enabled": false
+                            }
+                        }
+                    }
+                }
+            }
+        - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+          OptionName: RollingUpdateEnabled
+          Value: !If [ UseRollingUpdates, true, false ]
+        - !If
+          - UseRollingUpdates
+          - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+            OptionName: MaxBatchSize
+            Value: 1
+          - !Ref 'AWS::NoValue'
+        - !If
+          - UseRollingUpdates
+          - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+            OptionName: MinInstancesInService
+            Value: !Ref 'BeanstalkMinInstances'
+          - !Ref 'AWS::NoValue'
+        - !If
+          - UseRollingUpdates
+          - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+            OptionName: RollingUpdateType
+            Value: Health
+          - !Ref 'AWS::NoValue'
+        - !If
+          - UseRollingUpdates
+          - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+            OptionName: Timeout
+            Value: PT30M
+          - !Ref 'AWS::NoValue'
+        - Namespace: aws:elasticbeanstalk:command
+          OptionName: DeploymentPolicy
+          Value: !Ref DeploymentStrategy
+        - !If
+          - UseRollingUpdates
+          - Namespace: aws:elasticbeanstalk:command
+            OptionName: BatchSizeType
+            Value: Fixed
+          - !Ref 'AWS::NoValue'
+        - !If
+          - UseRollingUpdates
+          - Namespace: aws:elasticbeanstalk:command
+            OptionName: BatchSize
+            Value: 1
+          - !Ref 'AWS::NoValue'
+        - !If
+          - EnableBeanstalkPlatformUpdate
+          - Namespace: aws:elasticbeanstalk:managedactions
+            OptionName: ManagedActionsEnabled
+            Value: 'true'
+          - Namespace: aws:elasticbeanstalk:managedactions
+            OptionName: ManagedActionsEnabled
+            Value: 'false'
+        - !If
+          - EnableBeanstalkPlatformUpdate
+          - Namespace: aws:elasticbeanstalk:managedactions:platformupdate
+            OptionName: UpdateLevel
+            Value: 'minor'
+          - !Ref 'AWS::NoValue'
+        - !If
+          - EnableBeanstalkPlatformUpdate
+          - Namespace: aws:elasticbeanstalk:managedactions:platformupdate
+            OptionName: InstanceRefreshEnabled
+            Value: 'false'
+          - !Ref 'AWS::NoValue'
+        - !If
+          - EnableBeanstalkPlatformUpdate
+          - Namespace: aws:elasticbeanstalk:managedactions
+            OptionName: PreferredStartTime
+            Value: !Ref BeanstalkPlatformUpdateTime
+          - !Ref 'AWS::NoValue'
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: ServiceRole
+          Value: !Ref ElasticBeanstalkServiceRole
+        - Namespace: aws:autoscaling:asg
+          OptionName: MinSize
+          Value: !Ref 'BeanstalkMinInstances'
+        - Namespace: aws:autoscaling:asg
+          OptionName: MaxSize
+          Value: !Ref 'BeanstalkMaxInstances'
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: EnvironmentType
+          Value: LoadBalanced
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: LoadBalancerType
+          Value: application
+        - Namespace: aws:ec2:instances
+          OptionName: InstanceTypes
+          Value: !Ref InstanceTypes
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: DisableIMDSv1
+          Value: true
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: IamInstanceProfile
+          Value: !Ref ElasticBeanstalkEC2InstanceProfile
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: SecurityGroups
+          Value: !Ref BeanstalkEC2ServerSecurityGroup
+        - Namespace: aws:autoscaling:trigger
+          OptionName: Unit
+          Value: Percent
+        - Namespace: aws:autoscaling:trigger
+          OptionName: UpperThreshold
+          Value: 60
+        - Namespace: aws:autoscaling:trigger
+          OptionName: LowerThreshold
+          Value: 20
+        - Namespace: aws:autoscaling:trigger
+          OptionName: MeasureName
+          Value: CPUUtilization
+        - Namespace: aws:ec2:vpc
+          OptionName: VPCId
+          Value: !Ref VpcId
+        - Namespace: aws:ec2:vpc
+          OptionName: ELBSubnets
+          Value: !Join
+            - ','
+            - - !Ref PublicSubnet1Id
+              - !Ref PublicSubnet2Id
+        - Namespace: aws:ec2:vpc
+          OptionName: Subnets
+          Value: !Join
+            - ','
+            - - !Ref PrivateSubnet1Id
+              - !Ref PrivateSubnet2Id
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: AWS_REGION
+          Value: !Ref AWS::Region
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: POSTGRES_CONFIG_SECRET
+          Value: !Sub '${EnvLabel}-PostgresMasterSecret'
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: ODS_CREDS_ENCRYPTION_KEY_SECRET
+          Value: !Sub '${EnvLabel}-PostgresEncryptionKeySecret'
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: JWT_ENCRYPTION_KEY_SECRET
+          Value: !Sub '${EnvLabel}-JwtEncryptionKeySecret'
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: ENVLABEL
+          Value: !Ref EnvLabel
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: ENV_NAME
+          Value: !Sub '${EnvLabel}-Env'
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: S3_FILE_UPLOAD_BUCKET
+          Value: !Sub '${EnvLabel}-${AWS::AccountId}-data-integration'
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: PORT
+          Value: '5000'
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: TIMEOUT_SECONDS
+          Value: '43200'
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: BUNDLE_BRANCH
+          Value: !Ref BundleBranch
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: CODE_ENV
+          Value: !Ref CodeEnv
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: NODE_EXTRA_CA_CERTS
+          Value: global-bundle.pem
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: MY_URL
+          Value: !Sub 'https://${DomainName}'
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: FE_URL
+          Value: !Ref FrontEndUrl
+        - Namespace: aws:elasticbeanstalk:environment:process:https
+          OptionName: Port
+          Value: 443
+        - Namespace: aws:elasticbeanstalk:environment:process:https
+          OptionName: Protocol
+          Value: HTTPS
+        - Namespace: aws:elasticbeanstalk:environment:process:https
+          OptionName: HealthCheckPath
+          Value: !Ref HealthCheckPath
+        - Namespace: aws:elbv2:loadbalancer
+          OptionName: SecurityGroups
+          Value: !Ref BeanstalkLoadBalancerSecurityGroup
+        - Namespace: aws:elbv2:loadbalancer
+          OptionName: ManagedSecurityGroup
+          Value: !Ref BeanstalkLoadBalancerSecurityGroup
+        - Namespace: aws:elbv2:listener:443
+          OptionName: Protocol
+          Value: HTTPS
+        - Namespace: aws:elbv2:listener:443
+          OptionName: SSLCertificateArns
+          Value: !Ref x509Certificate
+        - Namespace: aws:elbv2:listener:443
+          OptionName: SSLPolicy
+          Value: ELBSecurityPolicy-TLS13-1-2-Res-2021-06
+        - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: StreamLogs
+          Value: true
+        - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: DeleteOnTerminate
+          Value: true
+        - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: RetentionInDays
+          Value: !Ref LogRetentionInDays
+      SolutionStackName: !Sub 'arn:${AWS::Partition}:elasticbeanstalk:${AWS::Region}::platform/Docker running on 64bit Amazon Linux 2023'
+      Tier:
+        Name: 'WebServer'
+        Type: 'Standard'
+        Version: '1.0'
+      Tags:
+        - Key: Environment
+          Value: !Ref 'EnvLabel'
+  x509Certificate:
+    Type: 'AWS::CertificateManager::Certificate'
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+  AppRoute53record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Ref DomainName
+      HostedZoneId: !Ref HostedZoneId
+      Type: CNAME
+      TTL: 900
+      ResourceRecords:
+        - !GetAtt 'BeanstalkEnvironment.EndpointURL'
+  Route53HealthCheck:
+    Condition: EnableHealthCheck
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        Port: 443
+        Type: HTTPS
+        FullyQualifiedDomainName: !Ref 'DomainName'
+        RequestInterval: 30
+        FailureThreshold: 3
+        ResourcePath: !Ref HealthCheckPath
+        Regions:
+          - us-east-1
+          - us-west-1
+          - us-west-2
+      HealthCheckTags:
+        - Key: Name
+          Value: !Sub '${EnvLabel}-BackEnd-Route53-HealthCheck'
+  East1Route53HealthCheckAlarm:
+    Condition: EnableHealthCheck
+    Type: Custom::East1Alarm
+    DeletionPolicy: Delete
+    Properties:
+      # checkov:skip=CKV_SECRET_6: The ServiceToken is not a secret.
+      ServiceToken: !Ref 'East1AlarmLambdaArn'
+      EnvLabel: !Ref 'EnvLabel'
+      SNSTopicArn: !Ref 'SNSTopicArn'
+      Route53HealthCheck: !Ref 'Route53HealthCheck'
+      AlarmLabel: 'BackEnd'
+  BeanstalkApplicationEventsRuleRole: 
+    Condition: EnableSlackAlerting
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Action: "sts:AssumeRole"
+          Principal:
+            Service: "events.amazonaws.com"
+      RoleName: !Sub '${EnvLabel}-BeanstalkApplicationEventsRuleRole'
+      Path: /
+      Policies: 
+        - PolicyName: 'BeanstalkApplicationEventsRule-Policy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource: !Ref ApplicationEventsToSlackFunctionArn
+  BeanstalkJobExecutorEventsRule:
+    Condition: EnableSlackAlerting
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "This rule is used to receive Job Executor events from Elastic Beanstalk and send them to Lambda" 
+      EventBusName: 'default'
+      EventPattern:
+        source:
+          - !Sub 'runway.${EnvLabel}'
+        detail-type: 
+          - 'run_complete'
+        # detail:
+        #   $or:
+        #   - status:
+        #     - "error"
+        #   - completedWithErrors:
+        #     - true  
+      Name: !Sub '${EnvLabel}-Job-Executor-Events'
+      State: ENABLED
+      Targets:
+        - Id: !Sub '${EnvLabel}-ApplicationEventsToSlackFunction'
+          Arn: !Ref ApplicationEventsToSlackFunctionArn
+          RoleArn: 
+            !GetAtt 'BeanstalkApplicationEventsRuleRole.Arn'
+     
+Outputs:
+  EndpointURL:
+    Description: The DNS name of the ELB
+    Value: !GetAtt 'BeanstalkEnvironment.EndpointURL'
+    Export:
+      Name: !Sub '${AWS::StackName}-EndpointURL'
+  EnvironmentName:
+    Description: The name of the ElasticBeanstalk Environment.
+    Value: !Ref 'BeanstalkEnvironment'
+    Export:
+      Name: !Sub '${AWS::StackName}-EnvironmentName'
+  ApplicationName:
+    Description: The name of the ElasticBeanstalk Application.
+    Value: !Ref 'BeanstalkApplication'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApplicationName'
+  BeanstalkSecurityGroup:
+    Description: Security Group ID of the Beanstalk servers
+    Value: !Ref 'BeanstalkEC2ServerSecurityGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-BeanstalkSecurityGroup'
+  EnvLabel:
+    Description: EnvLabel associated with this environment
+    Value: !Ref 'EnvLabel'
+    Export:
+      Name: !Sub '${AWS::StackName}-EnvLabel'

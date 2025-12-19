@@ -1,0 +1,25 @@
+# config file to build Job Executor and push to ECR
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - pwd
+      - ls -al
+      - docker version
+      - export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - export ECR_REPO=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME
+      - export DOCKER_TAG=$ECR_REPO:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      - export DOCKER_CACHE=$ECR_REPO:latest
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
+      - env
+  build:
+    commands:
+      - cd executor
+      - docker pull $DOCKER_CACHE || true
+      - docker build --cache-from $DOCKER_CACHE --build-arg GIT_HASH=${CODEBUILD_RESOLVED_SOURCE_VERSION} -t $DOCKER_TAG .
+      - docker tag $DOCKER_TAG $DOCKER_CACHE
+      - docker push $DOCKER_TAG
+      - docker push $DOCKER_CACHE
+  post_build:
+    commands:
+      - echo "docker image built - $DOCKER_TAG"
