@@ -1,5 +1,7 @@
 This repo contains code for Runway, a software system for integrating data to Ed-Fi. It can be [deployed locally via Docker](#local-deployment) or in [AWS](#aws-deployment).
 
+Runway is a friendly UI over our open source tools [Earthmover](https://github.com/edanalytics/earthmover) and [Lightbeam](https://github.com/edanalytics/lightbeam) for loading flat files (particularly assessments) to an Ed-Fi ODS. But note that Runway itself is not open source, but non-commercial. It is free to use for Education Agencies and non-profits, but requires a license for for-profit entities. See our [license](LICENSE.md) for details.
+
 ## Design
 The system consists of several components:
 1. the Application frontent and backend (see `app/`), with which users interact to set up Ed-Fi connections and run integration jobs
@@ -62,10 +64,6 @@ The entrypoint for the job_executor is `init.sh`, which calls a "prepare" bash s
 ### Application features
 Coming soon...
 
-
-## Archived information
-
-### Bundle schemas
 This repo also contains a folder `bundleSchemas/` which contains several examples of JSON schemas (which a bundle could provide) that would be turned into form elements on the "create job" part of this app, to collect configuration settings to be passed into the bundle.
 
 Such schemas can be turned into form elements using (for React) [react-jsonschema-form](https://github.com/rjsf-team/react-jsonschema-form) or (for jQuery) [jsonform](https://github.com/jsonform/jsonform), [jsonToForm](https://github.com/mirshahreza/jsonToForm), or [json-editor](https://github.com/json-editor/json-editor).
