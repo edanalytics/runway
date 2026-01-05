@@ -152,6 +152,15 @@ export class GetJobDto
 
     return failedResources.some((resource) => reportableResources.includes(resource));
   }
+  get resourceErrors() {
+    const failedResources = Object.entries(this.resourceSummaries ?? {})
+      .filter(([_, summary]) => summary.failed > 0)
+      .map(([resource]) => resource);
+
+    const reportableResources = this.template.reportResources ?? [];
+
+    return failedResources.filter((resource) => reportableResources.includes(resource));
+  }
 
   get resourceSummaries():
     | Record<string, { skipped: number; failed: number; success: number }>

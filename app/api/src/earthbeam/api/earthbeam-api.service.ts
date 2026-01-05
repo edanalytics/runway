@@ -224,18 +224,47 @@ export class EarthbeamApiService {
        * to abstract
        */
       const jobDto = toGetJobDto({ ...run.job, runs: [run] });
-      const { hasResourceErrors } = jobDto;
+      const runSummary = run.summary as any;
+      const allProcessedRecordsFailed =
+        runSummary.studentAssessments.records_processed ===
+        runSummary.studentAssessments.records_failed;
+      const unmatchedStudentsInfo = run.unmatchedStudentsInfo as any;
+      const { hasResourceErrors, resourceErrors } = jobDto;
       const hasUnmatchedStudents = runOutputFiles?.some(
         (file) => file.name === 'input_no_student_id_match.csv'
       );
+      const odsConnection = await prisma.odsConnection.findUnique({
+        where: {
+          id: jobDto.odsId,
+        },
+      });
+      const assessmentType = run.job.name;
+      const tenantCode = run.job.tenantCode;
+      const partnerId = run.job.partnerId;
+      const unmatchedStudentCount = unmatchedStudentsInfo.count;
+      const errorCode = run.status !== 'success' ? run.runError[0].code : null;
+      const errorString = errorCode ? `The run errored with the error code ${errorCode}.` : '';
+      const resourceErrorString = hasResourceErrors
+        ? `The following resource errors occurred: ${resourceErrors.join(', ')}`
+        : '';
+      const summarySentence =
+        `${assessmentType} completed for tenant ${tenantCode} and partner ${partnerId}. There were ${unmatchedStudentCount} unmatched students.` +
+        errorString +
+        resourceErrorString;
+
       await this.eventEmitter.emit('run_complete', {
+        summary: summarySentence,
         runId: run.id,
         jobId: run.job.id,
         status: run.status,
         completedWithErrors:
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
+        odsUrl: odsConnection?.host,
+        schoolYear: run.job.schoolYearId,
+        allProcessedRecordsFailed,
+        unmatchedStudentsCount: unmatchedStudentsInfo.count,
         input: {
-          assessment: run.job.name,
+          assessment: assessmentType,
           files: run.job.files.map((file) => file.nameFromUser),
           params: jobDto.inputParams?.map(({ name, value }) => ({ name, value })),
         },
@@ -243,14 +272,11 @@ export class EarthbeamApiService {
           hasUnmatchedStudents,
           hasResourceErrors,
           resourceSummary: run.summary,
-          errors: run.runError.map(({ code, payload }) => ({
-            code,
-            payload,
-          })),
+          errors: resourceErrors,
         },
         metadata: {
-          tenantCode: run.job.tenantCode,
-          partnerId: run.job.partnerId,
+          tenantCode,
+          partnerId,
           userEmail: run.userRunCreatedByIdTouser?.email,
           userName:
             run.userRunCreatedByIdTouser?.givenName +
