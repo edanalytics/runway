@@ -1,4 +1,0 @@
-# Variables set here are accessible at `import.meta.env.[variable]`
-# https://vitejs.dev/guide/env-and-mode.html
-
-VITE_API_URL=http://localhost:3333
