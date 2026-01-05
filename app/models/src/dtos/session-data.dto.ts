@@ -1,3 +1,5 @@
+import { PrivilegeKey } from './privileges';
+import { AppRoles, rolePrivileges } from './role-privileges';
 import { GetUserDto, toGetUserDto } from './user.dto';
 import { IPassportSession } from '../interfaces';
 import { Expose, Transform, Type } from 'class-transformer';
@@ -13,8 +15,14 @@ export class GetSessionDataDto {
   @Expose()
   @Type(() => GetTenantDto)
   tenant: Tenant;
+  @Expose()
+  roles: AppRoles[];
+  get privileges() {
+    return new Set<PrivilegeKey>(
+      ...this.roles.flatMap((role) => (role in rolePrivileges ? rolePrivileges[role] : []))
+    );
+  }
 }
-
 export const toGetSessionDataDto = makeSerializerCustomType<GetSessionDataDto, IPassportSession>(
   GetSessionDataDto
 );

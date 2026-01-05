@@ -18,6 +18,7 @@ import {
   seedContext,
 } from '../factories/partner-user-tenant';
 import { partnerA, partnerX } from '../fixtures/context-fixtures/partner-fixtures';
+import { SessionData } from 'express-session';
 
 describe('GET /job-templates', () => {
   const endpoint = '/job-templates/assessments';
@@ -34,7 +35,7 @@ describe('GET /job-templates', () => {
     const sessM = sessionCookie('job-templates-spec-m');
     let contextM: Awaited<ReturnType<typeof seedContext>>;
 
-    beforeAll(async () => {
+    beforeEach(async () => {
       contextM = await seedContext(makePartnerUserTenantContext('m'));
 
       jest.spyOn(EarthbeamBundlesService.prototype, 'getBundles').mockResolvedValue(allBundles);
@@ -43,7 +44,7 @@ describe('GET /job-templates', () => {
       await sessionStore.set(sessM.sid, sessionData(contextM.user, contextM.tenant));
     });
 
-    afterAll(async () => {
+    afterEach(async () => {
       await sessionStore.destroy(sessA.sid);
       await sessionStore.destroy(sessX.sid);
       await sessionStore.destroy(sessM.sid);
@@ -101,6 +102,21 @@ describe('GET /job-templates', () => {
       const resA = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessA.cookie]);
       expect(resA.status).toBe(200);
       expect(resA.body).toHaveLength(partnerABundles.length);
+    });
+    it('should reject requests from user without the PartnerAdmin role', async () => {
+      const resA = await request(app.getHttpServer())
+        .post('/partners/assessments/test')
+        .set('Cookie', [sessA.cookie]);
+      expect(resA.status).toBe(403);
+    });
+    it('allow partner admins to call this route', async () => {
+      const session = await sessionStore.get(sessA.sid);
+      session?.passport?.user.roles.push('PartnerAdmin');
+      await sessionStore.set(sessA.sid, session as SessionData);
+      const resA = await request(app.getHttpServer())
+        .post('/partners/assessments/test')
+        .set('Cookie', [sessA.cookie]);
+      expect(resA.status).toBe(201);
     });
   });
 });
