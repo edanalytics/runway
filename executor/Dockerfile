@@ -16,7 +16,7 @@ COPY ./ /executor
 RUN pip install -r requirements.txt && \
     pip install -e .
 
-RUN git clone https://github.com/edanalytics/earthmover_edfi_bundles.git bundles
+RUN git clone https://github.com/edanalytics/earthmover_edfi_bundles.git -b fix/circle_no_match_output_header bundles
 
 RUN useradd -M -s /bin/bash executor && \
     chown -R executor:executor /executor
