@@ -201,9 +201,9 @@ class JobExecutor:
 
             #    ASSESSMENT_BUNDLE_BRANCH is intended to be passed to Earthmover but we
             # can utilize it to enable non-main code to be run if the app dictates it
-            #subprocess.run(
-            #    ["git", "-C", config.BUNDLE_DIR, "checkout", os.environ["ASSESSMENT_BUNDLE_BRANCH"]]
-            #).check_returncode()
+            subprocess.run(
+                ["git", "-C", config.BUNDLE_DIR, "checkout", os.environ["ASSESSMENT_BUNDLE_BRANCH"]]
+            ).check_returncode()
 
             subprocess.run(
                 ["git", "-C", config.BUNDLE_DIR, "pull", "--ff-only"]
