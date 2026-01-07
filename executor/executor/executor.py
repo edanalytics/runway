@@ -388,6 +388,11 @@ class JobExecutor:
                     # failed again, move on to shutdown procedure
                     pass
         finally:
+            #    the app relies on the presence of the unmatched students file but does not check
+            # whether it is populated. It is possible that Earthmover successfully matches students
+            # (so the file is empty) but then fails during data transformation. We need to check the
+            # match rates whether or not Earthmover succeeds, so that we don't accidentally tell the
+            # user there are unmatched students when there are none
             self.record_highest_match_rate()
             if fatal:
                 # shut it down
@@ -538,11 +543,6 @@ class JobExecutor:
             self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
 
         if self.num_unmatched_students == 0:
-            #    the app relies on the presence of the unmatched students file but does not check
-            # whether it is populated. It is possible that Earthmover successfully matches students
-            # (so the file is empty) but then fails during data transformation. By skipping the
-            # upload, we avoid the possibility of telling the user there were unmatched students when
-            # in fact there were none
             self.logger.debug("no unmatched students. Skipping upload of unmatched students file")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
 
