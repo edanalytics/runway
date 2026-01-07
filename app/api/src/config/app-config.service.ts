@@ -104,6 +104,12 @@ export class AppConfigService {
     return this.get('S3_FILE_UPLOAD_BUCKET');
   }
 
+  getExternalApiConfig(): { issuerUrl: string | undefined; audience: string | undefined } {
+    const issuerUrl = this.get('EXTERNAL_API_ISSUER_URL');
+    const audience = this.get('EXTERNAL_API_TOKEN_AUDIENCE') ?? this.get('MY_URL');
+    return { issuerUrl, audience };
+  }
+
   async ecsConfig(): Promise<{
     cluster: string;
     taskDefinition: { small: string; medium: string; large: string };

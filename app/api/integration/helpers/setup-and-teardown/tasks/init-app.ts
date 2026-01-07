@@ -9,6 +9,8 @@ import sessionStore from '../../session/session-store';
 import { Reflector } from '@nestjs/core';
 import { FileService } from 'api/src/files/file.service';
 import { prepareMockOIDC } from '../../oidc/openid-client-mock';
+import { initExternalApiTokenMock, getLocalJWKS } from '../../external-api/token-helper';
+import { ExternalApiAuthService } from 'api/src/external-api/external-api.auth.service';
 
 // For the most part, this mimics the bootstrapping done in src/main.ts,
 // with some modifications to accommodate the fact that this app is used
@@ -28,6 +30,12 @@ export const initApp = async function () {
       .compile();
 
     prepareMockOIDC(); // mock openid-client, must be called before app is created
+
+    // Mock external API token verification to use local test keys
+    await initExternalApiTokenMock();
+    const externalApiAuthService = moduleFixture.get(ExternalApiAuthService);
+    jest.spyOn(externalApiAuthService, 'getKeySet').mockResolvedValue(getLocalJWKS());
+
     const app = moduleFixture.createNestApplication();
 
     app.use(

@@ -10,6 +10,7 @@ import {
   EARTHBEAM_AUTH_BASE_ROUTE,
   EARTHBEAM_API_BASE_ROUTE,
 } from '../earthbeam/api/earthbeam-api.endpoints';
+import { ExternalApiModule } from '../external-api/external-api.module';
 
 export const routes: Routes = [
   {
@@ -39,5 +40,9 @@ export const routes: Routes = [
   {
     path: EARTHBEAM_AUTH_BASE_ROUTE,
     module: EarthbeamApiAuthModule,
+  },
+  {
+    path: 'v1',
+    module: ExternalApiModule,
   },
 ];
