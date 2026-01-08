@@ -81,11 +81,13 @@ Parameters:
     Type: String 
   ExternalApiTokenIssuer:
     Type: String
-    Description: 'Values used to consume acces tokens.   non-prod: https://ea-apps-internal-dev.us.auth0.com   prod: https://auth0.edanalytics.app'
+    Description: 'Values used to consume acces tokens.   
+      non-prod: https://auth0.internal-dev.edanalytics.app  
+      prod: https://auth0.edanalytics.app'
     AllowedValues:
-      - 'https://ea-apps-internal-dev.us.auth0.com'
+      - 'https://auth0.internal-dev.edanalytics.app'
       - 'https://auth0.edanalytics.app'
-  
+      
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   AttachWAF: !Not [!Equals [!Ref WebACLArn, '']]
