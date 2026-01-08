@@ -105,7 +105,7 @@ export class AppConfigService {
   }
 
   getExternalApiConfig(): { issuerUrl: string | undefined; audience: string | undefined } {
-    const issuerUrl = this.get('EXTERNAL_API_ISSUER_URL');
+    const issuerUrl = this.get('EXTERNAL_API_TOKEN_ISSUER');
     const audience = this.get('EXTERNAL_API_TOKEN_AUDIENCE') ?? this.get('MY_URL');
     return { issuerUrl, audience };
   }
