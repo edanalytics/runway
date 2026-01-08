@@ -79,6 +79,12 @@ Parameters:
   SlackWebhookURL: 
     Description: Provide a webhook URL for the slack channel that will receive events from the app
     Type: String 
+  ExternalApiTokenIssuer:
+    Type: String
+    Description: 'Values used to consume acces tokens.   non-prod: https://ea-apps-internal-dev.us.auth0.com   prod: https://auth0.edanalytics.app'
+    AllowedValues:
+      - 'https://ea-apps-internal-dev.us.auth0.com'
+      - 'https://auth0.edanalytics.app'
   
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
@@ -575,6 +581,9 @@ Resources:
         - Namespace: aws:elasticbeanstalk:application:environment
           OptionName: FE_URL
           Value: !Ref FrontEndUrl
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: EXTERNAL_API_TOKEN_ISSUER
+          Value: !Ref ExternalApiTokenIssuer
         - Namespace: aws:elasticbeanstalk:environment:process:https
           OptionName: Port
           Value: 443

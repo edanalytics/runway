@@ -325,7 +325,13 @@ Parameters:
   S3AccessLoggingBucket: 
     Description: Optional - Provide a name for the destination S3 bucket where your Data Integration S3 Bucket Access Logs will be saved. 
     Type: String
-  
+  ExternalApiTokenIssuer:
+    Type: String
+    Description: 'Values used to consume acces tokens.   non-prod: https://ea-apps-internal-dev.us.auth0.com   prod: https://auth0.edanalytics.app'
+    AllowedValues:
+      - 'https://ea-apps-internal-dev.us.auth0.com'
+      - 'https://auth0.edanalytics.app'
+      
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   EnableS3AccessLogging: !Not [!Equals [!Ref S3AccessLoggingBucket, '']]
@@ -387,6 +393,7 @@ Resources:
         BundleBranch: !Ref BundleBranch
         ApplicationEventsToSlackFunctionArn: !If [EnableSlackAlerting, !GetAtt 'LambdaFunctionsStack.Outputs.ApplicationEventsToSlackFunctionArn', '']
         SlackWebhookURL: !If [EnableSlackAlerting, !Ref SlackWebhookURL, '']
+        ExternalApiTokenIssuer: !Ref ExternalApiTokenIssuer
   LambdaFunctionsStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
