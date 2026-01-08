@@ -1,8 +1,5 @@
 import { OdsConfig, OdsConnection, Job } from '@prisma/client';
-import { JWTPayload } from 'jose';
-
-/** Token payload for external API requests. Extends JWTPayload with required scope. */
-export type ExternalApiTokenPayload = JWTPayload & { scope: string };
+import { ExternalApiTokenPayload } from '../external-api/external-api-token.guard';
 
 declare global {
   namespace Express {

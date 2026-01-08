@@ -1,6 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
-import { ExternalApiTokenPayload } from '../types/express';
+import { ExternalApiTokenPayload } from './external-api-token.guard';
 
 /**
  * Parameter decorator to extract the verified JWT token payload from the request.

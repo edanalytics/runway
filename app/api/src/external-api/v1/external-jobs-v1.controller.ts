@@ -1,12 +1,11 @@
-import { Controller, ForbiddenException, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, UseGuards } from '@nestjs/common';
 import { Public } from 'api/src/auth/login/public.decorator';
 import { JobsService } from 'api/src/jobs/jobs.service';
 import { ExternalApiTokenGuard } from '../external-api-token.guard';
 import { ExternalApiScope } from '../external-api-scope.decorator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
 import { TokenPayload } from '../external-api-token-payload.decorator';
-import { ExternalApiTokenPayload } from 'api/src/types/express';
+import { ExternalApiTokenPayload } from '../external-api-token.guard';
 
 @Controller('jobs')
 @ApiTags('External API - Jobs')

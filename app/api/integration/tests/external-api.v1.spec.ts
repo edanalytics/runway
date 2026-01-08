@@ -1,8 +1,8 @@
 import request from 'supertest';
 import { signExternalApiToken } from '../helpers/external-api/token-helper';
 import * as jose from 'jose';
-import { ExternalApiJobsV1Controller } from 'api/src/external-api/v1/external.jobs.v1.controller';
-import { EXTERNAL_API_SCOPE_KEY } from 'api/src/external-api/scope.decorator';
+import { ExternalApiJobsV1Controller } from 'api/src/external-api/v1/external-jobs-v1.controller';
+import { EXTERNAL_API_SCOPE_KEY } from 'api/src/external-api/external-api-scope.decorator';
 
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {

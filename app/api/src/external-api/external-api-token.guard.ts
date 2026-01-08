@@ -26,8 +26,9 @@ import { Reflector } from '@nestjs/core';
 import { JWTPayload } from 'jose';
 import { EXTERNAL_API_SCOPE_KEY } from './external-api-scope.decorator';
 import { Request } from 'express';
-import { ExternalApiTokenPayload } from '../types/express';
 
+/** Token payload for external API requests. Extends JWTPayload with required scope. */
+export type ExternalApiTokenPayload = JWTPayload & { scope: string };
 @Injectable()
 export class ExternalApiTokenGuard implements CanActivate {
   private readonly logger = new Logger(ExternalApiTokenGuard.name);
