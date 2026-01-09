@@ -4,11 +4,9 @@
  * - signed by the correct issuer
  * - for the `EXTERNAL_API_TOKEN_AUDIENCE` audience
  * - with scope required by the requested endpoint (e.g. create:jobs)
- * - with a partner scope that matches the partner that owns the resource being operated upon
- *   (note that this partner scope is not the typical use of a scope, but fine for now)
  *
- * If all of the above holds, the token will be parsed and saved to the
- * request object. It can be accessed via the @TokenPayload() decorator.
+ * This guard does not check RLS: other guards or handlers must verify that the
+ * requested resource is owned by a partner that matches a partner code in the token scope.
  */
 
 import {
@@ -50,7 +48,7 @@ export class ExternalApiTokenGuard implements CanActivate {
       throw new UnauthorizedException('Invalid token');
     } else if (verifyResult.result === 'disabled') {
       this.logger.log('External API token verification is disabled.');
-      throw new ServiceUnavailableException('External API token verification is disabled.');
+      throw new ServiceUnavailableException('External API is disabled.');
     } else {
       this.logger.error('Unknown error verifying token', JSON.stringify(verifyResult));
       throw new InternalServerErrorException('Unknown error verifying token');

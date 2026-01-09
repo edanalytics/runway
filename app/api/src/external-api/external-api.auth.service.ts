@@ -27,10 +27,13 @@ export class ExternalApiAuthService {
       this.logger.warn('No issuer URL configured, skipping key set initialization');
       return;
     }
+
     const issuer = await Issuer.discover(this.issuerUrl);
     if (!issuer.metadata.jwks_uri) {
-      throw new Error(`Issuer ${this.issuerUrl} does not have a jwks_uri`);
+      this.logger.warn(`Issuer ${this.issuerUrl} does not have a jwks_uri`); // allow app to start even if external API not available
+      return;
     }
+
     return jose.createRemoteJWKSet(new URL(issuer.metadata.jwks_uri));
   }
 
@@ -46,7 +49,7 @@ export class ExternalApiAuthService {
       }
     | {
         result: 'failed';
-        error: Error;
+        error: jose.errors.JOSEError;
       }
     | { result: 'disabled' }
   > {
@@ -56,9 +59,9 @@ export class ExternalApiAuthService {
     try {
       const decoded = await jose.jwtVerify(token, this.keySet, { audience: this.audience });
       return { result: 'success', payload: decoded.payload };
-    } catch (error) {
-      this.logger.error('Error verifying token', error);
-      return { result: 'failed', error: error as Error };
+    } catch (error: unknown) {
+      this.logger.error('Error verifying token', JSON.stringify(error));
+      return { result: 'failed', error: error as jose.errors.JOSEError };
     }
   }
 }

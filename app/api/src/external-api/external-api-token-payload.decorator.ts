@@ -1,6 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
-import { ExternalApiTokenPayload } from './external-api-token.guard';
+import { EXTERNAL_API_RESOURCE_SCOPES, ExternalApiScopeType } from './external-api-scope.decorator';
 
 /**
  * Parameter decorator to extract the verified JWT token payload from the request.
@@ -16,9 +16,14 @@ import { ExternalApiTokenPayload } from './external-api-token.guard';
  * }
  * ```
  */
-export const TokenPayload = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext): ExternalApiTokenPayload | undefined => {
+export const ExternalApiScopes = createParamDecorator(
+  (data: unknown, ctx: ExecutionContext): ExternalApiScopeType[] | undefined => {
     const request = ctx.switchToHttp().getRequest<Request>();
-    return request.tokenPayload;
+    const tokenScopes = request.tokenPayload?.scope.split(' ');
+    return tokenScopes?.filter(
+      (scope): scope is ExternalApiScopeType =>
+        scope.startsWith('partner:') ||
+        (EXTERNAL_API_RESOURCE_SCOPES as readonly string[]).includes(scope)
+    );
   }
 );
