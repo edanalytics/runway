@@ -1,12 +1,12 @@
 import request from 'supertest';
 import { signExternalApiToken } from '../helpers/external-api/token-helper';
 import * as jose from 'jose';
-import { ExternalApiJobsV1Controller } from 'api/src/external-api/v1/external-jobs-v1.controller';
-import { EXTERNAL_API_SCOPE_KEY } from 'api/src/external-api/external-api-scope.decorator';
+import { EXTERNAL_API_SCOPE_KEY } from '../../src/external-api/auth/external-api-scope.decorator';
+import { ExternalApiV1TokenController } from '../../src/external-api/v1/token.v1.controller';
 
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {
-    const endpoint = '/v1/jobs/verify-token'; // any endpoint guarded by the ExternalApiTokenGuard would do
+    const endpoint = '/v1/token/verify';
     const scope = ['create:jobs', 'partner:partner-a'].join(' ');
 
     describe('Valid Token', () => {
@@ -89,13 +89,13 @@ describe('ExternalApiV1', () => {
         const token = await signExternalApiToken({ scope }); // has create:jobs but not read:jobs
         const originalScopes = Reflect.getMetadata(
           EXTERNAL_API_SCOPE_KEY,
-          ExternalApiJobsV1Controller.prototype.verifyToken
+          ExternalApiV1TokenController.prototype.verifyToken
         );
         try {
           Reflect.defineMetadata(
             EXTERNAL_API_SCOPE_KEY,
             ['create:jobs', 'read:jobs'], // require both
-            ExternalApiJobsV1Controller.prototype.verifyToken
+            ExternalApiV1TokenController.prototype.verifyToken
           );
 
           const res = await request(app.getHttpServer())
@@ -107,7 +107,7 @@ describe('ExternalApiV1', () => {
           Reflect.defineMetadata(
             EXTERNAL_API_SCOPE_KEY,
             originalScopes,
-            ExternalApiJobsV1Controller.prototype.verifyToken
+            ExternalApiV1TokenController.prototype.verifyToken
           );
         }
       });

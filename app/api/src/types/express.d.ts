@@ -1,5 +1,5 @@
 import { OdsConfig, OdsConnection, Job } from '@prisma/client';
-import { ExternalApiTokenPayload } from '../external-api/external-api-token.guard';
+import { ExternalApiTokenPayload } from '../external-api/auth/external-api-token.guard';
 
 declare global {
   namespace Express {

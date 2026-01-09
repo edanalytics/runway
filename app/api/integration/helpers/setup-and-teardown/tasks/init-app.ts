@@ -10,7 +10,7 @@ import { Reflector } from '@nestjs/core';
 import { FileService } from 'api/src/files/file.service';
 import { prepareMockOIDC } from '../../oidc/openid-client-mock';
 import { initExternalApiTokenMock, getLocalJWKS } from '../../external-api/token-helper';
-import { ExternalApiAuthService } from 'api/src/external-api/external-api.auth.service';
+import { ExternalApiAuthService } from '../../../../src/external-api/auth/external-api.auth.service';
 
 // For the most part, this mimics the bootstrapping done in src/main.ts,
 // with some modifications to accommodate the fact that this app is used

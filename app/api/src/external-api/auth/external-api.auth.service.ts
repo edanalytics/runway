@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as jose from 'jose';
-import { AppConfigService } from '../config/app-config.service';
+import { AppConfigService } from '../../config/app-config.service';
 import { Issuer } from 'openid-client';
 import { JWTPayload } from 'jose';
 

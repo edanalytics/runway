@@ -1,17 +1,22 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
-import { EXTERNAL_API_RESOURCE_SCOPES, ExternalApiScopeType } from './external-api-scope.decorator';
+import {
+  EXTERNAL_API_RESOURCE_SCOPES,
+  ExternalApiScopeType,
+} from './auth/external-api-scope.decorator';
 
 /**
- * Parameter decorator to extract the verified JWT token payload from the request.
+ * Parameter decorator to extract the scopes from the verified JWT token.
+ * Filters to scopes that Runway recognizes.
+ *
  * Use this in controller methods protected by ExternalApiTokenGuard.
  *
  * @example
  * ```ts
  * @Post()
  * @ExternalApiScope('create:jobs')
- * async createJob(@TokenPayload() token: ExternalApiTokenPayload) {
- *   const partnerId = token.sub;
+ * async createJob(@ExternalApiScopes() scopes: ExternalApiScopeType[]) {
+ *   const allowedPartnerCodes = scopes.filter((scope) => scope.startsWith('partner:')).map((scope) => scope.split(':')[1]);
  *   // ...
  * }
  * ```

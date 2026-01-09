@@ -1,10 +1,10 @@
 import { Controller, ForbiddenException, Inject, Param, Post, UseGuards } from '@nestjs/common';
 import { Public } from 'api/src/auth/login/public.decorator';
 import { JobsService } from 'api/src/jobs/jobs.service';
-import { ExternalApiTokenGuard } from '../external-api-token.guard';
-import { ExternalApiScope, ExternalApiScopeType } from '../external-api-scope.decorator';
+import { ExternalApiTokenGuard } from '../auth/external-api-token.guard';
+import { ExternalApiScope, ExternalApiScopeType } from '../auth/external-api-scope.decorator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ExternalApiScopes } from '../external-api-token-payload.decorator';
+import { ExternalApiScopes } from '../external-api-token-scopes.decorator';
 import { PrismaClient } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database/database.service';
 
@@ -17,18 +17,11 @@ const partnerCodesFromScopes = (scopes: ExternalApiScopeType[]) => {
 @ApiBearerAuth() // Does not impact actual auth. Rather, it tells Swagger to include a bearer token when sending requests to these endpoints.
 @Public() // do not require a session
 @UseGuards(ExternalApiTokenGuard) // but do require a valid token
-export class ExternalApiJobsV1Controller {
+export class ExternalApiV1JobsController {
   constructor(
     private readonly jobsService: JobsService,
     @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient
   ) {}
-
-  @Post('verify-token')
-  @ExternalApiScope('create:jobs')
-  async verifyToken() {
-    // endpoint that can be used to verify the a token.
-    return 'ok';
-  }
 
   @Post(':partnerCode/:tenantCode')
   @ExternalApiScope('create:jobs')

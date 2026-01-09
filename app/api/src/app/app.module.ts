@@ -13,7 +13,7 @@ import { JobTemplatesModule } from '../job-templates/job-templates.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { EarthbeamApiModule } from '../earthbeam/api/earthbeam-api.module';
 import { EarthbeamApiAuthModule } from '../earthbeam/api/auth/earthbeam-api-auth.module';
-import { ExternalApiModule } from '../external-api/external-api.module';
+import { ExternalApiV1Module } from '../external-api/v1/external-api.v1.module';
 
 const resourceModules = [
   UsersModule,
@@ -31,7 +31,7 @@ const resourceModules = [
     RouterModule.register(routes),
     AuthModule,
     ...resourceModules,
-    ExternalApiModule,
+    ExternalApiV1Module,
   ],
   controllers: [AppController],
   providers: [
