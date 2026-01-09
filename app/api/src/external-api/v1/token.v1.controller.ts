@@ -3,7 +3,9 @@ import { ExternalApiTokenGuard } from '../auth/external-api-token.guard';
 import { Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApiBearerAuth } from '@nestjs/swagger';
-import { ExternalApiScope } from '../auth/external-api-scope.decorator';
+import { ExternalApiScope, ExternalApiScopeType } from '../auth/external-api-scope.decorator';
+import { ExternalApiScopes } from '../external-api-token-scopes.decorator';
+import { extractAllowedPartnerCodesFromScopes } from '../auth/external-api-partner-scope.helpers';
 
 @Controller('token')
 @ApiTags('External API - Token')
@@ -18,7 +20,12 @@ export class ExternalApiV1TokenController {
   })
   @Post('verify')
   @ExternalApiScope('create:jobs') // might need to change this scope to something else later, but currently all endpoints require create:jobs so all usable tokens will need that scope, too
-  async verifyToken() {
-    return 'ok';
+  async verifyToken(@ExternalApiScopes() scopes: ExternalApiScopeType[]) {
+    const allowedPartnerCodes = extractAllowedPartnerCodesFromScopes(scopes);
+    return allowedPartnerCodes.length === 0
+      ? 'Token is valid for no partners. No scope of the form "partner:partner-code" was found on the token.'
+      : allowedPartnerCodes.length === 1
+      ? 'Token is valid for partner: ' + allowedPartnerCodes[0]
+      : 'Token is valid for partners: ' + allowedPartnerCodes.join(', ');
   }
 }

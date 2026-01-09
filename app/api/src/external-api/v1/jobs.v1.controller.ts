@@ -7,10 +7,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ExternalApiScopes } from '../external-api-token-scopes.decorator';
 import { PrismaClient } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database/database.service';
-
-const partnerCodesFromScopes = (scopes: ExternalApiScopeType[]) => {
-  return scopes.filter((scope) => scope.startsWith('partner:')).map((scope) => scope.split(':')[1]);
-};
+import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 
 @Controller('jobs')
 @ApiTags('External API - Jobs')
@@ -31,8 +28,7 @@ export class ExternalApiV1JobsController {
     @Param('tenantCode') tenantCode: string
   ) {
     // ensure there's a scope that matches the partner code from the request
-    const allowedPartnerCodes = partnerCodesFromScopes(scopes);
-    if (!allowedPartnerCodes.includes(partnerCode)) {
+    if (!isPartnerAllowed(scopes, partnerCode)) {
       throw new ForbiddenException(`Invalid partner code: ${partnerCode}`);
     }
 
