@@ -171,7 +171,7 @@ export class EarthbeamApiService {
       where: { id: runId },
       data: { status },
       include: {
-        job: { include: { files: true } },
+        job: { include: { files: true, odsConfig: { include: { activeConnection: true } } } },
         runError: true,
         userRunCreatedByIdTouser: true,
       },
@@ -232,16 +232,12 @@ export class EarthbeamApiService {
       const hasUnmatchedStudents = runOutputFiles?.some(
         (file) => file.name === 'input_no_student_id_match.csv'
       );
-      const odsConnection = await prisma.odsConnection.findUnique({
-        where: {
-          id: jobDto.odsId,
-        },
-      });
+      const odsUrl = run.job.odsConfig.activeConnection?.host;
       const assessmentType = run.job.name;
       const tenantCode = run.job.tenantCode;
       const partnerId = run.job.partnerId;
       const unmatchedStudentCount = unmatchedStudentsInfo.count;
-      const errorCode = run.status !== 'success' ? run.runError[0].code : null;
+      const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
       const errorString = errorCode ? `The run errored with the error code ${errorCode}.` : '';
       const resourceErrorString = hasResourceErrors
         ? `The following resource errors occurred: ${resourceErrors.join(', ')}`
@@ -250,6 +246,10 @@ export class EarthbeamApiService {
         `${assessmentType} completed for tenant ${tenantCode} and partner ${partnerId}. There were ${unmatchedStudentCount} unmatched students.` +
         errorString +
         resourceErrorString;
+      const runErrors = run.runError.map(({ code, payload }) => ({
+        code,
+        payload,
+      }));
 
       await this.eventEmitter.emit('run_complete', {
         summary: summarySentence,
@@ -258,7 +258,7 @@ export class EarthbeamApiService {
         status: run.status,
         completedWithErrors:
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
-        odsUrl: odsConnection?.host,
+        odsUrl,
         schoolYear: run.job.schoolYearId,
         allProcessedRecordsFailed,
         unmatchedStudentsCount: unmatchedStudentsInfo.count,
@@ -271,7 +271,7 @@ export class EarthbeamApiService {
           hasUnmatchedStudents,
           hasResourceErrors,
           resourceSummary: run.summary,
-          errors: resourceErrors,
+          errors: [...runErrors, ...resourceErrors],
         },
         metadata: {
           tenantCode,
