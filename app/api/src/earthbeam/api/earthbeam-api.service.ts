@@ -24,7 +24,6 @@ import { FileService } from 'api/src/files/file.service';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
 import { EventEmitterService } from 'api/src/event-emitter/event-emitter.service';
-
 @Injectable()
 export class EarthbeamApiService {
   private readonly logger = new Logger(EarthbeamApiService.name);
@@ -224,11 +223,11 @@ export class EarthbeamApiService {
        * to abstract
        */
       const jobDto = toGetJobDto({ ...run.job, runs: [run] });
-      const runSummary = run.summary as any;
+      const runSummary = run.summary;
       const allProcessedRecordsFailed =
         runSummary.studentAssessments.records_processed ===
         runSummary.studentAssessments.records_failed;
-      const unmatchedStudentsInfo = run.unmatchedStudentsInfo as any;
+      const unmatchedStudentsInfo = run.unmatchedStudentsInfo;
       const { hasResourceErrors, resourceErrors } = jobDto;
       const hasUnmatchedStudents = runOutputFiles?.some(
         (file) => file.name === 'input_no_student_id_match.csv'

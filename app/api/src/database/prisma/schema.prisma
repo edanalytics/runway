@@ -259,7 +259,9 @@ model Run {
   createdOn                 DateTime        @default(now()) @map("created_on") @db.Timestamp(6)
   modifiedById              Int?            @map("modified_by_id")
   modifiedOn                DateTime        @default(now()) @map("modified_on") @db.Timestamp(6)
+  /// [RunSummary]
   summary                   Json?           @db.Json
+  /// [UnmatchedStudentsInfo]
   unmatchedStudentsInfo     Json?           @map("unmatched_students_info")
   userRunCreatedByIdTouser  User?           @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   job                       Job             @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -386,16 +388,16 @@ model CustomDescriptorMapping {
 }
 
 model JobNote {
-  id                            Int      @id @default(autoincrement())
-  jobId                         Int      @map("job_id")
-  noteText                      String   @map("note_text")
-  createdById                   Int?     @map("created_by_id")
-  createdOn                     DateTime @default(now()) @map("created_on") @db.Timestamp(6)
-  modifiedById                  Int?     @map("modified_by_id")
-  modifiedOn                    DateTime @default(now()) @map("modified_on") @db.Timestamp(6)
-  createdBy                     User?    @relation("job_note_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
-  job                           Job      @relation("noteToJob", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  modifiedBy User?              @relation("job_note_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  id           Int      @id @default(autoincrement())
+  jobId        Int      @map("job_id")
+  noteText     String   @map("note_text")
+  createdById  Int?     @map("created_by_id")
+  createdOn    DateTime @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById Int?     @map("modified_by_id")
+  modifiedOn   DateTime @default(now()) @map("modified_on") @db.Timestamp(6)
+  createdBy    User?    @relation("job_note_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  job          Job      @relation("noteToJob", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  modifiedBy   User?    @relation("job_note_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
 
   @@map("job_note")
 }
