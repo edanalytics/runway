@@ -238,12 +238,13 @@ export class EarthbeamApiService {
       const partnerId = run.job.partnerId;
       const unmatchedStudentCount = unmatchedStudentsInfo.count;
       const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
-      const errorString = errorCode ? `The run errored with the error code ${errorCode}.` : '';
+      const errorString = errorCode ? `/nERROR: ${errorCode}` : '';
       const resourceErrorString = hasResourceErrors
-        ? `The following resource errors occurred: ${resourceErrors.join(', ')}`
+        ? `/nRESOURCE_ERRORS: ${resourceErrors.join(', ')}`
         : '';
-      const summarySentence =
-        `${assessmentType} completed for tenant ${tenantCode} and partner ${partnerId}. There were ${unmatchedStudentCount} unmatched students.` +
+
+      const summaryString =
+        `ASSESSMENT_TYPE: ${assessmentType}/nTENANT: ${tenantCode}/nPARTNER_ID: ${partnerId}/nUNMATCHED_STUDENTS: ${unmatchedStudentCount}` +
         errorString +
         resourceErrorString;
       const runErrors = run.runError.map(({ code, payload }) => ({
@@ -252,7 +253,7 @@ export class EarthbeamApiService {
       }));
 
       await this.eventEmitter.emit('run_complete', {
-        summary: summarySentence,
+        summary: summaryString,
         runId: run.id,
         jobId: run.job.id,
         status: run.status,
