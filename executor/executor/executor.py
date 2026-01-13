@@ -398,14 +398,6 @@ class JobExecutor:
             self.record_highest_match_rate()
             if fatal:
                 # shut it down
-                if not unmatched_students_exist():
-                    #    the app relies on the presence of the unmatched students file but does not check
-                    # whether it is populated. It is possible that Earthmover successfully matches students
-                    # (so the file is empty) but then fails during data transformation. By skipping the
-                    # upload, we avoid the possibility of telling the user there were unmatched students when
-                    # in fact there were none
-                    self.logger.debug("no unmatched students. Skipping upload")
-                    artifact.UNMATCHED_STUDENTS.needs_upload = False
                 self.error = error.EarthmoverRunError()
                 raise
 
@@ -530,16 +522,6 @@ class JobExecutor:
         # local ID, then the 4/10 without matching state IDs go in the unmatched students file, but both types
         # of match are recorded in the match rates file. Both are used for different purposes by the app and
         # within the exeuctor
-
-        # if there are no unmatched students, there is no unmatched students file
-        if not unmatched_students_exist():
-            self.logger.debug("no unmatched students. Skipping upload")
-            # mark so that we don't try to upload it at the end
-            artifact.UNMATCHED_STUDENTS.needs_upload = False
-            return
-
-        self.logger.warning('earthmover run produced unmatched inputs')
-
         with open(artifact.MATCH_RATES.path) as f:
             match_rates = [
                 {k: v for k, v in row.items()}
@@ -554,6 +536,7 @@ class JobExecutor:
 
         if len(match_rates) > 0:
             self.logger.info(f"some records matched - match rates by ID: {match_rates}")
+<<<<<<< HEAD
 
             highest_match = sorted(match_rates, reverse=True, key=lambda mr: float(mr['match_rate']))[0]
             self.highest_match_rate = float(highest_match["match_rate"])
@@ -561,17 +544,41 @@ class JobExecutor:
             self.highest_match_id_type = highest_match["edfi_column_name"]
             self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
 
+=======
+
+            highest_match = sorted(match_rates, reverse=True, key=lambda mr: float(mr['match_rate']))[0]
+            self.highest_match_rate = float(highest_match["match_rate"])
+            self.highest_match_id_name = highest_match["source_column_name"]
+            self.highest_match_id_type = highest_match["edfi_column_name"]
+            self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
+
+>>>>>>> d15092e (Executor: Fix check for unmatched student IDs (#6))
         if self.num_unmatched_students == 0:
             self.logger.debug("no unmatched students. Skipping upload of unmatched students file")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
 
-                # additional context so the app can help the user fix their file
-                self.send_id_matches(highest_match_id_name, highest_match_id_type)
-                self.upload_artifact(artifact.UNMATCHED_STUDENTS)
-        if not sufficient_matches:
-            #    If we made it here, then either (a) or (b) is FALSE and thus the input file is no good.
-            # Don't bother uploading anything and instead show the user a specific error
-            self.error = error.InsufficientMatchesError(highest_match_rate, config.REQUIRED_ID_MATCH_RATE, highest_match_id_name, highest_match_id_type)
+    def report_unmatched_students(self):
+        """Alert the app to the existence of unmatched students (if any) and the best candidate for ID matching"""
+        if self.num_unmatched_students == 0:
+            return
+
+        self.logger.warning('earthmover run failed to match some student IDs')
+
+        if self.highest_match_rate >= config.REQUIRED_ID_MATCH_RATE:
+            #    in this case, there are unmatched students but not so many that we doubt the
+            # integrity of the file. Send the ones that match and give the rest back to the user
+            # if an "actual" ID is replicated as studentUniqueId, we should send the actual ID to the user
+            id_type_to_report = self.highest_match_id_type
+            if self.highest_match_id_type == "studentUniqueId" and self.stu_unique_id_in_roster:
+                id_type_to_report = self.stu_unique_id_in_roster
+
+            # additional context so the app can help the user fix their file
+            self.send_id_matches(self.highest_match_id_name, id_type_to_report, self.num_unmatched_students)
+            self.upload_artifact(artifact.UNMATCHED_STUDENTS)
+        else:
+            #    Insufficient matches. Assume the input file is no good Don't bother uploading anything.
+            # Instead, alert the user with an error
+            self.error = error.InsufficientMatchesError(self.highest_match_rate, config.REQUIRED_ID_MATCH_RATE, self.highest_match_id_name, self.highest_match_id_type)
             #    For now, since we're asking the user to revisit their entire file, it's simpler if we don't
             # return the unmatched students file at all
             self.logger.debug("too many unmatched students. Skipping upload")
@@ -713,20 +720,6 @@ class JobExecutor:
         self.logger.debug("Sending `lightbeam send` summary")
         self.conn.post(self.summary_url, json=self.summary)
 
-
-def unmatched_students_exist():
-    """Returns true if Earthmover run produced a non-empty unmatched students file"""
-    try:
-        with open(artifact.UNMATCHED_STUDENTS.path) as f:
-            for i, _ in enumerate(f):
-                #   header doesn't count - also, when you open this file in an IDE, it may appear to have an extra blank line,
-                # which would lead to false positives when there are no unmatched students. Python and programs like `wc -l`
-                # nonetheless appear to read it in as a single-line file, so this is correct
-                if i >= 1:
-                    return True
-        return False
-    except FileNotFoundError:
-        return False
 
 def localize_s3_path(path):
     """Convert an S3 'path' to a single filename"""
