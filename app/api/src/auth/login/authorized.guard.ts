@@ -37,14 +37,13 @@ export class AuthorizedGuard implements CanActivate {
     if (privilege === undefined) return true;
 
     const request: Request = context.switchToHttp().getRequest();
+    if (privilege === null) {
+      Logger.verbose('Authorization explicitly skipped for route ' + request.url);
+      return true;
+    }
 
     if (!request.isAuthenticated()) return false;
     try {
-      if (privilege === null) {
-        Logger.verbose('Authorization explicitly skipped for route ' + request.url);
-        return true;
-      }
-
       const userDto = plainToInstance(GetSessionDataDto, request['user']);
       return userDto.privileges.has(privilege);
     } catch (err) {
