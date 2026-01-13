@@ -33,11 +33,13 @@ describe('GET /job-templates', () => {
     // M is a partner that has no bundles yet
     const sessM = sessionCookie('job-templates-spec-m');
     let contextM: Awaited<ReturnType<typeof seedContext>>;
-
+    let getBundlesMock: jest.SpyInstance;
     beforeAll(async () => {
       contextM = await seedContext(makePartnerUserTenantContext('m'));
 
-      jest.spyOn(EarthbeamBundlesService.prototype, 'getBundles').mockResolvedValue(allBundles);
+      getBundlesMock = jest
+        .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
+        .mockResolvedValue(allBundles);
       await sessionStore.set(sessA.sid, sessionData(userA, tenantA));
       await sessionStore.set(sessX.sid, sessionData(userX, tenantX));
       await sessionStore.set(sessM.sid, sessionData(contextM.user, contextM.tenant));
@@ -48,7 +50,7 @@ describe('GET /job-templates', () => {
       await sessionStore.destroy(sessX.sid);
       await sessionStore.destroy(sessM.sid);
       await removeContext(contextM);
-      await jest.restoreAllMocks();
+      getBundlesMock.mockRestore();
     });
 
     it('should return no bundles if none are enabled for the partner', async () => {
@@ -92,7 +94,7 @@ describe('GET /job-templates', () => {
     });
 
     it('should not error if there are no input params', async () => {
-      jest.spyOn(EarthbeamBundlesService.prototype, 'getBundles').mockResolvedValue(
+      getBundlesMock.mockResolvedValue(
         partnerABundles.map((b) => {
           const { input_params, ...bundleSansParams } = b;
           return bundleSansParams;

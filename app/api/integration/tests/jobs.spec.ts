@@ -65,7 +65,6 @@ describe('GET /jobs', () => {
           },
         },
       });
-      jest.resetAllMocks();
     });
 
     it('should return an empty array if there are no jobs', async () => {
@@ -251,15 +250,18 @@ describe('POST /jobs', () => {
     const sessionA = sessionCookie('jobs-spec');
     const jobTemplateA = makeJobTemplate(bundleA);
     const postJobDto = makePostJobDto(jobTemplateA, odsConnA2425);
+    let getBundlesMock: jest.SpyInstance;
 
     beforeAll(async () => {
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
-      jest.spyOn(EarthbeamBundlesService.prototype, 'getBundles').mockResolvedValue(allBundles);
+      getBundlesMock = jest
+        .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
+        .mockResolvedValue(allBundles);
     });
 
     afterAll(async () => {
       await sessionStore.destroy(sessionA.sid);
-      jest.resetAllMocks();
+      getBundlesMock.mockRestore();
     });
 
     it('should accept requests with a valid PostJobDto', async () => {
