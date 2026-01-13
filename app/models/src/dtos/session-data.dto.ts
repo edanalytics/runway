@@ -16,10 +16,11 @@ export class GetSessionDataDto {
   @Type(() => GetTenantDto)
   tenant: Tenant;
   @Expose()
-  roles: AppRoles[];
+  roles?: AppRoles[];
   get privileges() {
+    if (!this.roles) return new Set<PrivilegeKey>();
     return new Set<PrivilegeKey>(
-      ...this.roles.flatMap((role) => (role in rolePrivileges ? rolePrivileges[role] : []))
+      this.roles.flatMap((role) => (role in rolePrivileges ? Array.from(rolePrivileges[role]) : []))
     );
   }
 }
