@@ -228,7 +228,7 @@ export class EarthbeamApiService {
       const { hasResourceErrors, resourceErrors, resourceSummaries } = jobDto;
       const entirelyFailedResources = resourceErrors.filter((e) => e.total === e.failed);
       const allFailedMsg = entirelyFailedResources
-        .map((e) => `${e.resource} (${e.failed})`)
+        .map((e) => `${e.resource} (${e.failed}/${e.total})`)
         .join(',');
 
       const hasUnmatchedStudents = runOutputFiles?.some(
