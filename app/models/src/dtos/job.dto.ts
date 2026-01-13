@@ -144,7 +144,16 @@ export class GetJobDto
 
     const reportableResources = this.template.reportResources ?? [];
 
-    return failedResources.filter((resource) => reportableResources.includes(resource));
+    return failedResources
+      .filter((resource) => reportableResources.includes(resource))
+      .map((reportableFailedResource) => ({
+        resource: reportableFailedResource,
+        failed: this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0,
+        total:
+          this.resourceSummaries?.[reportableFailedResource]?.success! +
+          (this.resourceSummaries?.[reportableFailedResource]?.skipped ?? 0) +
+          (this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0),
+      }));
   }
 
   get resourceSummaries():

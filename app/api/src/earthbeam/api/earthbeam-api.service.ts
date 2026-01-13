@@ -223,34 +223,32 @@ export class EarthbeamApiService {
        * to abstract
        */
       const jobDto = toGetJobDto({ ...run.job, runs: [run] });
-      const runSummary = run.summary;
-      const allProcessedRecordsFailed =
-        runSummary.studentAssessments.records_processed ===
-        runSummary.studentAssessments.records_failed;
+
       const unmatchedStudentsInfo = run.unmatchedStudentsInfo;
-      const { hasResourceErrors, resourceErrors } = jobDto;
+      const { hasResourceErrors, resourceErrors, resourceSummaries } = jobDto;
+      const entirelyFailedResources = resourceErrors.filter((e) => e.total === e.failed);
+      const allFailedMsg = entirelyFailedResources
+        .map((e) => `${e.resource} (${e.failed})`)
+        .join(',');
+
       const hasUnmatchedStudents = runOutputFiles?.some(
         (file) => file.name === 'input_no_student_id_match.csv'
       );
       const odsUrl = run.job.odsConfig.activeConnection?.host;
       const assessmentType = run.job.name;
+      const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
       const tenantCode = run.job.tenantCode;
       const partnerId = run.job.partnerId;
-      const unmatchedStudentCount = unmatchedStudentsInfo.count;
+      const unmatchedStudentCount = `U(${unmatchedStudentsInfo.count})`;
       const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
-      const errorString = errorCode ? `/nERROR: ${errorCode}` : '';
+      const errorString = errorCode ? `ERROR: ${errorCode}` : '';
       const resourceErrorString = hasResourceErrors
-        ? `/nRESOURCE_ERRORS: ${resourceErrors.join(', ')}`
+        ? `LBF(${resourceErrors.length}/${resourceSummaries?.length ?? 0})`
         : '';
 
-      const summaryString =
-        `ASSESSMENT_TYPE: ${assessmentType}/nTENANT: ${tenantCode}/nPARTNER_ID: ${partnerId}/nUNMATCHED_STUDENTS: ${unmatchedStudentCount}` +
-        errorString +
-        resourceErrorString;
-      const runErrors = run.runError.map(({ code, payload }) => ({
-        code,
-        payload,
-      }));
+      const summaryString = `${assessmentType} (${assessmentFiles.join(
+        ', '
+      )}) ${errorString} ${unmatchedStudentCount} ${resourceErrorString} (${partnerId}/${tenantCode})`;
 
       await this.eventEmitter.emit('run_complete', {
         summary: summaryString,
@@ -261,18 +259,21 @@ export class EarthbeamApiService {
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
         odsUrl,
         schoolYear: run.job.schoolYearId,
-        allProcessedRecordsFailed,
+        allProcessedRecordsFailed: allFailedMsg,
         unmatchedStudentsCount: unmatchedStudentsInfo.count,
         input: {
           assessment: assessmentType,
-          files: run.job.files.map((file) => file.nameFromUser),
+          files: assessmentFiles,
           params: jobDto.inputParams?.map(({ name, value }) => ({ name, value })),
         },
         result: {
           hasUnmatchedStudents,
           hasResourceErrors,
           resourceSummary: run.summary,
-          errors: [...runErrors, ...resourceErrors],
+          errors: run.runError.map(({ code, payload }) => ({
+            code,
+            payload,
+          })),
         },
         metadata: {
           tenantCode,
