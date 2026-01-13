@@ -225,11 +225,10 @@ export class EarthbeamApiService {
       const jobDto = toGetJobDto({ ...run.job, runs: [run] });
 
       const unmatchedStudentsInfo = run.unmatchedStudentsInfo;
-      const { hasResourceErrors, resourceErrors, resourceSummaries } = jobDto;
-      const entirelyFailedResources = resourceErrors.filter((e) => e.total === e.failed);
-      const allFailedMsg = entirelyFailedResources
-        .map((e) => `${e.resource} (${e.failed}/${e.total})`)
-        .join(',');
+      const { hasResourceErrors, resourceErrors } = jobDto;
+      const resourceErrorString = hasResourceErrors
+        ? resourceErrors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',')
+        : '';
 
       const hasUnmatchedStudents = runOutputFiles?.some(
         (file) => file.name === 'input_no_student_id_match.csv'
@@ -242,9 +241,6 @@ export class EarthbeamApiService {
       const unmatchedStudentCount = `U(${unmatchedStudentsInfo.count})`;
       const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
-      const resourceErrorString = hasResourceErrors
-        ? `LBF(${resourceErrors.length}/${resourceSummaries?.length ?? 0})`
-        : '';
 
       const summaryString = `${assessmentType} (${assessmentFiles.join(
         ', '
@@ -259,7 +255,6 @@ export class EarthbeamApiService {
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
         odsUrl,
         schoolYear: run.job.schoolYearId,
-        allProcessedRecordsFailed: allFailedMsg,
         unmatchedStudentsCount: unmatchedStudentsInfo.count,
         input: {
           assessment: assessmentType,
