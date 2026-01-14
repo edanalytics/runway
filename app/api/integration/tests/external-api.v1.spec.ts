@@ -154,7 +154,24 @@ describe('ExternalApiV1', () => {
       getBundleMock.mockRestore();
     });
 
-    describe('Valid Request', () => {});
+    describe('Valid Request', () => {
+      it('should return a 201 and the job id', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send(jobInput);
+
+        expect(res.status).toBe(201);
+        expect(res.body.id).toBeDefined();
+        expect(res.body.uploadUrls).toHaveProperty('INPUT_FILE');
+        expect(res.body.uploadUrls.INPUT_FILE).toContain(jobInput.files.INPUT_FILE); // FileService.getPresignedUploadUrl is mocked in init-app.ts
+        expect(res.body.uploadUrls.INPUT_FILE).toContain('s3-test-upload-url://');
+        await prisma.job.delete({
+          where: { id: res.body.id },
+        });
+      });
+    });
     describe('Invalid Request', () => {
       it('should reject requests without a partner scope', async () => {
         const token = await signExternalApiToken({ scope: 'create:jobs' });

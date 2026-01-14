@@ -15,11 +15,15 @@ import { ExternalApiScope, ExternalApiScopeType } from '../auth/external-api-sco
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ExternalApiScopes } from '../external-api-token-scopes.decorator';
 import { PrismaClient } from '@prisma/client';
-import { PRISMA_READ_ONLY } from 'api/src/database/database.service';
+import { PRISMA_ANONYMOUS, PRISMA_READ_ONLY } from 'api/src/database/database.service';
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 import { EarthmoverBundleTypes } from 'models/src/interfaces/earthmover-bundle.interface';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
-import { InitJobPayloadV1Dto } from '@edanalytics/models';
+import {
+  InitJobPayloadV1Dto,
+  toGetJobTemplateDto,
+  toInitJobResponseV1Dto,
+} from '@edanalytics/models';
 
 @Controller('jobs')
 @ApiTags('External API - Jobs')
@@ -30,6 +34,7 @@ export class ExternalApiV1JobsController {
   constructor(
     private readonly jobsService: JobsService,
     @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient,
+    @Inject(PRISMA_ANONYMOUS) private readonly prismaAnon: PrismaClient,
     private readonly bundleService: EarthbeamBundlesService
   ) {}
 
@@ -47,7 +52,7 @@ export class ExternalApiV1JobsController {
       throw new ForbiddenException(`Invalid partner code: ${partnerId}`);
     }
 
-    await this.prismaRO.tenant
+    const tenant = await this.prismaRO.tenant
       .findUniqueOrThrow({
         where: {
           code_partnerId: {
@@ -102,11 +107,11 @@ export class ExternalApiV1JobsController {
       throw new BadRequestException(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
     }
 
-    const params = jobInitDto.params;
+    const incomingParams = jobInitDto.params;
     const requiredParams =
       bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? []; // we get API_YEAR from the school year, so it's not a user-provided param
     const missingRequiredParams = requiredParams.filter(
-      (p) => params?.[p.env_var] === null || params?.[p.env_var] === undefined
+      (p) => incomingParams?.[p.env_var] === null || incomingParams?.[p.env_var] === undefined
     );
     if (missingRequiredParams.length > 0) {
       throw new BadRequestException(
@@ -119,9 +124,9 @@ export class ExternalApiV1JobsController {
     const paramsWithInvalidValues = paramsWithAllowedValues.filter(
       (p) =>
         // value is passed for this param, but it's not in the allowed values
-        params?.[p.env_var] !== null &&
-        params?.[p.env_var] !== undefined &&
-        !p.allowed_values?.includes(params?.[p.env_var])
+        incomingParams?.[p.env_var] !== null &&
+        incomingParams?.[p.env_var] !== undefined &&
+        !p.allowed_values?.includes(incomingParams?.[p.env_var])
     );
 
     if (paramsWithInvalidValues.length > 0) {
@@ -146,8 +151,36 @@ export class ExternalApiV1JobsController {
       throw new BadRequestException(`Missing required files: ${missingRequiredFiles.join(', ')}`);
     }
 
-    // const job = await this.jobsService.initialize(jobInitDto, tenantCode, partnerId);
+    // TODO: refactor jobService.initialize to just ask for what it needs
+    // and see if we can avoid passing the prisma client
+    const job = await this.jobsService.initialize(
+      {
+        name: bundle.display_name,
+        odsId: odsConfigs[0].id,
+        schoolYearId: jobInitDto.schoolYear,
+        files: Object.entries(incomingFiles).map(([envVar, filePath]) => ({
+          templateKey: envVar,
+          nameFromUser: filePath,
+          type: 'file',
+        })),
+        inputParams: (Object.entries(incomingParams ?? {}) ?? []).map(([key, value]) => ({
+          templateKey: key,
+          value: value,
+          name: key,
+          isRequired: bundle.input_params?.find((p) => p.env_var === key)?.is_required ?? false,
+        })),
+        template: toGetJobTemplateDto(bundle),
+        previousJobId: null,
+      },
+      tenant,
+      this.prismaAnon
+    );
 
-    return 'ok';
+    const uploadUrls = await this.jobsService.getUploadUrls(job.files);
+    const returnDto = toInitJobResponseV1Dto({
+      id: job.id,
+      uploadUrls: Object.fromEntries(uploadUrls.map((u) => [u.templateKey, u.url])),
+    });
+    return returnDto;
   }
 }

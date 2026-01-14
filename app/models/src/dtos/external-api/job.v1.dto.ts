@@ -1,4 +1,6 @@
+import { Expose } from 'class-transformer';
 import { IsNotEmpty, IsObject, IsOptional, IsString, Matches } from 'class-validator';
+import { makeSerializer } from 'models/src/utils';
 
 export class InitJobPayloadV1Dto {
   @IsString()
@@ -22,8 +24,10 @@ export class InitJobPayloadV1Dto {
 }
 
 export class InitJobResponseV1Dto {
-  // @Expose()
-  // id: string;
-  // @Expose()
-  // uploadLocations: string[];
+  @Expose()
+  id: number;
+
+  @Expose()
+  uploadUrls: Record<string, string>; // env_var: url
 }
+export const toInitJobResponseV1Dto = makeSerializer(InitJobResponseV1Dto);

@@ -23,8 +23,12 @@ export const initApp = async function () {
     })
       .overrideProvider(FileService) // S3 mock
       .useValue({
-        getPresignedUploadUrl: jest.fn().mockResolvedValue('test-presigned-url'),
-        getPresignedDownloadUrl: jest.fn().mockResolvedValue('test-presigned-download-url'),
+        getPresignedUploadUrl: jest
+          .fn()
+          .mockImplementation((f) => Promise.resolve(`s3-test-upload-url://${f.fullPath}`)),
+        getPresignedDownloadUrl: jest
+          .fn()
+          .mockImplementation((f) => Promise.resolve(`s3-test-download-url://${f.fullPath}`)),
         listFilesAtPath: jest.fn().mockResolvedValue(['test-file-1', 'test-file-2']),
       })
       .compile();
