@@ -26,7 +26,6 @@ services:
       db:
         condition: service_healthy
     environment:
-      AWS_PROFILE: ${AWS_PROFILE}
       DEPLOYMENT_MODE: LOCAL 
       INIT_TOKEN: ${INIT_TOKEN}
       INIT_JOB_URL: ${INIT_JOB_URL}

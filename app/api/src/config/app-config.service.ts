@@ -105,9 +105,12 @@ export class AppConfigService {
     return this.get('S3_FILE_UPLOAD_BUCKET');
   }
 
+  isLocalExecutor(): boolean {
+    return !!this.get('LOCAL_EXECUTOR');
+  }
+
   localStorageRoot(): string | undefined {
-    const localExecutor = this.get('LOCAL_EXECUTOR');
-    if (!localExecutor) {
+    if (!this.isLocalExecutor()) {
       return undefined;
     }
 
@@ -125,6 +128,22 @@ export class AppConfigService {
     }
 
     return this.localStorageRoot();
+  }
+
+  localStorageRootOrThrow(): string {
+    const root = this.localStorageRoot();
+    if (!root) {
+      throw new Error('Local storage root is not configured');
+    }
+    return root;
+  }
+
+  localExecutorStorageRootOrThrow(): string {
+    const root = this.localExecutorStorageRoot();
+    if (!root) {
+      throw new Error('Local executor storage root is not configured');
+    }
+    return root;
   }
 
   executorCallbackBaseUrl(): string | undefined {

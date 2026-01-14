@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
@@ -28,7 +29,11 @@ import {
   GetJobDto,
   PostJobDto,
   PostJobResponseDto,
+  PostJobNoteDto,
+  PutJobNoteDto,
+  PutJobResolveDto,
   toGetJobDto,
+  toGetJobNoteDto,
   toGetRunUpdateDto,
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
@@ -290,5 +295,101 @@ export class JobsController {
         Job: ${JSON.stringify(updatedJob, null, 2)}`);
       throw new InternalServerErrorException(`Unknown error starting job ${jobId}`);
     }
+  }
+
+  @Put(':jobId/resolve')
+  async resolve(
+    @Param('jobId', ParseIntPipe) jobId: GetJobDto['id'],
+    @Body() resolveJobDto: PutJobResolveDto
+  ) {
+    const job = toGetJobDto(
+      await this.prisma.job
+        .findUniqueOrThrow({
+          where: { id: jobId },
+          include: {
+            files: true,
+            runs: {
+              include: {
+                runOutputFile: true,
+              },
+            },
+          },
+        })
+        .catch(() => {
+          // not founds should be thrown before we get to the handler, but just in case
+          throw new NotFoundException(`Job not found: ${jobId}`);
+        })
+    );
+
+    if (!job.isStatusChangeable) {
+      throw new BadRequestException(`Job is not changeable: ${jobId}`);
+    }
+
+    await this.prisma.job.update({
+      where: { id: jobId },
+      data: { isResolved: resolveJobDto.isResolved },
+    });
+
+    return;
+  }
+
+  @Get(':jobId/notes')
+  async getNotes(@Param('jobId', ParseIntPipe) jobId: number) {
+    const notes = await this.prisma.jobNote.findMany({
+      where: { jobId },
+      include: { createdBy: true, modifiedBy: true },
+      orderBy: { createdOn: 'asc' },
+    });
+    return toGetJobNoteDto(notes);
+  }
+
+  @Post(':jobId/notes')
+  async createNote(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Body() createNoteDto: PostJobNoteDto
+  ) {
+    await this.prisma.jobNote.create({
+      data: {
+        jobId,
+        noteText: createNoteDto.noteText,
+      },
+    });
+    return;
+  }
+
+  @Put(':jobId/notes/:noteId')
+  async updateNote(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Param('noteId', ParseIntPipe) noteId: number,
+    @Body() updateNoteDto: PutJobNoteDto
+  ) {
+    try {
+      await this.prisma.jobNote.update({
+        where: { id: noteId, jobId },
+        data: { noteText: updateNoteDto.noteText },
+      });
+    } catch (error) {
+      // this could occur if the note ID and job ID don't line up.
+      this.logger.error(`Error updating note ${noteId} for job ${jobId}: ${error}`);
+      throw new NotFoundException(`Note not found: ${noteId} for job ${jobId}`);
+    }
+    return;
+  }
+
+  @Delete(':jobId/notes/:noteId')
+  async deleteNote(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Param('noteId', ParseIntPipe) noteId: number
+  ) {
+    try {
+      await this.prisma.jobNote.delete({
+        where: { id: noteId, jobId },
+      });
+    } catch (error) {
+      // most likely note ID and job ID don't line up.
+      this.logger.error(`Error deleting note ${noteId} for job ${jobId}: ${error}`);
+      throw new NotFoundException(`Note not found: ${noteId} for job ${jobId}`);
+    }
+    return;
   }
 }

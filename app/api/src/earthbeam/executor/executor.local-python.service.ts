@@ -21,8 +21,6 @@ export class ExecutorLocalPythonService extends ExecutorService {
         ...envVars,
         PATH: `${process.env.PATH}:${process.cwd()}/../executor/local-run/venv/bin`,
         DEPLOYMENT_MODE: 'LOCAL',
-        AWS_REGION: this.appConfig.get('AWS_REGION'),
-        AWS_PROFILE: this.appConfig.get('LOCAL_AWS_PROFILE'),
       },
     });
 

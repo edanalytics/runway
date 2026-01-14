@@ -86,11 +86,10 @@ export class JobsService {
       };
     });
 
-    const localStorageRoot = this.appConfig.localExecutorStorageRoot();
-    const isLocalMode = !!this.appConfig.get('LOCAL_EXECUTOR');
-    if (isLocalMode && !localStorageRoot) {
-      throw new Error('Local executor storage root is not configured');
-    }
+    const isLocalMode = this.appConfig.isLocalExecutor();
+    const localStorageRoot = isLocalMode
+      ? this.appConfig.localExecutorStorageRootOrThrow()
+      : undefined;
 
     return prisma.job.update({
       where: { id: job.id },
@@ -105,7 +104,7 @@ export class JobsService {
   }
 
   async getUploadUrls(files: JobFile[]) {
-    if (this.appConfig.get('LOCAL_EXECUTOR')) {
+    if (this.appConfig.isLocalExecutor()) {
       const baseUrl = this.appConfig.get('MY_URL')?.replace(/\/+$/, '') ?? '';
       return files.map((file) => ({
         templateKey: file.templateKey,
@@ -125,7 +124,7 @@ export class JobsService {
   }
 
   async getDownloadUrlForInputFile(jobId: Job['id'], templateKey: JobFile['templateKey']) {
-    if (this.appConfig.get('LOCAL_EXECUTOR')) {
+    if (this.appConfig.isLocalExecutor()) {
       const baseUrl = this.appConfig.get('MY_URL')?.replace(/\/+$/, '') ?? '';
       return `${baseUrl}/api/jobs/${jobId}/files/${templateKey}/download`;
     }
@@ -144,7 +143,7 @@ export class JobsService {
   }
 
   async getDownloadUrlForOutputFile(jobId: Job['id'], fileName: string) {
-    if (this.appConfig.get('LOCAL_EXECUTOR')) {
+    if (this.appConfig.isLocalExecutor()) {
       const baseUrl = this.appConfig.get('MY_URL')?.replace(/\/+$/, '') ?? '';
       return `${baseUrl}/api/jobs/${jobId}/output-files/${encodeURIComponent(
         fileName
@@ -232,7 +231,7 @@ export class JobsService {
     templateKey: JobFile['templateKey'],
     stream: Readable
   ) {
-    if (!this.appConfig.get('LOCAL_EXECUTOR')) {
+    if (!this.appConfig.isLocalExecutor()) {
       throw new Error('Local upload is only available in local executor mode');
     }
 
@@ -254,7 +253,7 @@ export class JobsService {
     jobId: Job['id'],
     templateKey: JobFile['templateKey']
   ) {
-    if (!this.appConfig.get('LOCAL_EXECUTOR')) {
+    if (!this.appConfig.isLocalExecutor()) {
       throw new Error('Local download is only available in local executor mode');
     }
 
@@ -273,7 +272,7 @@ export class JobsService {
   }
 
   async getLocalOutputFileForDownload(jobId: Job['id'], fileName: string) {
-    if (!this.appConfig.get('LOCAL_EXECUTOR')) {
+    if (!this.appConfig.isLocalExecutor()) {
       throw new Error('Local download is only available in local executor mode');
     }
 

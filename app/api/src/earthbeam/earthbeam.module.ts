@@ -11,6 +11,7 @@ import { ExecutorLocalDockerService } from './executor/executor.local-docker.ser
 @Module({
   // TODO: does this module make sense??? Maybe this is really some sort of peripherals module
   // and they get injected differently based on local vs deployed?
+  // JCM: not my expertise but this feels pretty clean and seems to work!
   imports: [EarthbeamApiAuthModule],
   providers: [
     EarthbeamBundlesService,

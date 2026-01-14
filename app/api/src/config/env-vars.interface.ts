@@ -37,6 +37,5 @@ export interface IEnvironmentVariables {
   // env vars we expect to only use locally
   LOCAL_EXECUTOR?: 'python' | 'docker';
   LOCAL_EVENTS?: 'log' | 'noop';
-  LOCAL_AWS_PROFILE?: string;
   LOCAL_EXECUTOR_CALLBACK_BASE_URL?: string;
 }

@@ -17,21 +17,9 @@ export class FileService {
 
   constructor(private readonly appConfig: AppConfigService) {}
 
-  private isLocalMode(): boolean {
-    return !!this.appConfig.get('LOCAL_EXECUTOR');
-  }
-
-  private localStorageRoot(): string {
-    const root = this.appConfig.localStorageRoot();
-    if (!root) {
-      throw new Error('Local storage root is not configured');
-    }
-    return root;
-  }
-
   localFilePath(relativePath: string): string {
     const trimmed = relativePath.replace(/^\/+/, '');
-    return path.resolve(this.localStorageRoot(), trimmed);
+    return path.resolve(this.appConfig.localStorageRootOrThrow(), trimmed);
   }
 
   async getPresignedUploadUrl({ fullPath, fileType }: { fullPath: string; fileType: string }) {
@@ -60,7 +48,7 @@ export class FileService {
   }
 
   async listFilesAtPath(prefix: string) {
-    if (this.isLocalMode()) {
+    if (this.appConfig.isLocalExecutor()) {
       const normalizedPrefix = prefix.replace(/\/+$/, '');
       const localDir = this.localFilePath(normalizedPrefix);
       const entries = await readdir(localDir, { withFileTypes: true }).catch(() => []);
