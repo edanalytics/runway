@@ -26,6 +26,7 @@ export class ExecutorLocalDockerService extends ExecutorService {
       'runway_executor',
     ];
 
+
     const proc = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     proc.stdout?.on('data', (data) => {

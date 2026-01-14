@@ -115,6 +115,7 @@ export class JobsController {
     return url;
   }
 
+  // TODO: the service call fails when not run in local mode, but should we lock these endpoints down tighter?
   @Put(':jobId/files/:templateKey/upload')
   @HttpCode(201)
   async uploadLocalInputFile(

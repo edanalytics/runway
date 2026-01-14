@@ -28,6 +28,7 @@ fi
 # Install node dependencies
 echo "Installing node dependencies."
 npm install --silent
+npm install -g prisma --silent # TODO: maybe?
 
 # Generate prisma client (postinstall script can't find schema file not in root)
 echo "Generating Prisma client to node_modules."
@@ -45,9 +46,9 @@ echo "Running database migrations."
 npm run api:migrate-local-dev
 
 # Set up LOCAL_EXECUTOR=python for ExecutorF
-echo "Set up Executor to run locally? This will create a virtual environment in runway/executor/local-run/venv, install dependencies, and clone the bundle repo."
+echo "Set up Executor to run as a child process on your machine (instead of a local container)? This will create a virtual environment in runway/executor/local-run/venv, install dependencies, and clone the bundle repo. Use this option if you're modifying the executor code"
 while true; do
-  read -p "Do you want to set up Executor to run locally? (y/n) " yn
+  read -p "Do you want to set up Executor to run as a child process? (y/n) " yn
 
   if [[ $yn =~ ^[Yy] ]]; then
     mkdir -p ../executor/local-run
@@ -59,7 +60,8 @@ while true; do
     popd > /dev/null
     break;
   elif [[ $yn =~ ^[Nn] ]]; then
-    echo -e "${RED}\nSkipping Executor setup.\n"; break;
+    echo "Building executor docker image"
+    docker build -t runway_executor ../executor
   else
     echo "Please answer yes or no.";
     fi
@@ -82,7 +84,7 @@ Initialized local development environment:
 You can now connect an IdP (see README).
 
 
-When ready, start the API and client dev servers:
+When ready, start the API and client dev servers in separate terminals:
 npx nx run api:serve
 npx nx run fe:serve
 

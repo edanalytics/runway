@@ -30,7 +30,7 @@ cd app
 
 #### 1. Run the setup script.
 
-This will set up environment variables, install node dependencies, and generate the Prisma client, among other things.
+This sets up environment variables, install node dependencies, and generate the Prisma client, among other things. You can indicate whether you intend to run the executor on your host machine or in a container (see below). If you're actively making changes to the executor, it's much faster to run it in "bare" Python on your machine. If not, the script builds the executor image so it's ready to run.
 
 ```bash
 bash init.sh
@@ -107,24 +107,7 @@ VALUES ('ea','assessments/STAAR_Interim'),
 
 ```
 
-### Log into AWS
-
-You don't need to initiate an AWS session unless you plan to interact with S3 or ECS, so you might skip this, depending on what you need to do.
-
-If you haven't yet configured SSO with the AWS CLI, run:
-
-```sh
-aws configure sso
-```
-
-When prompted, enter:
-Start URL: https://edanalytics.awsapps.com/start/#
-Region: us-east-2
-Account: EdFi Data Loader
-
-```sh
-aws sso login --profile RunwayDeveloper
-```
+**Note**: You can add assessments to `earthmover_bundle` and `partner_earthmover_bundle` at any time to make additional bundles available for local testing.
 
 ### Run the App
 
@@ -173,16 +156,14 @@ There are two methods to log in as a given user:
    1. Within the user record, select `Impersonate` from the Action menu in the upper right
    1. Go to http://localhost:4200 and click the login button. When you get redirected to Keycloak, Keycloak will authenticate you as the user you just impersonated.
 
-### Running the Executor locally
+### Running the executor locally
 
-In deployed environments, the Executor runs as a Task in Elastic Container Service (ECS). Locally, we can't initiate ECS tasks. Instead, the app initiate the Executor based on the `LOCAL_EXECUTOR` environment variable:
+In deployed environments, the executor runs as a Task in Elastic Container Service (ECS). Locally, the app initiate the executor based on the `LOCAL_EXECUTOR` environment variable:
 
-- `LOCAL_EXECUTOR=python`: The app spawns a Python process that runs alongside the app's Node process. This can be handy if you're doing Executor development. You don't need to build an image with each change. But the Executor process is not isolated. It shares a file system with the Node process or any other Executor processes that are running, which can introduce conflicts since the Executor writes to the file system assuming that no other processes are interacting with it... which is a fine assumption when running in a container but we're not running in a container here.
-  - Setup: virtual env, pip install requirements and executor, clone bundle repo
-- `LOCAL_EXECUTOR=docker`: The Executor runs in a Docker container. This is probably more convenient if you're doing app development. The Executor runs in isolation in a setup that more closely matches prod. You'll need to rebuild the image as the Executor changes!
-  - Setup: build image
+- `LOCAL_EXECUTOR=python`: The app spawns a Python process that runs alongside the app's Node process. In this mode, you don't need to rebuild the docker image for new code to take effect, but there's no formal isolation from anything else on your system (the bundles repo and python venv are all copied into the Runway repo).
+- `LOCAL_EXECUTOR=docker`: The app spins up a Docker container. Any executor code changes only take effect when you rebuild the image, but the overall setup is more similar to production.
 
-In local mode, file uploads are written to `./storage` and the Executor reads/writes directly from disk, so you do not need an AWS session. (In deployed environments, S3 is still used.)
+In both local modes, file uploads and executor artifacts are written to the `storage` directory in the repo root, mimicking the S3 path structure in production.
 
 ## OSS required attributions
 

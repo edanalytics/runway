@@ -6,7 +6,7 @@ import { AppConfigService } from './app-config.service';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['api/.env'],
+      envFilePath: ['api/.env'], // guarantee that we load this when running locally
     }),
   ],
   providers: [AppConfigService],

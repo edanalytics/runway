@@ -35,35 +35,7 @@ If you would like more guidance and support with deploying Runway in AWS, please
 8. Navigate through the next screens on the console until you are able to start the deployment.
 
 ### Local deployment
-Build the Executor Docker image with
-```bash
-cd executor && docker build -t runway_executor . && cd ..
-```
 
-`docker-compose.yml` stands up containers including:
-1. a Postgres database which backs the application
-1. the App frontend and backend
-1. a Job Executor
+You can run Runway locally and use it to load to your ODS without any dependence on AWS.
 
-Start up the stack with
-```bash
-docker-compose -f ./docker-compose.yml --env-file .\.env up -d
-```
-(For an end-to-end working example, you may also want [an Ed-Fi API](https://github.com/Ed-Fi-Alliance-OSS/Ed-Fi-ODS-Docker) running in another Docker stack. You'll also need to modify the Ed-Fi API's credentials to allow writing to the namespace `uri://www.nwea.org`.)
-
-Go to [localhost:3000](http://localhost:3000/) to view the job that's automatically launched when the stack starts. After about 15 seconds, the sample job will begin executing and you should see the status update.
-
-Shut down a running stack with
-```bash
-docker-compose -f ./docker-compose.yml --env-file .\.env down --volumes
-```
-
-The entrypoint for the job_executor is `init.sh`, which calls a "prepare" bash script followed by an "execute" Python script. (Some setup steps are easier to write in bash, others in Python; hence the split.)
-
-
-### Application features
-Coming soon...
-
-This repo also contains a folder `bundleSchemas/` which contains several examples of JSON schemas (which a bundle could provide) that would be turned into form elements on the "create job" part of this app, to collect configuration settings to be passed into the bundle.
-
-Such schemas can be turned into form elements using (for React) [react-jsonschema-form](https://github.com/rjsf-team/react-jsonschema-form) or (for jQuery) [jsonform](https://github.com/jsonform/jsonform), [jsonToForm](https://github.com/mirshahreza/jsonToForm), or [json-editor](https://github.com/json-editor/json-editor).
+See [app/README.md](app/README.md) for full local instructions
