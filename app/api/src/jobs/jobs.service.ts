@@ -87,9 +87,10 @@ export class JobsService {
     });
 
     const isLocalMode = this.appConfig.isLocalExecutor();
-    const localStorageRoot = isLocalMode
-      ? this.appConfig.localExecutorStorageRootOrThrow()
-      : undefined;
+    const localStorageRoot = isLocalMode ? this.appConfig.localExecutorStorageRoot() : undefined;
+    if (isLocalMode && !localStorageRoot) {
+      throw new Error('Local executor storage root is not configured');
+    }
 
     return prisma.job.update({
       where: { id: job.id },

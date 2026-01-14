@@ -24,7 +24,7 @@ import { PrismaClient } from '@prisma/client';
 import { JobsService } from './jobs.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
-import type { Tenant as TTenant } from '@prisma/client';
+import type { Tenant as TTenant, User } from '@prisma/client';
 import {
   GetJobDto,
   PostJobDto,

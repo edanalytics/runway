@@ -130,22 +130,6 @@ export class AppConfigService {
     return this.localStorageRoot();
   }
 
-  localStorageRootOrThrow(): string {
-    const root = this.localStorageRoot();
-    if (!root) {
-      throw new Error('Local storage root is not configured');
-    }
-    return root;
-  }
-
-  localExecutorStorageRootOrThrow(): string {
-    const root = this.localExecutorStorageRoot();
-    if (!root) {
-      throw new Error('Local executor storage root is not configured');
-    }
-    return root;
-  }
-
   executorCallbackBaseUrl(): string | undefined {
     const override = this.get('LOCAL_EXECUTOR_CALLBACK_BASE_URL');
     if (override) {

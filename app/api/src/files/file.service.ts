@@ -18,8 +18,12 @@ export class FileService {
   constructor(private readonly appConfig: AppConfigService) {}
 
   localFilePath(relativePath: string): string {
+    const root = this.appConfig.localStorageRoot();
+    if (!root) {
+      throw new Error('Local storage root is not configured');
+    }
     const trimmed = relativePath.replace(/^\/+/, '');
-    return path.resolve(this.appConfig.localStorageRootOrThrow(), trimmed);
+    return path.resolve(root, trimmed);
   }
 
   async getPresignedUploadUrl({ fullPath, fileType }: { fullPath: string; fileType: string }) {
