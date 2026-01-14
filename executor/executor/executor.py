@@ -169,6 +169,7 @@ class JobExecutor:
             os.environ["ASSESSMENT_BUNDLE_BRANCH"] = job["bundle"]["branch"]
 
             app_base_uri = parse.urlparse(job["appDataBasePath"])
+            self.local_data_path = None
             if app_base_uri.scheme == "file":
                 self.local_data_path = app_base_uri.path
             else:
@@ -636,7 +637,8 @@ class JobExecutor:
             self.error_obj = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
             raise FileNotFoundError(fpath)
 
-        if self.local_mode:
+        # these variables pretty much always correlate, but they don't necessarily have to
+        if self.local_mode and self.local_data_path:
             self.logger.debug(
                 f"local mode: copying artifact to {os.path.join(self.local_data_path, 'output')}"
             )
