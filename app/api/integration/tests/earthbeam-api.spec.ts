@@ -63,7 +63,7 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenX}`);
-      expect(res.status).toBe(403); 
+      expect(res.status).toBe(403);
     });
 
     // TODO: add tests for things other than descriptor mappings
@@ -76,7 +76,7 @@ describe('Earthbeam API', () => {
           {
             bundleKey: bundleA.path,
             descriptorType: testDescriptorTypeA,
-            leftHandSideColumns: { abc: '1', def: '2', ghi: '3' },
+            leftHandSideColumns: { abc: '1', def: '2', ghi: '3' } as Record<string, string>,
             edfiDefaultDescriptor: 'uri://ed-fi.org/testDescriptorA1',
           },
           {

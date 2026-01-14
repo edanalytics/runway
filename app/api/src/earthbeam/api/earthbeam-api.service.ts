@@ -24,7 +24,6 @@ import { FileService } from 'api/src/files/file.service';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
 import { EventEmitterService } from 'api/src/event-emitter/event-emitter.service';
-
 @Injectable()
 export class EarthbeamApiService {
   private readonly logger = new Logger(EarthbeamApiService.name);
@@ -172,7 +171,7 @@ export class EarthbeamApiService {
       where: { id: runId },
       data: { status },
       include: {
-        job: { include: { files: true } },
+        job: { include: { files: true, odsConfig: { include: { activeConnection: true } } } },
         runError: true,
         userRunCreatedByIdTouser: true,
       },
@@ -224,19 +223,42 @@ export class EarthbeamApiService {
        * to abstract
        */
       const jobDto = toGetJobDto({ ...run.job, runs: [run] });
-      const { hasResourceErrors } = jobDto;
+
+      const unmatchedStudentsInfo = run.unmatchedStudentsInfo;
+      const { hasResourceErrors, resourceErrors } = jobDto;
+      const resourceErrorString = hasResourceErrors
+        ? resourceErrors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',')
+        : '';
+
       const hasUnmatchedStudents = runOutputFiles?.some(
         (file) => file.name === 'input_no_student_id_match.csv'
       );
+      const odsUrl = run.job.odsConfig.activeConnection?.host;
+      const assessmentType = run.job.name;
+      const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
+      const tenantCode = run.job.tenantCode;
+      const partnerId = run.job.partnerId;
+      const unmatchedStudentCount = `${unmatchedStudentsInfo?.count ?? 0} unmatched`;
+      const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
+      const errorString = errorCode ? `ERROR: ${errorCode}` : '';
+
+      const summaryString = `${assessmentType} (${assessmentFiles.join(
+        ', '
+      )}) ${errorString} ${resourceErrorString} ${unmatchedStudentCount} (${partnerId}/${tenantCode})`;
+
       await this.eventEmitter.emit('run_complete', {
+        summary: summaryString,
         runId: run.id,
         jobId: run.job.id,
         status: run.status,
         completedWithErrors:
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
+        odsUrl,
+        schoolYear: run.job.schoolYearId,
+        unmatchedStudentsCount: unmatchedStudentsInfo?.count ?? 0,
         input: {
-          assessment: run.job.name,
-          files: run.job.files.map((file) => file.nameFromUser),
+          assessment: assessmentType,
+          files: assessmentFiles,
           params: jobDto.inputParams?.map(({ name, value }) => ({ name, value })),
         },
         result: {
@@ -249,8 +271,8 @@ export class EarthbeamApiService {
           })),
         },
         metadata: {
-          tenantCode: run.job.tenantCode,
-          partnerId: run.job.partnerId,
+          tenantCode,
+          partnerId,
           userEmail: run.userRunCreatedByIdTouser?.email,
           userName:
             run.userRunCreatedByIdTouser?.givenName +
