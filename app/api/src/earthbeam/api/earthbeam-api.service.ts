@@ -238,13 +238,13 @@ export class EarthbeamApiService {
       const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
       const tenantCode = run.job.tenantCode;
       const partnerId = run.job.partnerId;
-      const unmatchedStudentCount = `U(${unmatchedStudentsInfo.count})`;
+      const unmatchedStudentCount = `${unmatchedStudentsInfo.count} unmatched`;
       const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
 
       const summaryString = `${assessmentType} (${assessmentFiles.join(
         ', '
-      )}) ${errorString} ${unmatchedStudentCount} ${resourceErrorString} (${partnerId}/${tenantCode})`;
+      )}) ${errorString} ${resourceErrorString} ${unmatchedStudentCount} (${partnerId}/${tenantCode})`;
 
       await this.eventEmitter.emit('run_complete', {
         summary: summaryString,

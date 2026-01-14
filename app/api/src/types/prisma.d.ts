@@ -6,5 +6,5 @@ namespace PrismaJson {
     string,
     Record<'records_processed' | 'records_skipped' | 'records_failed', number>
   > | null;
-  type UnmatchedStudentsInfo = { name: string; type: string; count?: number };
+  type UnmatchedStudentsInfo = { name: string; type: string; count?: number } | null;
 }

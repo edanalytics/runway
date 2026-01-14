@@ -150,7 +150,7 @@ export class GetJobDto
         resource: reportableFailedResource,
         failed: this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0,
         total:
-          this.resourceSummaries?.[reportableFailedResource]?.success! +
+          this.resourceSummaries?.[reportableFailedResource].success! +
           (this.resourceSummaries?.[reportableFailedResource]?.skipped ?? 0) +
           (this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0),
       }));
