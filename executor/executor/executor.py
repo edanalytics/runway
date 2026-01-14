@@ -259,7 +259,11 @@ class JobExecutor:
             if os.stat(artifact.ROSTER.path).st_size == 0:
                 raise ValueError("ODS contains no student enrollments")
 
-        except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
+        except (ValueError, FileNotFoundError):
+            self.error = error.MissingOdsRosterError()
+            raise
+
+        except subprocess.CalledProcessError:
             self.error = error.LightbeamFetchError(
                 "studentEducationOrganizationAssociations"
             )
@@ -273,7 +277,8 @@ class JobExecutor:
 
         self.input_paths = {}
         for env_name, path in self.input_sources.items():
-            uri = parse.urlparse(path)
+            # if allow_fragments is True, paths containing a '#' are incorrectly split
+            uri = parse.urlparse(path, allow_fragments=False)
             if uri.scheme == "file":
                 os.environ[env_name] = uri.path
                 self.input_sources[env_name] = {"path": uri.path}
@@ -485,6 +490,7 @@ class JobExecutor:
             else:
                 # of the records that have this ID, what fraction of the ID's values match
                 id_types[t]["pct_matches"] = id_types[t]["stu_id_matches"] / id_types[t]["non_nulls"]
+
         for t in too_many_nulls_ids:
             del id_types[t]
 
@@ -695,9 +701,9 @@ class JobExecutor:
             else:
                 return
 
-    def send_id_matches(self, id_name, id_type):
+    def send_id_matches(self, id_name, id_type, count):
         self.logger.debug("Sending student ID match info")
-        body = {"name": id_name, "type": id_type}
+        body = {"name": id_name, "type": id_type, "count": count}
         self.conn.post(self.matches_url, json=body)
 
     def send_error(self):
