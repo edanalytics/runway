@@ -24,9 +24,9 @@ export class JobsService {
   constructor(
     @Inject(PRISMA_READ_ONLY) private prisma: PrismaClient,
     private fileService: FileService,
+    private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
-    private appConfig: AppConfigService,
-    private executor: ExecutorService
+    private appConfig: AppConfigService
   ) {}
 
   async getStatusUpdates(jobId: Job['id']) {
@@ -86,17 +86,17 @@ export class JobsService {
       };
     });
 
-    const isLocalMode = this.appConfig.isLocalExecutor();
-    const localStorageRoot = isLocalMode ? this.appConfig.localExecutorStorageRoot() : undefined;
-    if (isLocalMode && !localStorageRoot) {
+    const isLocalExecutor = this.appConfig.isLocalExecutor();
+    const localStorageRoot = isLocalExecutor ? this.appConfig.localExecutorStorageRoot() : undefined;
+    if (isLocalExecutor && !localStorageRoot) {
       throw new Error('Local executor storage root is not configured');
     }
 
     return prisma.job.update({
       where: { id: job.id },
       data: {
-        fileProtocol: isLocalMode ? 'file' : 's3',
-        fileBucketOrHost: isLocalMode ? localStorageRoot : this.appConfig.s3Bucket(),
+        fileProtocol: isLocalExecutor ? 'file' : 's3',
+        fileBucketOrHost: isLocalExecutor ? localStorageRoot : this.appConfig.s3Bucket(),
         fileBasePath: basePath,
         files: { createMany: { data: files } },
       },

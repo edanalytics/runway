@@ -27,13 +27,11 @@ import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership
 import type { Tenant as TTenant, User } from '@prisma/client';
 import {
   GetJobDto,
+  NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
-  PostJobNoteDto,
-  PutJobNoteDto,
   PutJobResolveDto,
   toGetJobDto,
-  toGetJobNoteDto,
   toGetRunUpdateDto,
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
@@ -41,6 +39,7 @@ import { plainToInstance } from 'class-transformer';
 import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { EarthmoverBundleTypes } from '@edanalytics/models';
+import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
 import { Request, Response } from 'express';
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
