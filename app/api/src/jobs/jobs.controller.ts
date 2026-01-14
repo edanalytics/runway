@@ -39,8 +39,8 @@ import { plainToInstance } from 'class-transformer';
 import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { EarthmoverBundleTypes } from '@edanalytics/models';
+import type { Request, Response } from 'express';
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
-import { Request, Response } from 'express';
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
 
