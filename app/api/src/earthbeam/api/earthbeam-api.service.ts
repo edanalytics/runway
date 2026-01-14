@@ -238,7 +238,7 @@ export class EarthbeamApiService {
       const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
       const tenantCode = run.job.tenantCode;
       const partnerId = run.job.partnerId;
-      const unmatchedStudentCount = `${unmatchedStudentsInfo.count} unmatched`;
+      const unmatchedStudentCount = `${unmatchedStudentsInfo?.count ?? 0} unmatched`;
       const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
 
@@ -255,7 +255,7 @@ export class EarthbeamApiService {
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
         odsUrl,
         schoolYear: run.job.schoolYearId,
-        unmatchedStudentsCount: unmatchedStudentsInfo.count,
+        unmatchedStudentsCount: unmatchedStudentsInfo?.count ?? 0,
         input: {
           assessment: assessmentType,
           files: assessmentFiles,
