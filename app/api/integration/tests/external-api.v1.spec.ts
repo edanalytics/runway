@@ -134,20 +134,16 @@ describe('ExternalApiV1', () => {
     let jobInput: {
       bundle: string;
       schoolYear: string;
-      input: {
-        files: Record<string, string>;
-        params: Record<string, string>;
-      };
+      files: Record<string, string>;
+      params: Record<string, string>;
     };
 
     beforeEach(() => {
       jobInput = {
         bundle: bundleA.path,
         schoolYear: '2425',
-        input: {
-          files: { INPUT_FILE: 'input-file.csv' },
-          params: { FORMAT: 'Standard' },
-        },
+        files: { INPUT_FILE: 'input-file.csv' },
+        params: { FORMAT: 'Standard' },
       };
       getBundleMock = jest
         .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
@@ -216,7 +212,7 @@ describe('ExternalApiV1', () => {
           });
 
         expect(res.status).toBe(400);
-        expect(res.body.message).toContain('Bundle not allowed for partner');
+        expect(res.body.message).toContain('Bundle not enabled for partner');
       });
 
       it('should reject requests if an ODS is not found for the requested school year', async () => {
@@ -230,6 +226,19 @@ describe('ExternalApiV1', () => {
           });
         expect(res.status).toBe(400);
         expect(res.body.message).toContain('No ODS found');
+      });
+
+      it('should reject requests with an invalid school year format', async () => {
+        // This test checks that we're hitting the class validator requirements in the DTO
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ ...jobInput, schoolYear: '2025-2026' });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toEqual(
+          expect.arrayContaining([expect.stringContaining('School year must be 4 characters long')])
+        );
       });
 
       it('should reject requests if multiple ODSs are found for the requested school year', async () => {
@@ -283,10 +292,7 @@ describe('ExternalApiV1', () => {
           .set('Authorization', `Bearer ${token}`)
           .send({
             ...jobInput,
-            input: {
-              ...jobInput.input,
-              params: { ...jobInput.input.params, FORMAT: undefined },
-            },
+            params: { ...jobInput.params, FORMAT: undefined },
           });
         expect(res.status).toBe(400);
         expect(res.body.message).toContain('Missing required params');
@@ -299,10 +305,7 @@ describe('ExternalApiV1', () => {
           .set('Authorization', `Bearer ${token}`)
           .send({
             ...jobInput,
-            input: {
-              ...jobInput.input,
-              params: { ...jobInput.input.params, FORMAT: 'not a format' },
-            },
+            params: { ...jobInput.params, FORMAT: 'not a format' },
           });
         expect(res.status).toBe(400);
         expect(res.body.message).toContain('Invalid param input');
@@ -316,10 +319,7 @@ describe('ExternalApiV1', () => {
           .set('Authorization', `Bearer ${token}`)
           .send({
             ...jobInput,
-            input: {
-              ...jobInput.input,
-              files: { ...jobInput.input.files, UNEXPECTED_FILE: 'unexpected-file.csv' },
-            },
+            files: { ...jobInput.files, UNEXPECTED_FILE: 'unexpected-file.csv' },
           });
         expect(res.status).toBe(400);
         expect(res.body.message).toContain('Unexpected file input');
@@ -333,7 +333,7 @@ describe('ExternalApiV1', () => {
           .set('Authorization', `Bearer ${token}`)
           .send({
             ...jobInput,
-            input: { ...jobInput.input, files: { ...jobInput.input.files, INPUT_FILE: undefined } },
+            files: { ...jobInput.files, INPUT_FILE: undefined },
           });
         expect(res.status).toBe(400);
         expect(res.body.message).toContain('Missing required files');

@@ -19,6 +19,7 @@ import { PRISMA_READ_ONLY } from 'api/src/database/database.service';
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 import { EarthmoverBundleTypes } from 'models/src/interfaces/earthmover-bundle.interface';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
+import { InitJobPayloadV1Dto } from '@edanalytics/models';
 
 @Controller('jobs')
 @ApiTags('External API - Jobs')
@@ -38,7 +39,7 @@ export class ExternalApiV1JobsController {
     @ExternalApiScopes() scopes: ExternalApiScopeType[],
     @Param('partnerId') partnerId: string,
     @Param('tenantCode') tenantCode: string,
-    @Body() body: any
+    @Body() jobInitDto: InitJobPayloadV1Dto
   ) {
     // ensure there's a scope that matches the partner code from the request
     // if we end up having more endpoints with partner/tenant params, perhaps move this to a guard.
@@ -63,11 +64,13 @@ export class ExternalApiV1JobsController {
 
     const bundle = await this.bundleService.getBundle(
       EarthmoverBundleTypes.assessments,
-      body.bundle
+      jobInitDto.bundle
     );
 
     if (!bundle) {
-      throw new BadRequestException(`Bundle not found: ${body.bundle}`);
+      throw new BadRequestException(
+        `Bundle not found: ${jobInitDto.bundle}. Bundles must be in the format "assessments/<bundle-name>"`
+      );
     }
 
     const allowedBundles = await this.prismaRO.partnerEarthmoverBundle.findMany({
@@ -78,32 +81,32 @@ export class ExternalApiV1JobsController {
     });
 
     if (!allowedBundles.find((b) => b.earthmoverBundleKey === bundle.path)) {
-      throw new BadRequestException(`Bundle not allowed for partner: ${bundle.path}`);
+      throw new BadRequestException(`Bundle not enabled for partner: ${bundle.path}`);
     }
-    // // look up ODS based on school year
+    // look up ODS based on school year
     const odsConfigs = await this.prismaRO.odsConfig.findMany({
       where: {
         activeConnection: {
-          schoolYearId: body.schoolYear,
+          schoolYearId: jobInitDto.schoolYear,
         },
         retired: false,
-        tenantCode: tenantCode,
-        partnerId: partnerId,
+        tenantCode,
+        partnerId,
       },
     });
 
     if (odsConfigs.length === 0) {
-      throw new BadRequestException(`No ODS found for school year: ${body.schoolYear}`);
+      throw new BadRequestException(`No ODS found for school year: ${jobInitDto.schoolYear}`);
     }
     if (odsConfigs.length > 1) {
-      throw new BadRequestException(`Multiple ODS found for school year: ${body.schoolYear}`);
+      throw new BadRequestException(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
     }
 
-    const { files, params } = body.input;
+    const params = jobInitDto.params;
     const requiredParams =
       bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? []; // we get API_YEAR from the school year, so it's not a user-provided param
     const missingRequiredParams = requiredParams.filter(
-      (p) => params[p.env_var] === null || params[p.env_var] === undefined
+      (p) => params?.[p.env_var] === null || params?.[p.env_var] === undefined
     );
     if (missingRequiredParams.length > 0) {
       throw new BadRequestException(
@@ -116,9 +119,9 @@ export class ExternalApiV1JobsController {
     const paramsWithInvalidValues = paramsWithAllowedValues.filter(
       (p) =>
         // value is passed for this param, but it's not in the allowed values
-        params[p.env_var] !== null &&
-        params[p.env_var] !== undefined &&
-        !p.allowed_values?.includes(params[p.env_var])
+        params?.[p.env_var] !== null &&
+        params?.[p.env_var] !== undefined &&
+        !p.allowed_values?.includes(params?.[p.env_var])
     );
 
     if (paramsWithInvalidValues.length > 0) {
@@ -127,20 +130,23 @@ export class ExternalApiV1JobsController {
       );
     }
 
+    const incomingFiles = jobInitDto.files;
     const expectedFiles = bundle.input_files?.map((f) => f.env_var) ?? [];
-    const unexpectedFiles = Object.keys(files).filter((f) => !expectedFiles.includes(f));
+    const unexpectedFiles = Object.keys(incomingFiles).filter((f) => !expectedFiles.includes(f));
     if (unexpectedFiles.length > 0) {
       throw new BadRequestException(`Unexpected file input: ${unexpectedFiles.join(', ')}`);
     }
 
     const missingRequiredFiles = bundle.input_files
       ?.filter((f) => f.is_required)
-      .filter((f) => !Object.keys(files).includes(f.env_var))
+      .filter((f) => !Object.keys(incomingFiles).includes(f.env_var))
       .map((f) => f.env_var);
 
     if (missingRequiredFiles.length > 0) {
       throw new BadRequestException(`Missing required files: ${missingRequiredFiles.join(', ')}`);
     }
+
+    // const job = await this.jobsService.initialize(jobInitDto, tenantCode, partnerId);
 
     return 'ok';
   }
