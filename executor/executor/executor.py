@@ -169,9 +169,8 @@ class JobExecutor:
             os.environ["ASSESSMENT_BUNDLE_BRANCH"] = job["bundle"]["branch"]
 
             app_base_uri = parse.urlparse(job["appDataBasePath"])
-            self.local_app_path = None
             if app_base_uri.scheme == "file":
-                self.local_app_path = app_base_uri.path
+                self.local_data_path = app_base_uri.path
             else:
                 self.app_bucket = app_base_uri.hostname
                 app_prefix = app_base_uri.path.strip("/")
@@ -281,6 +280,7 @@ class JobExecutor:
             uri = parse.urlparse(path, allow_fragments=False)
             if uri.scheme == "file":
                 os.environ[env_name] = uri.path
+                # normalize local paths to the same dict used by S3 sources
                 self.input_sources[env_name] = {"path": uri.path}
             # NOTE: for now this assumes S3
             else:
@@ -636,14 +636,15 @@ class JobExecutor:
             self.error_obj = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
             raise FileNotFoundError(fpath)
 
-        if self.local_mode and self.local_app_path:
+        if self.local_mode:
             self.logger.debug(
-                f"local mode: copying artifact to {os.path.join(self.local_app_path, 'output')}"
+                f"local mode: copying artifact to {os.path.join(self.local_data_path, 'output')}"
             )
-            local_output_dir = os.path.join(self.local_app_path, "output")
+            local_output_dir = os.path.join(self.local_data_path, "output")
             os.makedirs(local_output_dir, exist_ok=True)
             shutil.copy2(fpath, os.path.join(local_output_dir, os.path.basename(fpath)))
         else:
+            # deployed case
             try:
                 self.s3.upload_file(
                     fpath, self.app_bucket, f"{self.s3_out_path}/{os.path.basename(fpath)}"
