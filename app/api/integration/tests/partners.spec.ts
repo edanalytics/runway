@@ -17,6 +17,9 @@ describe('POST /partners', () => {
 
   describe('authenticated requests', () => {
     const sessA = sessionCookie('partners-spec-a');
+    let mockGetBundles = jest
+      .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
+      .mockResolvedValue(allBundles);
 
     beforeEach(async () => {
       jest.spyOn(EarthbeamBundlesService.prototype, 'getBundles').mockResolvedValue(allBundles);
@@ -25,7 +28,7 @@ describe('POST /partners', () => {
 
     afterEach(async () => {
       await sessionStore.destroy(sessA.sid);
-      await jest.restoreAllMocks();
+      mockGetBundles.mockRestore();
     });
 
     it('should reject requests from user without the PartnerAdmin role', async () => {
