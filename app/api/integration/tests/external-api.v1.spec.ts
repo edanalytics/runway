@@ -3,6 +3,13 @@ import { signExternalApiToken } from '../helpers/external-api/token-helper';
 import * as jose from 'jose';
 import { EXTERNAL_API_SCOPE_KEY } from '../../src/external-api/auth/external-api-scope.decorator';
 import { ExternalApiV1TokenController } from '../../src/external-api/v1/token.v1.controller';
+import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
+import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
+import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
+import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
+import { schoolYear2324 } from '../fixtures/context-fixtures/school-year-fixtures';
+import { odsConfigA2425, odsConnA2425 } from '../fixtures/context-fixtures/ods-fixture';
+import { seedOds } from '../factories/ods-factory';
 
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {
@@ -117,6 +124,220 @@ describe('ExternalApiV1', () => {
           .post(endpoint)
           .set('Authorization', `Bearer ${token}`);
         expect(res.status).toBe(403);
+      });
+    });
+  });
+
+  describe('Jobs V1', () => {
+    const endpointA = `/v1/jobs/${partnerA.id}/${tenantA.code}`;
+    let getBundleMock: jest.SpyInstance;
+    let jobInput: {
+      bundle: string;
+      schoolYear: string;
+      input: {
+        files: Record<string, string>;
+        params: Record<string, string>;
+      };
+    };
+
+    beforeEach(() => {
+      jobInput = {
+        bundle: bundleA.path,
+        schoolYear: '2425',
+        input: {
+          files: { INPUT_FILE: 'input-file.csv' },
+          params: { FORMAT: 'Standard' },
+        },
+      };
+      getBundleMock = jest
+        .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
+        .mockResolvedValue(allBundles);
+    });
+
+    afterEach(() => {
+      getBundleMock.mockRestore();
+    });
+
+    describe('Valid Request', () => {});
+    describe('Invalid Request', () => {
+      it('should reject requests without a partner scope', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send(jobInput);
+
+        // this and other tests check the error message to ensure the test is
+        // failing for the expected reason, not some other failure
+        expect(res.status).toBe(403);
+        expect(res.body.message).toContain('Invalid partner code');
+      });
+      it('should reject requests without the correct partner scope', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-b' }); // request is for partner-a
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send(jobInput);
+        expect(res.status).toBe(403);
+        expect(res.body.message).toContain('Invalid partner code');
+      });
+
+      it('should reject requests for tenants outside the scoped partner', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' }); // request is for tenant-b
+        const res = await request(app.getHttpServer())
+          .post(`/v1/jobs/${partnerA.id}/${tenantX.code}`) // partner/tenant code mismatch
+          .set('Authorization', `Bearer ${token}`)
+          .send(jobInput);
+        expect(res.status).toBe(403);
+        expect(res.body.message).toContain('Invalid tenant code');
+      });
+
+      it('should reject requests for non-existent bundles', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA) // non-existent bundle
+          .set('Authorization', `Bearer ${token}`)
+          .send({
+            ...jobInput,
+            bundle: 'does-not-exist',
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('Bundle not found');
+      });
+
+      it('should reject requests if the bundle is not enabled for the partner', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send({
+            ...jobInput,
+            bundle: bundleX.path,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('Bundle not allowed for partner');
+      });
+
+      it('should reject requests if an ODS is not found for the requested school year', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send({
+            ...jobInput,
+            schoolYear: schoolYear2324.id,
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('No ODS found');
+      });
+
+      it('should reject requests if multiple ODSs are found for the requested school year', async () => {
+        const secondOds = await seedOds({
+          config: { ...odsConfigA2425, id: odsConfigA2425.id + 1000 },
+          connection: { ...odsConnA2425, id: odsConnA2425.id + 1000 },
+        });
+
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send(jobInput);
+
+        try {
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('Multiple ODS found');
+        } finally {
+          await prisma.odsConfig.delete({
+            where: { id: secondOds.id }, // connection will delete with cascade
+          });
+        }
+      });
+
+      it('should ignore retired ODSs', async () => {
+        await prisma.odsConfig.update({
+          where: { id: odsConfigA2425.id },
+          data: { retired: true, retiredOn: new Date() },
+        });
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send(jobInput);
+
+        try {
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('No ODS found');
+        } finally {
+          await prisma.odsConfig.update({
+            where: { id: odsConfigA2425.id },
+            data: { retired: false, retiredOn: null },
+          });
+        }
+      });
+
+      it('should ensure all required inputs are provided', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send({
+            ...jobInput,
+            input: {
+              ...jobInput.input,
+              params: { ...jobInput.input.params, FORMAT: undefined },
+            },
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('Missing required params');
+      });
+
+      it('should ensure all inputs are valid', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send({
+            ...jobInput,
+            input: {
+              ...jobInput.input,
+              params: { ...jobInput.input.params, FORMAT: 'not a format' },
+            },
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('Invalid param input');
+        expect(res.body.message).toContain('FORMAT');
+      });
+
+      it('should reject requests if unexpected files are provided', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send({
+            ...jobInput,
+            input: {
+              ...jobInput.input,
+              files: { ...jobInput.input.files, UNEXPECTED_FILE: 'unexpected-file.csv' },
+            },
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('Unexpected file input');
+        expect(res.body.message).toContain('UNEXPECTED_FILE');
+      });
+
+      it('should reject requests if required files are missing', async () => {
+        const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${token}`)
+          .send({
+            ...jobInput,
+            input: { ...jobInput.input, files: { ...jobInput.input.files, INPUT_FILE: undefined } },
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('Missing required files');
+        expect(res.body.message).toContain('INPUT_FILE');
       });
     });
   });

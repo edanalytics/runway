@@ -1,4 +1,13 @@
-import { Controller, ForbiddenException, Inject, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  ForbiddenException,
+  Inject,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { Public } from 'api/src/auth/login/public.decorator';
 import { JobsService } from 'api/src/jobs/jobs.service';
 import { ExternalApiTokenGuard } from '../auth/external-api-token.guard';
@@ -8,6 +17,8 @@ import { ExternalApiScopes } from '../external-api-token-scopes.decorator';
 import { PrismaClient } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database/database.service';
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
+import { EarthmoverBundleTypes } from 'models/src/interfaces/earthmover-bundle.interface';
+import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 
 @Controller('jobs')
 @ApiTags('External API - Jobs')
@@ -17,39 +28,120 @@ import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 export class ExternalApiV1JobsController {
   constructor(
     private readonly jobsService: JobsService,
-    @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient
+    @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient,
+    private readonly bundleService: EarthbeamBundlesService
   ) {}
 
-  @Post(':partnerCode/:tenantCode')
+  @Post(':partnerId/:tenantCode')
   @ExternalApiScope('create:jobs')
   async initialize(
     @ExternalApiScopes() scopes: ExternalApiScopeType[],
-    @Param('partnerCode') partnerCode: string,
-    @Param('tenantCode') tenantCode: string
+    @Param('partnerId') partnerId: string,
+    @Param('tenantCode') tenantCode: string,
+    @Body() body: any
   ) {
     // ensure there's a scope that matches the partner code from the request
-    if (!isPartnerAllowed(scopes, partnerCode)) {
-      throw new ForbiddenException(`Invalid partner code: ${partnerCode}`);
+    // if we end up having more endpoints with partner/tenant params, perhaps move this to a guard.
+    if (!isPartnerAllowed(scopes, partnerId)) {
+      throw new ForbiddenException(`Invalid partner code: ${partnerId}`);
     }
 
-    const tenant = this.prismaRO.tenant.findUnique({
-      where: {
-        code_partnerId: {
-          code: tenantCode,
-          partnerId: partnerCode,
+    await this.prismaRO.tenant
+      .findUniqueOrThrow({
+        where: {
+          code_partnerId: {
+            code: tenantCode,
+            partnerId: partnerId,
+          },
         },
+      })
+      .catch(() => {
+        throw new ForbiddenException(
+          `Invalid tenant code: ${tenantCode} for partner: ${partnerId}`
+        );
+      });
+
+    const bundle = await this.bundleService.getBundle(
+      EarthmoverBundleTypes.assessments,
+      body.bundle
+    );
+
+    if (!bundle) {
+      throw new BadRequestException(`Bundle not found: ${body.bundle}`);
+    }
+
+    const allowedBundles = await this.prismaRO.partnerEarthmoverBundle.findMany({
+      where: {
+        partnerId: partnerId,
+        earthmoverBundleKey: bundle.path,
       },
     });
 
-    if (!tenant) {
-      throw new ForbiddenException(
-        `Invalid tenant code: ${tenantCode} for partner: ${partnerCode}`
+    if (!allowedBundles.find((b) => b.earthmoverBundleKey === bundle.path)) {
+      throw new BadRequestException(`Bundle not allowed for partner: ${bundle.path}`);
+    }
+    // // look up ODS based on school year
+    const odsConfigs = await this.prismaRO.odsConfig.findMany({
+      where: {
+        activeConnection: {
+          schoolYearId: body.schoolYear,
+        },
+        retired: false,
+        tenantCode: tenantCode,
+        partnerId: partnerId,
+      },
+    });
+
+    if (odsConfigs.length === 0) {
+      throw new BadRequestException(`No ODS found for school year: ${body.schoolYear}`);
+    }
+    if (odsConfigs.length > 1) {
+      throw new BadRequestException(`Multiple ODS found for school year: ${body.schoolYear}`);
+    }
+
+    const { files, params } = body.input;
+    const requiredParams =
+      bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? []; // we get API_YEAR from the school year, so it's not a user-provided param
+    const missingRequiredParams = requiredParams.filter(
+      (p) => params[p.env_var] === null || params[p.env_var] === undefined
+    );
+    if (missingRequiredParams.length > 0) {
+      throw new BadRequestException(
+        `Missing required params: ${missingRequiredParams.map((p) => p.env_var).join(', ')}`
       );
     }
 
-    // TODO: all the stuff:
-    // 2. check other inputs
-    // 3. create the job
+    const paramsWithAllowedValues =
+      bundle.input_params?.filter((p) => !!p.allowed_values?.length) ?? [];
+    const paramsWithInvalidValues = paramsWithAllowedValues.filter(
+      (p) =>
+        // value is passed for this param, but it's not in the allowed values
+        params[p.env_var] !== null &&
+        params[p.env_var] !== undefined &&
+        !p.allowed_values?.includes(params[p.env_var])
+    );
+
+    if (paramsWithInvalidValues.length > 0) {
+      throw new BadRequestException(
+        `Invalid param input: ${paramsWithInvalidValues.map((p) => p.env_var).join(', ')}`
+      );
+    }
+
+    const expectedFiles = bundle.input_files?.map((f) => f.env_var) ?? [];
+    const unexpectedFiles = Object.keys(files).filter((f) => !expectedFiles.includes(f));
+    if (unexpectedFiles.length > 0) {
+      throw new BadRequestException(`Unexpected file input: ${unexpectedFiles.join(', ')}`);
+    }
+
+    const missingRequiredFiles = bundle.input_files
+      ?.filter((f) => f.is_required)
+      .filter((f) => !Object.keys(files).includes(f.env_var))
+      .map((f) => f.env_var);
+
+    if (missingRequiredFiles.length > 0) {
+      throw new BadRequestException(`Missing required files: ${missingRequiredFiles.join(', ')}`);
+    }
+
     return 'ok';
   }
 }
