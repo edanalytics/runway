@@ -1,7 +1,6 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -46,7 +45,7 @@ export function makeEarthbeamJWTGuard(type: IEarthbeamTokenPayload['type']) {
       const requestedId = parseInt(request.params.runId, 10);
       if (!requestedId || decodedToken.runId !== requestedId) {
         this.logger.error(`Run ID mismatch: requested ${requestedId}, token ${decodedToken.runId}`);
-        throw new ForbiddenException('Invalid token');
+        throw new UnauthorizedException('Invalid token');
       }
 
       return true;

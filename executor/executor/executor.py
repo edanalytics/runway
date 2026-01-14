@@ -573,7 +573,7 @@ class JobExecutor:
             # return the unmatched students file at all
             self.logger.debug("too many unmatched students. Skipping upload")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
-            raise ValueError(f"insufficient ID matches to continue (highest rate {self.highest_match_rate} < required {config.REQUIRED_ID_MATCH_RATE}; ID column name: {self.highest_match_id_name}; Ed-Fi ID type: {self.highest_match_id_type})")
+            raise ValueError(f"insufficient ID matches to continue (highest rate {highest_match_rate} < required {config.REQUIRED_ID_MATCH_RATE}; ID column name: {highest_match_id_name}; Ed-Fi ID type: {highest_match_id_type})")
 
     def lightbeam_send(self):
         """Upload Earthmover's outputs to the ODS"""
