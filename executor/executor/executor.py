@@ -536,7 +536,6 @@ class JobExecutor:
 
         if len(match_rates) > 0:
             self.logger.info(f"some records matched - match rates by ID: {match_rates}")
-<<<<<<< HEAD
 
             highest_match = sorted(match_rates, reverse=True, key=lambda mr: float(mr['match_rate']))[0]
             self.highest_match_rate = float(highest_match["match_rate"])
@@ -544,15 +543,6 @@ class JobExecutor:
             self.highest_match_id_type = highest_match["edfi_column_name"]
             self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
 
-=======
-
-            highest_match = sorted(match_rates, reverse=True, key=lambda mr: float(mr['match_rate']))[0]
-            self.highest_match_rate = float(highest_match["match_rate"])
-            self.highest_match_id_name = highest_match["source_column_name"]
-            self.highest_match_id_type = highest_match["edfi_column_name"]
-            self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
-
->>>>>>> d15092e (Executor: Fix check for unmatched student IDs (#6))
         if self.num_unmatched_students == 0:
             self.logger.debug("no unmatched students. Skipping upload of unmatched students file")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
