@@ -16,7 +16,7 @@ if [ -f ./fe/.env ] || [-f ./api/.env]; then
     read -p "You have already created environment variable files. Do you want to overwrite them? (y/n) " yn
     case $yn in
         [Yy]* ) cp ./fe/.env.copyme ./fe/.env && cp ./api/.env.copyme ./api/.env; break;;
-        [Nn]* ) echo -e "${RED}\nCanceling init.\n" && exit 1;;
+        [Nn]* ) echo -e "${RED}\nSkipping env file creation.\n"; break;;
         * ) echo "Please answer yes or no.";;
     esac
   done
@@ -43,6 +43,28 @@ popd > /dev/null
 # Run migrations to prep for IdP seeding
 echo "Running database migrations."
 npm run api:migrate-local-dev
+
+# Set up LOCAL_EXECUTOR=python for ExecutorF
+echo "Set up Executor to run locally? This will create a virtual environment in runway/executor/local-run/venv, install dependencies, and clone the bundle repo."
+while true; do
+  read -p "Do you want to set up Executor to run locally? (y/n) " yn
+
+  if [[ $yn =~ ^[Yy] ]]; then
+    mkdir -p ../executor/local-run
+    pushd ../executor/local-run > /dev/null
+    python3 -m venv venv
+    ./venv/bin/pip install -r ../requirements.txt
+    ./venv/bin/pip install -e ..
+    git clone https://github.com/edanalytics/earthmover_edfi_bundles.git bundles
+    popd > /dev/null
+    break;
+  elif [[ $yn =~ ^[Nn] ]]; then
+    echo -e "${RED}\nSkipping Executor setup.\n"; break;
+  else
+    echo "Please answer yes or no.";
+    fi
+  done
+
 
 # Log help info
 cat << EOF

@@ -5,6 +5,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { IEnvironmentVariables } from './env-vars.interface';
 import { keyBy } from 'lodash';
 import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm';
+import * as path from 'path';
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
@@ -28,7 +29,7 @@ type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 export class AppConfigService {
   constructor(private readonly configService: ConfigService<IEnvironmentVariables>) {}
 
-  get(key: keyof IEnvironmentVariables) {
+  get<K extends keyof IEnvironmentVariables>(key: K): IEnvironmentVariables[K] | undefined {
     return this.configService.get(key, { infer: true });
   }
 
@@ -104,6 +105,48 @@ export class AppConfigService {
     return this.get('S3_FILE_UPLOAD_BUCKET');
   }
 
+  localStorageRoot(): string | undefined {
+    const localExecutor = this.get('LOCAL_EXECUTOR');
+    if (!localExecutor) {
+      return undefined;
+    }
+
+    return path.resolve(process.cwd(), '../storage');
+  }
+
+  localExecutorStorageRoot(): string | undefined {
+    const localExecutor = this.get('LOCAL_EXECUTOR');
+    if (!localExecutor) {
+      return undefined;
+    }
+
+    if (localExecutor === 'docker') {
+      return '/storage';
+    }
+
+    return this.localStorageRoot();
+  }
+
+  executorCallbackBaseUrl(): string | undefined {
+    const override = this.get('LOCAL_EXECUTOR_CALLBACK_BASE_URL');
+    if (override) {
+      return override.replace(/\/+$/, '');
+    }
+
+    const baseUrl = this.get('MY_URL');
+    if (!baseUrl) {
+      return undefined;
+    }
+
+    if (this.get('LOCAL_EXECUTOR') !== 'docker') {
+      return baseUrl;
+    }
+
+    return baseUrl
+      .replace('localhost', 'host.docker.internal')
+      .replace('127.0.0.1', 'host.docker.internal');
+  }
+
   async ecsConfig(): Promise<{
     cluster: string;
     taskDefinition: { small: string; medium: string; large: string };
@@ -111,7 +154,6 @@ export class AppConfigService {
     securityGroups: string[];
     taskRole: string;
     containerName: { small: string; medium: string; large: string };
-    timeout: number;
   }> {
     const envLabel = this.get('ENVLABEL');
     if (!envLabel) {
@@ -164,7 +206,6 @@ export class AppConfigService {
         medium: `${envLabel}-JobExecutorMedium`,
         large: `${envLabel}-JobExecutorLarge`,
       },
-      timeout: Number(this.get('TIMEOUT_SECONDS') ?? 60 * 60),
     };
   }
 

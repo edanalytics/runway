@@ -173,6 +173,17 @@ There are two methods to log in as a given user:
    1. Within the user record, select `Impersonate` from the Action menu in the upper right
    1. Go to http://localhost:4200 and click the login button. When you get redirected to Keycloak, Keycloak will authenticate you as the user you just impersonated.
 
+### Running the Executor locally
+
+In deployed environments, the Executor runs as a Task in Elastic Container Service (ECS). Locally, we can't initiate ECS tasks. Instead, the app initiate the Executor based on the `LOCAL_EXECUTOR` environment variable:
+
+- `LOCAL_EXECUTOR=python`: The app spawns a Python process that runs alongside the app's Node process. This can be handy if you're doing Executor development. You don't need to build an image with each change. But the Executor process is not isolated. It shares a file system with the Node process or any other Executor processes that are running, which can introduce conflicts since the Executor writes to the file system assuming that no other processes are interacting with it... which is a fine assumption when running in a container but we're not running in a container here.
+  - Setup: virtual env, pip install requirements and executor, clone bundle repo
+- `LOCAL_EXECUTOR=docker`: The Executor runs in a Docker container. This is probably more convenient if you're doing app development. The Executor runs in isolation in a setup that more closely matches prod. You'll need to rebuild the image as the Executor changes!
+  - Setup: build image
+
+In local mode, file uploads are written to `./storage` and the Executor reads/writes directly from disk, so you do not need an AWS session. (In deployed environments, S3 is still used.)
+
 ## OSS required attributions
 
 This project uses [caniuse-lite](https://caniuse.com) which is based on [caniuse.com](caniuse.com).

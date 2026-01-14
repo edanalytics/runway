@@ -28,7 +28,8 @@ export class EarthbeamApiAuthService {
   }
 
   initEndpoint({ runId }: { runId: number }) {
-    return `${this.appConfigService.get('MY_URL')}/${earthbeamInitEndpoint(runId)}`;
+    const baseUrl = this.appConfigService.executorCallbackBaseUrl();
+    return `${baseUrl}/${earthbeamInitEndpoint(runId)}`;
   }
 
   // longer-lived token to auth remaining api requests
@@ -89,9 +90,10 @@ export class EarthbeamApiAuthService {
   }
 
   async initResponse({ runId }: { runId: Run['id'] }) {
+    const baseUrl = this.appConfigService.executorCallbackBaseUrl();
     return {
       token: await this.createAccessToken({ runId }),
-      jobUrl: `${this.appConfigService.get('MY_URL')}/${earthbeamJobInfoEndpoint(runId)}`,
+      jobUrl: `${baseUrl}/${earthbeamJobInfoEndpoint(runId)}`,
     };
   }
 }

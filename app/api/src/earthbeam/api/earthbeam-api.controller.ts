@@ -124,7 +124,7 @@ export class EarthbeamApiController {
       // Save the unmatched ID guidance information to the database
       await this.prisma.run.update({
         where: { id: runId },
-        data: { unmatchedStudentsInfo: { name: body.name, type: body.type, count: body.count } },
+        data: { unmatchedStudentsInfo: { name: body.name, type: body.type } },
       });
     } catch (error) {
       // TODO: Standardize database error handling across all endpoints

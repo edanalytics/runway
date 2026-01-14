@@ -73,6 +73,8 @@ async function bootstrap() {
   );
 
   const port = process.env.PORT || 3333;
+  const host: string | undefined =
+    process.env.LOCAL_EXECUTOR === 'docker' ? '0.0.0.0' : undefined;
   if (process.env.NODE_ENV === 'development') {
     const config = new DocumentBuilder()
       .setTitle('Runway')
@@ -83,7 +85,11 @@ async function bootstrap() {
     SwaggerModule.setup('api', app, document);
   }
 
-  await app.listen(port);
+  if (host) {
+    await app.listen(port, host);
+  } else {
+    await app.listen(port);
+  }
   Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 
