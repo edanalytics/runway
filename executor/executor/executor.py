@@ -262,7 +262,7 @@ class JobExecutor:
         except (ValueError, FileNotFoundError):
             self.error = error.MissingOdsRosterError()
             raise
-
+    
         except subprocess.CalledProcessError:
             self.error = error.LightbeamFetchError(
                 "studentEducationOrganizationAssociations"
