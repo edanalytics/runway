@@ -107,7 +107,6 @@ class JobExecutor:
             self.map_descriptors()
             self.earthmover_run()
 
-            self.lightbeam_validate()
             self.lightbeam_send()
 
             self.compile_summary()
@@ -578,65 +577,6 @@ class JobExecutor:
             self.logger.debug("too many unmatched students. Skipping upload")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
             raise ValueError(f"insufficient ID matches to continue (highest rate {self.highest_match_rate} < required {config.REQUIRED_ID_MATCH_RATE}; ID column name: {self.highest_match_id_name}; Ed-Fi ID type: {self.highest_match_id_type})")
-
-    def lightbeam_validate(self):
-        """Perform validity checks on Earthmover's outputs"""
-        self.set_action(action.LIGHTBEAM_VALIDATE)
-        subprocess.run(
-            ["lightbeam", "-c", self.assessment_lightbeam, "validate", "--results-file", artifact.LB_VALIDATE_RESULTS.path]
-        )
-
-        # check validate results file
-        # if that fails, move on
-        lb_validate_results = {}
-        with open(artifact.LB_VALIDATE_RESULTS.path) as f:
-            lb_validate_results = json.load(f)
-
-        validation_err = ""
-        for resource, counts in lb_validate_results["resources"].items():
-            if resource == "studentAssessments":
-                # In the future we'll want to generalize this based on which resources 
-                # the bundle specifies for reporting
-
-                # there are two ways this can go wrong. One is that Earthmover produced
-                # an empty studentAssessment file so nothing was validated
-                if counts["records_processed"] == 0:
-                    validation_err = "no student assessment records processed"
-                    if not self.error:
-                        self.error = error.LightbeamValidateStudentsError(
-                                "100", "no student assessment records processed"
-                            )
-                    else:
-                        self.error.resources.append(resource)
-                    continue
-
-                # the other way is that there actually are lots of validation errors
-                failure_rate = counts["records_failed"] / counts["records_processed"]
-                if failure_rate > config.STUDENT_ASSESSMENT_FAIL_THRESHOLD:
-                    # TODO: add logging here
-                    validation_err += f"{failure_rate * 100}% of student assessment records failed validation (threshold is {config.STUDENT_ASSESSMENT_FAIL_THRESHOLD * 100}%)\n"
-                    if not self.error:
-                        self.error = error.LightbeamValidateStudentsError(
-                            str(failure_rate * 100), validation_err
-                        )
-                    else:
-                        # if we've hit another validation issue, don't overwrite, just add to the resources
-                        self.error.resources.append(resource)
-            else:
-                # for everything besides studentAssessments, any failure is fatal
-                if counts["records_failed"] > 0:
-                    validation_err += f"some {resource} records failed validation\n"
-                    # even if we've already hit a students error, this gets priority since it's probably a bundle definition issue
-                    if not self.error:
-                        self.error = error.LightbeamValidateOtherError(resource, validation_err)
-                    else:
-                        self.error.resources.append(resource)
-
-        self.upload_artifact(artifact.LB_VALIDATE_RESULTS)
-
-        if validation_err:
-            self.error.message = validation_err
-            raise ValueError(validation_err)
 
     def lightbeam_send(self):
         """Upload Earthmover's outputs to the ODS"""
