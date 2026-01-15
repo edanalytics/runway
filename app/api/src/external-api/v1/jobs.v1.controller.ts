@@ -169,7 +169,7 @@ export class ExternalApiV1JobsController {
         files: Object.entries(incomingFiles).map(([envVar, filePath]) => ({
           templateKey: envVar,
           nameFromUser: filePath,
-          type: 'file',
+          type: 'application/octet-stream', // binary is fine for our purposes
         })),
         inputParams: (Object.entries(incomingParams ?? {}) ?? []).map(([key, value]) => ({
           templateKey: key,
