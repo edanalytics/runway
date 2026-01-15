@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { AppConfigService } from '../config/app-config.service';
@@ -48,5 +49,19 @@ export class FileService {
       })
     );
     return Contents?.map((content) => content.Key);
+  }
+
+  async doFilesExist(fullPaths: string[]) {
+    const commands = fullPaths.map(
+      (fullPath) =>
+        new HeadObjectCommand({
+          Bucket: this.appConfig.s3Bucket(),
+          Key: fullPath,
+        })
+    );
+    const results = await Promise.all(commands.map((command) => this.s3Client.send(command)));
+    return results.every(
+      (result) => result.ContentLength !== undefined && result.ContentLength > 0
+    );
   }
 }

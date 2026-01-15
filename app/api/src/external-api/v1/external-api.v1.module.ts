@@ -5,9 +5,10 @@ import { ExternalApiAuthService } from '../auth/external-api.auth.service';
 import { AppConfigModule } from '../../config/app-config.module';
 import { ExternalApiV1TokenController } from './token.v1.controller';
 import { EarthbeamModule } from '../../earthbeam/earthbeam.module';
+import { FileModule } from '../../files/file.module';
 
 @Module({
-  imports: [JobsModule, AppConfigModule, EarthbeamModule],
+  imports: [JobsModule, AppConfigModule, EarthbeamModule, FileModule],
   providers: [ExternalApiAuthService],
   controllers: [ExternalApiV1JobsController, ExternalApiV1TokenController],
   exports: [],

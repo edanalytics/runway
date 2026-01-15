@@ -7,6 +7,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
   Param,
+  ParseUUIDPipe,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -26,6 +27,7 @@ import {
   toGetJobTemplateDto,
   toInitJobResponseV1Dto,
 } from '@edanalytics/models';
+import { FileService } from 'api/src/files/file.service';
 
 @Controller('jobs')
 @ApiTags('External API - Jobs')
@@ -37,17 +39,18 @@ export class ExternalApiV1JobsController {
     private readonly jobsService: JobsService,
     @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient,
     @Inject(PRISMA_ANONYMOUS) private readonly prismaAnon: PrismaClient,
-    private readonly bundleService: EarthbeamBundlesService
+    private readonly bundleService: EarthbeamBundlesService,
+    private readonly fileService: FileService
   ) {}
 
-  @Post(':partnerId/:tenantCode')
+  @Post()
   @ExternalApiScope('create:jobs')
   async initialize(
     @ExternalApiScopes() scopes: ExternalApiScopeType[],
-    @Param('partnerId') partnerId: string,
-    @Param('tenantCode') tenantCode: string,
     @Body() jobInitDto: InitJobPayloadV1Dto
   ) {
+    const { partner: partnerId, tenant: tenantCode } = jobInitDto;
+
     // ensure there's a scope that matches the partner code from the request
     // if we end up having more endpoints with partner/tenant params, perhaps move this to a guard.
     if (!isPartnerAllowed(scopes, partnerId)) {
@@ -191,17 +194,35 @@ export class ExternalApiV1JobsController {
 
   @Post(':jobUid/start')
   @ExternalApiScope('create:jobs')
-  async start(@Param('jobUid') jobUid: string) {
-    const job = await this.prismaRO.job
-      .findUniqueOrThrow({
-        where: { uid: jobUid },
-        include: { files: true },
-      })
-      .catch(() => {
-        throw new NotFoundException(`Job not found: ${jobUid}`);
-      });
+  async start(
+    @ExternalApiScopes() scopes: ExternalApiScopeType[],
+    @Param('jobUid', ParseUUIDPipe) jobUid: string
+  ) {
+    const job = await this.prismaRO.job.findUnique({
+      where: { uid: jobUid },
+      include: { files: true },
+    });
 
-    const res = await this.jobsService.startJob(job, this.prismaRO);
+    if (!job || !isPartnerAllowed(scopes, job.partnerId)) {
+      // treat both bad uid and partner that doesn't match token scope as 404
+      throw new NotFoundException(`Job not found: ${jobUid}`);
+    }
+
+    const filesExist = await this.fileService.doFilesExist(job.files.map((f) => f.path));
+    if (!filesExist) {
+      throw new BadRequestException(
+        `Some expected files were not found. Expected files: ${job.files
+          .map((f) => f.nameFromUser)
+          .join(', ')}`
+      );
+    }
+
+    const updatedJob = await this.jobsService.updateFileStatusForJob(
+      job.id,
+      'upload_complete',
+      this.prismaAnon
+    );
+    const res = await this.jobsService.startJob(updatedJob, this.prismaRO);
     if (res.result === 'JOB_STARTED') {
       return;
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {

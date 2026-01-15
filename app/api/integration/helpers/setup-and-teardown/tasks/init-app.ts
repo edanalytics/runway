@@ -30,6 +30,7 @@ export const initApp = async function () {
           .fn()
           .mockImplementation((f) => Promise.resolve(`s3-test-download-url://${f.fullPath}`)),
         listFilesAtPath: jest.fn().mockResolvedValue(['test-file-1', 'test-file-2']),
+        doFilesExist: jest.fn().mockResolvedValue(true),
       })
       .compile();
 

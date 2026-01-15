@@ -5,6 +5,14 @@ import { makeSerializer } from '../../utils';
 export class InitJobPayloadV1Dto {
   @IsString()
   @IsNotEmpty()
+  partner: string;
+
+  @IsString()
+  @IsNotEmpty()
+  tenant: string;
+
+  @IsString()
+  @IsNotEmpty()
   bundle: string;
 
   @IsString()
