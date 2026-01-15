@@ -51,17 +51,23 @@ export class FileService {
     return Contents?.map((content) => content.Key);
   }
 
-  async doFilesExist(fullPaths: string[]) {
-    const commands = fullPaths.map(
-      (fullPath) =>
-        new HeadObjectCommand({
-          Bucket: this.appConfig.s3Bucket(),
-          Key: fullPath,
-        })
+  async doFilesExist(fullPaths: string[]): Promise<boolean> {
+    const results = await Promise.all(
+      fullPaths.map(async (fullPath) => {
+        try {
+          const result = await this.s3Client.send(
+            new HeadObjectCommand({
+              Bucket: this.appConfig.s3Bucket(),
+              Key: fullPath,
+            })
+          );
+          return result.ContentLength !== undefined && result.ContentLength > 0;
+        } catch (error) {
+          // NotFound or similar errors mean the file doesn't exist
+          return false;
+        }
+      })
     );
-    const results = await Promise.all(commands.map((command) => this.s3Client.send(command)));
-    return results.every(
-      (result) => result.ContentLength !== undefined && result.ContentLength > 0
-    );
+    return results.every((exists) => exists);
   }
 }
