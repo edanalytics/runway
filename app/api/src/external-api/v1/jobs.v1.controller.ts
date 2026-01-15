@@ -222,7 +222,8 @@ export class ExternalApiV1JobsController {
       'upload_complete',
       this.prismaAnon
     );
-    const res = await this.jobsService.startJob(updatedJob, this.prismaRO);
+
+    const res = await this.jobsService.startJob(updatedJob, this.prismaAnon);
     if (res.result === 'JOB_STARTED') {
       return;
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
