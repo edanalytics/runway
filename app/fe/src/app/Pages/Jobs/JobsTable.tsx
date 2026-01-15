@@ -88,7 +88,9 @@ export const JobsTable = ({ jobs }: { jobs: GetJobDto[] }) => {
 
         {
           header: 'User',
-          accessorKey: 'createdBy.displayName',
+          accessorFn: (row) => (row.createdBy ? row.createdBy.displayName : 'API Initiated'),
+          cell: ({ row }: { row: Row<GetJobDto> }) =>
+            row.original.createdBy ? row.original.createdBy.displayName : 'API Initiated',
           meta: {
             type: 'options',
           },
