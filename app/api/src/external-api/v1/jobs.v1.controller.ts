@@ -4,6 +4,8 @@ import {
   Controller,
   ForbiddenException,
   Inject,
+  InternalServerErrorException,
+  NotFoundException,
   Param,
   Post,
   UseGuards,
@@ -185,5 +187,31 @@ export class ExternalApiV1JobsController {
       uploadUrls: Object.fromEntries(uploadUrls.map((u) => [u.templateKey, u.url])),
     });
     return returnDto;
+  }
+
+  @Post(':jobUid/start')
+  @ExternalApiScope('create:jobs')
+  async start(@Param('jobUid') jobUid: string) {
+    const job = await this.prismaRO.job
+      .findUniqueOrThrow({
+        where: { uid: jobUid },
+        include: { files: true },
+      })
+      .catch(() => {
+        throw new NotFoundException(`Job not found: ${jobUid}`);
+      });
+
+    const res = await this.jobsService.startJob(job, this.prismaRO);
+    if (res.result === 'JOB_STARTED') {
+      return;
+    } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
+      throw new BadRequestException(`Job not initiated properly: ${jobUid}`);
+    } else if (res.result === 'JOB_IN_PROGRESS') {
+      throw new BadRequestException(`Job already in progress: ${jobUid}`);
+    } else if (res.result === 'JOB_START_FAILED') {
+      throw new InternalServerErrorException(`Failed to start job ${jobUid}`);
+    } else {
+      throw new InternalServerErrorException(`Unknown error starting job ${jobUid}`);
+    }
   }
 }

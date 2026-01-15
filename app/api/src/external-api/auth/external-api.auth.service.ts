@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as jose from 'jose';
 import { AppConfigService } from '../../config/app-config.service';
 import { Issuer } from 'openid-client';
 import { JWTPayload } from 'jose';
 
 @Injectable()
-export class ExternalApiAuthService {
+export class ExternalApiAuthService implements OnModuleInit {
   private readonly logger = new Logger(ExternalApiAuthService.name);
 
   private keySet: jose.JWTVerifyGetKey | undefined;
