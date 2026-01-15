@@ -156,6 +156,10 @@ There are two methods to log in as a given user:
    1. Within the user record, select `Impersonate` from the Action menu in the upper right
    1. Go to http://localhost:4200 and click the login button. When you get redirected to Keycloak, Keycloak will authenticate you as the user you just impersonated.
 
+#### 4. Configure an ODS
+
+You'll need a valid (even if nono-prod) place to send data in order to run local jobs.
+
 ### Running the executor locally
 
 In deployed environments, the executor runs as a Task in Elastic Container Service (ECS). Locally, the app initiate the executor based on the `LOCAL_EXECUTOR` environment variable:
