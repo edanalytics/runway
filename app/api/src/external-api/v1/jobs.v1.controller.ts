@@ -78,16 +78,19 @@ export class ExternalApiV1JobsController {
       );
     }
 
-    const allowedBundles = await this.prismaRO.partnerEarthmoverBundle.findMany({
-      where: {
-        partnerId: partnerId,
-        earthmoverBundleKey: bundle.path,
-      },
-    });
+    await this.prismaRO.partnerEarthmoverBundle
+      .findUniqueOrThrow({
+        where: {
+          partnerId_earthmoverBundleKey: {
+            partnerId: partnerId,
+            earthmoverBundleKey: bundle.path,
+          },
+        },
+      })
+      .catch(() => {
+        throw new BadRequestException(`Bundle not enabled for partner: ${bundle.path}`);
+      });
 
-    if (!allowedBundles.find((b) => b.earthmoverBundleKey === bundle.path)) {
-      throw new BadRequestException(`Bundle not enabled for partner: ${bundle.path}`);
-    }
     // look up ODS based on school year
     const odsConfigs = await this.prismaRO.odsConfig.findMany({
       where: {
