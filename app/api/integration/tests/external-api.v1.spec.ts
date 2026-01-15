@@ -163,12 +163,12 @@ describe('ExternalApiV1', () => {
           .send(jobInput);
 
         expect(res.status).toBe(201);
-        expect(res.body.id).toBeDefined();
+        expect(res.body.uid).toBeDefined();
         expect(res.body.uploadUrls).toHaveProperty('INPUT_FILE');
         expect(res.body.uploadUrls.INPUT_FILE).toContain(jobInput.files.INPUT_FILE); // FileService.getPresignedUploadUrl is mocked in init-app.ts
         expect(res.body.uploadUrls.INPUT_FILE).toContain('s3-test-upload-url://');
         await prisma.job.delete({
-          where: { id: res.body.id },
+          where: { uid: res.body.uid },
         });
       });
     });

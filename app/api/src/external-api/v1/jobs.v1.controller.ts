@@ -178,7 +178,7 @@ export class ExternalApiV1JobsController {
 
     const uploadUrls = await this.jobsService.getUploadUrls(job.files);
     const returnDto = toInitJobResponseV1Dto({
-      id: job.id,
+      uid: job.uid,
       uploadUrls: Object.fromEntries(uploadUrls.map((u) => [u.templateKey, u.url])),
     });
     return returnDto;

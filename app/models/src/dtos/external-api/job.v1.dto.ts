@@ -25,7 +25,7 @@ export class InitJobPayloadV1Dto {
 
 export class InitJobResponseV1Dto {
   @Expose()
-  id: number;
+  uid: string;
 
   @Expose()
   uploadUrls: Record<string, string>; // env_var: url

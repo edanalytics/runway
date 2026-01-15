@@ -1,6 +1,13 @@
 import { IEntityBase } from './entity-base.interface';
 
-type DtoCreateOmit = 'id' | 'createdById' | 'modifiedById' | 'createdOn' | 'modifiedOn' | 'deleted';
+type DtoCreateOmit =
+  | 'id'
+  | 'uid'
+  | 'createdById'
+  | 'modifiedById'
+  | 'createdOn'
+  | 'modifiedOn'
+  | 'deleted';
 
 /**
  * Type helper to create an interface typing for a Post DTO by omitting specific properties from the main entity interface.
