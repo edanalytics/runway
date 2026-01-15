@@ -1,6 +1,6 @@
 import { Expose } from 'class-transformer';
 import { IsNotEmpty, IsObject, IsOptional, IsString, Matches } from 'class-validator';
-import { makeSerializer } from 'models/src/utils';
+import { makeSerializer } from '../../utils';
 
 export class InitJobPayloadV1Dto {
   @IsString()
