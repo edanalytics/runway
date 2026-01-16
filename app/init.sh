@@ -53,6 +53,13 @@ while true; do
   if [[ $yn =~ ^[Yy] ]]; then
     mkdir -p ../executor/local-run
     pushd ../executor/local-run > /dev/null
+    py_major=$(python3 -c 'import sys; print(sys.version_info.major)')
+    py_minor=$(python3 -c 'import sys; print(sys.version_info.minor)')
+    if (( py_major < 3 || (py_major == 3 && py_minor < 10) )); then
+      echo -e "${RED}\nPython 3.10+ is required for local executor setup. Found ${py_major}.${py_minor}.\n"
+      popd > /dev/null
+      exit 1
+    fi
     python3 -m venv venv
     ./venv/bin/pip install -r ../requirements.txt
     ./venv/bin/pip install -e ..

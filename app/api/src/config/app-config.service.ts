@@ -131,12 +131,6 @@ export class AppConfigService {
   }
 
   executorCallbackBaseUrl(): string | undefined {
-    // allow local-case override if host.docker.internal does nto work on your system
-    const override = this.get('LOCAL_EXECUTOR_CALLBACK_BASE_URL');
-    if (override) {
-      return override.replace(/\/+$/, '');
-    }
-
     const baseUrl = this.get('MY_URL');
     if (!baseUrl) {
       return undefined;
@@ -144,6 +138,12 @@ export class AppConfigService {
 
     if (this.get('LOCAL_EXECUTOR') !== 'docker') {
       return baseUrl;
+    }
+
+    // allow local-case override if host.docker.internal does nto work on your system
+    const override = this.get('LOCAL_EXECUTOR_CALLBACK_BASE_URL');
+    if (override) {
+      return override.replace(/\/+$/, '');
     }
 
     return baseUrl

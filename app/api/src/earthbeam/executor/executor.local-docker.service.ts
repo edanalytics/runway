@@ -1,12 +1,15 @@
 import { ExecutorService } from './executor.abstract.service';
 import { Run } from '@prisma/client';
 import { Logger } from '@nestjs/common';
-import { spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
 
 export class ExecutorLocalDockerService extends ExecutorService {
   private readonly logger = new Logger(ExecutorLocalDockerService.name);
 
   async start(run: Run) {
+    await this.ensureDockerAvailable();
+    await this.ensureExecutorImage();
+
     const envVars = await this.envVars(run.id);
     const storageRoot = this.appConfig.localStorageRoot();
     if (!storageRoot) {
@@ -38,6 +41,31 @@ export class ExecutorLocalDockerService extends ExecutorService {
 
     proc.on('error', (error) => {
       this.logger.error(`Failed to start local docker executor: ${error}`);
+    });
+    proc.on('exit', (code) => {
+      if (code && code !== 0) {
+        this.logger.error(`Local docker executor exited with code ${code}`);
+      }
+    });
+  }
+
+  private async ensureDockerAvailable() {
+    await this.execDocker(['version']);
+  }
+
+  private async ensureExecutorImage() {
+    await this.execDocker(['image', 'inspect', 'runway_executor']);
+  }
+
+  private execDocker(args: string[]) {
+    return new Promise<void>((resolve, reject) => {
+      execFile('docker', args, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
     });
   }
 }
