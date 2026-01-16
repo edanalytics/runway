@@ -147,7 +147,7 @@ export class JobsController {
   @Post()
   @SkipTenantOwnership()
   async initialize(@Body() createJobDto: PostJobDto, @Tenant() tenant: TTenant) {
-    // ─── Verify bundle exists and is enabled for partner ───────────────────────
+    // ─── Verify bundle is enabled for partner ───────────────────────────────
     await this.prisma.partnerEarthmoverBundle
       .findUniqueOrThrow({
         where: {
@@ -159,7 +159,7 @@ export class JobsController {
       })
       .catch(() => {
         throw new BadRequestException(
-          `Bundle not allowed for partner: ${createJobDto.template.path}`
+          `Bundle not found or not enabled for partner: ${createJobDto.template.path}`
         );
       });
 

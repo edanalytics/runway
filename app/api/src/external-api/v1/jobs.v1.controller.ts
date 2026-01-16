@@ -20,8 +20,6 @@ import { ExternalApiScopes } from '../external-api-token-scopes.decorator';
 import { PrismaClient } from '@prisma/client';
 import { PRISMA_ANONYMOUS, PRISMA_READ_ONLY } from 'api/src/database/database.service';
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
-import { EarthmoverBundleTypes } from 'models/src/interfaces/earthmover-bundle.interface';
-import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { InitJobPayloadV1Dto, toInitJobResponseV1Dto } from '@edanalytics/models';
 import { FileService } from 'api/src/files/file.service';
 
@@ -35,7 +33,6 @@ export class ExternalApiV1JobsController {
     private readonly jobsService: JobsService,
     @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient,
     @Inject(PRISMA_ANONYMOUS) private readonly prismaAnon: PrismaClient,
-    private readonly bundleService: EarthbeamBundlesService,
     private readonly fileService: FileService
   ) {}
 
@@ -68,29 +65,20 @@ export class ExternalApiV1JobsController {
         );
       });
 
-    // ─── Validate bundle & enablement for partner ───────────────────────────────
-    const bundle = await this.bundleService.getBundle(
-      EarthmoverBundleTypes.assessments,
-      jobInitDto.bundle
-    );
-
-    if (!bundle) {
-      throw new BadRequestException(
-        `Bundle not found: ${jobInitDto.bundle}. Bundles must be in the format "assessments/<bundle-name>"`
-      );
-    }
-
+    // ─── Validate bundle enablement for partner ──────────────────────────────────
     await this.prismaRO.partnerEarthmoverBundle
       .findUniqueOrThrow({
         where: {
           partnerId_earthmoverBundleKey: {
             partnerId: partnerId,
-            earthmoverBundleKey: bundle.path,
+            earthmoverBundleKey: jobInitDto.bundle,
           },
         },
       })
       .catch(() => {
-        throw new BadRequestException(`Bundle not enabled for partner: ${bundle.path}`);
+        throw new BadRequestException(
+          `Bundle not found or not enabled for partner: ${jobInitDto.bundle}`
+        );
       });
 
     // ─── Validate ODS ───────────────────────────────────────────────────────
