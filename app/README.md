@@ -169,6 +169,14 @@ In deployed environments, the executor runs as a Task in Elastic Container Servi
 
 In both local modes, file uploads and executor artifacts are written to the `storage` directory in the repo root, mimicking the S3 path structure in production.
 
+### Testing in-development bundles
+
+If using local Runway to test a bundle that is not on the main branch, you can follow these steps:
+  1. Connect to the locally-running backend database at localhost:5432
+  2. Add your bundle to the earthmover_bundle table, then the partner_earthmover_bundle table
+  3. Make sure you have pushed an update to the bundle registry on your branch by running `python create-registry.py assessments`
+  4. You should see the bundle as an option on the "load a new assessment" page 
+
 ## OSS required attributions
 
 This project uses [caniuse-lite](https://caniuse.com) which is based on [caniuse.com](caniuse.com).
