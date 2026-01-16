@@ -31,6 +31,7 @@ type CreateJobErrorCode =
   | 'bundle_not_found'
   | 'missing_required_params'
   | 'invalid_param_values'
+  | 'unexpected_params'
   | 'missing_required_files'
   | 'unexpected_files';
 
@@ -86,7 +87,6 @@ export class JobsService {
     tenant: Tenant,
     prisma: PrismaClient
   ): Promise<CreateJobResult> {
-    // Fetch bundle fresh for security - don't trust client-provided template details
     const bundle = await this.bundleService.getBundle(
       EarthmoverBundleTypes.assessments,
       input.bundlePath
@@ -101,7 +101,6 @@ export class JobsService {
     }
 
     // ─── Validate params ────────────────────────────────────────────────────
-
     const requiredParams =
       bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? [];
     const incomingParams = Object.keys(input.params);
@@ -136,12 +135,20 @@ export class JobsService {
       };
     }
 
+    const expectedParams = bundle.input_params?.map((p) => p.env_var) ?? [];
+    const unexpectedParams = incomingParams.filter((key) => !expectedParams.includes(key));
+    if (unexpectedParams.length > 0) {
+      return {
+        status: 'error',
+        code: 'unexpected_params',
+        message: `Unexpected params: ${unexpectedParams.join(', ')}`,
+      };
+    }
+
     // ─── Validate files ─────────────────────────────────────────────────────
-
-    const expectedFileKeys = bundle.input_files?.map((f) => f.env_var) ?? [];
-    const providedFileKeys = input.files.map((f) => f.templateKey);
-
-    const unexpectedFiles = providedFileKeys.filter((key) => !expectedFileKeys.includes(key));
+    const incomingFiles = input.files.map((f) => f.templateKey);
+    const expectedFiles = bundle.input_files?.map((f) => f.env_var) ?? [];
+    const unexpectedFiles = incomingFiles.filter((key) => !expectedFiles.includes(key));
     if (unexpectedFiles.length > 0) {
       return {
         status: 'error',
@@ -152,7 +159,7 @@ export class JobsService {
 
     const requiredFileKeys =
       bundle.input_files?.filter((f) => f.is_required).map((f) => f.env_var) ?? [];
-    const missingFiles = requiredFileKeys.filter((key) => !providedFileKeys.includes(key));
+    const missingFiles = requiredFileKeys.filter((key) => !incomingFiles.includes(key));
     if (missingFiles.length > 0) {
       return {
         status: 'error',
@@ -160,8 +167,6 @@ export class JobsService {
         message: `Missing required files: ${missingFiles.join(', ')}`,
       };
     }
-
-    // ─── Create job ─────────────────────────────────────────────────────────
 
     // Enrich flat params with bundle metadata for storage.
     const enrichedParams: JobInputParamDto[] = Object.entries(input.params).map(([key, value]) => {
@@ -175,6 +180,7 @@ export class JobsService {
       };
     });
 
+    // ─── Create job ─────────────────────────────────────────────────────────
     const job = await prisma.job.create({
       data: {
         name: bundle.display_name,

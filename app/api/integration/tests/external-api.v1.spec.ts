@@ -339,6 +339,20 @@ describe('ExternalApiV1', () => {
           expect(res.body.message).toContain('FORMAT');
         });
 
+        it('should reject requests if unexpected params are provided', async () => {
+          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+              ...jobInput,
+              params: { ...jobInput.params, UNEXPECTED_PARAM: 'some-value' },
+            });
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('Unexpected params');
+          expect(res.body.message).toContain('UNEXPECTED_PARAM');
+        });
+
         it('should reject requests if unexpected files are provided', async () => {
           const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
