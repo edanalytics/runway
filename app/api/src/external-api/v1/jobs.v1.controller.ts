@@ -22,11 +22,7 @@ import { PRISMA_ANONYMOUS, PRISMA_READ_ONLY } from 'api/src/database/database.se
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 import { EarthmoverBundleTypes } from 'models/src/interfaces/earthmover-bundle.interface';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
-import {
-  InitJobPayloadV1Dto,
-  toGetJobTemplateDto,
-  toInitJobResponseV1Dto,
-} from '@edanalytics/models';
+import { InitJobPayloadV1Dto, toInitJobResponseV1Dto } from '@edanalytics/models';
 import { FileService } from 'api/src/files/file.service';
 
 @Controller('jobs')
@@ -51,12 +47,12 @@ export class ExternalApiV1JobsController {
   ) {
     const { partner: partnerId, tenant: tenantCode } = jobInitDto;
 
-    // ensure there's a scope that matches the partner code from the request
-    // if we end up having more endpoints with partner/tenant params, perhaps move this to a guard.
+    // ─── Validate partner ─────────────────────────────────────────────────────
     if (!isPartnerAllowed(scopes, partnerId)) {
       throw new ForbiddenException(`Invalid partner code: ${partnerId}`);
     }
 
+    // ─── Validate tenant ──────────────────────────────────────────────────────
     const tenant = await this.prismaRO.tenant
       .findUniqueOrThrow({
         where: {
@@ -72,6 +68,7 @@ export class ExternalApiV1JobsController {
         );
       });
 
+    // ─── Validate bundle & enablement for partner ───────────────────────────────
     const bundle = await this.bundleService.getBundle(
       EarthmoverBundleTypes.assessments,
       jobInitDto.bundle
@@ -96,7 +93,7 @@ export class ExternalApiV1JobsController {
         throw new BadRequestException(`Bundle not enabled for partner: ${bundle.path}`);
       });
 
-    // look up ODS based on school year
+    // ─── Validate ODS ───────────────────────────────────────────────────────
     const odsConfigs = await this.prismaRO.odsConfig.findMany({
       where: {
         activeConnection: {
@@ -115,81 +112,33 @@ export class ExternalApiV1JobsController {
       throw new BadRequestException(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
     }
 
-    const incomingParams = jobInitDto.params;
-    const requiredParams =
-      bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? []; // we get API_YEAR from the school year, so it's not a user-provided param
-    const missingRequiredParams = requiredParams.filter(
-      (p) => incomingParams?.[p.env_var] === null || incomingParams?.[p.env_var] === undefined
-    );
-    if (missingRequiredParams.length > 0) {
-      throw new BadRequestException(
-        `Missing required params: ${missingRequiredParams.map((p) => p.env_var).join(', ')}`
-      );
-    }
-
-    const paramsWithAllowedValues =
-      bundle.input_params?.filter((p) => !!p.allowed_values?.length) ?? [];
-    const paramsWithInvalidValues = paramsWithAllowedValues.filter(
-      (p) =>
-        // value is passed for this param, but it's not in the allowed values
-        incomingParams?.[p.env_var] !== null &&
-        incomingParams?.[p.env_var] !== undefined &&
-        !p.allowed_values?.includes(incomingParams?.[p.env_var])
-    );
-
-    if (paramsWithInvalidValues.length > 0) {
-      throw new BadRequestException(
-        `Invalid param input: ${paramsWithInvalidValues.map((p) => p.env_var).join(', ')}`
-      );
-    }
-
-    const incomingFiles = jobInitDto.files;
-    const expectedFiles = bundle.input_files?.map((f) => f.env_var) ?? [];
-    const unexpectedFiles = Object.keys(incomingFiles).filter((f) => !expectedFiles.includes(f));
-    if (unexpectedFiles.length > 0) {
-      throw new BadRequestException(`Unexpected file input: ${unexpectedFiles.join(', ')}`);
-    }
-
-    const missingRequiredFiles = bundle.input_files
-      ?.filter((f) => f.is_required)
-      .filter((f) => !Object.keys(incomingFiles).includes(f.env_var))
-      .map((f) => f.env_var);
-
-    if (missingRequiredFiles.length > 0) {
-      throw new BadRequestException(`Missing required files: ${missingRequiredFiles.join(', ')}`);
-    }
-
-    // TODO: refactor jobService.initialize to just ask for what it needs
-    // and see if we can avoid passing the prisma client
-    const job = await this.jobsService.initialize(
+    // ─── Create job ───────────────────────────────────────────────────────────
+    const result = await this.jobsService.createJob(
       {
-        name: bundle.display_name,
+        bundlePath: jobInitDto.bundle,
         odsId: odsConfigs[0].id,
         schoolYearId: jobInitDto.schoolYear,
-        files: Object.entries(incomingFiles).map(([envVar, filePath]) => ({
+        files: Object.entries(jobInitDto.files).map(([envVar, fileName]) => ({
           templateKey: envVar,
-          nameFromUser: filePath,
-          type: 'application/octet-stream', // binary is fine for our purposes
+          nameFromUser: fileName,
+          type: 'application/octet-stream',
         })),
-        inputParams: (Object.entries(incomingParams ?? {}) ?? []).map(([key, value]) => ({
-          templateKey: key,
-          value: value,
-          name: key,
-          isRequired: bundle.input_params?.find((p) => p.env_var === key)?.is_required ?? false,
-        })),
-        template: toGetJobTemplateDto(bundle),
-        previousJobId: null,
+        params: jobInitDto.params ?? {},
       },
       tenant,
       this.prismaAnon
     );
 
-    const uploadUrls = await this.jobsService.getUploadUrls(job.files);
-    const returnDto = toInitJobResponseV1Dto({
-      uid: job.uid,
+    if (result.status === 'error') {
+      throw new BadRequestException(result.message);
+    }
+
+    // ─── Get upload URLs ──────────────────────────────────────────────────────
+    const uploadUrls = await this.jobsService.getUploadUrls(result.job.files);
+    return toInitJobResponseV1Dto({
+      uid: result.job.uid,
       uploadUrls: Object.fromEntries(uploadUrls.map((u) => [u.templateKey, u.url])),
     });
-    return returnDto;
   }
 
   @Post(':jobUid/start')

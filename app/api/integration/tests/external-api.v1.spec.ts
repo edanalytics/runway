@@ -335,7 +335,7 @@ describe('ExternalApiV1', () => {
               params: { ...jobInput.params, FORMAT: 'not a format' },
             });
           expect(res.status).toBe(400);
-          expect(res.body.message).toContain('Invalid param input');
+          expect(res.body.message).toContain('Invalid param values');
           expect(res.body.message).toContain('FORMAT');
         });
 
@@ -349,7 +349,7 @@ describe('ExternalApiV1', () => {
               files: { ...jobInput.files, UNEXPECTED_FILE: 'unexpected-file.csv' },
             });
           expect(res.status).toBe(400);
-          expect(res.body.message).toContain('Unexpected file input');
+          expect(res.body.message).toContain('Unexpected files');
           expect(res.body.message).toContain('UNEXPECTED_FILE');
         });
 
