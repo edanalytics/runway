@@ -223,7 +223,7 @@ describe('ExternalApiV1', () => {
               bundle: 'does-not-exist',
             });
           expect(res.status).toBe(400);
-          expect(res.body.message).toContain('Bundle not found');
+          expect(res.body.message).toContain('Bundle not found or not enabled for partner');
         });
 
         it('should reject requests if the bundle is not enabled for the partner', async () => {
@@ -237,7 +237,7 @@ describe('ExternalApiV1', () => {
             });
 
           expect(res.status).toBe(400);
-          expect(res.body.message).toContain('Bundle not enabled for partner');
+          expect(res.body.message).toContain('Bundle not found or not enabled for partner');
         });
 
         it('should reject requests if an ODS is not found for the requested school year', async () => {
