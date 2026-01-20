@@ -96,9 +96,8 @@ export class JobsService {
     // ─── Validate params ────────────────────────────────────────────────────
     const requiredParams =
       bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? []; // We use the ODS to supply API_YEAR rathern than take it as input
-    const incomingParams = Object.keys(input.params);
     const missingParams = requiredParams
-      .filter((p) => !incomingParams.includes(p.env_var))
+      .filter((p) => input.params[p.env_var] == null)
       .map((p) => p.env_var);
 
     if (missingParams.length > 0) {
@@ -114,9 +113,7 @@ export class JobsService {
     const invalidParams = paramsWithAllowedValues
       .filter((bundleParam) => {
         const value = input.params[bundleParam.env_var];
-        return (
-          value !== null && value !== undefined && !bundleParam.allowed_values?.includes(value)
-        );
+        return value != null && !bundleParam.allowed_values?.includes(value); // if there is a value, it must be an allowed value
       })
       .map((p) => p.env_var);
 
@@ -128,6 +125,7 @@ export class JobsService {
       };
     }
 
+    const incomingParams = Object.keys(input.params);
     const expectedParams = bundle.input_params?.map((p) => p.env_var) ?? [];
     const unexpectedParams = incomingParams.filter((key) => !expectedParams.includes(key));
     if (unexpectedParams.length > 0) {
@@ -161,7 +159,7 @@ export class JobsService {
       };
     }
 
-    // Enrich flat params with bundle metadata for storage.
+    // Enrich flat params with bundle metadata for storage
     const enrichedParams: JobInputParamDto[] = Object.entries(input.params).map(([key, value]) => {
       const bundleParam = bundle.input_params?.find((p) => p.env_var === key);
       return {
