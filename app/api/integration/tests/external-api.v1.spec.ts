@@ -13,6 +13,7 @@ import { seedOds } from '../factories/ods-factory';
 import { EarthbeamRunService } from 'api/src/earthbeam/earthbeam-run.service';
 import { Job } from '@prisma/client';
 import { FileService } from 'api/src/files/file.service';
+import { ExternalApiAuthService } from '../../src/external-api/auth/external-api.auth.service';
 
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {
@@ -127,6 +128,28 @@ describe('ExternalApiV1', () => {
           .post(endpoint)
           .set('Authorization', `Bearer ${token}`);
         expect(res.status).toBe(403);
+      });
+    });
+
+    describe('Token auth not configured', () => {
+      it('should return 503 if token auth is not configured', async () => {
+        // it'd be nice to mock audience or the keyset being absent, but that gets too involved, so for now
+        // test that if the auth service reports that token auth is disabled, for whatever reason, we return a 503
+        const externalApiAuthService = app.get(ExternalApiAuthService);
+        const verifyTokenMock = jest
+          .spyOn(externalApiAuthService, 'verifyToken')
+          .mockResolvedValue({ result: 'disabled' });
+
+        const token = await signExternalApiToken({ scope });
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Authorization', `Bearer ${token}`);
+ 
+        try {
+          expect(res.status).toBe(503);
+        } finally {
+          verifyTokenMock.mockRestore();
+        }
       });
     });
   });
