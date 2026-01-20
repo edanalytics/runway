@@ -225,6 +225,7 @@ model Job {
   template         Json
   configStatus     JobConfigStatus      @default(initialized) @map("config_status")
   tenantCode       String               @map("tenant_code") @db.VarChar
+  /// [JobInputParams]
   inputParams      Json?                @map("input_params")
   previousJobId    Int?                 @map("previous_job_id")
   createdById      Int?                 @map("created_by_id")

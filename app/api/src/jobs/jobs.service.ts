@@ -178,8 +178,8 @@ export class JobsService {
         odsId: input.odsId,
         schoolYearId: input.schoolYearId,
         template: instanceToPlain(toGetJobTemplateDto(bundle)),
-        inputParams: enrichedParams as unknown as JsonArray,
-        configStatus: 'input_complete',
+        inputParams: enrichedParams,
+        configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
         tenantCode: tenant.code,
         partnerId: tenant.partnerId,
       },
