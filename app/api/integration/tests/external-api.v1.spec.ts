@@ -458,7 +458,7 @@ describe('ExternalApiV1', () => {
       });
 
       describe('Valid Request', () => {
-        it('should return a 200 if the job is started', async () => {
+        it('should return a 201 if the job is started', async () => {
           const res = await request(app.getHttpServer())
             .post(`/v1/jobs/${jobUid}/start`)
             .set('Authorization', `Bearer ${token}`);
