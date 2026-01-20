@@ -13,32 +13,6 @@ import { EarthbeamRunService } from '../earthbeam/earthbeam-run.service';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
 
-// ─── Service-level types for job creation ───────────────────────────────────
-
-interface CreateJobInput {
-  bundlePath: string;
-  odsId: number;
-  schoolYearId: string;
-  files: Array<{
-    templateKey: string;
-    nameFromUser: string;
-    type: string;
-  }>;
-  params: Record<string, string>;
-}
-
-type CreateJobErrorCode =
-  | 'bundle_not_found'
-  | 'missing_required_params'
-  | 'invalid_param_values'
-  | 'unexpected_params'
-  | 'missing_required_files'
-  | 'unexpected_files';
-
-type CreateJobResult =
-  | { status: 'success'; job: Job & { files: JobFile[] } }
-  | { status: 'error'; code: CreateJobErrorCode; message: string };
-
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
@@ -83,10 +57,29 @@ export class JobsService {
    * - Creating job and file records
    */
   async createJob(
-    input: CreateJobInput,
+    input: {
+      bundlePath: string;
+      odsId: number;
+      schoolYearId: string;
+      files: Array<{ templateKey: string; nameFromUser: string; type: string }>;
+      params: Record<string, string>;
+    },
     tenant: Tenant,
     prisma: PrismaClient
-  ): Promise<CreateJobResult> {
+  ): Promise<
+    | { status: 'success'; job: Job & { files: JobFile[] } }
+    | {
+        status: 'error';
+        code:
+          | 'bundle_not_found'
+          | 'missing_required_params'
+          | 'invalid_param_values'
+          | 'unexpected_params'
+          | 'missing_required_files'
+          | 'unexpected_files';
+        message: string;
+      }
+  > {
     const bundle = await this.bundleService.getBundle(
       EarthmoverBundleTypes.assessments,
       input.bundlePath
@@ -102,7 +95,7 @@ export class JobsService {
 
     // ─── Validate params ────────────────────────────────────────────────────
     const requiredParams =
-      bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? [];
+      bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? []; // We use the ODS to supply API_YEAR rathern than take it as input
     const incomingParams = Object.keys(input.params);
     const missingParams = requiredParams
       .filter((p) => !incomingParams.includes(p.env_var))
