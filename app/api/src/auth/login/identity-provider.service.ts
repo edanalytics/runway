@@ -231,6 +231,7 @@ export class IdentityProviderService implements OnApplicationBootstrap {
               tenant,
               idpSessionId: (claims.sid as string) ?? null, // used to look up session for OIDC backchannel logout
               idToken: tokenset.id_token ?? null,
+              roles: [],
             });
           } catch (err) {
             // Log error so we can troubleshoot config but pass null to `done`
