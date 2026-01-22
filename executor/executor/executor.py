@@ -525,8 +525,8 @@ class JobExecutor:
         #    There are three circumstances under which we don't upload the unmatched students file and thus don't
         # show the "some students failed to match" message to the user. These are:
         #    1. Earthmover failed, so we don't know how many students matched
-        #    2. The match rates file is empty, so there were no matches and the unmatched students file is the same as the original input
-        #    3. The match rates file tells us that there is a perfect match, so there is nothing to upload
+        #    2. The match rates file tells us that there is a perfect match, so there is nothing to upload
+        #    3. The match rates file is empty, so there were no matches and the unmatched students file is the same as the original input
 
         # in the case of literally zero matches (or a failed run), the file is empty and these defaults remain
         self.highest_match_rate = 0.0
@@ -548,21 +548,21 @@ class JobExecutor:
             return
 
         if len(match_rates) > 0:
-            self.logger.info(f"some records matched - match rates by ID: {match_rates}")
+            self.logger.info(f"at least some records matched - match rates by ID: {match_rates}")
 
             highest_match = sorted(match_rates, reverse=True, key=lambda mr: float(mr['match_rate']))[0]
             self.highest_match_rate = float(highest_match["match_rate"])
             self.highest_match_id_name = highest_match["source_column_name"]
             self.highest_match_id_type = highest_match["edfi_column_name"]
             self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
-        else:
-            # case 2
-            self.logger.debug("no students matched any ID. Skipping upload of unmatched students file")
-            artifact.UNMATCHED_STUDENTS.needs_upload = False
 
-        if self.num_unmatched_students == 0:
+            if self.num_unmatched_students == 0:
+                # case 2
+                self.logger.debug("all records matched. Skipping upload of unmatched students file")
+                artifact.UNMATCHED_STUDENTS.needs_upload = False
+        else:
             # case 3
-            self.logger.debug("no unmatched students. Skipping upload of unmatched students file")
+            self.logger.debug("no students matched any ID. Skipping upload of unmatched students file")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
 
     def report_unmatched_students(self):
