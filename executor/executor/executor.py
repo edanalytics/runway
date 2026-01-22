@@ -521,17 +521,31 @@ class JobExecutor:
         # local ID, then the 4/10 without matching state IDs go in the unmatched students file, but both types
         # of match are recorded in the match rates file. Both are used for different purposes by the app and
         # within the exeuctor
-        with open(artifact.MATCH_RATES.path) as f:
-            match_rates = [
-                {k: v for k, v in row.items()}
-                for row in csv.DictReader(f, skipinitialspace=True)
-            ]
+        #
+        #    There are three circumstances under which we don't upload the unmatched students file and thus don't
+        # show the "some students failed to match" message to the user. These are:
+        #    1. Earthmover failed, so we don't know how many students matched
+        #    2. The match rates file is empty, so there were no matches and the unmatched students file is the same as the original input
+        #    3. The match rates file tells us that there is a perfect match, so there is nothing to upload
 
-        # in the case of literally zero matches, the file is empty and these defaults remain
+        # in the case of literally zero matches (or a failed run), the file is empty and these defaults remain
         self.highest_match_rate = 0.0
         self.highest_match_id_name = "N/A"
         self.highest_match_id_type = "N/A"
-        self.num_unmatched_students = 0
+        # but if the file is empty, we don't learn this number. We need to distinguish between 0 and "don't know"
+        self.num_unmatched_students = None
+
+        try:
+            with open(artifact.MATCH_RATES.path) as f:
+                match_rates = [
+                    {k: v for k, v in row.items()}
+                    for row in csv.DictReader(f, skipinitialspace=True)
+                ]
+        except FileNotFoundError:
+            # case 1
+            self.logger.debug("failed Earthmover run. Skipping upload of unmatched students file")
+            artifact.UNMATCHED_STUDENTS.needs_upload = False
+            return
 
         if len(match_rates) > 0:
             self.logger.info(f"some records matched - match rates by ID: {match_rates}")
@@ -541,8 +555,13 @@ class JobExecutor:
             self.highest_match_id_name = highest_match["source_column_name"]
             self.highest_match_id_type = highest_match["edfi_column_name"]
             self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
+        else:
+            # case 2
+            self.logger.debug("no students matched any ID. Skipping upload of unmatched students file")
+            artifact.UNMATCHED_STUDENTS.needs_upload = False
 
         if self.num_unmatched_students == 0:
+            # case 3
             self.logger.debug("no unmatched students. Skipping upload of unmatched students file")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
 
@@ -562,6 +581,7 @@ class JobExecutor:
                 id_type_to_report = self.stu_unique_id_in_roster
 
             # additional context so the app can help the user fix their file
+            # in this case, num_unmatched_students will be an int instead of None
             self.send_id_matches(self.highest_match_id_name, id_type_to_report, self.num_unmatched_students)
             self.upload_artifact(artifact.UNMATCHED_STUDENTS)
         else:
