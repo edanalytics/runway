@@ -581,7 +581,7 @@ class JobExecutor:
                 id_type_to_report = self.stu_unique_id_in_roster
 
             # additional context so the app can help the user fix their file
-            # in this case, num_unmatched_students will be an int instead of None
+            # in this case, num_unmatched_students is guaranteed to be an int instead of None
             self.send_id_matches(self.highest_match_id_name, id_type_to_report, self.num_unmatched_students)
             self.upload_artifact(artifact.UNMATCHED_STUDENTS)
         else:
