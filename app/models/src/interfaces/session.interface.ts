@@ -1,4 +1,5 @@
 import { Tenant, User } from '@prisma/client';
+import { AppRoles } from '../dtos/role-privileges';
 
 /**
  * This interface describes the full session object stored in the DB
@@ -21,4 +22,5 @@ export interface IPassportSession {
   tenant: Tenant;
   idpSessionId: string | null;
   idToken: string | null;
+  roles: AppRoles[];
 }

@@ -34,9 +34,9 @@ describe('GET /job-templates', () => {
     const sessM = sessionCookie('job-templates-spec-m');
     let contextM: Awaited<ReturnType<typeof seedContext>>;
     let getBundlesMock: jest.SpyInstance;
-    beforeAll(async () => {
-      contextM = await seedContext(makePartnerUserTenantContext('m'));
 
+    beforeEach(async () => {
+      contextM = await seedContext(makePartnerUserTenantContext('m'));
       getBundlesMock = jest
         .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
         .mockResolvedValue(allBundles);
@@ -45,7 +45,7 @@ describe('GET /job-templates', () => {
       await sessionStore.set(sessM.sid, sessionData(contextM.user, contextM.tenant));
     });
 
-    afterAll(async () => {
+    afterEach(async () => {
       await sessionStore.destroy(sessA.sid);
       await sessionStore.destroy(sessX.sid);
       await sessionStore.destroy(sessM.sid);

@@ -139,22 +139,26 @@ export class GetJobDto
   }
 
   get hasResourceErrors() {
-    // we only want to report on resource errors if the resources that errored are ones we show to users
+    return this.resourceErrors.length > 0;
+  }
+  get resourceErrors() {
     const failedResources = Object.entries(this.resourceSummaries ?? {})
       .filter(([_, summary]) => summary.failed > 0)
       .map(([resource]) => resource);
 
-    if (failedResources.length === 0) {
-      return false;
-    }
-
     const reportableResources = this.template.reportResources ?? [];
-    if (reportableResources.length === 0) {
-      // we have failed resources and are not filtering by reportable resources
-      return true;
-    }
 
-    return failedResources.some((resource) => reportableResources.includes(resource));
+    return failedResources
+      .filter((resource) => reportableResources.includes(resource))
+      .map((reportableFailedResource) => ({
+        resource: reportableFailedResource,
+        failed: this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0,
+        total:
+          this.resourceSummaries?.[reportableFailedResource].success ??
+          0 +
+            (this.resourceSummaries?.[reportableFailedResource]?.skipped ?? 0) +
+            (this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0),
+      }));
   }
 
   get resourceSummaries():
