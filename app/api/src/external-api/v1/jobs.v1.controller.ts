@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Inject,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -29,6 +30,7 @@ import { FileService } from 'api/src/files/file.service';
 @Public() // do not require a session
 @UseGuards(ExternalApiTokenGuard) // but do require a valid token
 export class ExternalApiV1JobsController {
+  private readonly logger = new Logger(ExternalApiV1JobsController.name);
   constructor(
     private readonly jobsService: JobsService,
     @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient,
@@ -51,7 +53,7 @@ export class ExternalApiV1JobsController {
 
     // ─── Validate tenant ──────────────────────────────────────────────────────
     const tenant = await this.prismaRO.tenant
-      .findUniqueOrThrow({
+      .findUnique({
         where: {
           code_partnerId: {
             code: tenantCode,
@@ -59,15 +61,16 @@ export class ExternalApiV1JobsController {
           },
         },
       })
-      .catch(() => {
-        throw new ForbiddenException(
-          `Invalid tenant code: ${tenantCode} for partner: ${partnerId}`
+      
+      if (!tenant) {
+        throw new BadRequestException(
+          `Invalid tenant. ${partnerId}/${tenantCode} does not exist`
         );
-      });
-
+      }
+      
     // ─── Validate bundle enablement for partner ──────────────────────────────────
-    await this.prismaRO.partnerEarthmoverBundle
-      .findUniqueOrThrow({
+    const bundle = await this.prismaRO.partnerEarthmoverBundle
+      .findUnique({
         where: {
           partnerId_earthmoverBundleKey: {
             partnerId: partnerId,
@@ -75,11 +78,12 @@ export class ExternalApiV1JobsController {
           },
         },
       })
-      .catch(() => {
+
+      if (!bundle) {
         throw new BadRequestException(
-          `Bundle not found or not enabled for partner: ${jobInitDto.bundle}`
-        );
-      });
+        `Bundle not found or not enabled for partner: ${jobInitDto.bundle}`
+      );
+    }
 
     // ─── Validate ODS ───────────────────────────────────────────────────────
     const odsConfigs = await this.prismaRO.odsConfig.findMany({
@@ -97,7 +101,8 @@ export class ExternalApiV1JobsController {
       throw new BadRequestException(`No ODS found for school year: ${jobInitDto.schoolYear}`);
     }
     if (odsConfigs.length > 1) {
-      throw new BadRequestException(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
+      this.logger.error(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
+      throw new InternalServerErrorException(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
     }
 
     // ─── Create job ───────────────────────────────────────────────────────────
@@ -117,8 +122,17 @@ export class ExternalApiV1JobsController {
       this.prismaAnon
     );
 
+
     if (result.status === 'error') {
-      throw new BadRequestException(result.message);
+      if (result.code === 'bundle_not_found') {
+        // If we passed the bundle enablement check above, but fail to retrieve the bundle, 
+        // that's a server error and not a bad request.
+        throw new InternalServerErrorException(result.message);
+      } else {
+        // Other errors are bad requests, various ways that the input doesn't line up with 
+        // what the bundle metadata expects. Calls should succeed if they adjust their input.
+        throw new BadRequestException(result.message);
+      }
     }
 
     // ─── Get upload URLs ──────────────────────────────────────────────────────

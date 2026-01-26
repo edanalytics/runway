@@ -232,8 +232,8 @@ describe('ExternalApiV1', () => {
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
             .send({ ...jobInput, tenant: tenantX.code }); // partner/tenant mismatch
-          expect(res.status).toBe(403);
-          expect(res.body.message).toContain('Invalid tenant code');
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('Invalid tenant');
         });
 
         it('should reject requests for non-existent bundles', async () => {
@@ -261,6 +261,17 @@ describe('ExternalApiV1', () => {
 
           expect(res.status).toBe(400);
           expect(res.body.message).toContain('Bundle not found or not enabled for partner');
+        });
+
+        it('should return a 500 if the bundle metadata cannot be retrieved', async () => {
+          // bundle enablement check should pass, but bundle retrieval should fail
+          getBundleMock.mockResolvedValue([]);
+          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+          expect(res.status).toBe(500);
         });
 
         it('should reject requests if an ODS is not found for the requested school year', async () => {
@@ -304,7 +315,7 @@ describe('ExternalApiV1', () => {
             .send(jobInput);
 
           try {
-            expect(res.status).toBe(400);
+            expect(res.status).toBe(500);
             expect(res.body.message).toContain('Multiple ODS found');
           } finally {
             await prisma.odsConfig.delete({
