@@ -25,7 +25,14 @@ module.exports = {
       optimization: false,
       outputHashing: 'none',
       sourceMap: true,
-      transformers: [{ name: '@nestjs/swagger/plugin' }], // the new line
+      transformers: [
+        {
+          name: '@nestjs/swagger/plugin',
+          options: {
+            introspectComments: true,
+          },
+        },
+      ],
     }),
   ],
 };
