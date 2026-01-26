@@ -93,7 +93,6 @@ export const prepareMockOIDC = () => {
 
     return {
       Client: MockClient,
-      metadata: issuer.metadata,
     } as unknown as Issuer; //  Issuer.Client is readonly, so we pass our mock in a new object rather than modifying the original
   });
 
