@@ -94,6 +94,11 @@ export class JobsService {
     }
 
     // ─── Validate params ────────────────────────────────────────────────────
+    // Params are validated against bundle metadata. For the EA instance, these can be found in the registry.json file:
+    // https://raw.githubusercontent.com/edanalytics/earthmover_edfi_bundles/refs/heads/main/registry.json
+    //
+    // The registry.json file compiles and jsonifies the metadata.yaml files that live in each bundle's directory.
+    //  Example metadata.yaml: https://github.com/edanalytics/earthmover_edfi_bundles/blob/main/assessments/PSAT_SAT/_metadata.yaml
     const requiredParams =
       bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? []; // We use the ODS to supply API_YEAR rathern than take it as input
     const missingParams = requiredParams
