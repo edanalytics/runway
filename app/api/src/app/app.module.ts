@@ -13,6 +13,8 @@ import { JobTemplatesModule } from '../job-templates/job-templates.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { EarthbeamApiModule } from '../earthbeam/api/earthbeam-api.module';
 import { EarthbeamApiAuthModule } from '../earthbeam/api/auth/earthbeam-api-auth.module';
+import { AuthorizedGuard } from '../auth/login/authorized.guard';
+import { PartnersModule } from '../partners/partners.module';
 
 const resourceModules = [
   UsersModule,
@@ -22,6 +24,7 @@ const resourceModules = [
   SchoolYearsModule,
   EarthbeamApiModule,
   EarthbeamApiAuthModule,
+  PartnersModule,
 ];
 
 @Module({
@@ -32,6 +35,10 @@ const resourceModules = [
     {
       provide: APP_GUARD,
       useClass: AuthenticatedGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AuthorizedGuard,
     },
   ],
 })

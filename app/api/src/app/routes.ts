@@ -10,6 +10,7 @@ import {
   EARTHBEAM_AUTH_BASE_ROUTE,
   EARTHBEAM_API_BASE_ROUTE,
 } from '../earthbeam/api/earthbeam-api.endpoints';
+import { PartnersModule } from '../partners/partners.module';
 
 export const routes: Routes = [
   {
@@ -31,6 +32,10 @@ export const routes: Routes = [
   {
     path: 'school-years',
     module: SchoolYearsModule,
+  },
+  {
+    path: 'partners',
+    module: PartnersModule,
   },
   {
     path: EARTHBEAM_API_BASE_ROUTE,
