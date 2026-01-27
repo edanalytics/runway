@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Inject,
   InternalServerErrorException,
   Logger,
@@ -12,6 +13,9 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Req,
+  Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -35,7 +39,10 @@ import { plainToInstance } from 'class-transformer';
 import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { EarthmoverBundleTypes } from '@edanalytics/models';
+import type { Request, Response } from 'express';
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
+import { createReadStream } from 'fs';
+import { stat } from 'fs/promises';
 
 @Controller()
 @ApiTags('Job')
@@ -108,6 +115,47 @@ export class JobsController {
     return url;
   }
 
+  // TODO: the service call fails when not run in local mode, but should we lock these endpoints down tighter?
+  @Put(':jobId/files/:templateKey/upload')
+  @HttpCode(201)
+  async uploadLocalInputFile(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('templateKey') templateKey: string,
+    @Req() req: Request
+  ) {
+    const file = await this.jobService.saveLocalUpload(jobId, templateKey, req);
+    if (!file) {
+      return new NotFoundException(
+        `File not found for job ${jobId} and template key ${templateKey}`
+      );
+    }
+    return { ok: true };
+  }
+
+  @Get(':jobId/files/:templateKey/download')
+  async downloadLocalInputFile(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('templateKey') templateKey: string,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const result = await this.jobService.getLocalInputFileForDownload(jobId, templateKey);
+    if (!result) {
+      return new NotFoundException(
+        `File not found for job ${jobId} and template key ${templateKey}`
+      );
+    }
+
+    await stat(result.path).catch(() => {
+      throw new NotFoundException(`File missing on disk for job ${jobId}`);
+    });
+
+    res.setHeader('Content-Disposition', `attachment; filename="${result.file.nameFromUser}"`);
+    if (result.file.type) {
+      res.setHeader('Content-Type', result.file.type);
+    }
+    return new StreamableFile(createReadStream(result.path));
+  }
+
   @Get(':jobId/output-files/:fileName')
   async downloadUrlForOutputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number,
@@ -119,6 +167,29 @@ export class JobsController {
       return new NotFoundException(`File not found for job ${jobId} and file ${decodedFilename}`);
     }
     return url;
+  }
+
+  @Get(':jobId/output-files/:fileName/download')
+  async downloadLocalOutputFile(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('fileName') fileName: string,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const decodedFilename = decodeURIComponent(fileName);
+    const result = await this.jobService.getLocalOutputFileForDownload(jobId, decodedFilename);
+    if (!result) {
+      return new NotFoundException(
+        `File not found for job ${jobId} and file ${decodedFilename}`
+      );
+    }
+
+    await stat(result.path).catch(() => {
+      throw new NotFoundException(`File missing on disk for job ${jobId}`);
+    });
+
+    res.setHeader('Content-Disposition', `attachment; filename="${result.file.name}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    return new StreamableFile(createReadStream(result.path));
   }
 
   @Get(':jobId/status-updates')

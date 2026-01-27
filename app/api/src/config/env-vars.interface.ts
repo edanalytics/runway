@@ -33,4 +33,9 @@ export interface IEnvironmentVariables {
   BUNDLE_BRANCH: string;
   S3_FILE_UPLOAD_BUCKET: string;
   TIMEOUT_SECONDS: string; // executor timeout
+
+  // env vars we expect to only use locally
+  LOCAL_EXECUTOR?: 'python' | 'docker';
+  LOCAL_EVENTS?: 'log' | 'noop';
+  LOCAL_EXECUTOR_CALLBACK_BASE_URL?: string;
 }

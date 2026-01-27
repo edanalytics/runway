@@ -3,6 +3,7 @@ import json
 import logging
 from pprint import pprint
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -167,10 +168,15 @@ class JobExecutor:
             os.environ["ASSESSMENT_BUNDLE"] = os.path.basename(job["bundle"]["path"])
             os.environ["ASSESSMENT_BUNDLE_BRANCH"] = job["bundle"]["branch"]
 
-            self.app_bucket = parse.urlparse(job["appDataBasePath"]).hostname
-            app_prefix = parse.urlparse(job["appDataBasePath"]).path.strip("/")
-            self.s3_in_path = f"{app_prefix}/input"
-            self.s3_out_path = f"{app_prefix}/output"
+            app_base_uri = parse.urlparse(job["appDataBasePath"])
+            self.local_data_path = None
+            if app_base_uri.scheme == "file":
+                self.local_data_path = app_base_uri.path
+            else:
+                self.app_bucket = app_base_uri.hostname
+                app_prefix = app_base_uri.path.strip("/")
+                self.s3_in_path = f"{app_prefix}/input"
+                self.s3_out_path = f"{app_prefix}/output"
 
             self.input_sources = job["inputFiles"]
 
@@ -275,6 +281,8 @@ class JobExecutor:
             uri = parse.urlparse(path, allow_fragments=False)
             if uri.scheme == "file":
                 os.environ[env_name] = uri.path
+                # normalize local paths to the same dict used by S3 sources
+                self.input_sources[env_name] = {"path": uri.path}
             # NOTE: for now this assumes S3
             else:
                 try:
@@ -649,18 +657,28 @@ class JobExecutor:
             self.error_obj = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
             raise FileNotFoundError(fpath)
 
-        try:
-            self.s3.upload_file(
-                fpath, self.app_bucket, f"{self.s3_out_path}/{os.path.basename(fpath)}"
+        # these variables pretty much always correlate, but they don't necessarily have to
+        if self.local_mode and self.local_data_path:
+            self.logger.debug(
+                f"local mode: copying artifact to {os.path.join(self.local_data_path, 'output')}"
             )
-        except botocore.exceptions.ClientError:
-            if fail_ok:
-                self.logger.debug(f"upload failed during shutdown. continuing...")
-                return
-            self.error = error.ArtifactS3UploadError(
-                artifact_to_upload, f"{self.bucket_out_path}/{os.path.basename(fpath)}"
-            )
-            raise
+            local_output_dir = os.path.join(self.local_data_path, "output")
+            os.makedirs(local_output_dir, exist_ok=True)
+            shutil.copy2(fpath, os.path.join(local_output_dir, os.path.basename(fpath)))
+        else:
+            # deployed case
+            try:
+                self.s3.upload_file(
+                    fpath, self.app_bucket, f"{self.s3_out_path}/{os.path.basename(fpath)}"
+                )
+            except botocore.exceptions.ClientError:
+                if fail_ok:
+                    self.logger.debug(f"upload failed during shutdown. continuing...")
+                    return
+                self.error = error.ArtifactS3UploadError(
+                    artifact_to_upload, f"{self.bucket_out_path}/{os.path.basename(fpath)}"
+                )
+                raise
 
         artifact_to_upload.needs_upload = False
 

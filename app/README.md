@@ -30,7 +30,7 @@ cd app
 
 #### 1. Run the setup script.
 
-This will set up environment variables, install node dependencies, and generate the Prisma client, among other things.
+This sets up environment variables, install node dependencies, and generate the Prisma client, among other things. You can indicate whether you intend to run the executor on your host machine or in a container (see below). If you're actively making changes to the executor, it's much faster to run it in "bare" Python on your machine. If not, the script builds the executor image so it's ready to run.
 
 ```bash
 bash init.sh
@@ -107,24 +107,7 @@ VALUES ('ea','assessments/STAAR_Interim'),
 
 ```
 
-### Log into AWS
-
-You don't need to initiate an AWS session unless you plan to interact with S3 or ECS, so you might skip this, depending on what you need to do.
-
-If you haven't yet configured SSO with the AWS CLI, run:
-
-```sh
-aws configure sso
-```
-
-When prompted, enter:
-Start URL: https://edanalytics.awsapps.com/start/#
-Region: us-east-2
-Account: EdFi Data Loader
-
-```sh
-aws sso login --profile RunwayDeveloper
-```
+**Note**: You can add assessments to `earthmover_bundle` and `partner_earthmover_bundle` at any time to make additional bundles available for local testing.
 
 ### Run the App
 
@@ -172,6 +155,27 @@ There are two methods to log in as a given user:
    1. Select a user or create a new one
    1. Within the user record, select `Impersonate` from the Action menu in the upper right
    1. Go to http://localhost:4200 and click the login button. When you get redirected to Keycloak, Keycloak will authenticate you as the user you just impersonated.
+
+#### 4. Configure an ODS
+
+You'll need a valid (even if nono-prod) place to send data in order to run local jobs.
+
+### Running the executor locally
+
+In deployed environments, the executor runs as a Task in Elastic Container Service (ECS). Locally, the app initiate the executor based on the `LOCAL_EXECUTOR` environment variable:
+
+- `LOCAL_EXECUTOR=python`: The app spawns a Python process that runs alongside the app's Node process. In this mode, you don't need to rebuild the docker image for new code to take effect, but there's no formal isolation from anything else on your system (the bundles repo and python venv are all copied into the Runway repo).
+- `LOCAL_EXECUTOR=docker`: The app spins up a Docker container. Any executor code changes only take effect when you rebuild the image, but the overall setup is more similar to production.
+
+In both local modes, file uploads and executor artifacts are written to the `storage` directory in the repo root, mimicking the S3 path structure in production.
+
+### Testing in-development bundles
+
+If using local Runway to test a bundle that is not on the main branch, you can follow these steps:
+  1. Connect to the locally-running backend database at localhost:5432
+  2. Add your bundle to the earthmover_bundle table, then the partner_earthmover_bundle table
+  3. Make sure you have pushed an update to the bundle registry on your branch by running `python create-registry.py assessments`
+  4. You should see the bundle as an option on the "load a new assessment" page 
 
 ## OSS required attributions
 

@@ -31,6 +31,9 @@ export const seedJob = async ({
       template: instanceToPlain(postJobDto.template),
       tenantCode: tenant.code,
       partnerId: tenant.partnerId,
+      fileProtocol: 's3',
+      fileBucketOrHost: 'test-bucket',
+      fileBasePath: 'test-base-path',
       files: {
         createMany: {
           data: postJobDto.files.map((f) => ({

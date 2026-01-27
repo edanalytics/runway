@@ -24,6 +24,8 @@ import { FileService } from 'api/src/files/file.service';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
 import { EventEmitterService } from 'api/src/event-emitter/event-emitter.service';
+import * as path from 'path';
+
 @Injectable()
 export class EarthbeamApiService {
   private readonly logger = new Logger(EarthbeamApiService.name);
@@ -107,8 +109,30 @@ export class EarthbeamApiService {
       paramsForEarthbeam['DESCRIPTOR_NAMESPACE'] = descriptorNamespace;
     }
 
+    const isLocalFileStorage = job.fileProtocol === 'file';
+    const localStorageRoot = isLocalFileStorage ? job.fileBucketOrHost : null;
+    if (isLocalFileStorage && (!localStorageRoot || !job.fileBasePath)) {
+      return {
+        status: 'ERROR',
+        type: 'server_error',
+        message: 'Local storage paths are not configured',
+      };
+    }
+    if (!isLocalFileStorage && (!job.fileBucketOrHost || !job.fileBasePath)) {
+      return {
+        status: 'ERROR',
+        type: 'server_error',
+        message: 'File storage paths are not configured',
+      };
+    }
+
     const filesForEarthbeam = job.files.reduce<Record<string, string>>((acc, file) => {
-      acc[file.templateKey] = file.nameInternal;
+      if (isLocalFileStorage) {
+        const localPath = path.join(localStorageRoot ?? '', file.path);
+        acc[file.templateKey] = `file://${localPath}`;
+      } else {
+        acc[file.templateKey] = file.nameInternal;
+      }
       return acc;
     }, {});
 
@@ -132,8 +156,15 @@ export class EarthbeamApiService {
       },
     });
 
+    const appDataBasePath = isLocalFileStorage
+      ? `file://${path.join(localStorageRoot as string, job.fileBasePath as string)}`
+      : `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`;
+
+    const executorBaseUrl =
+      this.configService.executorCallbackBaseUrl() ?? this.configService.get('MY_URL');
+
     const payload: EarthbeamApiJobResponseDto = {
-      appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
+      appDataBasePath,
       inputFiles: filesForEarthbeam,
       inputParams: paramsForEarthbeam,
       customDescriptorMappings:
@@ -145,10 +176,10 @@ export class EarthbeamApiService {
         branch: this.configService.bundleBranch(),
       },
       appUrls: {
-        status: `${process.env.MY_URL}/${earthbeamStatusUpdateEndpoint(runId)}`,
-        error: `${process.env.MY_URL}/${earthbeamErrorUpdateEndpoint(runId)}`,
-        summary: `${process.env.MY_URL}/${earthbeamSummaryEndpoint(runId)}`,
-        unmatchedIds: `${process.env.MY_URL}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
+        status: `${executorBaseUrl}/${earthbeamStatusUpdateEndpoint(runId)}`,
+        error: `${executorBaseUrl}/${earthbeamErrorUpdateEndpoint(runId)}`,
+        summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
+        unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
       },
       assessmentDatastore: {
         apiYear: apiYear,
