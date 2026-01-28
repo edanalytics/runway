@@ -233,10 +233,6 @@ class JobExecutor:
     def modify_local_lightbeam(self):
         """Disable SSL checking in Lightbeam so that it can communicate with a locally-running ODS"""
         subprocess.run(
-            ["sed", "-i", r"s/show_graph: False/show_graph: False\n  show_stacktrace: True/", self.assessment_project]
-        )
-
-        subprocess.run(
             ["sed", "-i", "s/verify_ssl: True/verify_ssl: False/", self.assessment_lightbeam]
         )
 
