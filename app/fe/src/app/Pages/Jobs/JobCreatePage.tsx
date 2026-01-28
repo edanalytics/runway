@@ -166,6 +166,7 @@ export const JobCreatePage = () => {
       throw new Error('No template found');
     }
 
+    // TODO: refactor this payload to better match the slimmed-down payload the external API uses
     return {
       name: data.name,
       odsId: odsConfigForYear(data.year).id,

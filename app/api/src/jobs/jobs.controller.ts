@@ -33,8 +33,6 @@ import {
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
-import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
-import { EarthmoverBundleTypes } from '@edanalytics/models';
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
 
 @Controller()
@@ -44,8 +42,7 @@ export class JobsController {
   private logger = new Logger(JobsController.name);
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
-    private jobService: JobsService,
-    private bundleService: EarthbeamBundlesService
+    private jobService: JobsService
   ) {}
 
   @Get()
@@ -144,58 +141,79 @@ export class JobsController {
    * 1. Gather user input to choose a type of job, input files, and some job params
    * 2. Save this to the DB and get a job ID
    * 3. Get presigned URLs where the client can save (path includes Job ID)
-   * 4. Upload files in S3
-   * 5. Send the job to ECS
+   * 4. Upload files in S3 (done by client, directly to S3)
+   * 5. Send the job to ECS (:jobId/start handler)
    */
   @Post()
   @SkipTenantOwnership()
   async initialize(@Body() createJobDto: PostJobDto, @Tenant() tenant: TTenant) {
-    const bundle = await this.bundleService.getBundle(
-      EarthmoverBundleTypes.assessments,
-      createJobDto.template.path
+    // ─── Verify bundle is enabled for partner ───────────────────────────────
+    await this.prisma.partnerEarthmoverBundle
+      .findUniqueOrThrow({
+        where: {
+          partnerId_earthmoverBundleKey: {
+            partnerId: tenant.partnerId,
+            earthmoverBundleKey: createJobDto.template.path,
+          },
+        },
+      })
+      .catch(() => {
+        throw new BadRequestException(
+          `Bundle not found or not enabled for partner: ${createJobDto.template.path}`
+        );
+      });
+
+    // ─── Look up and validate ODS ─────────────────────────────────────────────
+    await this.prisma.odsConfig
+      .findUniqueOrThrow({
+        where: {
+          retired: false,
+          tenant: {
+            code: tenant.code,
+            partnerId: tenant.partnerId,
+          },
+          id: createJobDto.odsId,
+          activeConnection: {
+            schoolYearId: createJobDto.schoolYearId,
+          },
+        },
+      })
+      .catch(() => {
+        this.logger.error(
+          `Invalid ODS selected: ODS ID: ${createJobDto.odsId}, School Year: ${createJobDto.schoolYearId}, Tenant: ${tenant.code}, Partner: ${tenant.partnerId}`
+        );
+        throw new BadRequestException(`Invalid ODS selected: ${createJobDto.odsId}`);
+      });
+
+    // Flatten params to Record<string, string>
+    // Service will add fresh metadata from the bundle. We shouldn't trust the metadata coming in here anyway.
+    const flatParams = Object.fromEntries(
+      createJobDto.inputParams
+        .map((p) => [p.templateKey, p.value])
+        .filter((p): p is [string, string] => p[1] !== null && p[1] !== undefined) // filter out params user didn't give a value
     );
 
-    if (!bundle) {
-      throw new BadRequestException(`Bundle not found: ${createJobDto.template.path}`);
-    }
-
-    const allowedBundles = await this.prisma.partnerEarthmoverBundle.findMany({
-      where: {
-        partnerId: tenant.partnerId,
-        earthmoverBundleKey: bundle.path,
+    // ─── Create job ───────────────────────────────────────────────────────────
+    const result = await this.jobService.createJob(
+      {
+        bundlePath: createJobDto.template.path,
+        odsId: createJobDto.odsId,
+        schoolYearId: createJobDto.schoolYearId,
+        files: createJobDto.files,
+        params: flatParams,
       },
-    });
+      tenant,
+      this.prisma
+    );
 
-    if (!allowedBundles.find((b) => b.earthmoverBundleKey === bundle.path)) {
-      throw new BadRequestException(`Bundle not allowed for partner: ${bundle.path}`);
+    // ─── Handle result ────────────────────────────────────────────────────────
+    if (result.status === 'error') {
+      throw new BadRequestException(result.message);
     }
 
-    const ods = await this.prisma.odsConfig.findUnique({
-      where: {
-        retired: false,
-        tenant: {
-          code: tenant.code,
-          partnerId: tenant.partnerId,
-        },
-        id: createJobDto.odsId,
-        activeConnection: {
-          schoolYearId: createJobDto.schoolYearId,
-        },
-      },
-    });
-
-    if (!ods) {
-      this.logger.error(
-        `Invalid ODS selected: ODS ID: ${createJobDto.odsId}, School Year: ${createJobDto.schoolYearId}, Tenant: ${tenant.code}, Partner: ${tenant.partnerId}`
-      );
-      throw new BadRequestException(`Invalid ODS selected: ${createJobDto.odsId}`);
-    }
-
-    const job = await this.jobService.initialize(createJobDto, tenant, this.prisma);
-    const uploadUrls = await this.jobService.getUploadUrls(job.files);
-
+    const uploadUrls = await this.jobService.getUploadUrls(result.job.files);
     return plainToInstance(PostJobResponseDto, {
-      id: job.id,
+      id: result.job.id,
       uploadLocations: uploadUrls,
     });
   }

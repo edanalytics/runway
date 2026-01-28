@@ -16,5 +16,23 @@ module.exports = {
       outputHashing: 'none',
       sourceMap: true,
     }),
+    new NxAppWebpackPlugin({
+      target: 'node',
+      compiler: 'tsc',
+      main: './src/main.ts',
+      tsConfig: './tsconfig.app.json',
+      assets: ['./src/assets'],
+      optimization: false,
+      outputHashing: 'none',
+      sourceMap: true,
+      transformers: [
+        {
+          name: '@nestjs/swagger/plugin',
+          options: {
+            introspectComments: true,
+          },
+        },
+      ],
+    }),
   ],
 };

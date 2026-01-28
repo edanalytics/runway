@@ -20,6 +20,7 @@ import { GetJobNoteDto } from './job-note.dto';
 
 interface IBaseJobDto {
   id: number;
+  uid: string;
   name: string;
   odsId: number;
   schoolYearId: string;
@@ -54,6 +55,9 @@ export class GetJobDto
 {
   @Expose()
   id: number;
+
+  @Expose()
+  uid: string; // uid will take the place of ID for frontend and api consumers, eventually
 
   @Expose()
   name: string;

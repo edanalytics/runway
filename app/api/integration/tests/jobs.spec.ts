@@ -65,7 +65,6 @@ describe('GET /jobs', () => {
           },
         },
       });
-      jest.resetAllMocks();
     });
 
     it('should return an empty array if there are no jobs', async () => {
@@ -153,26 +152,28 @@ describe('GET /jobs', () => {
         .get(endpoint)
         .set('Cookie', [sessionX.cookie]);
 
-      expect(resA.status).toBe(200);
-      expect(resX.status).toBe(200);
+      try {
+        expect(resA.status).toBe(200);
+        expect(resX.status).toBe(200);
 
-      expect(resA.body.length).toBe(aJobs.length);
-      expect(resX.body.length).toBe(xJobs.length);
+        expect(resA.body.length).toBe(aJobs.length);
+        expect(resX.body.length).toBe(xJobs.length);
 
-      expect(resA.body.map((j: GetJobDto) => j.id)).toEqual(
-        expect.arrayContaining(aJobs.map((j) => j.id))
-      );
-      expect(resX.body.map((j: GetJobDto) => j.id)).toEqual(
-        expect.arrayContaining(xJobs.map((j) => j.id))
-      );
-
-      await prisma.job.deleteMany({
-        where: {
-          id: {
-            in: xJobs.map((j) => j.id),
+        expect(resA.body.map((j: GetJobDto) => j.id)).toEqual(
+          expect.arrayContaining(aJobs.map((j) => j.id))
+        );
+        expect(resX.body.map((j: GetJobDto) => j.id)).toEqual(
+          expect.arrayContaining(xJobs.map((j) => j.id))
+        );
+      } finally {
+        await prisma.job.deleteMany({
+          where: {
+            id: {
+              in: xJobs.map((j) => j.id),
+            },
           },
-        },
-      });
+        });
+      }
     });
   });
 });
@@ -251,15 +252,18 @@ describe('POST /jobs', () => {
     const sessionA = sessionCookie('jobs-spec');
     const jobTemplateA = makeJobTemplate(bundleA);
     const postJobDto = makePostJobDto(jobTemplateA, odsConnA2425);
+    let getBundlesMock: jest.SpyInstance;
 
     beforeAll(async () => {
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
-      jest.spyOn(EarthbeamBundlesService.prototype, 'getBundles').mockResolvedValue(allBundles);
+      getBundlesMock = jest
+        .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
+        .mockResolvedValue(allBundles);
     });
 
     afterAll(async () => {
       await sessionStore.destroy(sessionA.sid);
-      jest.resetAllMocks();
+      getBundlesMock.mockRestore();
     });
 
     it('should accept requests with a valid PostJobDto', async () => {
@@ -686,11 +690,13 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
         .put(endpoint(jobA.id, noteA2.id)) // mismatch
         .set('Cookie', [cookieA])
         .send({ noteText: 'updated note for job ' + jobA.id });
-      expect(resA.status).toBe(404);
-
-      await prisma.job.deleteMany({
-        where: { id: jobA2.id },
-      });
+      try {
+        expect(resA.status).toBe(404);
+      } finally {
+        await prisma.job.deleteMany({
+          where: { id: jobA2.id },
+        });
+      }
     });
 
     it('should update the note text', async () => {
@@ -801,11 +807,13 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
         .delete(endpoint(jobA.id, noteA1.id))
         .set('Cookie', [cookieB])
         .send({ noteText: 'test note for job ' + jobA.id });
-      expect(resA.status).toBe(403);
-      const notes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
-      expect(notes.length).toBe(2);
-
-      await authHelper.logout(cookieB);
+      try {
+        expect(resA.status).toBe(403);
+        const notes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
+        expect(notes.length).toBe(2);
+      } finally {
+        await authHelper.logout(cookieB);
+      }
     });
 
     it('should reject requests if the note is not associated with the job', async () => {
@@ -827,17 +835,19 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
         .delete(endpoint(jobA.id, noteA2.id)) // mismatch
         .set('Cookie', [cookieA])
         .send({ noteText: 'updated note for job ' + jobA.id });
-      expect(resA.status).toBe(404);
+      try {
+        expect(resA.status).toBe(404);
 
-      const jobANotes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
-      expect(jobANotes.length).toBe(2);
-      const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
-      expect(jobA2Notes.length).toBe(1);
-      expect(jobA2Notes[0].id).toBe(noteA2.id);
-
-      await prisma.job.deleteMany({
-        where: { id: jobA2.id },
-      });
+        const jobANotes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
+        expect(jobANotes.length).toBe(2);
+        const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
+        expect(jobA2Notes.length).toBe(1);
+        expect(jobA2Notes[0].id).toBe(noteA2.id);
+      } finally {
+        await prisma.job.deleteMany({
+          where: { id: jobA2.id },
+        });
+      }
     });
   });
 });
