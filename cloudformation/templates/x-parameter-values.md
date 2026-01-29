@@ -41,6 +41,7 @@ Please note that descriptions, values, and available parameters may evolve over 
 - **DeploymentStrategy** - Beanstalk deployment strategy for platform updates and application versions.
 - **BeanstalkPlatformUpdateTime** - Beanstalk Platform update day and time (in UTC) using the format 'Day:HH:MM' (e.g., Wed:15:30). Platform updates will be disabled if no value is specified. 
 - **BundleBranch** - Name of the bundle branch in the [earthmover Ed-Fi bundles repository](https://github.com/edanalytics/earthmover_edfi_bundles).
+- **ExternalApiTokenIssuer** - URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function
 
 **S3 Cloudfront Information**
 - **S3FrontEndBucket** - Name of the S3 bucket containing the front end web files.

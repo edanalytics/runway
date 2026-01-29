@@ -81,13 +81,8 @@ Parameters:
     Type: String 
   ExternalApiTokenIssuer:
     Type: String
-    Description: 'Values used to consume acces tokens.   
-      non-prod: https://auth0.internal-dev.edanalytics.app  
-      prod: https://auth0.edanalytics.app'
-    AllowedValues:
-      - 'https://auth0.internal-dev.edanalytics.app'
-      - 'https://auth0.edanalytics.app'
-      
+    Description: URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function
+
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   AttachWAF: !Not [!Equals [!Ref WebACLArn, '']]
