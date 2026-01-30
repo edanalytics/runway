@@ -96,7 +96,7 @@ This request initializes the job in Runway. Runway will:
 | `partner`    | string | Yes      | Partner code. Must match the `partner:<code>` scope in the access token. |
 | `tenant`     | string | Yes      | Tenant code associated with the partner                                  |
 | `bundle`     | string | Yes      | Bundle identifier, formatted as `assessments/<bundle-name>`              |
-| `schoolYear` | string | Yes      | 4-digit school year in Y1Y2 format (e.g., `"2526"` for 2025–26)          |
+| `schoolYear` | string | Yes      | 4-digit school year in Y1Y2 format (e.g., `2526` for 2025–26)            |
 | `files`      | object | Yes      | Map of file keys to filenames (see below)                                |
 | `params`     | object | No       | Map of parameter names to values (see below)                             |
 
