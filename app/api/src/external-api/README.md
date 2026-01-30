@@ -84,7 +84,7 @@ This endpoint verifies that the token is signed by the expected issuer, has the 
 This request initializes the job in Runway. Runway will:
 
 - Validate that the requested bundle exists and is enabled for the partner
-- Validate that the payload meets the requirements specified in the bundle's [`_metadata.yml`](https://github.com/edanalytics/earthmover_edfi_bundles/blob/main/assessments/ACT/bundle_metadata.yml)
+- Validate that the payload meets the requirements specified in the bundle's [`_metadata.yml`](https://github.com/edanalytics/earthmover_edfi_bundles/blob/main/assessments/ACT/_metadata.yaml)
 - Validate that an ODS exists for the requested school year and tenant
 - Create a job record
 - Generate presigned S3 upload URLs for the input files
