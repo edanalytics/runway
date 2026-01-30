@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   ForbiddenException,
+  HttpCode,
   Inject,
   InternalServerErrorException,
   Logger,
@@ -144,6 +145,7 @@ export class ExternalApiV1JobsController {
   }
 
   @Post(':jobUid/start')
+  @HttpCode(202)
   @ExternalApiScope('create:jobs')
   async start(
     @ExternalApiScopes() scopes: ExternalApiScopeType[],
