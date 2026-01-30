@@ -6,10 +6,10 @@ The External API allows external systems to programmatically submit jobs to Runw
 
 ### Environment Variables
 
-| Variable                      | Required | Description                                                                                                                                                                                                                           |
-| ----------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EXTERNAL_API_TOKEN_ISSUER`   | Yes      | The OIDC issuer URL (e.g., `https://idp.example.com/realms/my-realm`). The API uses OIDC discovery to fetch the JWKS for token validation. If not set, the external API will be disabled; the rest of the app will function normally. |
-| `EXTERNAL_API_TOKEN_AUDIENCE` | No       | Only used for local development. Deployed environments automatically expect the audience to match the backend URL.                                                                                                                    |
+| Variable          | Required | Description                                                                                                                                                                                                                           |
+| ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OAUTH2_ISSUER`   | Yes      | The OIDC issuer URL (e.g., `https://idp.example.com/realms/my-realm`). The API uses OIDC discovery to fetch the JWKS for token validation. If not set, the external API will be disabled; the rest of the app will function normally. |
+| `OAUTH2_AUDIENCE` | No       | Only used for local development. Deployed environments automatically expect the audience to match the backend URL.                                                                                                                    |
 
 ### Identity Provider Client Setup
 
