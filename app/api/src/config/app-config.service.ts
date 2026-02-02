@@ -105,8 +105,8 @@ export class AppConfigService {
   }
 
   getExternalApiConfig(): { issuerUrl: string | undefined; audience: string | undefined } {
-    const issuerUrl = this.get('EXTERNAL_API_TOKEN_ISSUER');
-    const audience = this.get('EXTERNAL_API_TOKEN_AUDIENCE') ?? this.get('MY_URL'); // EXTERNAL_API_TOKEN_AUDIENCE is only used for running locally. Deployed envs should use the API url
+    const issuerUrl = this.get('OAUTH2_ISSUER');
+    const audience = this.get('OAUTH2_AUDIENCE') ?? this.get('MY_URL'); // OAUTH2_AUDIENCE is only used for running locally. Deployed envs should use the API url
     return { issuerUrl, audience };
   }
 
