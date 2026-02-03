@@ -273,7 +273,8 @@ export const JobCreatePage = () => {
                   width="100%"
                   gap="800"
                 >
-                  <FormSection heading="required files" width="max-content">
+                  {/* Starting width matches other inputs, but allow to expand to fit content based on file names */}
+                  <FormSection heading="required files" width="24rem" minW="max-content">
                     {requiredFileFields.fields.map((field, ix) => (
                       <RunwayFileInput
                         key={field.id}
@@ -300,7 +301,7 @@ export const JobCreatePage = () => {
                   )}
                 </HStack>
 
-                <FormSection heading="supplementary files" width="max-content">
+                <FormSection heading="supplementary files" width="24rem" minW="max-content">
                   {supplementaryFileFields.fields.map((field, ix) => (
                     <RunwayFileInput
                       key={field.id}

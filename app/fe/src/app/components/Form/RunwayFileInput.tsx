@@ -116,8 +116,8 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
   };
 
   return (
-    <HStack paddingY="200" gap="400" width="100%" alignItems="flex-start">
-      <FormControl variant="file" padding="0" width="24rem">
+    <HStack paddingY="200" gap="400" width="100%" alignItems="baseline">
+      <FormControl variant="file" padding="0">
         <HStack justifyContent="flex-start" gap="400">
           <FormLabel
             variant="file"
