@@ -56,7 +56,7 @@ export const JobCreatePage = () => {
   const postJob = jobQueries.post();
   const startJob = jobQueries.start();
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const {
     control,
@@ -65,6 +65,8 @@ export const JobCreatePage = () => {
     register,
     setValue,
     reset,
+    setError,
+    clearErrors,
     formState: { errors },
   } = useForm<IJobForm>();
 
@@ -86,13 +88,13 @@ export const JobCreatePage = () => {
 
   const handleError = (msg: string) => {
     setIsSaving(false);
-    setError(msg);
+    setFormError(msg);
     reset(undefined, { keepValues: true });
   };
 
   const submit = handleSubmit((data, e) => {
     setIsSaving(true);
-    setError(null);
+    setFormError(null);
     postJob.mutate(
       { entity: formDataToDto(data) },
       {
@@ -213,7 +215,7 @@ export const JobCreatePage = () => {
   return (
     <FormLayout title="load a new assessment" backLink="/assessments">
       <chakra.form width="100%" height="100%" onSubmit={submit}>
-        <VStack height="100%" width="100%" gap={error ? '500' : '800'}>
+        <VStack height="100%" width="100%" gap={formError ? '500' : '800'}>
           <VStack width="100%" gap="500" alignItems="flex-start" flexGrow={1}>
             <FormSection maxW="24rem">
               <RunwaySelect
@@ -282,6 +284,10 @@ export const JobCreatePage = () => {
                         })}
                         onClear={() => setValue(`requiredFiles.${ix}.fileInput`, null)}
                         error={errors.requiredFiles?.[ix]?.fileInput}
+                        setError={(message) =>
+                          setError(`requiredFiles.${ix}.fileInput`, { message })
+                        }
+                        clearErrors={() => clearErrors(`requiredFiles.${ix}.fileInput`)}
                       />
                     ))}
                   </FormSection>
@@ -302,6 +308,11 @@ export const JobCreatePage = () => {
                       register={register(`supplementaryFiles.${ix}.fileInput`)}
                       onClear={() => setValue(`supplementaryFiles.${ix}.fileInput`, null)}
                       accept={field.fileType}
+                      error={errors.supplementaryFiles?.[ix]?.fileInput}
+                      setError={(message) =>
+                        setError(`supplementaryFiles.${ix}.fileInput`, { message })
+                      }
+                      clearErrors={() => clearErrors(`supplementaryFiles.${ix}.fileInput`)}
                     />
                   ))}
                 </FormSection>
@@ -309,7 +320,7 @@ export const JobCreatePage = () => {
             </Box>
           </VStack>
           <VStack alignItems={'flex-end'} width="100%" gap="300">
-            {error && <RunwayErrorBox message={error} />}
+            {formError && <RunwayErrorBox message={formError} />}
             <RunwayBottomButtonRow
               backPath="/assessments"
               rightText="submit"
