@@ -1,0 +1,20 @@
+[project]
+name = "runway-client"
+version = "0.1.0"
+description = "Slim wrapper around Runway's Job Request API"
+readme = "README.md"
+authors = [
+    { name = "Jacob Bortell", email = "jbortell@edanalytics.org" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.12.5",
+    "requests>=2.32.5",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "runway_client"
