@@ -13,7 +13,9 @@ type FileInputProps<K extends Path<T>, T extends FieldValues> = {
   clearErrors?: () => void;
 };
 
-// Forbidden file extensions (case-insensitive check)
+// Forbidden file extensions. This is a front-end only, UX check, so users can
+// select a new file right away instead of waiting for their job to fail. It is
+// NOT a security check.
 const FORBIDDEN_EXTENSIONS = [
   '.xlsx',
   '.xls',
@@ -23,6 +25,7 @@ const FORBIDDEN_EXTENSIONS = [
   '.zip',
   '.ppt',
   '.pptx',
+  '.exe',
 ] as const;
 
 const formatFileType = (fileType: string | undefined) =>
@@ -55,14 +58,23 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
       return;
     }
 
-    const forbiddenExtension = FORBIDDEN_EXTENSIONS.find((ext) => file.name.endsWith(ext));
+    const fileNameLower = file.name.toLowerCase();
+    const forbiddenExtension = FORBIDDEN_EXTENSIONS.find((ext) => fileNameLower.endsWith(ext));
     if (forbiddenExtension) {
       // Clear the input value so the user can try again
       e.target.value = '';
       setFileName(null);
 
       if (setError) {
-        setError(`${file.name} cannot be uploaded. ${forbiddenExtension} files are not supported.`);
+        setError(
+          `${file.name} cannot be uploaded because ${forbiddenExtension} files are not supported. ${
+            acceptedFileTypes
+              ? `Expected file type${
+                  acceptedFileTypes.split(',').length > 1 ? 's' : ''
+                }: ${acceptedFileTypes}`
+              : ''
+          }`
+        );
       }
       return;
     }
