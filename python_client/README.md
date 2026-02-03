@@ -54,7 +54,7 @@ client = RunwayClient(
   partner_code="ea",
 )
 
-client.do_runway(
+client.load_files(
   tenant_code="ea",
   bundle_name="assessments/PSAT_SAT",
   input_files={"INPUT_FILE": "/path/to/sat.csv"},
@@ -63,7 +63,7 @@ client.do_runway(
 )
 ```
 
-Executing `do_runway(...)` will:
+Executing `load_files(...)` will:
 
 1. Request authorization from Auth0 using the client id, secret, and partner
    code.
