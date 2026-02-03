@@ -14,56 +14,16 @@ type FileInputProps<K extends Path<T>, T extends FieldValues> = {
 };
 
 // Forbidden file extensions (case-insensitive check)
-const FORBIDDEN_EXTENSIONS = ['.xlsx', '.xls', '.pdf', '.doc', '.docx', '.zip'] as const;
-
-// Forbidden MIME types
-// Note: application/vnd.ms-excel is intentionally NOT forbidden as it can be used for CSVs
-const FORBIDDEN_MIME_TYPES = [
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-  'application/msword', // .doc
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-  'application/zip',
-  'application/x-zip-compressed',
+const FORBIDDEN_EXTENSIONS = [
+  '.xlsx',
+  '.xls',
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.zip',
+  '.ppt',
+  '.pptx',
 ] as const;
-
-// Maps MIME types to their corresponding extensions for error messages
-// Only used when the file is missing an extension.
-const MIME_TO_EXTENSION: Record<
-  (typeof FORBIDDEN_MIME_TYPES)[number],
-  (typeof FORBIDDEN_EXTENSIONS)[number]
-> = {
-  'application/pdf': '.pdf',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-  'application/msword': '.doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-  'application/zip': '.zip',
-  'application/x-zip-compressed': '.zip',
-};
-
-/**
- * Checks if a file has a forbidden type based on extension or MIME type.
- *
- * We use both extension and MIME type because we cannot rely on either to be
- * present or accurate.
- */
-const getForbiddenFileExtension = (file: File): string | null => {
-  // Check extension
-  const fileName = file.name.toLowerCase();
-  const forbiddenExtension = FORBIDDEN_EXTENSIONS.find((ext) => fileName.endsWith(ext));
-  if (forbiddenExtension) {
-    return forbiddenExtension;
-  }
-
-  // Check MIME type
-  const mimeType = file.type.toLowerCase(); // can be empty string, but that'll fail the .find below
-  const forbiddenMime = FORBIDDEN_MIME_TYPES.find((forbidden) => forbidden === mimeType);
-  if (forbiddenMime) {
-    return MIME_TO_EXTENSION[forbiddenMime];
-  }
-
-  return null;
-};
 
 const formatFileType = (fileType: string | undefined) =>
   fileType &&
@@ -95,7 +55,7 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
       return;
     }
 
-    const forbiddenExtension = getForbiddenFileExtension(file);
+    const forbiddenExtension = FORBIDDEN_EXTENSIONS.find((ext) => file.name.endsWith(ext));
     if (forbiddenExtension) {
       // Clear the input value so the user can try again
       e.target.value = '';
