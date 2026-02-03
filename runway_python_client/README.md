@@ -6,22 +6,22 @@ jobs programmatically. See the Slite design document for more information:
 
 ## Installation
 
-To install locally, specify the path to `python_client`, like:
+To install locally, specify the path to `runway_python_client`, like:
 
 ```shell
-pip install ./runway/python_client
+pip install ./runway/runway_python_client
 ```
 
 This project was built with `uv`, so this works too:
 
 ```shell
-uv pip install ./runway/python_client
+uv pip install ./runway/runway_python_client
 ```
 
 To install from Github, use the subdirectory syntax:
 
 ```shell
-pip install "git+https://github.com/edanalytics/runway.git#subdirectory=python_client"
+pip install "git+https://github.com/edanalytics/runway.git#subdirectory=runway_python_client"
 ```
 
 ## Running the Client
@@ -33,11 +33,11 @@ To get started, you'll need four things:
 3. Base URL for Runway API
 4. A sample assessment file
 
-After installing `python_client`, you can then instantiate the client and
+After installing `runway_python_client`, you can then instantiate the client and
 trigger a job like this:
 
 ```python
-from python_client import RunwayClient
+from runway_python_client import RunwayClient
 
 client = RunwayClient(
   runway_base_url="https://api.<instance name>-<env>.runwayloader.org/api/v1",
