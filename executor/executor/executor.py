@@ -397,8 +397,7 @@ class JobExecutor:
             if fatal:
                 # shut it down
                 self.error = error.EarthmoverRunError()
-                # FIXME: raise a generic error here that includes the actual EM stacktrace
-                # TODO: grab end of stderr
+                # generic exception that will be caught, with em.stderr reported as the stacktrace
                 raise Exception(em.stderr)
 
         self.upload_artifact(artifact.EM_RESULTS)
