@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { signExternalApiToken } from '../helpers/external-api/token-helper';
+import { signExternalApiToken, TEST_ISSUER } from '../helpers/external-api/token-helper';
 import * as jose from 'jose';
 import { EXTERNAL_API_SCOPE_KEY } from '../../src/external-api/auth/external-api-scope.decorator';
 import { ExternalApiV1TokenController } from '../../src/external-api/v1/token.v1.controller';
@@ -14,6 +14,9 @@ import { EarthbeamRunService } from 'api/src/earthbeam/earthbeam-run.service';
 import { Job } from '@prisma/client';
 import { FileService } from 'api/src/files/file.service';
 import { ExternalApiAuthService } from '../../src/external-api/auth/external-api.auth.service';
+import { authHelper } from '../helpers/oidc/auth-flow';
+import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
+import { userA } from '../fixtures/user-fixtures';
 
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {
@@ -201,6 +204,157 @@ describe('ExternalApiV1', () => {
           await prisma.job.delete({
             where: { uid: res.body.uid },
           });
+        });
+      })
+
+      describe('API Client Info', () => {
+        it('should store API client info from token claims', async () => {
+          const token = await signExternalApiToken({
+            scope: 'create:jobs partner:partner-a',
+            client_id: 'test-client-id',
+            client_name: 'Test API Client',
+          });
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+
+          expect(res.status).toBe(201);
+
+          // Verify the values were stored in the database
+          const job = await prisma.job.findUnique({
+            where: { uid: res.body.uid },
+          });
+
+          try {
+            expect(job).not.toBeNull();
+            expect(job!.apiIssuer).toBe(TEST_ISSUER);
+            expect(job!.apiClientId).toBe('test-client-id');
+            expect(job!.apiClientName).toBe('Test API Client');
+          } finally {
+            await prisma.job.delete({ where: { uid: res.body.uid } });
+          }
+        });
+
+        it('should use azp claim when client_id is absent', async () => {
+          const token = await signExternalApiToken({
+            scope: 'create:jobs partner:partner-a',
+            azp: 'test-azp-value',
+            client_name: 'AZP Client',
+          });
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+
+          expect(res.status).toBe(201);
+
+          const job = await prisma.job.findUnique({
+            where: { uid: res.body.uid },
+          });
+
+          try {
+            expect(job).not.toBeNull();
+            expect(job!.apiClientId).toBe('test-azp-value');
+            expect(job!.apiClientName).toBe('AZP Client');
+          } finally {
+            await prisma.job.delete({ where: { uid: res.body.uid } });
+          }
+        });
+
+        it('should prefer client_id over azp when both are present', async () => {
+          const token = await signExternalApiToken({
+            scope: 'create:jobs partner:partner-a',
+            client_id: 'preferred-client-id',
+            azp: 'fallback-azp',
+            client_name: 'Both Claims Client',
+          });
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+
+          expect(res.status).toBe(201);
+
+          const job = await prisma.job.findUnique({
+            where: { uid: res.body.uid },
+          });
+
+          try {
+            expect(job).not.toBeNull();
+            expect(job!.apiClientId).toBe('preferred-client-id');
+          } finally {
+            await prisma.job.delete({ where: { uid: res.body.uid } });
+          }
+        });
+
+        it('should handle missing client_name gracefully', async () => {
+          const token = await signExternalApiToken({
+            scope: 'create:jobs partner:partner-a',
+            client_id: 'client-without-name',
+            // no client_name
+          });
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+
+          expect(res.status).toBe(201);
+
+          const job = await prisma.job.findUnique({
+            where: { uid: res.body.uid },
+          });
+
+          try {
+            expect(job).not.toBeNull();
+            expect(job!.apiIssuer).toBe(TEST_ISSUER);
+            expect(job!.apiClientId).toBe('client-without-name');
+            expect(job!.apiClientName).toBeNull();
+          } finally {
+            await prisma.job.delete({ where: { uid: res.body.uid } });
+          }
+        });
+
+        it('should only expose apiClientName in DTO, not apiIssuer or apiClientId', async () => {
+          const token = await signExternalApiToken({
+            scope: 'create:jobs partner:partner-a',
+            client_id: 'secret-client-id',
+            client_name: 'Public Client Name',
+          });
+          const createRes = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+
+          expect(createRes.status).toBe(201);
+
+          // Get the job ID from the database (we need the numeric ID for the GET endpoint)
+          const job = await prisma.job.findUnique({
+            where: { uid: createRes.body.uid },
+          });
+          expect(job).not.toBeNull();
+
+          // Log in as userA in tenantA to access the regular API
+          const { cookies } = await authHelper.login(idpA, userA, tenantA);
+
+          try {
+            // Hit the GET /jobs/:id endpoint
+            const getRes = await request(app.getHttpServer())
+              .get(`/jobs/${job!.id}`)
+              .set('Cookie', cookies);
+
+            expect(getRes.status).toBe(200);
+
+            // apiClientName should be exposed in the response
+            expect(getRes.body.apiClientName).toBe('Public Client Name');
+
+            // apiIssuer and apiClientId should NOT be in the response
+            expect(getRes.body.apiIssuer).toBeUndefined();
+            expect(getRes.body.apiClientId).toBeUndefined();
+          } finally {
+            await authHelper.logout(cookies);
+            await prisma.job.delete({ where: { uid: createRes.body.uid } });
+          }
         });
       });
       describe('Invalid Request', () => {

@@ -238,6 +238,9 @@ model Job {
   partnerId        String               @map("partner_id") @db.VarChar
   isResolved       Boolean              @default(false) @map("is_resolved")
   uid              String               @unique(map: "job_uid_idx") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  apiIssuer        String?              @map("api_issuer") @db.VarChar
+  apiClientId      String?              @map("api_client_id") @db.VarChar
+  apiClientName    String?              @map("api_client_name") @db.VarChar
   createdBy        User?                @relation("job_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   modifiedBy       User?                @relation("job_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
   odsConfig        OdsConfig            @relation(fields: [odsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
