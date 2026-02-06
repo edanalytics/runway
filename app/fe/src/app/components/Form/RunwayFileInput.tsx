@@ -1,5 +1,5 @@
 import { Box, Button, FormControl, FormLabel, HStack, Input } from '@chakra-ui/react';
-import { IconPlus } from '../../../assets/icons';
+import { IconPlus, IconX } from '../../../assets/icons';
 import { FieldError, FieldValues, Path, UseFormRegisterReturn } from 'react-hook-form';
 import { useState } from 'react';
 
@@ -88,14 +88,16 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
   };
 
   return (
-    <HStack paddingY="200" gap="400" width="100%" alignItems="baseline">
+    <Box width="100%">
+      <Box textStyle="bodyLargeBold" paddingY="200">
+        {label}
+      </Box>
       <FormControl variant="file" padding="0">
-        <HStack justifyContent="flex-start" gap="400">
+        {!fileName ? (
           <FormLabel
             variant="file"
             textColor="blue.50"
-            width="100%"
-            tabIndex={fileName ? -1 : 0} // remove file input from tab order if file is already selected
+            tabIndex={0}
             onKeyDown={(e) => {
               // allow opening file input with keyboard
               if (e.key === 'Enter' || e.key === ' ') {
@@ -103,60 +105,50 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
                 e.currentTarget.click();
               }
             }}
+            width="fit-content"
           >
-            <HStack as="span" gap="400" justifyContent="space-between">
-              <Box as="span" textStyle="bodyLargeBold">
-                {label}
-              </Box>
-              {fileName ? (
-                <Box as="span" textStyle="body">
-                  {fileName}
-                </Box>
-              ) : (
-                <HStack
-                  as="span"
-                  padding="200"
-                  gap="200"
-                  textStyle="button"
-                  layerStyle="buttonPrimary"
-                >
-                  <IconPlus height={12} width={12} />
-                  <Box as="span">select file</Box>
-                </HStack>
-              )}
+            <HStack
+              as="span"
+              padding="200"
+              gap="200"
+              textStyle="button"
+              layerStyle="buttonPrimary"
+            >
+              <IconPlus height={12} width={12} />
+              <Box as="span">select file</Box>
             </HStack>
           </FormLabel>
-          <Input
-            display="none"
-            type="file"
-            accept={acceptedFileTypes}
-            {...register}
-            onChange={handleFileChange}
-          />
-        </HStack>
-        {!!error && (
-          <Box textStyle="body" textColor="pink.100" marginTop="200" wordBreak="break-all">
-            {error?.message}
-          </Box>
+        ) : (
+          <HStack gap="200">
+            <Box textStyle="body">{fileName}</Box>
+            <Button
+              variant="unstyled"
+              textStyle="button"
+              textColor="green.100"
+              padding="100"
+              onClick={() => {
+                onClear();
+                setFileName(null);
+              }}
+              aria-label="Remove file"
+            >
+              <IconX />
+            </Button>
+          </HStack>
         )}
+        <Input
+          display="none"
+          type="file"
+          accept={acceptedFileTypes}
+          {...register}
+          onChange={handleFileChange}
+        />
       </FormControl>
-      {fileName && onClear && (
-        <Button
-          variant="unstyled"
-          textStyle="button"
-          textColor="green.100"
-          padding="200"
-          onClick={() => {
-            onClear();
-            setFileName(null);
-          }}
-        >
-          <Box as="span"> &mdash;</Box>
-          <Box as="span" ml="200">
-            remove file
-          </Box>
-        </Button>
+      {!!error && (
+        <Box textStyle="body" textColor="pink.100" marginTop="200" wordBreak="break-word">
+          {error?.message}
+        </Box>
       )}
-    </HStack>
+    </Box>
   );
 };
