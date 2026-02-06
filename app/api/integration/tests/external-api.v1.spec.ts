@@ -21,11 +21,15 @@ import { userA } from '../fixtures/user-fixtures';
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {
     const endpoint = '/v1/token/verify';
-    const scope = ['create:jobs', 'partner:partner-a'].join(' ');
+    const tokenPayload = {
+      scope: 'create:jobs partner:partner-a',
+      client_id: 'test-client-id',
+      client_name: 'Test API Client',
+    };
 
     describe('Valid Token', () => {
       it('should return 201 if the token is valid', async () => {
-        const token = await signExternalApiToken({ scope });
+        const token = await signExternalApiToken(tokenPayload);
         const res = await request(app.getHttpServer())
           .post(endpoint)
           .set('Authorization', `Bearer ${token}`);
@@ -39,7 +43,7 @@ describe('ExternalApiV1', () => {
       });
 
       it('should return 401 if the payload is tampered with', async () => {
-        const token = await signExternalApiToken({ scope });
+        const token = await signExternalApiToken(tokenPayload);
         const [header, payload, signature] = token.split('.');
         const invalidPayload = {
           ...JSON.parse(Buffer.from(payload, 'base64url').toString()),
@@ -55,7 +59,7 @@ describe('ExternalApiV1', () => {
       });
 
       it('should return 401 if the token signature is invalid', async () => {
-        const token = await signExternalApiToken({ scope });
+        const token = await signExternalApiToken(tokenPayload);
         const [header, payload, signature] = token.split('.');
         const invalidToken = `${header}.${payload}.invalid`;
         const res = await request(app.getHttpServer())
@@ -67,7 +71,7 @@ describe('ExternalApiV1', () => {
       it('should return 401 if the token is not signed with the correct keys', async () => {
         const newKeyPair = await jose.generateKeyPair('RS256');
         const token = await signExternalApiToken(
-          { scope },
+          tokenPayload,
           { privateKey: newKeyPair.privateKey } // signing the token with this new private key means it can't be verified with the public key jose is using
         );
         const res = await request(app.getHttpServer())
@@ -77,30 +81,34 @@ describe('ExternalApiV1', () => {
       });
 
       it('should return 401 if the audience is invalid', async () => {
-        const token = await signExternalApiToken({ scope }, { audience: 'invalid' });
+        const token = await signExternalApiToken(tokenPayload, { audience: 'invalid' });
         const res = await request(app.getHttpServer())
           .post(endpoint)
           .set('Authorization', `Bearer ${token}`);
         expect(res.status).toBe(401);
       });
+
       it('should return 401 if the token is expired', async () => {
-        const token = await signExternalApiToken({ scope }, { expiresIn: '-1s' }); // you can sign expired tokens!
+        const token = await signExternalApiToken(tokenPayload, { expiresIn: '-1s' }); // you can sign expired tokens!
         const res = await request(app.getHttpServer())
           .post(endpoint)
           .set('Authorization', `Bearer ${token}`);
         expect(res.status).toBe(401);
       });
+
       it('should return 403 if required scope is missing', async () => {
         const token = await signExternalApiToken({
-          scope: scope.replace('create:jobs', '').trim(),
+          ...tokenPayload,
+          scope: tokenPayload.scope.replace('create:jobs', '').trim(),
         }); // no create:jobs scope
         const res = await request(app.getHttpServer())
           .post(endpoint)
           .set('Authorization', `Bearer ${token}`);
         expect(res.status).toBe(403);
       });
+
       it('should return 403 if ANY required scope is missing', async () => {
-        const token = await signExternalApiToken({ scope }); // has create:jobs but not read:jobs
+        const token = await signExternalApiToken({ ...tokenPayload, scope: 'read:jobs' }); // has create:jobs but not read:jobs
         const originalScopes = Reflect.getMetadata(
           EXTERNAL_API_SCOPE_KEY,
           ExternalApiV1TokenController.prototype.verifyToken
@@ -125,8 +133,9 @@ describe('ExternalApiV1', () => {
           );
         }
       });
+
       it('should return 403 if scopes are not included on the token', async () => {
-        const token = await signExternalApiToken({});
+        const token = await signExternalApiToken({ ...tokenPayload, scope: undefined });
         const res = await request(app.getHttpServer())
           .post(endpoint)
           .set('Authorization', `Bearer ${token}`);
@@ -143,11 +152,11 @@ describe('ExternalApiV1', () => {
           .spyOn(externalApiAuthService, 'verifyToken')
           .mockResolvedValue({ result: 'disabled' });
 
-        const token = await signExternalApiToken({ scope });
+        const token = await signExternalApiToken(tokenPayload);
         const res = await request(app.getHttpServer())
           .post(endpoint)
           .set('Authorization', `Bearer ${token}`);
- 
+
         try {
           expect(res.status).toBe(503);
         } finally {
@@ -158,6 +167,17 @@ describe('ExternalApiV1', () => {
   });
 
   describe('Jobs V1', () => {
+    const tokenPayload = {
+      scope: 'create:jobs partner:partner-a',
+      client_id: 'test-client-id',
+      client_name: 'Test API Client',
+    };
+    let token: string;
+
+    beforeAll(async () => {
+      token = await signExternalApiToken(tokenPayload);
+    });
+
     describe('POST /jobs', () => {
       const endpoint = '/v1/jobs';
       let getBundleMock: jest.SpyInstance;
@@ -190,7 +210,7 @@ describe('ExternalApiV1', () => {
 
       describe('Valid Request', () => {
         it('should return a 201 and the job id', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
+          const token = await signExternalApiToken(tokenPayload);
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -205,15 +225,10 @@ describe('ExternalApiV1', () => {
             where: { uid: res.body.uid },
           });
         });
-      })
+      });
 
       describe('API Client Info', () => {
         it('should store API client info from token claims', async () => {
-          const token = await signExternalApiToken({
-            scope: 'create:jobs partner:partner-a',
-            client_id: 'test-client-id',
-            client_name: 'Test API Client',
-          });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -229,8 +244,8 @@ describe('ExternalApiV1', () => {
           try {
             expect(job).not.toBeNull();
             expect(job!.apiIssuer).toBe(TEST_ISSUER);
-            expect(job!.apiClientId).toBe('test-client-id');
-            expect(job!.apiClientName).toBe('Test API Client');
+            expect(job!.apiClientId).toBe(tokenPayload.client_id);
+            expect(job!.apiClientName).toBe(tokenPayload.client_name);
           } finally {
             await prisma.job.delete({ where: { uid: res.body.uid } });
           }
@@ -238,9 +253,9 @@ describe('ExternalApiV1', () => {
 
         it('should use azp claim when client_id is absent', async () => {
           const token = await signExternalApiToken({
-            scope: 'create:jobs partner:partner-a',
-            azp: 'test-azp-value',
-            client_name: 'AZP Client',
+            ...tokenPayload,
+            azp: 'test-azp',
+            client_id: undefined,
           });
           const res = await request(app.getHttpServer())
             .post(endpoint)
@@ -255,8 +270,8 @@ describe('ExternalApiV1', () => {
 
           try {
             expect(job).not.toBeNull();
-            expect(job!.apiClientId).toBe('test-azp-value');
-            expect(job!.apiClientName).toBe('AZP Client');
+            expect(job!.apiClientId).toBe('test-azp');
+            expect(job!.apiClientName).toBe(tokenPayload.client_name);
           } finally {
             await prisma.job.delete({ where: { uid: res.body.uid } });
           }
@@ -264,10 +279,8 @@ describe('ExternalApiV1', () => {
 
         it('should prefer client_id over azp when both are present', async () => {
           const token = await signExternalApiToken({
-            scope: 'create:jobs partner:partner-a',
-            client_id: 'preferred-client-id',
-            azp: 'fallback-azp',
-            client_name: 'Both Claims Client',
+            ...tokenPayload,
+            azp: 'test-azp',
           });
           const res = await request(app.getHttpServer())
             .post(endpoint)
@@ -282,17 +295,29 @@ describe('ExternalApiV1', () => {
 
           try {
             expect(job).not.toBeNull();
-            expect(job!.apiClientId).toBe('preferred-client-id');
+            expect(job!.apiClientId).toBe(tokenPayload.client_id);
           } finally {
             await prisma.job.delete({ where: { uid: res.body.uid } });
           }
         });
 
+        it('should return 403 if the token is missing azp or client_id claim', async () => {
+          const token = await signExternalApiToken({
+            ...tokenPayload,
+            azp: undefined,
+            client_id: undefined,
+          });
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+          expect(res.status).toBe(403);
+        });
+
         it('should handle missing client_name gracefully', async () => {
           const token = await signExternalApiToken({
-            scope: 'create:jobs partner:partner-a',
-            client_id: 'client-without-name',
-            // no client_name
+            ...tokenPayload,
+            client_name: undefined,
           });
           const res = await request(app.getHttpServer())
             .post(endpoint)
@@ -316,11 +341,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should only expose apiClientName in DTO, not apiIssuer or apiClientId', async () => {
-          const token = await signExternalApiToken({
-            scope: 'create:jobs partner:partner-a',
-            client_id: 'secret-client-id',
-            client_name: 'Public Client Name',
-          });
           const createRes = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -357,9 +377,10 @@ describe('ExternalApiV1', () => {
           }
         });
       });
+
       describe('Invalid Request', () => {
         it('should reject requests without a partner scope', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs' });
+          const token = await signExternalApiToken({ ...tokenPayload, scope: 'create:jobs' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -370,8 +391,12 @@ describe('ExternalApiV1', () => {
           expect(res.status).toBe(403);
           expect(res.body.message).toContain('Invalid partner code');
         });
+
         it('should reject requests without the correct partner scope', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-b' }); // request is for partner-a
+          const token = await signExternalApiToken({
+            ...tokenPayload,
+            scope: 'create:jobs partner:partner-b',
+          }); // request is for partner-a
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -381,7 +406,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should reject requests for tenants outside the scoped partner', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -391,7 +415,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should reject requests for non-existent bundles', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -404,7 +427,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should reject requests if the bundle is not enabled for the partner', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -420,7 +442,6 @@ describe('ExternalApiV1', () => {
         it('should return a 500 if the bundle metadata cannot be retrieved', async () => {
           // bundle enablement check should pass, but bundle retrieval should fail
           getBundleMock.mockResolvedValue([]);
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -429,7 +450,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should reject requests if an ODS is not found for the requested school year', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -443,7 +463,6 @@ describe('ExternalApiV1', () => {
 
         it('should reject requests with an invalid school year format', async () => {
           // This test checks that we're hitting the class validator requirements in the DTO
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -462,7 +481,6 @@ describe('ExternalApiV1', () => {
             connection: { ...odsConnA2425, id: odsConnA2425.id + 1000 },
           });
 
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -483,7 +501,6 @@ describe('ExternalApiV1', () => {
             where: { id: odsConfigA2425.id },
             data: { retired: true, retiredOn: new Date() },
           });
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -501,7 +518,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should ensure all required inputs are provided', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -514,7 +530,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should ensure all inputs are valid', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -528,7 +543,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should reject null param values for required params', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -541,7 +555,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should reject requests if unexpected params are provided', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -555,7 +568,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should reject requests if unexpected files are provided', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -569,7 +581,6 @@ describe('ExternalApiV1', () => {
         });
 
         it('should reject requests if required files are missing', async () => {
-          const token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -588,7 +599,6 @@ describe('ExternalApiV1', () => {
       let earthbeamMock: jest.SpyInstance;
       let bundleMock: jest.SpyInstance;
       let jobUid: string;
-      let token: string;
 
       beforeEach(async () => {
         earthbeamMock = jest.spyOn(EarthbeamRunService.prototype, 'start').mockResolvedValue({
@@ -599,7 +609,6 @@ describe('ExternalApiV1', () => {
           .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
           .mockResolvedValue(allBundles);
 
-        token = await signExternalApiToken({ scope: 'create:jobs partner:partner-a' });
         const res = await request(app.getHttpServer())
           .post('/v1/jobs')
           .set('Authorization', `Bearer ${token}`)
@@ -630,7 +639,15 @@ describe('ExternalApiV1', () => {
           expect(res.status).toBe(202);
         });
       });
+
       describe('Invalid Request', () => {
+        it('should return a 401 if not given a valid token', async () => {
+          const res = await request(app.getHttpServer())
+            .post(`/v1/jobs/${jobUid}/start`)
+            .set('Authorization', `Bearer invalid`);
+          expect(res.status).toBe(401);
+        });
+
         it('should return a 400 if not given a uuid', async () => {
           const res = await request(app.getHttpServer())
             .post(`/v1/jobs/not-a-uuid/start`)
@@ -653,7 +670,10 @@ describe('ExternalApiV1', () => {
         });
 
         it('should return a 404 if the job is not owned by a partner in the token scope', async () => {
-          const tokenB = await signExternalApiToken({ scope: 'create:jobs partner:partner-b' });
+          const tokenB = await signExternalApiToken({
+            ...tokenPayload,
+            scope: 'create:jobs partner:partner-b',
+          });
           const res = await request(app.getHttpServer())
             .post(`/v1/jobs/${jobUid}/start`)
             .set('Authorization', `Bearer ${tokenB}`);
