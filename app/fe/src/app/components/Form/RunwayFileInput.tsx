@@ -135,7 +135,7 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
           />
         </HStack>
         {!!error && (
-          <Box textStyle="body" textColor="pink.100" marginTop="200" wordBreak="break-word">
+          <Box textStyle="body" textColor="pink.100" marginTop="200" wordBreak="break-all">
             {error?.message}
           </Box>
         )}
