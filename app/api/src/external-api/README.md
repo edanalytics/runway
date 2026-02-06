@@ -21,6 +21,18 @@ Configure an OAuth2/OIDC client in your identity provider with:
    - `create:jobs` — Required to create and start jobs
    - `partner:<code>` — One or more partner scopes (e.g., `partner:acme`) to authorize access to specific partners
 
+### Token Claims
+
+The access token must include the following claims:
+
+| Claim         | Required | Description                                                                                         |
+| ------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `client_id`   | Yes\*    | The OAuth2 client ID. Used to attribute jobs to the API client.                                     |
+| `azp`         | Yes\*    | Authorized party. Used as fallback if `client_id` is not present.                                   |
+| `client_name` | No       | Display name for the API client. If provided, shown in the Runway UI for jobs created via the API.  |
+
+\* At least one of `client_id` or `azp` must be present. Most OAuth2 providers include `client_id` by default in client credentials tokens.
+
 ## API Usage
 
 All requests must include:
