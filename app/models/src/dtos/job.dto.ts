@@ -1,4 +1,4 @@
-import { Expose, plainToInstance, Transform, Type } from 'class-transformer';
+import { Exclude, Expose, plainToInstance, Transform, Type } from 'class-transformer';
 import { DtoGetBase, GetDto } from '../utils/get-base.dto';
 import { makeSerializerCustomType } from '../utils/make-serializer';
 import { DtoPostBase, PostDto } from '../utils/post-base.dto';
@@ -99,6 +99,19 @@ export class GetJobDto
   @Expose()
   isResolved: boolean;
 
+  @Expose()
+  apiClientName: string | null;
+
+  /** Used internally to compute isApiInitiated - not included in serialized output */
+  @Expose()
+  @Exclude({ toPlainOnly: true })
+  apiClientId: string | null;
+
+  @Expose()
+  get isApiInitiated(): boolean {
+    return !!this.apiClientId;
+  }
+
   get lastRun(): GetRunDto | undefined {
     return this.runs?.slice().sort((a, b) => b.createdOn.getTime() - a.createdOn.getTime())[0];
   }
@@ -193,6 +206,7 @@ export class GetJobDto
 
   // Intentionally not exposing
   previousJobId: number | null;
+  apiIssuer: string | null;
   tenantCode: string;
   partnerId: string;
   fileProtocol: $Enums.FileStorageProtocol | null;

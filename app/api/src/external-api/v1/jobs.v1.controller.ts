@@ -24,6 +24,7 @@ import { PRISMA_ANONYMOUS, PRISMA_READ_ONLY } from 'api/src/database/database.se
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 import { InitJobPayloadV1Dto, toInitJobResponseV1Dto } from '@edanalytics/models';
 import { FileService } from 'api/src/files/file.service';
+import { ApiTokenClient, ExternalApiTokenClient } from '../external-api-token-client.decorator';
 
 @Controller('jobs')
 @ApiTags('External API - Jobs')
@@ -43,9 +44,17 @@ export class ExternalApiV1JobsController {
   @ExternalApiScope('create:jobs')
   async initialize(
     @ExternalApiScopes() scopes: ExternalApiScopeType[],
+    @ExternalApiTokenClient() apiClient: ApiTokenClient,
     @Body() jobInitDto: InitJobPayloadV1Dto
   ) {
     const { partner: partnerId, tenant: tenantCode } = jobInitDto;
+
+    // ─── Validate existence of client ID in token ───────────────────────────────
+    if (!apiClient.clientId) {
+      // Should never happen, but if it does we shouldn't create the job since we
+      // can't attribute it to a client.
+      throw new ForbiddenException('Token must include a client_id or azp claim');
+    }
 
     // ─── Validate partner ─────────────────────────────────────────────────────
     if (!isPartnerAllowed(scopes, partnerId)) {
@@ -53,35 +62,31 @@ export class ExternalApiV1JobsController {
     }
 
     // ─── Validate tenant ──────────────────────────────────────────────────────
-    const tenant = await this.prismaRO.tenant
-      .findUnique({
-        where: {
-          code_partnerId: {
-            code: tenantCode,
-            partnerId: partnerId,
-          },
+    const tenant = await this.prismaRO.tenant.findUnique({
+      where: {
+        code_partnerId: {
+          code: tenantCode,
+          partnerId: partnerId,
         },
-      })
-      
-      if (!tenant) {
-        throw new BadRequestException(
-          `Invalid tenant. ${partnerId}/${tenantCode} does not exist`
-        );
-      }
-      
-    // ─── Validate bundle enablement for partner ──────────────────────────────────
-    const bundle = await this.prismaRO.partnerEarthmoverBundle
-      .findUnique({
-        where: {
-          partnerId_earthmoverBundleKey: {
-            partnerId: partnerId,
-            earthmoverBundleKey: jobInitDto.bundle,
-          },
-        },
-      })
+      },
+    });
 
-      if (!bundle) {
-        throw new BadRequestException(
+    if (!tenant) {
+      throw new BadRequestException(`Invalid tenant. ${partnerId}/${tenantCode} does not exist`);
+    }
+
+    // ─── Validate bundle enablement for partner ──────────────────────────────────
+    const bundle = await this.prismaRO.partnerEarthmoverBundle.findUnique({
+      where: {
+        partnerId_earthmoverBundleKey: {
+          partnerId: partnerId,
+          earthmoverBundleKey: jobInitDto.bundle,
+        },
+      },
+    });
+
+    if (!bundle) {
+      throw new BadRequestException(
         `Bundle not found or not enabled for partner: ${jobInitDto.bundle}`
       );
     }
@@ -103,7 +108,9 @@ export class ExternalApiV1JobsController {
     }
     if (odsConfigs.length > 1) {
       this.logger.error(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
-      throw new InternalServerErrorException(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
+      throw new InternalServerErrorException(
+        `Multiple ODS found for school year: ${jobInitDto.schoolYear}`
+      );
     }
 
     // ─── Create job ───────────────────────────────────────────────────────────
@@ -120,17 +127,17 @@ export class ExternalApiV1JobsController {
         params: jobInitDto.params ?? {},
       },
       tenant,
-      this.prismaAnon
+      this.prismaAnon,
+      apiClient
     );
-
 
     if (result.status === 'error') {
       if (result.code === 'bundle_not_found') {
-        // If we passed the bundle enablement check above, but fail to retrieve the bundle, 
+        // If we passed the bundle enablement check above, but fail to retrieve the bundle,
         // that's a server error and not a bad request.
         throw new InternalServerErrorException(result.message);
       } else {
-        // Other errors are bad requests, various ways that the input doesn't line up with 
+        // Other errors are bad requests, various ways that the input doesn't line up with
         // what the bundle metadata expects. Calls should succeed if they adjust their input.
         throw new BadRequestException(result.message);
       }
