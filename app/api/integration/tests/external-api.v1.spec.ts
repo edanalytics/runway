@@ -333,7 +333,7 @@ describe('ExternalApiV1', () => {
           try {
             expect(job).not.toBeNull();
             expect(job!.apiIssuer).toBe(TEST_ISSUER);
-            expect(job!.apiClientId).toBe('client-without-name');
+            expect(job!.apiClientId).toBe(tokenPayload.client_id);
             expect(job!.apiClientName).toBeNull();
           } finally {
             await prisma.job.delete({ where: { uid: res.body.uid } });
