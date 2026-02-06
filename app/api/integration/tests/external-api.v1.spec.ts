@@ -366,7 +366,7 @@ describe('ExternalApiV1', () => {
             expect(getRes.status).toBe(200);
 
             // apiClientName should be exposed in the response
-            expect(getRes.body.apiClientName).toBe('Public Client Name');
+            expect(getRes.body.apiClientName).toBe(tokenPayload.client_name);
 
             // apiIssuer and apiClientId should NOT be in the response
             expect(getRes.body.apiIssuer).toBeUndefined();

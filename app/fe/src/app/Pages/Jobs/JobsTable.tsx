@@ -7,7 +7,6 @@ import { Link as RouterLink } from '@tanstack/react-router';
 import { RunwayStdTableSearch } from '../../components/Table/RunwayStdTableSearch';
 import { RunwayStdTable } from '../../components/Table/RunwayStdTable';
 import { RunwayStdTablePagination } from '../../components/Table/RunwayStdTablePagination';
-import { useState } from 'react';
 
 export const JobsTable = ({ jobs }: { jobs: GetJobDto[] }) => {
   return (
@@ -88,7 +87,8 @@ export const JobsTable = ({ jobs }: { jobs: GetJobDto[] }) => {
 
         {
           header: 'User',
-          accessorFn: (row) => (row.createdBy ? row.createdBy.displayName : 'API Initiated'),
+          accessorFn: (row) =>
+            row.createdBy ? row.createdBy.displayName : row.apiClientName ?? null,
           meta: {
             type: 'options',
           },

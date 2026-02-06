@@ -47,7 +47,7 @@ export class GetJobDto
   extends DtoGetBase
   implements
     GetDto<
-      Omit<Job, 'template' | 'inputParams'> & {
+      Omit<Job, 'template' | 'inputParams' | 'apiIssuer' | 'apiClientId'> & {
         template: GetJobTemplateDto;
         inputParams: JobInputParamDto[] | null;
       }
@@ -98,6 +98,9 @@ export class GetJobDto
 
   @Expose()
   isResolved: boolean;
+
+  @Expose()
+  apiClientName: string | null;
 
   get lastRun(): GetRunDto | undefined {
     return this.runs?.slice().sort((a, b) => b.createdOn.getTime() - a.createdOn.getTime())[0];
