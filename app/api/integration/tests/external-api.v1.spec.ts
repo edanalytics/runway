@@ -340,7 +340,7 @@ describe('ExternalApiV1', () => {
           }
         });
 
-        it('should only expose apiClientName in DTO, not apiIssuer or apiClientId', async () => {
+        it('should expose apiClientName and isApiInitiated in DTO, but not apiIssuer or apiClientId', async () => {
           const createRes = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -365,8 +365,9 @@ describe('ExternalApiV1', () => {
 
             expect(getRes.status).toBe(200);
 
-            // apiClientName should be exposed in the response
+            // apiClientName and isApiInitiated should be exposed in the response
             expect(getRes.body.apiClientName).toBe(tokenPayload.client_name);
+            expect(getRes.body.isApiInitiated).toBe(true);
 
             // apiIssuer and apiClientId should NOT be in the response
             expect(getRes.body.apiIssuer).toBeUndefined();
