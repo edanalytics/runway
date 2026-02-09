@@ -17,6 +17,8 @@ import { ExternalApiAuthService } from '../../src/external-api/auth/external-api
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { userA } from '../fixtures/user-fixtures';
+import { GetJobDto, toGetJobDto } from '@edanalytics/models';
+import { plainToInstance } from 'class-transformer';
 
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {
@@ -365,13 +367,15 @@ describe('ExternalApiV1', () => {
 
             expect(getRes.status).toBe(200);
 
+            const jobDto = plainToInstance(GetJobDto, getRes.body);
+
             // apiClientName and isApiInitiated should be exposed in the response
-            expect(getRes.body.apiClientName).toBe(tokenPayload.client_name);
-            expect(getRes.body.isApiInitiated).toBe(true);
+            expect(jobDto.apiClientName).toBe(tokenPayload.client_name);
+            expect(jobDto.isApiInitiated).toBe(true);
 
             // apiIssuer and apiClientId should NOT be in the response
-            expect(getRes.body.apiIssuer).toBeUndefined();
-            expect(getRes.body.apiClientId).toBeUndefined();
+            expect(jobDto.apiIssuer).toBeUndefined();
+            expect(jobDto.apiClientId).toBeUndefined();
           } finally {
             await authHelper.logout(cookies);
             await prisma.job.delete({ where: { uid: createRes.body.uid } });
