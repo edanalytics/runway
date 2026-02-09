@@ -12,6 +12,7 @@ import { instanceToPlain } from 'class-transformer';
 import { EarthbeamRunService } from '../earthbeam/earthbeam-run.service';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
+import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 
 @Injectable()
 export class JobsService {
@@ -65,7 +66,8 @@ export class JobsService {
       params: Record<string, string>;
     },
     tenant: Tenant,
-    prisma: PrismaClient
+    prisma: PrismaClient,
+    apiClient?: ApiTokenClient
   ): Promise<
     | { status: 'success'; job: Job & { files: JobFile[] } }
     | {
@@ -187,6 +189,9 @@ export class JobsService {
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
         tenantCode: tenant.code,
         partnerId: tenant.partnerId,
+        apiIssuer: apiClient?.issuer,
+        apiClientId: apiClient?.clientId,
+        apiClientName: apiClient?.clientName,
       },
     });
 

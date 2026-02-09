@@ -25,8 +25,16 @@ import { JWTPayload } from 'jose';
 import { EXTERNAL_API_SCOPE_KEY } from './external-api-scope.decorator';
 import { Request } from 'express';
 
-/** Token payload for external API requests. Extends JWTPayload with required scope. */
-export type ExternalApiTokenPayload = JWTPayload & { scope: string };
+/** Token payload for external API requests. Extends JWTPayload with required scope and optional client claims. */
+export type ExternalApiTokenPayload = JWTPayload & {
+  scope: string;
+  /** OAuth client ID (standard claim) */
+  client_id?: string;
+  /** Authorized party (alternative to client_id, used by some IdPs) */
+  azp?: string;
+  /** Display name for the client (custom claim, if configured in the IdP) */
+  client_name?: string;
+};
 @Injectable()
 export class ExternalApiTokenGuard implements CanActivate {
   private readonly logger = new Logger(ExternalApiTokenGuard.name);
