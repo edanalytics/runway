@@ -108,7 +108,7 @@ describe('ExternalApiV1', () => {
       });
 
       it('should return 403 if ANY required scope is missing', async () => {
-        const token = await signExternalApiToken({ ...tokenPayload, scope: 'read:jobs' }); // has create:jobs but not read:jobs
+        const token = await signExternalApiToken(tokenPayload); // has create:jobs but not read:jobs
         const originalScopes = Reflect.getMetadata(
           EXTERNAL_API_SCOPE_KEY,
           ExternalApiV1TokenController.prototype.verifyToken
