@@ -22,15 +22,18 @@ export function getLocalJWKS() {
   return localJWKS;
 }
 
-const TEST_AUDIENCE = process.env.EXTERNAL_API_TOKEN_AUDIENCE ?? 'test-audience';
+const TEST_AUDIENCE = process.env.OAUTH2_AUDIENCE ?? 'test-audience';
+
+export const TEST_ISSUER = 'https://test-issuer.example.com';
 
 export async function signExternalApiToken(
   payload: jose.JWTPayload,
-  options?: { expiresIn?: string; audience?: string; privateKey?: jose.KeyLike } // use these to produce various flavors of invalid tokens
+  options?: { expiresIn?: string; audience?: string; privateKey?: jose.KeyLike; issuer?: string } // use these to produce various flavors of invalid tokens
 ) {
   return new jose.SignJWT(payload)
     .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
     .setIssuedAt()
+    .setIssuer(options?.issuer ?? TEST_ISSUER)
     .setAudience(options?.audience ?? TEST_AUDIENCE)
     .setExpirationTime(options?.expiresIn ?? '1h')
     .sign(options?.privateKey ?? privateKey);
