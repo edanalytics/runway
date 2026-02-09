@@ -107,10 +107,15 @@ export class GetJobDto
   @Exclude({ toPlainOnly: true })
   apiClientId: string | null;
 
+  /**
+   * Allows us to distinguish API-initiated jobs from user-initiated jobs without exposing apiClientId.
+   * This prop is initially set based on presence of apiClientId. After serialization, we drop apiClientId,
+   * so any future transformations cannot reference it. Instead, we see if we've already computed it and
+   * use that value.
+   */
   @Expose()
-  get isApiInitiated(): boolean {
-    return !!this.apiClientId;
-  }
+  @Transform(({ obj }) => !!obj.apiClientId || !!obj.isApiInitiated)
+  isApiInitiated: boolean;
 
   get lastRun(): GetRunDto | undefined {
     return this.runs?.slice().sort((a, b) => b.createdOn.getTime() - a.createdOn.getTime())[0];

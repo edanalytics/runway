@@ -17,7 +17,7 @@ import { ExternalApiAuthService } from '../../src/external-api/auth/external-api
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { userA } from '../fixtures/user-fixtures';
-import { GetJobDto, toGetJobDto } from '@edanalytics/models';
+import { GetJobDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 
 describe('ExternalApiV1', () => {
