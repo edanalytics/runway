@@ -290,7 +290,43 @@ describe('Earthbeam API', () => {
           );
         });
 
-        it('should include client info for jobs intiated via the external API', async () => {});
+        it('should include client info for jobs intiated via the external API', async () => {
+          // API client info pulled from job, not run (for now).
+          await prisma.job.update({
+            where: { id: runA.jobId },
+            data: {
+              apiIssuer: 'https://test-issuer.com',
+              apiClientId: 'test-client-id',
+              apiClientName: 'Test Client',
+              createdById: null, // ensure this is null in case we update the seed to populate created by user
+            },
+          });
+
+          await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'success' });
+
+          expect(eventEmitterMock).not.toHaveBeenCalledWith(
+            'run_complete',
+            expect.objectContaining({
+              metadata: expect.objectContaining({
+                userName: expect.any(String),
+              }),
+            })
+          );
+
+          expect(eventEmitterMock).toHaveBeenCalledWith(
+            'run_complete',
+            expect.objectContaining({
+              metadata: expect.objectContaining({
+                apiIssuer: 'https://test-issuer.com',
+                apiClientId: 'test-client-id',
+                apiClientName: 'Test Client',
+              }),
+            })
+          );
+        });
       });
     });
   });
