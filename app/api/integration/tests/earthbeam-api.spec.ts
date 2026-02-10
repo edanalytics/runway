@@ -320,8 +320,6 @@ describe('Earthbeam API', () => {
             'run_complete',
             expect.objectContaining({
               metadata: expect.objectContaining({
-                apiIssuer: 'https://test-issuer.com',
-                apiClientId: 'test-client-id',
                 apiClientName: 'Test Client',
               }),
             })

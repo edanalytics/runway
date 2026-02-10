@@ -287,9 +287,7 @@ export class EarthbeamApiService {
               }
             : run.job.apiClientId
             ? {
-                apiIssuer: run.job.apiIssuer,
-                apiClientId: run.job.apiClientId,
-                apiClientName: run.job.apiClientName,
+                apiClientName: run.job.apiClientName ?? 'API Initiated',
               }
             : null),
           createdOn: run.createdOn.toISOString(),
