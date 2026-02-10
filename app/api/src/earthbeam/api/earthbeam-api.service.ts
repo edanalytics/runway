@@ -277,11 +277,21 @@ export class EarthbeamApiService {
         metadata: {
           tenantCode,
           partnerId,
-          userEmail: run.userRunCreatedByIdTouser?.email,
-          userName:
-            run.userRunCreatedByIdTouser?.givenName +
-            ' ' +
-            run.userRunCreatedByIdTouser?.familyName,
+          ...(run.userRunCreatedByIdTouser
+            ? {
+                userEmail: run.userRunCreatedByIdTouser?.email,
+                userName:
+                  run.userRunCreatedByIdTouser?.givenName +
+                  ' ' +
+                  run.userRunCreatedByIdTouser?.familyName,
+              }
+            : run.job.apiClientId
+            ? {
+                apiIssuer: run.job.apiIssuer,
+                apiClientId: run.job.apiClientId,
+                apiClientName: run.job.apiClientName,
+              }
+            : null),
           createdOn: run.createdOn.toISOString(),
           completedOn: run.modifiedOn.toISOString(),
         },
