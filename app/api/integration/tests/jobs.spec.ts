@@ -328,6 +328,28 @@ describe('POST /jobs', () => {
         .send(jobInputWithNonOwnedOds);
       expect(res.status).toBe(400);
     });
+
+    it('should reject requests if a file name is an empty string', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send({
+          ...postJobDto,
+          files: postJobDto.files.map((f) => ({ ...f, nameFromUser: '' })),
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject requests if a file name is null', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send({
+          ...postJobDto,
+          files: postJobDto.files.map((f) => ({ ...f, nameFromUser: null })),
+        });
+      expect(res.status).toBe(400);
+    });
   });
 });
 
