@@ -597,6 +597,30 @@ describe('ExternalApiV1', () => {
           expect(res.body.message).toContain('Missing required files');
           expect(res.body.message).toContain('INPUT_FILE');
         });
+
+        it('should reject requests if a file name is an empty string', async () => {
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+              ...jobInput,
+              files: { INPUT_FILE: '' },
+            });
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('File names must not be empty');
+        });
+
+        it('should reject requests if a file name is null', async () => {
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+              ...jobInput,
+              files: { INPUT_FILE: null },
+            });
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('File names must not be empty');
+        });
       });
     });
 

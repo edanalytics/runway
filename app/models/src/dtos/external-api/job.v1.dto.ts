@@ -1,6 +1,34 @@
 import { Expose } from 'class-transformer';
-import { IsNotEmpty, IsObject, IsOptional, IsString, Matches } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  registerDecorator,
+  ValidationOptions,
+} from 'class-validator';
 import { makeSerializer } from '../../utils';
+
+function HasNoEmptyValues(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      name: 'hasNoEmptyValues',
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: unknown) {
+          if (typeof value !== 'object' || value === null) return false;
+          return Object.values(value).every((v) => typeof v === 'string' && v.trim().length > 0); // false if null or empty string
+        },
+        defaultMessage() {
+          return `${propertyName} must not contain empty values`;
+        },
+      },
+    });
+  };
+}
 
 export class InitJobPayloadV1Dto {
   /**
@@ -41,6 +69,7 @@ export class InitJobPayloadV1Dto {
    */
   @IsObject()
   @IsNotEmpty()
+  @HasNoEmptyValues({ message: 'File names must not be empty' })
   files: Record<string, string>;
 
   /**
@@ -67,4 +96,3 @@ export class InitJobResponseV1Dto {
   uploadUrls: Record<string, string>; // env_var: url
 }
 export const toInitJobResponseV1Dto = makeSerializer(InitJobResponseV1Dto);
-
