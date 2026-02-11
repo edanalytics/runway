@@ -1,4 +1,4 @@
-import { Expose } from 'class-transformer';
+import { Expose, Transform } from 'class-transformer';
 import {
   IsNotEmpty,
   IsObject,
@@ -67,6 +67,14 @@ export class InitJobPayloadV1Dto {
    * Files based on the bundle metadata. Keys correspond to the `env_var` value defined in the bundle metadata. The value is the file name Runway will use. This file name will appear to users in the Runway UI and does not need to match the original file name. The file must be uploaded to the URL provided in the `uploadUrls` field of the response.
    * @example { INPUT_FILE: 'input-file.csv' }
    */
+  @Transform(({ value }) => {
+    if (typeof value === 'object' && value !== null) {
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v])
+      );
+    }
+    return value;
+  })
   @IsObject()
   @IsNotEmpty()
   @HasNoEmptyValues({ message: 'File names must not be empty' })
