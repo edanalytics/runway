@@ -227,6 +227,32 @@ describe('ExternalApiV1', () => {
             where: { uid: res.body.uid },
           });
         });
+
+        it('should trim whitespace from file names', async () => {
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+              ...jobInput,
+              files: { INPUT_FILE: '  input-file.csv  ' },
+            });
+
+          expect(res.status).toBe(201);
+
+          const job = await prisma.job.findUnique({
+            where: { uid: res.body.uid },
+            include: { files: true },
+          });
+
+          try {
+            expect(job).not.toBeNull();
+            const inputFile = job!.files.find((f) => f.templateKey === 'INPUT_FILE');
+            expect(inputFile).toBeDefined();
+            expect(inputFile!.nameFromUser).toBe('input-file.csv');
+          } finally {
+            await prisma.job.delete({ where: { uid: res.body.uid } });
+          }
+        });
       });
 
       describe('API Client Info', () => {
