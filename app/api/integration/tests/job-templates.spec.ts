@@ -33,11 +33,13 @@ describe('GET /job-templates', () => {
     // M is a partner that has no bundles yet
     const sessM = sessionCookie('job-templates-spec-m');
     let contextM: Awaited<ReturnType<typeof seedContext>>;
+    let getBundlesMock: jest.SpyInstance;
 
     beforeEach(async () => {
       contextM = await seedContext(makePartnerUserTenantContext('m'));
-
-      jest.spyOn(EarthbeamBundlesService.prototype, 'getBundles').mockResolvedValue(allBundles);
+      getBundlesMock = jest
+        .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
+        .mockResolvedValue(allBundles);
       await sessionStore.set(sessA.sid, sessionData(userA, tenantA));
       await sessionStore.set(sessX.sid, sessionData(userX, tenantX));
       await sessionStore.set(sessM.sid, sessionData(contextM.user, contextM.tenant));
@@ -48,7 +50,7 @@ describe('GET /job-templates', () => {
       await sessionStore.destroy(sessX.sid);
       await sessionStore.destroy(sessM.sid);
       await removeContext(contextM);
-      await jest.restoreAllMocks();
+      getBundlesMock.mockRestore();
     });
 
     it('should return no bundles if none are enabled for the partner', async () => {
@@ -76,23 +78,25 @@ describe('GET /job-templates', () => {
       const resX = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessX.cookie]);
       const resM = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessM.cookie]);
 
-      expect(resA.status).toBe(200);
-      expect(resX.status).toBe(200);
-      expect(resM.status).toBe(200);
+      try {
+        expect(resA.status).toBe(200);
+        expect(resX.status).toBe(200);
+        expect(resM.status).toBe(200);
 
-      expect(map(resA.body, 'path')).toEqual(map([...partnerABundles, bundleM], 'path'));
-      expect(map(resX.body, 'path')).toEqual(map([...partnerXBundles, bundleM], 'path'));
-      expect(map(resM.body, 'path')).toEqual(map([bundleM], 'path'));
-
-      await prisma.partnerEarthmoverBundle.deleteMany({
-        where: {
-          earthmoverBundleKey: bundleM.path,
-        },
-      });
+        expect(map(resA.body, 'path')).toEqual(map([...partnerABundles, bundleM], 'path'));
+        expect(map(resX.body, 'path')).toEqual(map([...partnerXBundles, bundleM], 'path'));
+        expect(map(resM.body, 'path')).toEqual(map([bundleM], 'path'));
+      } finally {
+        await prisma.partnerEarthmoverBundle.deleteMany({
+          where: {
+            earthmoverBundleKey: bundleM.path,
+          },
+        });
+      }
     });
 
     it('should not error if there are no input params', async () => {
-      jest.spyOn(EarthbeamBundlesService.prototype, 'getBundles').mockResolvedValue(
+      getBundlesMock.mockResolvedValue(
         partnerABundles.map((b) => {
           const { input_params, ...bundleSansParams } = b;
           return bundleSansParams;

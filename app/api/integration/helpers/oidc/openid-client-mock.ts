@@ -49,8 +49,8 @@ export const prepareMockOIDC = () => {
       token_endpoint: `${issuerUrl}/token_endpoint`,
       userinfo_endpoint: `${issuerUrl}/userinfo_endpoint`,
       end_session_endpoint: `${issuerUrl}/end_session_endpoint`,
+      jwks_uri: `${issuerUrl}/jwks`,
     });
-
     const claimsMocker = new ClaimsMocker();
     claimsMockers.set(issuerUrl, claimsMocker);
 

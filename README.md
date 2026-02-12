@@ -61,6 +61,9 @@ docker-compose -f ./docker-compose.yml --env-file .\.env down --volumes
 The entrypoint for the job_executor is `init.sh`, which calls a "prepare" bash script followed by an "execute" Python script. (Some setup steps are easier to write in bash, others in Python; hence the split.)
 
 
+### External API
+Runway exposes an API for programmatic job submission, allowing external systems to create and start jobs without using the UI. The API requires OAuth2 bearer tokens from a configured identity provider. See [the External API README](./app/api/src/external-api/README.md) for configuration and usage instructions.
+
 ### Application features
 Coming soon...
 

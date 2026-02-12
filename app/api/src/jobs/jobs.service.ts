@@ -1,7 +1,7 @@
 import {
   EarthmoverBundleTypes,
+  JobInputParamDto,
   JsonArray,
-  PostJobDto,
   toGetJobTemplateDto,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -12,6 +12,7 @@ import { instanceToPlain } from 'class-transformer';
 import { EarthbeamRunService } from '../earthbeam/earthbeam-run.service';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
+import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 
 @Injectable()
 export class JobsService {
@@ -42,46 +43,174 @@ export class JobsService {
     return lastRun?.runError;
   }
 
-  async initialize(data: PostJobDto, tenant: Tenant, prisma: PrismaClient) {
-    // We grab the bundle fresh because we shouldn't trust the template that comes
-    // in on the request. The executor uses template keys as env vars. We don't want to
-    // allow users to inject arbitrary env vars.
+  /**
+   * Creates a new job with validated inputs.
+   *
+   * Controllers are responsible for:
+   * - Auth/authorization
+   * - Tenant and ODS lookup/validation
+   * - Verifying bundle is enabled for partner
+   *
+   * This method handles:
+   * - Fetching bundle (for security - don't trust client-provided template)
+   * - Validating params against bundle requirements
+   * - Validating files against bundle requirements
+   * - Creating job and file records
+   */
+  async createJob(
+    input: {
+      bundlePath: string;
+      odsId: number;
+      schoolYearId: string;
+      files: Array<{ templateKey: string; nameFromUser: string; type: string }>;
+      params: Record<string, string>;
+    },
+    tenant: Tenant,
+    prisma: PrismaClient,
+    apiClient?: ApiTokenClient
+  ): Promise<
+    | { status: 'success'; job: Job & { files: JobFile[] } }
+    | {
+        status: 'error';
+        code:
+          | 'bundle_not_found'
+          | 'missing_required_params'
+          | 'invalid_param_values'
+          | 'unexpected_params'
+          | 'missing_required_files'
+          | 'unexpected_files';
+        message: string;
+      }
+  > {
     const bundle = await this.bundleService.getBundle(
       EarthmoverBundleTypes.assessments,
-      data.template.path
+      input.bundlePath
     );
 
     if (!bundle) {
-      throw new Error('Bundle not found');
+      return {
+        status: 'error',
+        code: 'bundle_not_found',
+        message: `Bundle not found: ${input.bundlePath}`,
+      };
     }
 
+    // ─── Validate params ────────────────────────────────────────────────────
+    // Params are validated against bundle metadata. For the EA instance, these can be found in the registry.json file:
+    // https://raw.githubusercontent.com/edanalytics/earthmover_edfi_bundles/refs/heads/main/registry.json
+    //
+    // The registry.json file compiles and jsonifies the metadata.yaml files that live in each bundle's directory.
+    //  Example metadata.yaml: https://github.com/edanalytics/earthmover_edfi_bundles/blob/main/assessments/PSAT_SAT/_metadata.yaml
+    const requiredParams =
+      bundle.input_params?.filter((p) => p.is_required && p.env_var !== 'API_YEAR') ?? []; // We use the ODS to supply API_YEAR rathern than take it as input
+    const missingParams = requiredParams
+      .filter((p) => input.params[p.env_var] == null)
+      .map((p) => p.env_var);
+
+    if (missingParams.length > 0) {
+      return {
+        status: 'error',
+        code: 'missing_required_params',
+        message: `Missing required params: ${missingParams.join(', ')}`,
+      };
+    }
+
+    const paramsWithAllowedValues =
+      bundle.input_params?.filter((p) => !!p.allowed_values?.length) ?? [];
+    const invalidParams = paramsWithAllowedValues
+      .filter((bundleParam) => {
+        const value = input.params[bundleParam.env_var];
+        return value != null && !bundleParam.allowed_values?.includes(value); // if there is a value, it must be an allowed value
+      })
+      .map((p) => p.env_var);
+
+    if (invalidParams.length > 0) {
+      return {
+        status: 'error',
+        code: 'invalid_param_values',
+        message: `Invalid param values: ${invalidParams.join(', ')}`,
+      };
+    }
+
+    const incomingParams = Object.keys(input.params);
+    const expectedParams = bundle.input_params?.map((p) => p.env_var) ?? [];
+    const unexpectedParams = incomingParams.filter((key) => !expectedParams.includes(key));
+    if (unexpectedParams.length > 0) {
+      return {
+        status: 'error',
+        code: 'unexpected_params',
+        message: `Unexpected params: ${unexpectedParams.join(', ')}`,
+      };
+    }
+
+    // ─── Validate files ─────────────────────────────────────────────────────
+    const incomingFiles = input.files.map((f) => f.templateKey);
+    const expectedFiles = bundle.input_files?.map((f) => f.env_var) ?? [];
+    const unexpectedFiles = incomingFiles.filter((key) => !expectedFiles.includes(key));
+    if (unexpectedFiles.length > 0) {
+      return {
+        status: 'error',
+        code: 'unexpected_files',
+        message: `Unexpected files: ${unexpectedFiles.join(', ')}`,
+      };
+    }
+
+    const requiredFileKeys =
+      bundle.input_files?.filter((f) => f.is_required).map((f) => f.env_var) ?? [];
+    const missingFiles = requiredFileKeys.filter((key) => !incomingFiles.includes(key));
+    if (missingFiles.length > 0) {
+      return {
+        status: 'error',
+        code: 'missing_required_files',
+        message: `Missing required files: ${missingFiles.join(', ')}`,
+      };
+    }
+
+    // Enrich flat params with bundle metadata for storage
+    const enrichedParams: JobInputParamDto[] = Object.entries(input.params).map(([key, value]) => {
+      const bundleParam = bundle.input_params?.find((p) => p.env_var === key);
+      return {
+        templateKey: key,
+        value,
+        name: bundleParam?.display_name ?? key,
+        isRequired: bundleParam?.is_required ?? false,
+        allowedValues: bundleParam?.allowed_values,
+      };
+    });
+
+    // ─── Create job ─────────────────────────────────────────────────────────
     const job = await prisma.job.create({
       data: {
-        name: data.name,
-        odsId: data.odsId,
-        schoolYearId: data.schoolYearId,
-        template: instanceToPlain(toGetJobTemplateDto(bundle)), // template takes JSON, so need to convert to plain object
-        inputParams: data.inputParams as unknown as JsonArray, // inputParams is a JSON array
+        name: bundle.display_name,
+        odsId: input.odsId,
+        schoolYearId: input.schoolYearId,
+        template: instanceToPlain(toGetJobTemplateDto(bundle)),
+        inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
         tenantCode: tenant.code,
         partnerId: tenant.partnerId,
+        apiIssuer: apiClient?.issuer,
+        apiClientId: apiClient?.clientId,
+        apiClientName: apiClient?.clientName,
       },
     });
 
-    const basePath = [tenant.partnerId, tenant.code, job.schoolYearId, job.id]
-      .map(encodeURIComponent) // Tenant code is the particular concern but let's take care of all potential encoding issues
+    const basePath = [tenant.partnerId, tenant.code, input.schoolYearId, job.id]
+      .map(encodeURIComponent)
       .join('/');
 
-    const files = data.files.map((file) => {
+    const files = input.files.map((file) => {
       const nameInternal = `${file.templateKey}__${file.nameFromUser}`;
       return {
-        ...file,
+        templateKey: file.templateKey,
+        nameFromUser: file.nameFromUser,
+        type: file.type,
         nameInternal,
         path: `${basePath}/input/${nameInternal}`,
       };
     });
 
-    return prisma.job.update({
+    const updatedJob = await prisma.job.update({
       where: { id: job.id },
       data: {
         fileProtocol: 's3',
@@ -91,6 +220,8 @@ export class JobsService {
       },
       include: { files: true },
     });
+
+    return { status: 'success', job: updatedJob };
   }
 
   async getUploadUrls(files: JobFile[]) {

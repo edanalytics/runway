@@ -325,7 +325,10 @@ Parameters:
   S3AccessLoggingBucket: 
     Description: Optional - Provide a name for the destination S3 bucket where your Data Integration S3 Bucket Access Logs will be saved. 
     Type: String
-  
+  OAuth2Issuer:
+    Type: String
+    Description: 'URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function.'
+
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   EnableS3AccessLogging: !Not [!Equals [!Ref S3AccessLoggingBucket, '']]
@@ -387,6 +390,7 @@ Resources:
         BundleBranch: !Ref BundleBranch
         ApplicationEventsToSlackFunctionArn: !If [EnableSlackAlerting, !GetAtt 'LambdaFunctionsStack.Outputs.ApplicationEventsToSlackFunctionArn', '']
         SlackWebhookURL: !If [EnableSlackAlerting, !Ref SlackWebhookURL, '']
+        OAuth2Issuer: !Ref OAuth2Issuer
   LambdaFunctionsStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
@@ -493,4 +497,4 @@ Resources:
 Outputs:
   TemplateVersion:
     Description: The version of the cloudformation template
-    Value: '2.0.1'
+    Value: '2.0.2'

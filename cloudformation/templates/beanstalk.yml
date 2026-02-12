@@ -79,7 +79,10 @@ Parameters:
   SlackWebhookURL: 
     Description: Provide a webhook URL for the slack channel that will receive events from the app
     Type: String 
-  
+  OAuth2Issuer:
+    Type: String
+    Description: URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function.
+
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   AttachWAF: !Not [!Equals [!Ref WebACLArn, '']]
@@ -575,6 +578,9 @@ Resources:
         - Namespace: aws:elasticbeanstalk:application:environment
           OptionName: FE_URL
           Value: !Ref FrontEndUrl
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: OAUTH2_ISSUER
+          Value: !Ref OAuth2Issuer
         - Namespace: aws:elasticbeanstalk:environment:process:https
           OptionName: Port
           Value: 443

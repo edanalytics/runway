@@ -33,4 +33,6 @@ export interface IEnvironmentVariables {
   BUNDLE_BRANCH: string;
   S3_FILE_UPLOAD_BUCKET: string;
   TIMEOUT_SECONDS: string; // executor timeout
+  OAUTH2_ISSUER?: string; // token issuer for external API
+  OAUTH2_AUDIENCE?: string; // token audience for external API
 }

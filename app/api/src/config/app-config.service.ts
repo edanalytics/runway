@@ -104,6 +104,12 @@ export class AppConfigService {
     return this.get('S3_FILE_UPLOAD_BUCKET');
   }
 
+  getExternalApiConfig(): { issuerUrl: string | undefined; audience: string | undefined } {
+    const issuerUrl = this.get('OAUTH2_ISSUER');
+    const audience = this.get('OAUTH2_AUDIENCE') ?? this.get('MY_URL'); // OAUTH2_AUDIENCE is only used for running locally. Deployed envs should use the API url
+    return { issuerUrl, audience };
+  }
+
   async ecsConfig(): Promise<{
     cluster: string;
     taskDefinition: { small: string; medium: string; large: string };
