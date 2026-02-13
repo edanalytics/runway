@@ -95,11 +95,16 @@ export class ExternalApiV1JobsController {
     const odsConfigs = await this.prismaRO.odsConfig.findMany({
       where: {
         activeConnection: {
-          schoolYearId: jobInitDto.schoolYear,
+          schoolYear: { endYear: parseInt(jobInitDto.schoolYear) },
         },
         retired: false,
         tenantCode,
         partnerId,
+      },
+      include: {
+        activeConnection: {
+          include: { schoolYear: true },
+        },
       },
     });
 
@@ -118,7 +123,7 @@ export class ExternalApiV1JobsController {
       {
         bundlePath: jobInitDto.bundle,
         odsId: odsConfigs[0].id,
-        schoolYearId: jobInitDto.schoolYear,
+        schoolYearId: odsConfigs[0].activeConnection!.schoolYear.id,
         files: Object.entries(jobInitDto.files).map(([envVar, fileName]) => ({
           templateKey: envVar,
           nameFromUser: fileName,
