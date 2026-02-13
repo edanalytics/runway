@@ -53,13 +53,13 @@ export class InitJobPayloadV1Dto {
   bundle: string;
 
   /**
-   * The school year in the format Y1Y2, e.g. "2526" for 2025-2026
-   * @example '2526'
+   * The end year of the school year, e.g. "2026" for the 2025-2026 school year
+   * @example '2026'
    */
   @IsString()
   @IsNotEmpty()
   @Matches(/^\d{4}$/, {
-    message: 'School year must be 4 characters long and in the format Y1Y2, e.g. "2526"',
+    message: 'School year must be a 4-digit end year, e.g. "2026" for the 2025-2026 school year',
   })
   schoolYear: string;
 

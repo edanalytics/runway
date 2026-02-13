@@ -197,7 +197,7 @@ describe('ExternalApiV1', () => {
           partner: partnerA.id,
           tenant: tenantA.code,
           bundle: bundleA.path,
-          schoolYear: '2425',
+          schoolYear: '2025',
           files: { INPUT_FILE: 'input-file.csv' },
           params: { FORMAT: 'Standard' },
         };
@@ -486,7 +486,7 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`)
             .send({
               ...jobInput,
-              schoolYear: schoolYear2324.id,
+              schoolYear: '2024',
             });
           expect(res.status).toBe(400);
           expect(res.body.message).toContain('No ODS found');
@@ -501,7 +501,7 @@ describe('ExternalApiV1', () => {
           expect(res.status).toBe(400);
           expect(res.body.message).toEqual(
             expect.arrayContaining([
-              expect.stringContaining('School year must be 4 characters long'),
+              expect.stringContaining('School year must be a 4-digit end year'),
             ])
           );
         });
@@ -671,7 +671,7 @@ describe('ExternalApiV1', () => {
             partner: partnerA.id,
             tenant: tenantA.code,
             bundle: bundleA.path,
-            schoolYear: '2425',
+            schoolYear: '2025',
             files: { INPUT_FILE: 'input-file.csv' },
             params: { FORMAT: 'Standard' },
           });
