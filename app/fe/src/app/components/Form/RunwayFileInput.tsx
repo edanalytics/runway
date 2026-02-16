@@ -9,9 +9,10 @@ type FileInputProps<K extends Path<T>, T extends FieldValues> = {
   onClear: () => void;
   accept?: string | string[];
   error?: FieldError | undefined;
-  setError?: (message: string) => void;
-  clearErrors?: () => void;
-};
+} & (
+  | { setError: (message: string) => void; clearErrors: () => void }
+  | { setError?: never; clearErrors?: never }
+);
 
 // Forbidden file extensions. This is a front-end only, UX check, so users can
 // select a new file right away instead of waiting for their job to fail. It is
@@ -67,9 +68,9 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
 
       if (setError) {
         setError(
-          `${file.name} cannot be uploaded because ${forbiddenExtension} files are not supported. ${
+          `${file.name} cannot be uploaded because ${forbiddenExtension} files are not supported.${
             acceptedFileTypes
-              ? `Expected file type${
+              ? ` Expected file type${
                   acceptedFileTypes.split(',').length > 1 ? 's' : ''
                 }: ${acceptedFileTypes}`
               : ''
@@ -93,7 +94,7 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
         {label}
       </Box>
       <FormControl variant="file" padding="0">
-        <HStack gap="200" alignItems="center">
+        <HStack gap="200" alignItems="baseline">
           <Box textStyle="body" wordBreak="break-word" flex={1}>
             {error ? (
               <Box as="span" textColor="pink.100">
