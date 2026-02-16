@@ -1,5 +1,5 @@
 import { Box, Button, FormControl, FormLabel, HStack, Input } from '@chakra-ui/react';
-import { IconPlus, IconX } from '../../../assets/icons';
+import { IconPlus } from '../../../assets/icons';
 import { FieldError, FieldValues, Path, UseFormRegisterReturn } from 'react-hook-form';
 import { useState } from 'react';
 
@@ -113,16 +113,16 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
             <Button
               variant="unstyled"
               textStyle="button"
-              textColor="blue.50"
-              padding="100"
+              textColor="green.100"
+              padding="200"
               flexShrink={0}
               onClick={() => {
                 onClear();
                 setFileName(null);
               }}
-              aria-label="Remove file"
             >
-              <IconX />
+              <Box as="span">&mdash;</Box>
+              <Box as="span" ml="200">remove file</Box>
             </Button>
           ) : (
             <FormLabel
