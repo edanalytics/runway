@@ -93,39 +93,29 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
         {label}
       </Box>
       <FormControl variant="file" padding="0">
-        {!fileName ? (
-          <FormLabel
-            variant="file"
-            textColor="blue.50"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              // allow opening file input with keyboard
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                e.currentTarget.click();
-              }
-            }}
-            width="fit-content"
-          >
-            <HStack
-              as="span"
-              padding="200"
-              gap="200"
-              textStyle="button"
-              layerStyle="buttonPrimary"
-            >
-              <IconPlus height={12} width={12} />
-              <Box as="span">select file</Box>
-            </HStack>
-          </FormLabel>
-        ) : (
-          <HStack gap="200">
-            <Box textStyle="body">{fileName}</Box>
+        <HStack gap="200" alignItems="center">
+          <Box textStyle="body" wordBreak="break-word" flex={1}>
+            {error ? (
+              <Box as="span" textColor="pink.100">
+                {error.message}
+              </Box>
+            ) : fileName ? (
+              <Box as="span" textColor="blue.50">
+                {fileName}
+              </Box>
+            ) : (
+              <Box as="span" textColor="gray.50" fontStyle="italic">
+                no file selected
+              </Box>
+            )}
+          </Box>
+          {fileName ? (
             <Button
               variant="unstyled"
               textStyle="button"
-              textColor="green.100"
+              textColor="blue.50"
               padding="100"
+              flexShrink={0}
               onClick={() => {
                 onClear();
                 setFileName(null);
@@ -134,8 +124,34 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
             >
               <IconX />
             </Button>
-          </HStack>
-        )}
+          ) : (
+            <FormLabel
+              variant="file"
+              textColor="blue.50"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.currentTarget.click();
+                }
+              }}
+              width="fit-content"
+              flexShrink={0}
+              margin={0}
+            >
+              <HStack
+                as="span"
+                padding="200"
+                gap="200"
+                textStyle="button"
+                layerStyle="buttonPrimary"
+              >
+                <IconPlus height={12} width={12} />
+                <Box as="span">select file</Box>
+              </HStack>
+            </FormLabel>
+          )}
+        </HStack>
         <Input
           display="none"
           type="file"
@@ -144,11 +160,6 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
           onChange={handleFileChange}
         />
       </FormControl>
-      {!!error && (
-        <Box textStyle="body" textColor="pink.100" marginTop="200" wordBreak="break-word">
-          {error?.message}
-        </Box>
-      )}
     </Box>
   );
 };
