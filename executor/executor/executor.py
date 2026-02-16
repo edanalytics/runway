@@ -3,6 +3,7 @@ import json
 import logging
 from pprint import pprint
 import os
+import re
 import signal
 import subprocess
 import time
@@ -20,6 +21,7 @@ import executor.action_statuses as status
 import executor.artifacts as artifact
 import executor.config as config
 import executor.errors as error
+import executor.earthmover_hints as hint
 
 handler = logging.StreamHandler()
 _formatter = logging.Formatter(
@@ -97,9 +99,6 @@ class JobExecutor:
             self.refresh_bundle_code()
             self.earthmover_deps()
 
-            if self.local_mode:
-                self.modify_local_lightbeam()
-
             self.get_student_roster()
             self.get_input_files()
 
@@ -175,6 +174,8 @@ class JobExecutor:
             self.input_sources = job["inputFiles"]
 
             self.descriptor_map = job["customDescriptorMappings"]
+            # very annoying to log this
+            del job["customDescriptorMappings"]
 
             for env_name, value in job["inputParams"].items():
                 os.environ[env_name] = str(value)
@@ -227,10 +228,6 @@ class JobExecutor:
     def modify_local_lightbeam(self):
         """Disable SSL checking in Lightbeam so that it can communicate with a locally-running ODS"""
         subprocess.run(
-            ["sed", "-i", r"s/show_graph: False/show_graph: False\n  show_stacktrace: True/", self.assessment_project]
-        )
-
-        subprocess.run(
             ["sed", "-i", "s/verify_ssl: True/verify_ssl: False/", self.assessment_lightbeam]
         )
 
@@ -239,9 +236,14 @@ class JobExecutor:
         self.set_action(action.GET_ROSTER)
 
         try:
-            subprocess.run(
+            lb = subprocess.run(
                 ["lightbeam", "-c", self.assessment_lightbeam, "fetch", "-s", "studentEducationOrganizationAssociations", "-k", "studentIdentificationCodes,educationOrganizationReference,studentReference"]
-            ).check_returncode()
+            )
+            if lb.stdout:
+                self.logger.info(f"lightbeam stdout: {lb.stdout}")
+            if lb.stderr:
+                self.logger.info(f"lightbeam stderr: {lb.stderr}")
+            lb.check_returncode()
 
             # $ mv output lb-download-dir
             # Because lightbeam uses the same directory for uploads and downloads,
@@ -259,7 +261,7 @@ class JobExecutor:
     
         except subprocess.CalledProcessError:
             self.error = error.LightbeamFetchError(
-                "studentEducationOrganizationAssociations"
+                "studentEducationOrganizationAssociations", lb.stderr
             )
             raise
 
@@ -342,6 +344,8 @@ class JobExecutor:
         self.check_input_encoding()
         fatal = False
 
+        em_default_args = ["earthmover", "-c", self.wrapper_earthmover, "--set", "config.show_stacktrace", "true"]
+
         try:
             encoding_mod = []
             if self.input_sources["INPUT_FILE"]["is_plausible_non_utf8"]:
@@ -349,17 +353,15 @@ class JobExecutor:
                 # Otherwise, do nothing and default to UTF-8 for the first attempt
                 encoding = str.lower(self.input_sources["INPUT_FILE"]["encoding"])
                 self.logger.info(f"setting input encoding to {encoding}")
-                encoding_mod.extend(["--set", "sources.input.encoding", encoding])
+                encoding_mod = ["--set", "sources.input.encoding", encoding]
 
             subprocess.run(
-                ["earthmover", "-c", self.wrapper_earthmover, "compile"]
+                em_default_args + ["compile"]
             ).check_returncode()
 
             # attempt no. 1
-            cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", artifact.EM_RESULTS.path]
-            cmd.extend(encoding_mod)
             em = subprocess.run(
-                cmd,
+                em_default_args + ["run", "--results-file", artifact.EM_RESULTS.path] + encoding_mod,
                 capture_output=True,
                 text=True
             )
@@ -375,12 +377,13 @@ class JobExecutor:
 
             #    yes it's brittle to check the error against a string like this, but this message hasn't
             # changed since 2007(!) -> https://github.com/python/cpython/blame/main/Objects/exceptions.c
-            if err.stderr and "codec can't decode" in err.stderr and self.input_sources["INPUT_FILE"]["encoding"] != "ISO-8859-1":
+            # TODO: trying em.stderr instead. Let's see if it works
+            if em.stderr and hint.CODEC in em.stderr and self.input_sources["INPUT_FILE"]["encoding"] != "ISO-8859-1":
                 self.logger.error(f"Failed to read file with {self.input_sources['INPUT_FILE']['encoding']} encoding. Retrying with Latin1...")
                 try:
                     # attempt no. 2
                     subprocess.run(
-                        ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", artifact.EM_RESULTS.path, "--set", "sources.input.encoding", "iso-8859-1"],
+                        em_default_args + ["run", "--results-file", artifact.EM_RESULTS.path, "--set", "sources.input.encoding", "iso-8859-1"],
                     ).check_returncode()
 
                     fatal = False # if we made it this far, we can abort the shutdown
@@ -395,8 +398,24 @@ class JobExecutor:
             # user there are unmatched students when there are none
             self.record_highest_match_rate()
             if fatal:
-                # shut it down
-                self.error = error.EarthmoverRunError()
+                # shut it down, try to get as specific a diagnosis as we can from Earthmover's stacktrace
+                if (
+                    hint.COLUMNS_MISSING in em.stderr 
+                    or hint.INPUT_VALIDATION in em.stderr
+                    or re.search(hint.REGEX_COLUMNS, em.stderr)
+                ):
+                    self.error = error.EarthmoverWrongFileError()
+                elif hint.EXCEL in em.stderr:
+                    self.error = error.EarthmoverExcelFileError()
+                elif hint.TXT_FILE in em.stderr:
+                    self.error = error.EarthmoverTxtFileError()
+                elif hint.DATE_FORMAT in em.stderr:
+                    self.error = error.EarthmoverDateFormatError()
+                elif re.search(hint.REGEX_COLSPEC_FILE, em.stderr):
+                    self.error = error.EarthmoverMissingColspecError()
+                else:
+                    # don't know what it is
+                    self.error = error.EarthmoverRunError()
                 # generic exception that will be caught, with em.stderr reported as the stacktrace
                 raise Exception(em.stderr)
 
@@ -599,13 +618,19 @@ class JobExecutor:
         """Upload Earthmover's outputs to the ODS"""
         self.set_action(action.LIGHTBEAM_SEND)
         try:
-            subprocess.run(
+            lb = subprocess.run(
                 ["lightbeam", "-c", self.assessment_lightbeam, "send", "--results-file", artifact.LB_SEND_RESULTS.path]
             ).check_returncode()
+            if lb.stdout:
+                self.logger.info(f"lightbeam stdout: {lb.stdout}")
+            if lb.stderr:
+                self.logger.info(f"lightbeam stderr: {lb.stderr}")
+            lb.check_returncode()
 
-            # TODO: ostensibly should check for Ed-Fi warnings here but failed uploads still make it back via the summary report
         except subprocess.CalledProcessError:
-            self.error = error.LightbeamSendError()
+            self.error = error.LightbeamSendError(lb.stderr)
+
+        # TODO: should we check send-results and potentially return an error code if all students failed?
 
         self.upload_artifact(artifact.LB_SEND_RESULTS)
 
