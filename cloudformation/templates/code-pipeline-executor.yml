@@ -14,6 +14,12 @@ Parameters:
   GitHubBranch:
     Type: String
     Description: Name of the branch in the GitHub repo to build from.
+  BundlesGitHubRepo:
+    Type: String
+    Description: GitHub repo name for the bundles repo (e.g. edanalytics/earthmover_edfi_bundles)
+  BundlesGitHubBranch:
+    Type: String
+    Description: Branch of the bundles repo whose merges should trigger a rebuild.
   CreateS3Bucket:
     Type: String
     Description: Create the S3 bucket named 'job-executor-codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
@@ -119,6 +125,13 @@ Resources:
                   Includes:
                     - 'executor/**'
           ProviderType: CodeStarSourceConnection
+        - GitConfiguration:
+            SourceActionName: BundlesSource
+            Push:
+              - Branches:
+                  Includes:
+                    - !Ref BundlesGitHubBranch
+          ProviderType: CodeStarSourceConnection
       Stages:
         - Name: SourceStage
           Actions:
@@ -136,6 +149,21 @@ Resources:
                 OutputArtifactFormat: CODE_ZIP
               OutputArtifacts:
                 - Name: SourceArtifact
+              Region: !Ref 'AWS::Region'
+            - Name: BundlesSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              RunOrder: 1
+              Configuration:
+                BranchName: !Ref BundlesGitHubBranch
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: !Ref BundlesGitHubRepo
+                OutputArtifactFormat: CODE_ZIP
+              OutputArtifacts:
+                - Name: BundlesArtifact
               Region: !Ref 'AWS::Region'
         - Name: BuildStage
           Actions:
@@ -160,6 +188,7 @@ Resources:
                 - Name: BuildArtifact
               InputArtifacts:
                 - Name: SourceArtifact
+                - Name: BundlesArtifact
               Region: !Ref 'AWS::Region'
               Namespace: BuildVariables
   

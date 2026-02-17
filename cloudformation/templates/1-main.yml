@@ -58,11 +58,13 @@ Metadata:
           - ResponseHeadersPolicy
       - Label:
           default: App CodePipeline information
-        Parameters: 
+        Parameters:
           - GitHubConnectionArn
           - GitHubRepo
           - GitHubBranch
           - CreateS3Bucket
+          - BundlesGitHubRepo
+          - BundlesGitHubBranch
           - ViteAlternateMatomoUrl
           - ViteAlternateMatomoSiteId
           - ViteAlternateMatomoSubdomain
@@ -202,6 +204,12 @@ Parameters:
   GitHubConnectionArn:
     Description: Can be found or created in CodePipeline console, settings, connections.
     Type: String
+  BundlesGitHubRepo:
+    Type: String
+    Description: GitHub repo name for the bundles repo (e.g. edanalytics/earthmover_edfi_bundles)
+  BundlesGitHubBranch:
+    Type: String
+    Description: Branch of the bundles repo whose merges should trigger an executor image rebuild.
   CreateS3Bucket:
     Type: String
     Description: Create the S3 bucket named 'codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
@@ -467,6 +475,8 @@ Resources:
         GitHubBranch: !Ref GitHubBranch
         GitHubConnectionArn: !Ref GitHubConnectionArn
         GitHubRepo: !Ref GitHubRepo
+        BundlesGitHubRepo: !Ref BundlesGitHubRepo
+        BundlesGitHubBranch: !Ref BundlesGitHubBranch
         CreateS3Bucket: 'The S3 Bucket already exists'
   EcsStack:
     Type: AWS::CloudFormation::Stack
