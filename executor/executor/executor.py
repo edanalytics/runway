@@ -208,9 +208,13 @@ class JobExecutor:
             subprocess.run(
                 ["git", "-C", config.BUNDLE_DIR, "pull", "--ff-only"]
             ).check_returncode()
-        except subprocess.CalledProcessError:
-            self.error = error.GitPullError()
-            raise
+        except subprocess.CalledProcessError as err:
+            if self.local_mode:
+                self.error = error.GitPullError()
+                raise
+            self.logger.warning(
+                f"bundle refresh failed in deployed mode; assuming bundle code is already up to date: {err}"
+            )
 
     def earthmover_deps(self):
         """Create the Earthmover runtime environment by installing bundle dependencies"""

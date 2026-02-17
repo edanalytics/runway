@@ -16,7 +16,7 @@ Parameters:
     Description: Name of the branch in the GitHub repo to build from.
   BundlesGitHubRepo:
     Type: String
-    Description: GitHub repo name for the bundles repo (e.g. edanalytics/earthmover_edfi_bundles)
+    Description: GitHub repo name for the bundles repo
   BundlesGitHubBranch:
     Type: String
     Description: Branch of the bundles repo whose merges should trigger a rebuild.
@@ -188,7 +188,7 @@ Resources:
                 - Name: BuildArtifact
               InputArtifacts:
                 - Name: SourceArtifact
-                - Name: BundlesArtifact
+                - Name: BundlesArtifact # codebuild requires this be declared
               Region: !Ref 'AWS::Region'
               Namespace: BuildVariables
   
