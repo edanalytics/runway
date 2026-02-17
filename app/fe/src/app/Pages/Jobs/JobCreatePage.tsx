@@ -58,12 +58,7 @@ export const JobCreatePage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const {
-    control,
-    watch,
-    handleSubmit,
-    reset,
-  } = useForm<IJobForm>();
+  const { control, watch, handleSubmit, reset } = useForm<IJobForm>();
 
   const requiredFileFields = useFieldArray({ control, name: 'requiredFiles' });
   const supplementaryFileFields = useFieldArray({ control, name: 'supplementaryFiles' });
@@ -269,14 +264,14 @@ export const JobCreatePage = () => {
                   gap="800"
                 >
                   <FormSection heading="required files" width="24rem">
-                    {requiredFileFields.fields.map((fileField, ix) => (
+                    {requiredFileFields.fields.map((field, ix) => (
                       <RunwayFileInput
-                        key={fileField.id}
-                        label={fileField.name}
-                        accept={fileField.fileType}
+                        key={field.id}
+                        label={field.name}
+                        accept={field.fileType}
                         name={`requiredFiles.${ix}.fileInput`}
                         control={control}
-                        rules={{ required: `${fileField.name} is required` }}
+                        rules={{ required: `${field.name} is required` }}
                       />
                     ))}
                   </FormSection>
@@ -290,11 +285,11 @@ export const JobCreatePage = () => {
                 </HStack>
 
                 <FormSection heading="supplementary files" width="24rem">
-                  {supplementaryFileFields.fields.map((fileField, ix) => (
+                  {supplementaryFileFields.fields.map((field, ix) => (
                     <RunwayFileInput
-                      key={fileField.id}
-                      label={fileField.name}
-                      accept={fileField.fileType}
+                      key={field.id}
+                      label={field.name}
+                      accept={field.fileType}
                       name={`supplementaryFiles.${ix}.fileInput`}
                       control={control}
                     />
