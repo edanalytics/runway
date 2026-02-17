@@ -8,17 +8,21 @@ import {
   VisuallyHidden,
 } from '@chakra-ui/react';
 import { IconPlus } from '../../../assets/icons';
-import { FieldError, FieldValues, Path, UseFormRegisterReturn } from 'react-hook-form';
+import {
+  Control,
+  FieldPath,
+  FieldValues,
+  useController,
+  UseControllerProps,
+} from 'react-hook-form';
 import { useRef, useState } from 'react';
 
-type FileInputProps<K extends Path<T>, T extends FieldValues> = {
+type FileInputProps<T extends FieldValues, K extends FieldPath<T>> = {
   label: string;
-  register: UseFormRegisterReturn<K>;
-  onClear: () => void;
   accept?: string | string[];
-  error?: FieldError | undefined;
-  setError: (message: string) => void;
-  clearErrors: () => void;
+  name: K;
+  control: Control<T>;
+  rules?: UseControllerProps<T, K>['rules'];
 };
 
 // Forbidden file extensions. This is a front-end only, UX check, so users can
@@ -43,38 +47,36 @@ const formatFileType = (fileType: string | undefined) =>
     ? `.${fileType}`
     : fileType;
 
-export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
+export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   label,
-  register,
-  onClear,
-  error,
   accept,
-  setError,
-  clearErrors,
-}: FileInputProps<K, T>) => {
-  const [fileName, setFileName] = useState<string | null>(null);
+  name,
+  control,
+  rules,
+}: FileInputProps<T, K>) => {
+  const { field, fieldState } = useController({ name, control, rules });
+  const [forbiddenError, setForbiddenError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const acceptedFileTypes = Array.isArray(accept)
     ? accept.map(formatFileType).join(',')
     : formatFileType(accept);
 
+  const fileName: string | null = field.value?.[0]?.name ?? null;
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) {
-      setFileName(null);
-      register.onChange(e);
+      field.onChange(null);
       return;
     }
 
     const fileNameLower = file.name.toLowerCase();
     const forbiddenExtension = FORBIDDEN_EXTENSIONS.find((ext) => fileNameLower.endsWith(ext));
     if (forbiddenExtension) {
-      // Clear the input value so the user can try again
       e.target.value = '';
-      setFileName(null);
-
-      setError(
+      field.onChange(null);
+      setForbiddenError(
         `${file.name} cannot be uploaded because ${forbiddenExtension} files are not supported.${
           acceptedFileTypes
             ? ` Expected file type${
@@ -86,36 +88,27 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
       return;
     }
 
-    // File is allowed
-    clearErrors();
-    setFileName(file.name);
-    register.onChange(e);
+    setForbiddenError(null);
+    field.onChange(e.target.files);
   };
 
+  const errorMessage = forbiddenError || fieldState.error?.message;
+
   return (
-    <FormControl variant="file" width="100%">
+    <FormControl variant="file" width="100%" paddingX="0px">
       <FormLabel textColor="blue.50">
         <Box as="span" textStyle="bodyLargeBold">
           {label}
         </Box>
       </FormLabel>
       <VisuallyHidden>
-        <Input
-          type="file"
-          accept={acceptedFileTypes}
-          {...register}
-          ref={(e) => {
-            register.ref(e);
-            inputRef.current = e;
-          }}
-          onChange={handleFileChange}
-        />
+        <Input type="file" accept={acceptedFileTypes} ref={inputRef} onChange={handleFileChange} />
       </VisuallyHidden>
       <HStack gap="200" alignItems="baseline">
         <Box textStyle="body" wordBreak="break-word" flex={1}>
-          {error ? (
+          {errorMessage ? (
             <Box as="span" textColor="pink.100">
-              {error.message}
+              {errorMessage}
             </Box>
           ) : fileName ? (
             <Box as="span" textColor="blue.50">
@@ -135,8 +128,9 @@ export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
             padding="200"
             flexShrink={0}
             onClick={() => {
-              onClear();
-              setFileName(null);
+              setForbiddenError(null);
+              field.onChange(null);
+              if (inputRef.current) inputRef.current.value = '';
             }}
           >
             <Box as="span">&mdash;</Box>

@@ -62,12 +62,7 @@ export const JobCreatePage = () => {
     control,
     watch,
     handleSubmit,
-    register,
-    setValue,
     reset,
-    setError,
-    clearErrors,
-    formState: { errors },
   } = useForm<IJobForm>();
 
   const requiredFileFields = useFieldArray({ control, name: 'requiredFiles' });
@@ -274,20 +269,14 @@ export const JobCreatePage = () => {
                   gap="800"
                 >
                   <FormSection heading="required files" width="24rem">
-                    {requiredFileFields.fields.map((field, ix) => (
+                    {requiredFileFields.fields.map((fileField, ix) => (
                       <RunwayFileInput
-                        key={field.id}
-                        label={field.name}
-                        accept={field.fileType}
-                        register={register(`requiredFiles.${ix}.fileInput`, {
-                          required: `${field.name} is required`,
-                        })}
-                        onClear={() => setValue(`requiredFiles.${ix}.fileInput`, null)}
-                        error={errors.requiredFiles?.[ix]?.fileInput}
-                        setError={(message) =>
-                          setError(`requiredFiles.${ix}.fileInput`, { message })
-                        }
-                        clearErrors={() => clearErrors(`requiredFiles.${ix}.fileInput`)}
+                        key={fileField.id}
+                        label={fileField.name}
+                        accept={fileField.fileType}
+                        name={`requiredFiles.${ix}.fileInput`}
+                        control={control}
+                        rules={{ required: `${fileField.name} is required` }}
                       />
                     ))}
                   </FormSection>
@@ -301,18 +290,13 @@ export const JobCreatePage = () => {
                 </HStack>
 
                 <FormSection heading="supplementary files" width="24rem">
-                  {supplementaryFileFields.fields.map((field, ix) => (
+                  {supplementaryFileFields.fields.map((fileField, ix) => (
                     <RunwayFileInput
-                      key={field.id}
-                      label={field.name}
-                      register={register(`supplementaryFiles.${ix}.fileInput`)}
-                      onClear={() => setValue(`supplementaryFiles.${ix}.fileInput`, null)}
-                      accept={field.fileType}
-                      error={errors.supplementaryFiles?.[ix]?.fileInput}
-                      setError={(message) =>
-                        setError(`supplementaryFiles.${ix}.fileInput`, { message })
-                      }
-                      clearErrors={() => clearErrors(`supplementaryFiles.${ix}.fileInput`)}
+                      key={fileField.id}
+                      label={fileField.name}
+                      accept={fileField.fileType}
+                      name={`supplementaryFiles.${ix}.fileInput`}
+                      control={control}
                     />
                   ))}
                 </FormSection>
