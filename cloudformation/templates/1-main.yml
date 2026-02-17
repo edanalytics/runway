@@ -64,7 +64,7 @@ Metadata:
           - GitHubBranch
           - CreateS3Bucket
           - BundlesGitHubRepo
-          - BundlesGitHubBranch
+          - BundlesGitHubTriggerBranch
           - ViteAlternateMatomoUrl
           - ViteAlternateMatomoSiteId
           - ViteAlternateMatomoSubdomain
@@ -207,7 +207,7 @@ Parameters:
   BundlesGitHubRepo:
     Type: String
     Description: GitHub repo name for the bundles repo (e.g. edanalytics/earthmover_edfi_bundles)
-  BundlesGitHubBranch:
+  BundlesGitHubTriggerBranch:
     Type: String
     Description: Branch of the bundles repo whose merges should trigger an executor image rebuild.
   CreateS3Bucket:
@@ -476,7 +476,7 @@ Resources:
         GitHubConnectionArn: !Ref GitHubConnectionArn
         GitHubRepo: !Ref GitHubRepo
         BundlesGitHubRepo: !Ref BundlesGitHubRepo
-        BundlesGitHubBranch: !Ref BundlesGitHubBranch
+        BundlesGitHubTriggerBranch: !Ref BundlesGitHubTriggerBranch
         CreateS3Bucket: 'The S3 Bucket already exists'
   EcsStack:
     Type: AWS::CloudFormation::Stack
@@ -507,4 +507,4 @@ Resources:
 Outputs:
   TemplateVersion:
     Description: The version of the cloudformation template
-    Value: '2.0.2'
+    Value: '2.0.3'

@@ -17,7 +17,7 @@ Parameters:
   BundlesGitHubRepo:
     Type: String
     Description: GitHub repo name for the bundles repo
-  BundlesGitHubBranch:
+  BundlesGitHubTriggerBranch:
     Type: String
     Description: Branch of the bundles repo whose merges should trigger a rebuild.
   CreateS3Bucket:
@@ -130,7 +130,7 @@ Resources:
             Push:
               - Branches:
                   Includes:
-                    - !Ref BundlesGitHubBranch
+                    - !Ref BundlesGitHubTriggerBranch
           ProviderType: CodeStarSourceConnection
       Stages:
         - Name: SourceStage
@@ -158,7 +158,7 @@ Resources:
                 Version: 1
               RunOrder: 1
               Configuration:
-                BranchName: !Ref BundlesGitHubBranch
+                BranchName: !Ref BundlesGitHubTriggerBranch
                 ConnectionArn: !Ref GitHubConnectionArn
                 FullRepositoryId: !Ref BundlesGitHubRepo
                 OutputArtifactFormat: CODE_ZIP
