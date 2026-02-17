@@ -402,6 +402,7 @@ class JobExecutor:
                 if (
                     hint.COLUMNS_MISSING in em.stderr 
                     or hint.INPUT_VALIDATION in em.stderr
+                    or hint.TOKENIZING in em.stderr
                     or re.search(hint.REGEX_COLUMNS, em.stderr)
                 ):
                     self.error = error.EarthmoverWrongFileError()

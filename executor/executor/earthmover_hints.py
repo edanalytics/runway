@@ -5,6 +5,7 @@ CODEC = "codec can't decode"
 
 COLUMNS_MISSING = "One or more columns specified are not present in the dataset"
 INPUT_VALIDATION = "Source `$sources.input` failed expectation"
+TOKENIZING = "Error tokenizing data"
 
 DATE_FORMAT = "ValueError: time data"
 EXCEL = "loading an Excel source requires additional"
