@@ -60,6 +60,8 @@ Please note that descriptions, values, and available parameters may evolve over 
 - **GitHubConnectionArn** - ARN of the GitHub Connection that was created as a prerequisite to deploying Runway.
 - **GitHubRepo** - Name of the forked Runway Github repository.
 - **GitHubBranch** - Name of the branch in the GitHub repo to build from.
+- **BundlesGitHubRepo** - GitHub repo name for the bundles repo
+- **BundlesGitHubTriggerBranch** - Branch of the bundles repo whose merges should trigger a rebuild
 - **CreateS3Bucket** - Choose whether to create S3 bucket named 'codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}' in your AWS account. Only choose `Create the S3 bucket` for the very first deployment of Runway in your AWS account. Do not change this value if updating an existing stack.
 - **ViteAlternateMatomoUrl** - Internal to EA. Not needed for open-source deployments. Leave blank. 
 - **ViteAlternateMatomoSiteId** - Internal to EA. Not needed for open-source deployments. Leave blank. 
