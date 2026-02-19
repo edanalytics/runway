@@ -273,7 +273,13 @@ describe('POST /jobs', () => {
         .post(endpoint)
         .set('Cookie', [sessionA.cookie])
         .send(postJobDto);
-      expect(res.status).toBe(201);
+      try {
+        expect(res.status).toBe(201);
+      } finally {
+        await prisma.job.delete({
+          where: { id: res.body.id },
+        });
+      }
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
@@ -497,8 +503,9 @@ describe('GET /jobs/:id/notes', () => {
   });
 
   afterEach(async () => {
-    await prisma.jobNote.deleteMany({
-      where: { jobId: jobA.id },
+    // Cascade cleanup removes notes/runs/files associated with this job.
+    await prisma.job.deleteMany({
+      where: { id: jobA.id },
     });
   });
 
@@ -554,8 +561,9 @@ describe('POST /jobs/:id/notes', () => {
   });
 
   afterEach(async () => {
-    await prisma.jobNote.deleteMany({
-      where: { jobId: jobA.id },
+    // Cascade cleanup removes notes/runs/files associated with this job.
+    await prisma.job.deleteMany({
+      where: { id: jobA.id },
     });
   });
 

@@ -143,4 +143,5 @@ const clear = async () => {
   await prisma.partnerEarthmoverBundle.deleteMany();
   await prisma.odsConfig.deleteMany();
   await prisma.odsConnection.deleteMany();
+  await prisma.job.deleteMany(); // cascades to related records (files, runs, notes, errors, etc)
 };
