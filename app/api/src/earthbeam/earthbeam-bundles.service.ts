@@ -27,18 +27,29 @@ export class EarthbeamBundlesService {
     );
   }
   private async fetchBundles() {
+    let res: Response;
     try {
-      this.bundles = await fetch(this.bundleUrl).then((res) => res.json());
-      this.bundlesLastUpdated = new Date();
+      res = await fetch(this.bundleUrl);
     } catch (e) {
       this.logger.error(`Error fetching bundles: ${e}`);
-      this.logger.error(
-        this.bundlesLastUpdated
-          ? `Bundles last successfully fetched at ${this.bundlesLastUpdated?.toDateString()}`
-          : 'Bundles not successfully fetched since startup'
+      if (!this.bundles) throw e;
+      this.logger.warn(
+        `Serving cached bundles last fetched at ${this.bundlesLastUpdated?.toDateString()}`
       );
-      throw e;
+      return;
     }
+
+    if (!res.ok) {
+      this.logger.error(`Error fetching bundles: GitHub returned ${res.status} ${res.statusText}`);
+      if (!this.bundles) throw new Error(`GitHub returned ${res.status} ${res.statusText}`);
+      this.logger.warn(
+        `Serving cached bundles last fetched at ${this.bundlesLastUpdated?.toDateString()}`
+      );
+      return;
+    }
+
+    this.bundles = await res.json();
+    this.bundlesLastUpdated = new Date();
   }
 
   async getBundles(type: EarthmoverBundleTypes) {
