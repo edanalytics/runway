@@ -32,6 +32,10 @@ app/
 
 ## Testing
 
+### Philosophy
+
+Prefer **integration tests over unit tests**. Tests should enter at the API (HTTP) layer so that they verify observable behavior — how a change translates to an HTTP response — rather than internal implementation details. This keeps tests resilient to refactoring. Write a failing test first, confirm it fails, then implement the fix.
+
 ### App tests (run from `app/`)
 
 **Full suite — CI/local parity** (spins up a Dockerized test DB in CI and local runs):
