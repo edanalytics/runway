@@ -40,13 +40,9 @@ app/
 npm run api:test
 ```
 
-**Quick integration tests — local dev** (assumes test DB is already running):
+**Quick integration tests — local dev** (starts the test DB if needed, leaves it running):
 
 ```bash
-# One-time: start the test DB and leave it running between runs
-docker compose -f api/integration/helpers/db/docker-compose.test.yml up -d --wait
-
-# Run tests without DB container lifecycle
 npm run api:test:integration:local
 ```
 
