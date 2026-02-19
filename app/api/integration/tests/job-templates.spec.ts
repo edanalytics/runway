@@ -119,26 +119,72 @@ describe('GET /job-templates', () => {
       await sessionStore.destroy(sessA.sid);
     });
 
-    it('should serve cached bundles when fetch fails after a successful load', async () => {
-      const service = app.get(EarthbeamBundlesService);
+    let service: EarthbeamBundlesService;
+    let originalFetch: typeof global.fetch;
 
-      // Expire the cache so the next call will attempt a fresh fetch.
+    beforeEach(() => {
+      service = app.get(EarthbeamBundlesService);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (service as any).bundlesLastUpdated = new Date(0);
+      originalFetch = global.fetch;
+    });
 
-      const originalFetch = global.fetch;
+    let cachedBundles: unknown;
+
+    beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cachedBundles = (service as any).bundles;
+    });
+
+    afterEach(async () => {
+      global.fetch = originalFetch;
+      // Restore the cache if a test cleared it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).bundles = cachedBundles;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).bundlesLastUpdated = new Date();
+    });
+
+    it('should serve cached bundles when fetch throws', async () => {
       global.fetch = jest.fn().mockRejectedValue(new Error('GitHub unavailable'));
 
-      try {
-        const res = await request(app.getHttpServer())
-          .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessA.cookie]);
 
-        expect(res.status).toBe(200);
-        expect(res.body).toBeDefined();
-      } finally {
-        global.fetch = originalFetch;
-      }
+      expect(res.status).toBe(200);
+      expect(res.body).toBeDefined();
+    });
+
+    it('should serve cached bundles when GitHub returns a non-200 response', async () => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' });
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessA.cookie]);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toBeDefined();
+    });
+
+    it('should error when fetch throws and there are no cached bundles', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).bundles = undefined;
+      global.fetch = jest.fn().mockRejectedValue(new Error('GitHub unavailable'));
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessA.cookie]);
+
+      expect(res.status).toBe(500);
+    });
+
+    it('should error when GitHub returns a non-200 response and there are no cached bundles', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).bundles = undefined;
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' });
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessA.cookie]);
+
+      expect(res.status).toBe(500);
     });
   });
 });
