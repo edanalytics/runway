@@ -27,14 +27,14 @@ app/
 
 - **Frontend**: React 18, **Chakra UI v2** (custom tokens: `blue.50`, `pink.100`, `gray.50`, `green.100`), TanStack Router + Query, react-hook-form
 - **Backend**: NestJS, Prisma ORM, PostgreSQL, Passport.js (OIDC for UI auth), [jose](https://github.com/panva/jose) (JWT for external API auth)
-- **Build**: NX monorepo, TypeScript throughout
+- **Build**: NX monorepo, TypeScript throughout `app/`
 - **CI**: GitHub Actions — `.github/workflows/app_ci_pipeline.yml`
 
 ## Testing
 
 ### App tests (run from `app/`)
 
-**Full suite — CI** (spins up a Dockerized test DB):
+**Full suite — CI/local parity** (spins up a Dockerized test DB in CI and local runs):
 
 ```bash
 npm run api:test
@@ -61,7 +61,7 @@ Schema changes require **two** things:
 
 Migrations run automatically at the start of the integration test suite. If tests fail with schema errors, a missing or mismatched migration is the likely cause.
 
-**Important:** Never run `npm run api:migrate-local-dev` on behalf of the user. Always present the SQL for review first and let the user run the command themselves.
+**Important:** Only run `npm run api:migrate-local-dev` with explicit user approval after presenting the SQL for review.
 
 ## Development Conventions
 
