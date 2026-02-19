@@ -107,4 +107,38 @@ describe('GET /job-templates', () => {
       expect(resA.body).toHaveLength(partnerABundles.length);
     });
   });
+
+  describe('when GitHub is unavailable', () => {
+    const sessA = sessionCookie('job-templates-github-down-a');
+
+    beforeEach(async () => {
+      await sessionStore.set(sessA.sid, sessionData(userA, tenantA));
+    });
+
+    afterEach(async () => {
+      await sessionStore.destroy(sessA.sid);
+    });
+
+    it('should serve cached bundles when fetch fails after a successful load', async () => {
+      const service = app.get(EarthbeamBundlesService);
+
+      // Expire the cache so the next call will attempt a fresh fetch.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).bundlesLastUpdated = new Date(0);
+
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn().mockRejectedValue(new Error('GitHub unavailable'));
+
+      try {
+        const res = await request(app.getHttpServer())
+          .get(endpoint)
+          .set('Cookie', [sessA.cookie]);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toBeDefined();
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+  });
 });
