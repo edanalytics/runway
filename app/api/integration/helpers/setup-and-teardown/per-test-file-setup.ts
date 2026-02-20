@@ -4,6 +4,7 @@ import { refreshSeed } from './tasks/seed-data';
 
 beforeAll(async () => {
   global.prisma = prismaClient();
+  await refreshSeed(); // seed must be loaded before app init so onApplicationBootstrap finds IdPs
   global.app = await initApp();
 });
 
