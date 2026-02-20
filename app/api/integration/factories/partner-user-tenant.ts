@@ -74,31 +74,3 @@ export const seedContext = async (
   };
 };
 
-export const removeContext = async (context: Awaited<ReturnType<typeof seedContext>>) => {
-  const { user, tenant, partner, idp } = context;
-
-  await prisma.user.delete({
-    where: {
-      id: user.id,
-    },
-  });
-  await prisma.tenant.delete({
-    where: {
-      code_partnerId: {
-        code: tenant.code,
-        partnerId: partner.id,
-      },
-    },
-  });
-
-  await prisma.identityProvider.delete({
-    where: {
-      id: idp.id,
-    },
-  });
-  await prisma.partner.delete({
-    where: {
-      id: partner.id,
-    },
-  });
-};

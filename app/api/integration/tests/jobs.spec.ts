@@ -34,7 +34,7 @@ describe('GET /jobs', () => {
     const sessionX = sessionCookie('jobs-spec-x');
 
     let aJobs: DtoableJob[] = [];
-    beforeAll(async () => {
+    beforeEach(async () => {
       // A starts with jobs, X starts with none
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
       await sessionStore.set(sessionX.sid, sessionData(userX, tenantX));
@@ -55,16 +55,9 @@ describe('GET /jobs', () => {
       ]);
     });
 
-    afterAll(async () => {
+    afterEach(async () => {
       await sessionStore.destroy(sessionA.sid);
       await sessionStore.destroy(sessionX.sid);
-      await prisma.job.deleteMany({
-        where: {
-          id: {
-            in: aJobs.map((j) => j.id),
-          },
-        },
-      });
     });
 
     it('should return an empty array if there are no jobs', async () => {
@@ -152,28 +145,18 @@ describe('GET /jobs', () => {
         .get(endpoint)
         .set('Cookie', [sessionX.cookie]);
 
-      try {
-        expect(resA.status).toBe(200);
-        expect(resX.status).toBe(200);
+      expect(resA.status).toBe(200);
+      expect(resX.status).toBe(200);
 
-        expect(resA.body.length).toBe(aJobs.length);
-        expect(resX.body.length).toBe(xJobs.length);
+      expect(resA.body.length).toBe(aJobs.length);
+      expect(resX.body.length).toBe(xJobs.length);
 
-        expect(resA.body.map((j: GetJobDto) => j.id)).toEqual(
-          expect.arrayContaining(aJobs.map((j) => j.id))
-        );
-        expect(resX.body.map((j: GetJobDto) => j.id)).toEqual(
-          expect.arrayContaining(xJobs.map((j) => j.id))
-        );
-      } finally {
-        await prisma.job.deleteMany({
-          where: {
-            id: {
-              in: xJobs.map((j) => j.id),
-            },
-          },
-        });
-      }
+      expect(resA.body.map((j: GetJobDto) => j.id)).toEqual(
+        expect.arrayContaining(aJobs.map((j) => j.id))
+      );
+      expect(resX.body.map((j: GetJobDto) => j.id)).toEqual(
+        expect.arrayContaining(xJobs.map((j) => j.id))
+      );
     });
   });
 });
@@ -184,7 +167,7 @@ describe('GET /jobs/:id', () => {
   let jobA: Job;
   let jobB: Job;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
       seedJob({
         odsConnection: odsConnA2425,
@@ -199,12 +182,6 @@ describe('GET /jobs/:id', () => {
     ]);
     endpointA = `/jobs/${jobA.id}`;
     endpointB = `/jobs/${jobB.id}`;
-  });
-
-  afterAll(async () => {
-    await prisma.job.deleteMany({
-      where: { id: { in: [jobA.id, jobB.id] } },
-    });
   });
 
   it('should reject unauthenticated requests', async () => {
@@ -373,12 +350,6 @@ describe('PUT /jobs/:id/resolve', () => {
     ]);
   });
 
-  afterEach(async () => {
-    await prisma.job.deleteMany({
-      where: { id: { in: [jobA.id, jobB.id] } },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).put(endpoint(jobA.id));
     expect(res.status).toBe(401);
@@ -496,12 +467,6 @@ describe('GET /jobs/:id/notes', () => {
     [noteA1, noteA2] = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
   });
 
-  afterEach(async () => {
-    await prisma.jobNote.deleteMany({
-      where: { jobId: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).get(endpoint(jobA.id));
     expect(res.status).toBe(401);
@@ -550,12 +515,6 @@ describe('POST /jobs/:id/notes', () => {
       odsConnection: odsConnA2425,
       bundle: bundleA,
       tenant: tenantA,
-    });
-  });
-
-  afterEach(async () => {
-    await prisma.jobNote.deleteMany({
-      where: { jobId: jobA.id },
     });
   });
 
@@ -661,13 +620,6 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
     });
   });
 
-  afterEach(async () => {
-    // cascade takes care of the note
-    await prisma.job.deleteMany({
-      where: { id: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer())
       .put(endpoint(jobA.id, noteA.id))
@@ -712,13 +664,7 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
         .put(endpoint(jobA.id, noteA2.id)) // mismatch
         .set('Cookie', [cookieA])
         .send({ noteText: 'updated note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(404);
-      } finally {
-        await prisma.job.deleteMany({
-          where: { id: jobA2.id },
-        });
-      }
+      expect(resA.status).toBe(404);
     });
 
     it('should update the note text', async () => {
@@ -793,12 +739,6 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
     });
   });
 
-  afterEach(async () => {
-    await prisma.job.deleteMany({
-      where: { id: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).delete(endpoint(jobA.id, noteA1.id));
     expect(res.status).toBe(401);
@@ -857,19 +797,13 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
         .delete(endpoint(jobA.id, noteA2.id)) // mismatch
         .set('Cookie', [cookieA])
         .send({ noteText: 'updated note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(404);
+      expect(resA.status).toBe(404);
 
-        const jobANotes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
-        expect(jobANotes.length).toBe(2);
-        const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
-        expect(jobA2Notes.length).toBe(1);
-        expect(jobA2Notes[0].id).toBe(noteA2.id);
-      } finally {
-        await prisma.job.deleteMany({
-          where: { id: jobA2.id },
-        });
-      }
+      const jobANotes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
+      expect(jobANotes.length).toBe(2);
+      const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
+      expect(jobA2Notes.length).toBe(1);
+      expect(jobA2Notes[0].id).toBe(noteA2.id);
     });
   });
 });

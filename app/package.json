@@ -12,6 +12,7 @@
     "api:generate-and-view-erd-local": "npm run api:generate-erd-local && serve ./api/schemaspy/output",
     "common-ui:storybook": "nx run common-ui:storybook",
     "api:test": "nx run api:test --verbose",
+    "api:test:integration:local": "INTEGRATION_TEST_KEEP_DB_CONTAINER=true nx run api:test-integration --verbose",
     "utils:test": "nx run utils:test",
     "api:migrate-local-dev": "node api/src/database/postgrator/migrate-standalone.mjs",
     "prisma:map-sql-js-cases": "prisma-case-format --file ./api/src/database/prisma/schema.prisma --map-field-case snake",

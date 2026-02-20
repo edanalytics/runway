@@ -14,7 +14,6 @@ import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.ser
 import { map } from 'lodash';
 import {
   makePartnerUserTenantContext,
-  removeContext,
   seedContext,
 } from '../factories/partner-user-tenant';
 import { partnerA, partnerX } from '../fixtures/context-fixtures/partner-fixtures';
@@ -49,7 +48,6 @@ describe('GET /job-templates', () => {
       await sessionStore.destroy(sessA.sid);
       await sessionStore.destroy(sessX.sid);
       await sessionStore.destroy(sessM.sid);
-      await removeContext(contextM);
       getBundlesMock.mockRestore();
     });
 
@@ -78,21 +76,13 @@ describe('GET /job-templates', () => {
       const resX = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessX.cookie]);
       const resM = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessM.cookie]);
 
-      try {
-        expect(resA.status).toBe(200);
-        expect(resX.status).toBe(200);
-        expect(resM.status).toBe(200);
+      expect(resA.status).toBe(200);
+      expect(resX.status).toBe(200);
+      expect(resM.status).toBe(200);
 
-        expect(map(resA.body, 'path')).toEqual(map([...partnerABundles, bundleM], 'path'));
-        expect(map(resX.body, 'path')).toEqual(map([...partnerXBundles, bundleM], 'path'));
-        expect(map(resM.body, 'path')).toEqual(map([bundleM], 'path'));
-      } finally {
-        await prisma.partnerEarthmoverBundle.deleteMany({
-          where: {
-            earthmoverBundleKey: bundleM.path,
-          },
-        });
-      }
+      expect(map(resA.body, 'path')).toEqual(map([...partnerABundles, bundleM], 'path'));
+      expect(map(resX.body, 'path')).toEqual(map([...partnerXBundles, bundleM], 'path'));
+      expect(map(resM.body, 'path')).toEqual(map([bundleM], 'path'));
     });
 
     it('should not error if there are no input params', async () => {
