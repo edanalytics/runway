@@ -9,6 +9,5 @@ module.exports = async () => {
   loadEnvVars();
   await db.up();
   await sessionStore.init();
-  await runMigrations();
-  await refreshSeed();
+  await runMigrations(); // seed data is refreshed before each test
 };

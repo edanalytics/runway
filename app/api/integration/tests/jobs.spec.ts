@@ -34,7 +34,7 @@ describe('GET /jobs', () => {
     const sessionX = sessionCookie('jobs-spec-x');
 
     let aJobs: DtoableJob[] = [];
-    beforeAll(async () => {
+    beforeEach(async () => {
       // A starts with jobs, X starts with none
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
       await sessionStore.set(sessionX.sid, sessionData(userX, tenantX));
@@ -55,7 +55,7 @@ describe('GET /jobs', () => {
       ]);
     });
 
-    afterAll(async () => {
+    afterEach(async () => {
       await sessionStore.destroy(sessionA.sid);
       await sessionStore.destroy(sessionX.sid);
       await prisma.job.deleteMany({
@@ -184,7 +184,7 @@ describe('GET /jobs/:id', () => {
   let jobA: Job;
   let jobB: Job;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
       seedJob({
         odsConnection: odsConnA2425,
@@ -201,7 +201,7 @@ describe('GET /jobs/:id', () => {
     endpointB = `/jobs/${jobB.id}`;
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await prisma.job.deleteMany({
       where: { id: { in: [jobA.id, jobB.id] } },
     });
@@ -273,13 +273,7 @@ describe('POST /jobs', () => {
         .post(endpoint)
         .set('Cookie', [sessionA.cookie])
         .send(postJobDto);
-      try {
-        expect(res.status).toBe(201);
-      } finally {
-        await prisma.job.delete({
-          where: { id: res.body.id },
-        });
-      }
+      expect(res.status).toBe(201);
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
@@ -502,13 +496,6 @@ describe('GET /jobs/:id/notes', () => {
     [noteA1, noteA2] = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
   });
 
-  afterEach(async () => {
-    // Cascade cleanup removes notes/runs/files associated with this job.
-    await prisma.job.deleteMany({
-      where: { id: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).get(endpoint(jobA.id));
     expect(res.status).toBe(401);
@@ -557,13 +544,6 @@ describe('POST /jobs/:id/notes', () => {
       odsConnection: odsConnA2425,
       bundle: bundleA,
       tenant: tenantA,
-    });
-  });
-
-  afterEach(async () => {
-    // Cascade cleanup removes notes/runs/files associated with this job.
-    await prisma.job.deleteMany({
-      where: { id: jobA.id },
     });
   });
 
