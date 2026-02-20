@@ -132,16 +132,20 @@ const load = async () => {
 
 const clear = async () => {
   const prisma = prismaClient();
-  await prisma.userTenant.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.tenant.deleteMany();
-  await prisma.identityProvider.deleteMany();
-  await prisma.partner.deleteMany();
-  await prisma.oidcConfig.deleteMany();
-  await prisma.schoolYear.deleteMany();
-  await prisma.earthmoverBundle.deleteMany();
-  await prisma.partnerEarthmoverBundle.deleteMany();
-  await prisma.odsConfig.deleteMany();
-  await prisma.odsConnection.deleteMany();
-  await prisma.job.deleteMany(); // cascades to related records (files, runs, notes, errors, etc)
+  await prisma.$executeRawUnsafe(`
+    TRUNCATE
+      user_tenant,
+      "user",
+      tenant,
+      identity_provider,
+      partner,
+      oidc_config,
+      school_year,
+      earthmover_bundle,
+      partner_earthmover_bundle,
+      ods_config,
+      ods_connection,
+      job
+    CASCADE
+  `);
 };
