@@ -56,17 +56,9 @@ export const JobCreatePage = () => {
   const postJob = jobQueries.post();
   const startJob = jobQueries.start();
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const {
-    control,
-    watch,
-    handleSubmit,
-    register,
-    setValue,
-    reset,
-    formState: { errors },
-  } = useForm<IJobForm>();
+  const { control, watch, handleSubmit, reset } = useForm<IJobForm>();
 
   const requiredFileFields = useFieldArray({ control, name: 'requiredFiles' });
   const supplementaryFileFields = useFieldArray({ control, name: 'supplementaryFiles' });
@@ -86,13 +78,13 @@ export const JobCreatePage = () => {
 
   const handleError = (msg: string) => {
     setIsSaving(false);
-    setError(msg);
+    setFormError(msg);
     reset(undefined, { keepValues: true });
   };
 
   const submit = handleSubmit((data, e) => {
     setIsSaving(true);
-    setError(null);
+    setFormError(null);
     postJob.mutate(
       { entity: formDataToDto(data) },
       {
@@ -213,7 +205,7 @@ export const JobCreatePage = () => {
   return (
     <FormLayout title="load a new assessment" backLink="/assessments">
       <chakra.form width="100%" height="100%" onSubmit={submit}>
-        <VStack height="100%" width="100%" gap={error ? '500' : '800'}>
+        <VStack height="100%" width="100%" gap={formError ? '500' : '800'}>
           <VStack width="100%" gap="500" alignItems="flex-start" flexGrow={1}>
             <FormSection maxW="24rem">
               <RunwaySelect
@@ -271,17 +263,15 @@ export const JobCreatePage = () => {
                   width="100%"
                   gap="800"
                 >
-                  <FormSection heading="required files" width="max-content">
+                  <FormSection heading="required files" width="24rem">
                     {requiredFileFields.fields.map((field, ix) => (
                       <RunwayFileInput
                         key={field.id}
                         label={field.name}
                         accept={field.fileType}
-                        register={register(`requiredFiles.${ix}.fileInput`, {
-                          required: `${field.name} is required`,
-                        })}
-                        onClear={() => setValue(`requiredFiles.${ix}.fileInput`, null)}
-                        error={errors.requiredFiles?.[ix]?.fileInput}
+                        name={`requiredFiles.${ix}.fileInput`}
+                        control={control}
+                        rules={{ required: `${field.name} is required` }}
                       />
                     ))}
                   </FormSection>
@@ -294,14 +284,14 @@ export const JobCreatePage = () => {
                   )}
                 </HStack>
 
-                <FormSection heading="supplementary files" width="max-content">
+                <FormSection heading="supplementary files" width="24rem">
                   {supplementaryFileFields.fields.map((field, ix) => (
                     <RunwayFileInput
                       key={field.id}
                       label={field.name}
-                      register={register(`supplementaryFiles.${ix}.fileInput`)}
-                      onClear={() => setValue(`supplementaryFiles.${ix}.fileInput`, null)}
                       accept={field.fileType}
+                      name={`supplementaryFiles.${ix}.fileInput`}
+                      control={control}
                     />
                   ))}
                 </FormSection>
@@ -309,7 +299,7 @@ export const JobCreatePage = () => {
             </Box>
           </VStack>
           <VStack alignItems={'flex-end'} width="100%" gap="300">
-            {error && <RunwayErrorBox message={error} />}
+            {formError && <RunwayErrorBox message={formError} />}
             <RunwayBottomButtonRow
               backPath="/assessments"
               rightText="submit"

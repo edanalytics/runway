@@ -1,15 +1,44 @@
-import { Box, Button, FormControl, FormLabel, HStack, Input } from '@chakra-ui/react';
+import {
+  Box,
+  Button,
+  FormControl,
+  FormLabel,
+  HStack,
+  Input,
+  VisuallyHidden,
+} from '@chakra-ui/react';
 import { IconPlus } from '../../../assets/icons';
-import { FieldError, FieldValues, Path, UseFormRegisterReturn } from 'react-hook-form';
-import { useState } from 'react';
+import {
+  Control,
+  FieldPath,
+  FieldValues,
+  useController,
+  UseControllerProps,
+} from 'react-hook-form';
+import { useRef, useState } from 'react';
 
-type FileInputProps<K extends Path<T>, T extends FieldValues> = {
+type FileInputProps<T extends FieldValues, K extends FieldPath<T>> = {
   label: string;
-  register: UseFormRegisterReturn<K>;
-  onClear: () => void;
   accept?: string | string[];
-  error?: FieldError | undefined;
+  name: K;
+  control: Control<T>;
+  rules?: UseControllerProps<T, K>['rules'];
 };
+
+// Forbidden file extensions. This is a front-end only, UX check, so users can
+// select a new file right away instead of waiting for their job to fail. It is
+// NOT a security check.
+const FORBIDDEN_EXTENSIONS = [
+  '.xlsx',
+  '.xls',
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.zip',
+  '.ppt',
+  '.pptx',
+  '.exe',
+] as const;
 
 const formatFileType = (fileType: string | undefined) =>
   fileType &&
@@ -18,93 +47,106 @@ const formatFileType = (fileType: string | undefined) =>
     ? `.${fileType}`
     : fileType;
 
-export const RunwayFileInput = <K extends Path<T>, T extends FieldValues>({
+export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   label,
-  register,
-  onClear,
-  error,
   accept,
-}: FileInputProps<K, T>) => {
-  const [fileName, setFileName] = useState<string | null>(null);
+  name,
+  control,
+  rules,
+}: FileInputProps<T, K>) => {
+  const { field, fieldState } = useController({ name, control, rules });
+  const [forbiddenError, setForbiddenError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const acceptedFileTypes = Array.isArray(accept)
     ? accept.map(formatFileType).join(',')
     : formatFileType(accept);
 
+  const fileName: string | null = field.value?.[0]?.name ?? null;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      field.onChange(null);
+      return;
+    }
+
+    const fileNameLower = file.name.toLowerCase();
+    const forbiddenExtension = FORBIDDEN_EXTENSIONS.find((ext) => fileNameLower.endsWith(ext));
+    if (forbiddenExtension) {
+      e.target.value = '';
+      field.onChange(null);
+      setForbiddenError(
+        `${file.name} cannot be uploaded because ${forbiddenExtension} files are not supported.${
+          acceptedFileTypes
+            ? ` Expected file type${
+                acceptedFileTypes.split(',').length > 1 ? 's' : ''
+              }: ${acceptedFileTypes}`
+            : ''
+        }`
+      );
+      return;
+    }
+
+    setForbiddenError(null);
+    field.onChange(e.target.files);
+  };
+
+  const errorMessage = forbiddenError || fieldState.error?.message;
+
   return (
-    <HStack paddingY="200" gap="400" width="100%">
-      <FormControl variant="file" padding="0" width="100%">
-        <HStack justifyContent="flex-start" gap="400">
-          <FormLabel
-            variant="file"
-            textColor="blue.50"
-            width="100%"
-            tabIndex={fileName ? -1 : 0} // remove file input from tab order if file is already selected
-            onKeyDown={(e) => {
-              // allow opening file input with keyboard
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                e.currentTarget.click();
-              }
-            }}
-          >
-            <HStack as="span" gap="400" justifyContent="space-between">
-              <Box as="span" textStyle="bodyLargeBold">
-                {label}
-              </Box>
-              {fileName ? (
-                <Box as="span" textStyle="body">
-                  {fileName}
-                </Box>
-              ) : (
-                <HStack
-                  as="span"
-                  padding="200"
-                  gap="200"
-                  textStyle="button"
-                  layerStyle="buttonPrimary"
-                >
-                  <IconPlus height={12} width={12} />
-                  <Box as="span">select file</Box>
-                </HStack>
-              )}
-            </HStack>
-          </FormLabel>
-          <Input
-            display="none"
-            type="file"
-            accept={acceptedFileTypes}
-            {...register}
-            onChange={(e) => {
-              const fileName = e.target.files?.[0]?.name;
-              setFileName(fileName ?? null); // just controls display, not form value
-              register.onChange(e);
-            }}
-          />
-          {!!error && (
-            <Box textStyle="body" textColor="pink.100">
-              {error?.message}
+    <FormControl variant="file" width="100%" paddingX="0px">
+      <FormLabel textColor="blue.50">
+        <Box as="span" textStyle="bodyLargeBold">
+          {label}
+        </Box>
+      </FormLabel>
+      <VisuallyHidden>
+        <Input type="file" accept={acceptedFileTypes} ref={inputRef} onChange={handleFileChange} />
+      </VisuallyHidden>
+      <HStack gap="200" alignItems="baseline">
+        <Box textStyle="body" wordBreak="break-word" flex={1}>
+          {errorMessage ? (
+            <Box as="span" textColor="pink.100">
+              {errorMessage}
+            </Box>
+          ) : fileName ? (
+            <Box as="span" textColor="blue.50">
+              {fileName}
+            </Box>
+          ) : (
+            <Box as="span" textColor="blue.50" fontStyle="italic">
+              no file selected
             </Box>
           )}
-        </HStack>
-      </FormControl>
-      {fileName && onClear && (
-        <Button
-          variant="unstyled"
-          textStyle="button"
-          textColor="green.100"
-          padding="200"
-          onClick={() => {
-            onClear();
-            setFileName(null);
-          }}
-        >
-          <Box as="span"> &mdash;</Box>
-          <Box as="span" ml="200">
-            remove file
-          </Box>
-        </Button>
-      )}
-    </HStack>
+        </Box>
+        {fileName ? (
+          <Button
+            variant="unstyled"
+            textStyle="button"
+            textColor="green.100"
+            padding="200"
+            flexShrink={0}
+            onClick={() => {
+              setForbiddenError(null);
+              field.onChange(null);
+              if (inputRef.current) inputRef.current.value = '';
+            }}
+          >
+            <Box as="span">&mdash;</Box>
+            <Box as="span" ml="200">
+              remove file
+            </Box>
+          </Button>
+        ) : (
+          <Button variant="unstyled" flexShrink={0} onClick={() => inputRef.current?.click()}>
+            <HStack as="span" padding="200" gap="200" textStyle="button" layerStyle="buttonPrimary">
+              <IconPlus height={12} width={12} />
+              <Box as="span">select file</Box>
+            </HStack>
+          </Button>
+        )}
+      </HStack>
+    </FormControl>
   );
 };
