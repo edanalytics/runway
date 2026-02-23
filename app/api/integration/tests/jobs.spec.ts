@@ -55,11 +55,6 @@ describe('GET /jobs', () => {
       ]);
     });
 
-    afterEach(async () => {
-      await sessionStore.destroy(sessionA.sid);
-      await sessionStore.destroy(sessionX.sid);
-    });
-
     it('should return an empty array if there are no jobs', async () => {
       // X has no jobs
       const resX = await request(app.getHttpServer())
@@ -197,11 +192,6 @@ describe('GET /jobs/:id', () => {
       cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
     });
 
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-      await authHelper.logout(cookieB);
-    });
-
     it('should return the job if the user is logged into the associated tenant', async () => {
       const resA = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       expect(resA.status).toBe(200);
@@ -239,7 +229,6 @@ describe('POST /jobs', () => {
     });
 
     afterAll(async () => {
-      await sessionStore.destroy(sessionA.sid);
       getBundlesMock.mockRestore();
     });
 
@@ -477,9 +466,6 @@ describe('GET /jobs/:id/notes', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-    });
     it('should reject requests for jobs that are not associated with the tenant', async () => {
       const cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
       const resA = await request(app.getHttpServer())
@@ -529,10 +515,6 @@ describe('POST /jobs/:id/notes', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
       cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
-    });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-      await authHelper.logout(cookieB);
     });
     it('should create a new note for the job', async () => {
       const noteText = 'test note for job ' + jobA.id;
@@ -632,10 +614,6 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-    });
-
     it('should reject requests if the job is not associated with the tenant', async () => {
       const cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
       const resA = await request(app.getHttpServer())
@@ -749,10 +727,6 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-    });
-
     it('should delete the note', async () => {
       const resA = await request(app.getHttpServer())
         .delete(endpoint(jobA.id, noteA1.id))
@@ -769,13 +743,9 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
         .delete(endpoint(jobA.id, noteA1.id))
         .set('Cookie', [cookieB])
         .send({ noteText: 'test note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(403);
-        const notes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
-        expect(notes.length).toBe(2);
-      } finally {
-        await authHelper.logout(cookieB);
-      }
+      expect(resA.status).toBe(403);
+      const notes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
+      expect(notes.length).toBe(2);
     });
 
     it('should reject requests if the note is not associated with the job', async () => {

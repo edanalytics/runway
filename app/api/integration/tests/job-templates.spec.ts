@@ -45,9 +45,6 @@ describe('GET /job-templates', () => {
     });
 
     afterEach(async () => {
-      await sessionStore.destroy(sessA.sid);
-      await sessionStore.destroy(sessX.sid);
-      await sessionStore.destroy(sessM.sid);
       getBundlesMock.mockRestore();
     });
 

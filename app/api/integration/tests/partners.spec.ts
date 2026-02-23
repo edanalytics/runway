@@ -27,7 +27,6 @@ describe('POST /partners', () => {
     });
 
     afterEach(async () => {
-      await sessionStore.destroy(sessA.sid);
       mockGetBundles.mockRestore();
     });
 

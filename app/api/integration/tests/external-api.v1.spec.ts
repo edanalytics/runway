@@ -362,26 +362,22 @@ describe('ExternalApiV1', () => {
           // Log in as userA in tenantA to access the regular API
           const { cookies } = await authHelper.login(idpA, userA, tenantA);
 
-          try {
-            // Hit the GET /jobs/:id endpoint
-            const getRes = await request(app.getHttpServer())
-              .get(`/jobs/${job!.id}`)
-              .set('Cookie', cookies);
+          // Hit the GET /jobs/:id endpoint
+          const getRes = await request(app.getHttpServer())
+            .get(`/jobs/${job!.id}`)
+            .set('Cookie', cookies);
 
-            expect(getRes.status).toBe(200);
+          expect(getRes.status).toBe(200);
 
-            const jobDto = plainToInstance(GetJobDto, getRes.body);
+          const jobDto = plainToInstance(GetJobDto, getRes.body);
 
-            // apiClientName and isApiInitiated should be exposed in the response
-            expect(jobDto.apiClientName).toBe(tokenPayload.client_name);
-            expect(jobDto.isApiInitiated).toBe(true);
+          // apiClientName and isApiInitiated should be exposed in the response
+          expect(jobDto.apiClientName).toBe(tokenPayload.client_name);
+          expect(jobDto.isApiInitiated).toBe(true);
 
-            // apiIssuer and apiClientId should NOT be in the response
-            expect(jobDto.apiIssuer).toBeUndefined();
-            expect(jobDto.apiClientId).toBeUndefined();
-          } finally {
-            await authHelper.logout(cookies);
-          }
+          // apiIssuer and apiClientId should NOT be in the response
+          expect(jobDto.apiIssuer).toBeUndefined();
+          expect(jobDto.apiClientId).toBeUndefined();
         });
       });
 

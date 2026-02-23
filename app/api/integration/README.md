@@ -26,7 +26,7 @@ Tests are currently run sequentially (see the `runInBand` setting in the [nx com
 
 Avoid writing tests in a way that assume sequential processing. This includes sharing global state across test files, reusing IDs across test files, or having one test assume data that a previous test wrote (another form of global state).
 
-Because seed data is refreshed before each test, tests don't need to manually clean up DB records they create — `refreshSeed` clears and reloads everything. Tests should only use `afterEach` for non-DB teardown like destroying sessions or restoring mocks.
+Because seed data is refreshed before each test, tests don't need to manually clean up DB records they create — `refreshSeed` clears and reloads everything, including sessions. Tests should only use `afterEach` for non-DB teardown like restoring mocks.
 
 Note that if we implement dedicated schemas per test file, we have much more flexibility with how the tests interact with the DB.
 
