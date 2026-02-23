@@ -20,13 +20,13 @@ We do the following on running tests:
 6. Close the app
 7. Close DB connections and spin down the DB container
 
-Spinning up the DB and running migrations are done once (in [globalSetup.ts](./helpers/setup-and-teardown/global-setup.ts)). Initiating the app is done once per test file (in [per-test-file-setup.ts](./helpers/setup-and-teardown/per-test-file-setup.ts)). Seed data is refreshed before each test (also in `per-test-file-setup.ts`) so that every test starts from a known state regardless of what previous tests did to the DB.
+Spinning up the DB and running migrations are done once (in [globalSetup.ts](./helpers/setup-and-teardown/global-setup.ts)). Initiating the app is done once per test file (in [per-test-file-setup.ts](./helpers/setup-and-teardown/per-test-file-setup.ts)). Seed data is loaded before app init (so `onApplicationBootstrap` can discover IdPs and other DB-dependent config) and refreshed again before each test so that every test starts from a known state regardless of what previous tests did to the DB.
 
 Tests are currently run sequentially (see the `runInBand` setting in the [nx command](../project.json). We might someday want to run test in parallel to speed things up. If we do, we'll need to ensure each test file runs against a dedicated schema so they don't interfere with each other and become flakey. We could give each test file a dedicated schema, either by (A) updating the migrations to run against arbitrary schemas (and updating the .sql files to not reference `public`) or (B) dumping and loading the migrated and seeded DB into custom schemas per test file and pointing the prisma and posrgres client at those schemas. I'm not sure what the performance cost of this route would be or whether it would, in practice, speed things up.
 
 Avoid writing tests in a way that assume sequential processing. This includes sharing global state across test files, reusing IDs across test files, or having one test assume data that a previous test wrote (another form of global state).
 
-Because seed data is refreshed before each test, tests don't need to manually clean up DB records they create — `refreshSeed` clears and reloads everything. Some tests still clean up after themselves (e.g. deleting jobs in `afterEach`), which is fine but not strictly necessary for isolation. We'd like to remove this leftover cleanup code over time, but it's not urgent.
+Because seed data is refreshed before each test, tests don't need to manually clean up DB records they create — `refreshSeed` clears and reloads everything. Tests should only use `afterEach` for non-DB teardown like destroying sessions or restoring mocks.
 
 Note that if we implement dedicated schemas per test file, we have much more flexibility with how the tests interact with the DB.
 

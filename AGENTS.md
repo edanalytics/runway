@@ -69,3 +69,4 @@ Migrations run automatically at the start of the integration test suite. If test
 - **API**: NestJS controller → service → repository pattern
 - **FE**: Chakra UI v2 with custom design tokens; prefer inline readable code over extracted helpers for short logic
 - **Icons**: `app/fe/src/assets/icons/`
+- **Documentation**: When changing behavior described in nearby docs (README.md, AGENTS.md, code comments), update the docs in the same commit. When creating a commit, review changed files for references to documentation and flag any that may need updating.
