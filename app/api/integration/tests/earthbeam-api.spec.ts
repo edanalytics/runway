@@ -104,10 +104,6 @@ describe('Earthbeam API', () => {
         });
       });
 
-      afterEach(async () => {
-        await prisma.bundleDescriptorMapping.deleteMany(); // cascade to custom descriptor mappings
-      });
-
       it('should return custom descriptor mappings if they exist for the partner', async () => {
         const resA = await request(app.getHttpServer())
           .get(endpointA)

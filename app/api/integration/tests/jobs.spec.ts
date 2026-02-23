@@ -231,7 +231,7 @@ describe('POST /jobs', () => {
     const postJobDto = makePostJobDto(jobTemplateA, odsConnA2425);
     let getBundlesMock: jest.SpyInstance;
 
-    beforeAll(async () => {
+    beforeEach(async () => {
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
       getBundlesMock = jest
         .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
