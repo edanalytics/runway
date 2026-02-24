@@ -80,6 +80,30 @@ class EarthmoverRunError(ExecutorError):
     def __init__(self, stacktrace=None):
         super().__init__("earthmover_run", stacktrace)
 
+# TODO: these names... I prefer to keep them in terms of earthmover_ and not be too declarative
+# Like if we say "input_file_error" I worry that ascribes too much certainty when we are not always certain
+# could be easily swayed the other way though
+
+# TODO: there's a potential for a hierarchy of errors here but I don't think it buys us anything
+class EarthmoverWrongFileError(ExecutorError):
+    def __init__(self, stacktrace=None):
+        super().__init__("earthmover_txt", stacktrace)
+class EarthmoverExcelFileError(ExecutorError):
+    def __init__(self, stacktrace=None):
+        super().__init__("earthmover_excel", stacktrace)
+
+class EarthmoverTxtFileError(ExecutorError):
+    def __init__(self, stacktrace=None):
+        super().__init__("earthmover_txt", stacktrace)
+
+class EarthmoverMissingColspecError(ExecutorError):
+    def __init__(self, stacktrace=None):
+        super().__init__("earthmover_colspec", stacktrace)
+
+class EarthmoverDateFormatError(ExecutorError):
+    def __init__(self, stacktrace=None):
+        super().__init__("earthmover_date", stacktrace)
+
 class InsufficientMatchesError(ExecutorError):
     def __init__(self, match_rate, match_threshold, id_name, id_type, stacktrace=None):
         self.match_rate = match_rate
