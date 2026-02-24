@@ -27,11 +27,6 @@ describe('GET /ods-configs', () => {
       cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
     });
 
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-      await authHelper.logout(cookieB);
-    });
-
     it('should return a list of ods configs for the tenant', async () => {
       const resA = await request(app.getHttpServer()).get('/ods-configs').set('Cookie', [cookieA]);
       const resB = await request(app.getHttpServer()).get('/ods-configs').set('Cookie', [cookieB]);
@@ -64,11 +59,6 @@ describe('GET /ods-configs/:id', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
       cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
-    });
-
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-      await authHelper.logout(cookieB);
     });
 
     it('should return the ods config if the user is logged into the associated tenant', async () => {

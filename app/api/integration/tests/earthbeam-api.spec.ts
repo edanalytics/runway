@@ -50,12 +50,6 @@ describe('Earthbeam API', () => {
       tokenX = await authService.createAccessToken({ runId: runX.id });
     });
 
-    afterEach(async () => {
-      await prisma.job.deleteMany({
-        where: { id: { in: [runA.jobId, runX.jobId] } },
-      });
-    });
-
     it('should reject unauthenticated requests', async () => {
       const res = await request(app.getHttpServer()).get(endpointA);
       expect(res.status).toBe(401);
@@ -108,10 +102,6 @@ describe('Earthbeam API', () => {
             customDescriptor: `custom_${mapping.edfiDefaultDescriptor}`,
           })),
         });
-      });
-
-      afterEach(async () => {
-        await prisma.bundleDescriptorMapping.deleteMany(); // cascade to custom descriptor mappings
       });
 
       it('should return custom descriptor mappings if they exist for the partner', async () => {
@@ -218,12 +208,6 @@ describe('Earthbeam API', () => {
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/status`;
-    });
-
-    afterEach(async () => {
-      await prisma.job.deleteMany({
-        where: { id: { in: [runA.jobId] } },
-      });
     });
 
     it('should reject unauthenticated requests', async () => {

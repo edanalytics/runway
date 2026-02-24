@@ -223,9 +223,6 @@ describe('ExternalApiV1', () => {
           expect(res.body.uploadUrls).toHaveProperty('INPUT_FILE');
           expect(res.body.uploadUrls.INPUT_FILE).toContain(jobInput.files.INPUT_FILE); // FileService.getPresignedUploadUrl is mocked in init-app.ts
           expect(res.body.uploadUrls.INPUT_FILE).toContain('s3-test-upload-url://');
-          await prisma.job.delete({
-            where: { uid: res.body.uid },
-          });
         });
 
         it('should trim whitespace from file names', async () => {
@@ -244,14 +241,10 @@ describe('ExternalApiV1', () => {
             include: { files: true },
           });
 
-          try {
-            expect(job).not.toBeNull();
-            const inputFile = job!.files.find((f) => f.templateKey === 'INPUT_FILE');
-            expect(inputFile).toBeDefined();
-            expect(inputFile!.nameFromUser).toBe('input-file.csv');
-          } finally {
-            await prisma.job.delete({ where: { uid: res.body.uid } });
-          }
+          expect(job).not.toBeNull();
+          const inputFile = job!.files.find((f) => f.templateKey === 'INPUT_FILE');
+          expect(inputFile).toBeDefined();
+          expect(inputFile!.nameFromUser).toBe('input-file.csv');
         });
       });
 
@@ -269,14 +262,10 @@ describe('ExternalApiV1', () => {
             where: { uid: res.body.uid },
           });
 
-          try {
-            expect(job).not.toBeNull();
-            expect(job!.apiIssuer).toBe(TEST_ISSUER);
-            expect(job!.apiClientId).toBe(tokenPayload.client_id);
-            expect(job!.apiClientName).toBe(tokenPayload.client_name);
-          } finally {
-            await prisma.job.delete({ where: { uid: res.body.uid } });
-          }
+          expect(job).not.toBeNull();
+          expect(job!.apiIssuer).toBe(TEST_ISSUER);
+          expect(job!.apiClientId).toBe(tokenPayload.client_id);
+          expect(job!.apiClientName).toBe(tokenPayload.client_name);
         });
 
         it('should use azp claim when client_id is absent', async () => {
@@ -296,13 +285,9 @@ describe('ExternalApiV1', () => {
             where: { uid: res.body.uid },
           });
 
-          try {
-            expect(job).not.toBeNull();
-            expect(job!.apiClientId).toBe('test-azp');
-            expect(job!.apiClientName).toBe(tokenPayload.client_name);
-          } finally {
-            await prisma.job.delete({ where: { uid: res.body.uid } });
-          }
+          expect(job).not.toBeNull();
+          expect(job!.apiClientId).toBe('test-azp');
+          expect(job!.apiClientName).toBe(tokenPayload.client_name);
         });
 
         it('should prefer client_id over azp when both are present', async () => {
@@ -321,12 +306,8 @@ describe('ExternalApiV1', () => {
             where: { uid: res.body.uid },
           });
 
-          try {
-            expect(job).not.toBeNull();
-            expect(job!.apiClientId).toBe(tokenPayload.client_id);
-          } finally {
-            await prisma.job.delete({ where: { uid: res.body.uid } });
-          }
+          expect(job).not.toBeNull();
+          expect(job!.apiClientId).toBe(tokenPayload.client_id);
         });
 
         it('should return 403 if the token is missing azp or client_id claim', async () => {
@@ -358,14 +339,10 @@ describe('ExternalApiV1', () => {
             where: { uid: res.body.uid },
           });
 
-          try {
-            expect(job).not.toBeNull();
-            expect(job!.apiIssuer).toBe(TEST_ISSUER);
-            expect(job!.apiClientId).toBe(tokenPayload.client_id);
-            expect(job!.apiClientName).toBeNull();
-          } finally {
-            await prisma.job.delete({ where: { uid: res.body.uid } });
-          }
+          expect(job).not.toBeNull();
+          expect(job!.apiIssuer).toBe(TEST_ISSUER);
+          expect(job!.apiClientId).toBe(tokenPayload.client_id);
+          expect(job!.apiClientName).toBeNull();
         });
 
         it('should expose apiClientName and isApiInitiated in DTO, but not apiIssuer or apiClientId', async () => {
@@ -385,27 +362,22 @@ describe('ExternalApiV1', () => {
           // Log in as userA in tenantA to access the regular API
           const { cookies } = await authHelper.login(idpA, userA, tenantA);
 
-          try {
-            // Hit the GET /jobs/:id endpoint
-            const getRes = await request(app.getHttpServer())
-              .get(`/jobs/${job!.id}`)
-              .set('Cookie', cookies);
+          // Hit the GET /jobs/:id endpoint
+          const getRes = await request(app.getHttpServer())
+            .get(`/jobs/${job!.id}`)
+            .set('Cookie', cookies);
 
-            expect(getRes.status).toBe(200);
+          expect(getRes.status).toBe(200);
 
-            const jobDto = plainToInstance(GetJobDto, getRes.body);
+          const jobDto = plainToInstance(GetJobDto, getRes.body);
 
-            // apiClientName and isApiInitiated should be exposed in the response
-            expect(jobDto.apiClientName).toBe(tokenPayload.client_name);
-            expect(jobDto.isApiInitiated).toBe(true);
+          // apiClientName and isApiInitiated should be exposed in the response
+          expect(jobDto.apiClientName).toBe(tokenPayload.client_name);
+          expect(jobDto.isApiInitiated).toBe(true);
 
-            // apiIssuer and apiClientId should NOT be in the response
-            expect(jobDto.apiIssuer).toBeUndefined();
-            expect(jobDto.apiClientId).toBeUndefined();
-          } finally {
-            await authHelper.logout(cookies);
-            await prisma.job.delete({ where: { uid: createRes.body.uid } });
-          }
+          // apiIssuer and apiClientId should NOT be in the response
+          expect(jobDto.apiIssuer).toBeUndefined();
+          expect(jobDto.apiClientId).toBeUndefined();
         });
       });
 
@@ -517,14 +489,8 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`)
             .send(jobInput);
 
-          try {
-            expect(res.status).toBe(500);
-            expect(res.body.message).toContain('Multiple ODS found');
-          } finally {
-            await prisma.odsConfig.delete({
-              where: { id: secondOds.id }, // connection will delete with cascade
-            });
-          }
+          expect(res.status).toBe(500);
+          expect(res.body.message).toContain('Multiple ODS found');
         });
 
         it('should ignore retired ODSs', async () => {
@@ -679,9 +645,6 @@ describe('ExternalApiV1', () => {
       });
 
       afterEach(async () => {
-        await prisma.job.delete({
-          where: { uid: jobUid },
-        });
         bundleMock.mockRestore();
         earthbeamMock.mockRestore();
       });
