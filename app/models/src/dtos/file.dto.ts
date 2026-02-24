@@ -1,6 +1,7 @@
 import { Expose } from 'class-transformer';
 import { FileStatus } from '@prisma/client';
 import { GetJobDto } from './job.dto';
+import { IsNotEmpty, IsString } from 'class-validator';
 
 export class GetFileDto {
   @Expose()
@@ -24,11 +25,15 @@ export class GetFileDto {
 
 export class PostFileDto {
   @Expose()
+  @IsString()
+  @IsNotEmpty()
   nameFromUser: string;
 
-  @Expose()
+  @Expose() // TODO: determin whether type is actually required and reliably provided
   type: string;
 
   @Expose()
+  @IsString()
+  @IsNotEmpty()
   templateKey: string;
 }

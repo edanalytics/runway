@@ -11,14 +11,16 @@ export const makePostJobDto = (
     name: template.name,
     odsId: ods.odsConfigId,
     schoolYearId: ods.schoolYearId,
-    files: [
-      {
-        nameFromUser: 'input-file-name',
-        type: 'csv',
-        templateKey: 'input-file-key',
-      },
-    ],
-    inputParams: template.params.map((p) => ({ ...p, value: 'test input' })),
+    files: template.files.map((f) => ({
+      nameFromUser: `${f.templateKey}-file.csv`,
+      type: f.fileType[0] ?? 'csv',
+      templateKey: f.templateKey,
+    })),
+    inputParams: template.params.map((p) => ({
+      ...p,
+      // Use first allowed value if specified, otherwise use a generic test value
+      value: p.allowedValues?.[0] ?? 'test input',
+    })),
     template: template,
     previousJobId: null,
     ...overrides,

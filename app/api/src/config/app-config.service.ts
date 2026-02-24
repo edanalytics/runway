@@ -151,6 +151,15 @@ export class AppConfigService {
       .replace('127.0.0.1', 'host.docker.internal');
   }
 
+  getExternalApiConfig(): { issuerUrl: string | undefined; audience: string | undefined } {
+    const issuerUrl = this.get('OAUTH2_ISSUER');
+    const audience = this.get('OAUTH2_AUDIENCE') ?? this.get('MY_URL'); // OAUTH2_AUDIENCE is only used for running locally. Deployed envs should use the API url
+    return {
+      issuerUrl: this.get('OAUTH2_ISSUER'),
+      audience: this.get('OAUTH2_AUDIENCE') ?? this.get('MY_URL'),
+    };
+  }
+
   async ecsConfig(): Promise<{
     cluster: string;
     taskDefinition: { small: string; medium: string; large: string };

@@ -38,4 +38,6 @@ export interface IEnvironmentVariables {
   LOCAL_EXECUTOR?: 'python' | 'docker';
   LOCAL_EVENTS?: 'log' | 'noop';
   LOCAL_EXECUTOR_CALLBACK_BASE_URL?: string;
+  OAUTH2_ISSUER?: string; // token issuer for external API
+  OAUTH2_AUDIENCE?: string; // token audience for external API
 }

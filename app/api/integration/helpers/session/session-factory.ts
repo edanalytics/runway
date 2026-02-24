@@ -19,6 +19,8 @@ export const sessionData = (
         tenant: tenant as Tenant,
         idpSessionId: `${user.idpId}-${user.id}-${tenant.code}`,
         idToken: `id_token_${user.idpId}-${user.id}-${tenant.code}`,
+        //Todo: update this when writing role tests
+        roles: [],
       },
     },
   };

@@ -9,6 +9,8 @@ import sessionStore from '../../session/session-store';
 import { Reflector } from '@nestjs/core';
 import { FileService } from 'api/src/files/file.service';
 import { prepareMockOIDC } from '../../oidc/openid-client-mock';
+import { initExternalApiTokenMock, getLocalJWKS } from '../../external-api/token-helper';
+import { ExternalApiAuthService } from '../../../../src/external-api/auth/external-api.auth.service';
 
 // For the most part, this mimics the bootstrapping done in src/main.ts,
 // with some modifications to accommodate the fact that this app is used
@@ -21,13 +23,24 @@ export const initApp = async function () {
     })
       .overrideProvider(FileService) // S3 mock
       .useValue({
-        getPresignedUploadUrl: jest.fn().mockResolvedValue('test-presigned-url'),
-        getPresignedDownloadUrl: jest.fn().mockResolvedValue('test-presigned-download-url'),
+        getPresignedUploadUrl: jest
+          .fn()
+          .mockImplementation((f) => Promise.resolve(`s3-test-upload-url://${f.fullPath}`)),
+        getPresignedDownloadUrl: jest
+          .fn()
+          .mockImplementation((f) => Promise.resolve(`s3-test-download-url://${f.fullPath}`)),
         listFilesAtPath: jest.fn().mockResolvedValue(['test-file-1', 'test-file-2']),
+        doFilesExist: jest.fn().mockResolvedValue(true),
       })
       .compile();
 
     prepareMockOIDC(); // mock openid-client, must be called before app is created
+
+    // Mock external API token verification to use local test keys
+    await initExternalApiTokenMock();
+    const externalApiAuthService = moduleFixture.get(ExternalApiAuthService);
+    jest.spyOn(externalApiAuthService, 'getKeySet').mockResolvedValue(getLocalJWKS());
+
     const app = moduleFixture.createNestApplication();
 
     app.use(

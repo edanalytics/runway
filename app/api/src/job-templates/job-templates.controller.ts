@@ -5,7 +5,6 @@ import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service'
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import type { PrismaClient, Tenant as TTenant } from '@prisma/client';
 import { PRISMA_APP_USER } from '../database';
-
 @Controller()
 @ApiTags('JobTemplates')
 export class JobsTemplatesController {

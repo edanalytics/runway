@@ -269,13 +269,17 @@ export class EarthbeamApiService {
       const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
       const tenantCode = run.job.tenantCode;
       const partnerId = run.job.partnerId;
-      const unmatchedStudentCount = `${unmatchedStudentsInfo?.count ?? 0} unmatched`;
+      const unmatchedStudentCount = unmatchedStudentsInfo?.count ?? 0;
+      const unmatchedStudentsMessage =
+        unmatchedStudentCount === 0 ? '' : `${unmatchedStudentCount} unmatched`;
       const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
 
       const summaryString = `${assessmentType} (${assessmentFiles.join(
         ', '
-      )}) ${errorString} ${resourceErrorString} ${unmatchedStudentCount} (${partnerId}/${tenantCode})`;
+      )}) ${errorString} ${resourceErrorString} ${unmatchedStudentsMessage} (${partnerId}/${tenantCode}) jobId ${
+        run.job.id
+      }`;
 
       await this.eventEmitter.emit('run_complete', {
         summary: summaryString,
@@ -304,11 +308,19 @@ export class EarthbeamApiService {
         metadata: {
           tenantCode,
           partnerId,
-          userEmail: run.userRunCreatedByIdTouser?.email,
-          userName:
-            run.userRunCreatedByIdTouser?.givenName +
-            ' ' +
-            run.userRunCreatedByIdTouser?.familyName,
+          ...(run.userRunCreatedByIdTouser
+            ? {
+                userEmail: run.userRunCreatedByIdTouser?.email,
+                userName:
+                  run.userRunCreatedByIdTouser?.givenName +
+                  ' ' +
+                  run.userRunCreatedByIdTouser?.familyName,
+              }
+            : run.job.apiClientId
+            ? {
+                apiClientName: run.job.apiClientName ?? 'API Initiated',
+              }
+            : null),
           createdOn: run.createdOn.toISOString(),
           completedOn: run.modifiedOn.toISOString(),
         },

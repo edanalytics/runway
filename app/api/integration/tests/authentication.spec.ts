@@ -101,12 +101,6 @@ describe('Authentication', () => {
           },
         });
         expect(users.length).toBe(1);
-
-        await prisma.tenant.deleteMany({
-          where: {
-            code: 'new-a',
-          },
-        });
       });
 
       it("should create a new tenant on the fly associated with the IdP's sole partner (EdGraph-like IdP)", async () => {
@@ -135,12 +129,6 @@ describe('Authentication', () => {
           },
         });
         expect(users.length).toBe(1);
-
-        await prisma.tenant.deleteMany({
-          where: {
-            code: 'new-x',
-          },
-        });
       });
     });
     describe('New user, existing tenant', () => {
@@ -163,12 +151,6 @@ describe('Authentication', () => {
         expect(users.length).toBe(1);
         expect(users[0]).toMatchObject(newUser);
         expect(users[0].idpId).toBe(idpA.id);
-
-        await prisma.user.deleteMany({
-          where: {
-            email: newUser.email,
-          },
-        });
       });
     });
     describe('New users, new tenants', () => {
@@ -205,19 +187,6 @@ describe('Authentication', () => {
         expect(tenants.length).toBe(1);
         expect(tenants[0].partnerId).toBe(partnerA.id); // matches claim
         expect(tenants[0].code).toBe(newTenant.code);
-
-        await Promise.all([
-          prisma.user.deleteMany({
-            where: {
-              email: newUser.email,
-            },
-          }),
-          prisma.tenant.deleteMany({
-            where: {
-              code: newTenant.code,
-            },
-          }),
-        ]);
       });
 
       it('should create a new user and new tenant on the fly (EdGraph-like IdP)', async () => {
@@ -252,19 +221,6 @@ describe('Authentication', () => {
         expect(tenants.length).toBe(1);
         expect(tenants[0].partnerId).toBe(partnerX.id); // partnerX is the sole user of idpX
         expect(tenants[0].code).toBe(newTenant.code);
-
-        await Promise.all([
-          prisma.user.deleteMany({
-            where: {
-              email: newUser.email,
-            },
-          }),
-          prisma.tenant.deleteMany({
-            where: {
-              code: newTenant.code,
-            },
-          }),
-        ]);
       });
     });
 
@@ -289,8 +245,6 @@ describe('Authentication', () => {
         users.forEach((user) => expect(user).toMatchObject(personA));
         expect(users[0].idpId).toBe(idpA.id);
         expect(users[1].idpId).toBe(idpX.id);
-
-        await prisma.user.deleteMany({ where: { id: users[1].id } }); // leave the seeded userA in place
       });
 
       it('should allow tenant codes to be reused across IdPs and will create new tenant records', async () => {
@@ -319,10 +273,6 @@ describe('Authentication', () => {
         expect(tenants[1].partnerId).toBe(partnerA.id); // matches claim
         const userIdsInA = tenants[1].userTenant.map((ut) => ut.user.id);
         expect(userIdsInA).toContain(userA.id);
-
-        await prisma.tenant.delete({
-          where: { code_partnerId: { code: tenantX.code, partnerId: partnerA.id } },
-        });
       });
     });
 
@@ -385,9 +335,6 @@ describe('Authentication', () => {
         expect(tenants.length).toBe(2);
         expect(tenants[0].partnerId).toBe(partnerA.id);
         expect(tenants[1].partnerId).toBe(partnerC.id);
-        await prisma.tenant.delete({
-          where: { code_partnerId: { code: tenantA.code, partnerId: partnerC.id } },
-        });
       });
 
       it('should reuse a user record across partners that use the same IdP', async () => {

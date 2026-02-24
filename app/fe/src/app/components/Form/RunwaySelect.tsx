@@ -1,6 +1,7 @@
 import { FormControl, FormLabel } from '@chakra-ui/react';
 import { Select } from 'chakra-react-select';
 import { FieldPath, FieldValues, UseControllerReturn } from 'react-hook-form';
+import { useId } from 'react';
 
 type SharedSelectProps = {
   label: string;
@@ -31,10 +32,12 @@ export const RunwaySelect = <T extends FieldValues, K extends FieldPath<T> = Fie
 }: SelectWithController<T, K> | SelectWithField<T, K>) => {
   const { field, fieldState } = 'controller' in rest ? rest.controller : rest;
   const value = options?.find((option) => option.value === field.value);
+  const inputId = useId();
   return (
     <FormControl isInvalid={fieldState.invalid} paddingX="0px">
-      <FormLabel paddingX="200">{label}</FormLabel>
+      <FormLabel htmlFor={inputId} paddingX="200">{label}</FormLabel>
       <Select
+        inputId={inputId}
         value={value}
         onChange={(e) => field.onChange(e?.value)}
         onBlur={field.onBlur}
