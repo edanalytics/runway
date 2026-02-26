@@ -113,7 +113,16 @@ npm run api:migrate-local-dev
 ok "migrations applied"
 
 # ---------------------------------------------------------------------------
-# Step 6: Executor setup
+# Step 6: Seed local dev data
+# ---------------------------------------------------------------------------
+step "Seeding local development data"
+pushd ./api > /dev/null
+docker compose exec -T db bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < seed.sql
+popd > /dev/null
+ok "seed data loaded (IdP, partner, school year, bundles)"
+
+# ---------------------------------------------------------------------------
+# Step 7: Executor setup
 # ---------------------------------------------------------------------------
 step "Executor setup"
 
@@ -188,7 +197,7 @@ sed -i "s/^LOCAL_EXECUTOR=.*/LOCAL_EXECUTOR=${choice}/" ./api/.env
 ok "LOCAL_EXECUTOR=${choice} set in api/.env"
 
 # ---------------------------------------------------------------------------
-# Step 7: Summary
+# Step 8: Summary
 # ---------------------------------------------------------------------------
 cat << EOF
 

@@ -30,84 +30,17 @@ cd app
 
 #### 1. Run the setup script.
 
-This sets up environment variables, install node dependencies, and generate the Prisma client, among other things. You can indicate whether you intend to run the executor on your host machine or in a container (see below). If you're actively making changes to the executor, it's much faster to run it in "bare" Python on your machine. If not, the script builds the executor image so it's ready to run.
+This handles everything: environment files, node dependencies, Prisma client generation, Docker services (Postgres, Keycloak, S3Mock), database migrations, seed data, and executor setup. It's idempotent — safe to re-run after pulling updates.
 
 ```bash
-bash init.sh
+./init.sh
 ```
 
-#### 2. Start Postgres & Keycloak
+The script will prompt you to choose an executor mode (docker or python). See [Running the executor locally](#running-the-executor-locally) for details.
 
-Postgres is the primary datastore. [Keycloak](https://github.com/keycloak/keycloak) is an IdP we can run locally. We run both in Docker for local dev.
+If you already have a local instance of Keycloak that you prefer, feel free to use that instead. You will have to configure an OIDC client that matches the seed IdP registration in [api/seed.sql](api/seed.sql) (or update the seed to match a client you already have configured in Keycloak).
 
-```bash
-docker compose -f api/docker-compose.yml up
-```
-
-If you already have a local instance of Keycloak that you prefer, feel free to use that instead. You will have to configure an OIDC client that matches the seed IdP registration below (or update the seed registration to match a client you already have configured in Keycloak).
-
-#### 3. Seed an IdP Registration & School Year
-
-Your app needs to know how to talk to your local Keycloak so you can log in. We also need to seed a school year to get going.
-
-Open your favorite Postgres client, connect to the DB you just started in Docker (see your [.env](api/.env) for connection params), and run this command:
-
-```sql
-INSERT INTO public.oidc_config (id,issuer,client_id,client_secret, user_id_claim, tenant_code_claim, require_role)
-VALUES ('local-keycloak-oidc','http://localhost:8080/realms/example','runway-local','big-secret-123', 'preferred_username', 'tenant_code', false);
-
-INSERT INTO public.identity_provider(id, fe_home, oidc_config_id)
-VALUES ('local-keycloak','http://localhost:4200','local-keycloak-oidc');
-
-INSERT INTO public.partner (id, name, idp_id)
-VALUES ('ea','ea-local', 'local-keycloak');
-
-INSERT INTO public.school_year (id, start_year, end_year)
-VALUES ('2526', 2025, 2026);
-
-INSERT INTO public.earthmover_bundle (key)
-VALUES ('assessments/STAAR_Interim'),
-('assessments/STAAR_Summative'),
-('assessments/PSAT_SAT'),
-('assessments/ASVAB'),
-('assessments/Dibels_Next_Benchmark'),
-('assessments/Dibels_8_Benchmark'),
-('assessments/ACCESS'),
-('assessments/EOCEP'),
-('assessments/i-Ready'),
-('assessments/WIN'),
-('assessments/SC_READY'),
-('assessments/MAP_Growth'),
-('assessments/ACT'),
-('assessments/STAR'),
-('assessments/TX_KEA'),
-('assessments/CIRCLE'),
-('assessments/SC_Alternate_Assessment'),
-('assessments/IB');
-
-INSERT INTO public.partner_earthmover_bundle (partner_id, earthmover_bundle_key)
-VALUES ('ea','assessments/STAAR_Interim'),
-('ea','assessments/STAAR_Summative'),
-('ea','assessments/PSAT_SAT'),
-('ea','assessments/ASVAB'),
-('ea','assessments/Dibels_Next_Benchmark'),
-('ea','assessments/Dibels_8_Benchmark'),
-('ea','assessments/ACCESS'),
-('ea','assessments/EOCEP'),
-('ea','assessments/i-Ready'),
-('ea','assessments/WIN'),
-('ea','assessments/SC_READY'),
-('ea','assessments/MAP_Growth'),
-('ea','assessments/ACT'),
-('ea','assessments/STAR'),
-('ea','assessments/TX_KEA'),
-('ea','assessments/CIRCLE'),
-('ea','assessments/SC_Alternate_Assessment'),
-('ea','assessments/IB');
-
-```
-
-**Note**: You can add assessments to `earthmover_bundle` and `partner_earthmover_bundle` at any time to make additional bundles available for local testing.
+**Note**: You can add assessments to `earthmover_bundle` and `partner_earthmover_bundle` at any time to make additional bundles available for local testing. See [api/seed.sql](api/seed.sql) for the format.
 
 ### Run the App
 
