@@ -105,7 +105,8 @@ export class AppConfigService {
   }
 
   isLocalExecutor(): boolean {
-    return !!this.get('LOCAL_EXECUTOR');
+    const localExecutor = this.get('LOCAL_EXECUTOR');
+    return localExecutor === 'python' || localExecutor === 'docker';
   }
 
   executorCallbackBaseUrl(): string | undefined {
