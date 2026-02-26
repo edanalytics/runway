@@ -1,20 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ExecutorService } from './executor.abstract.service';
+import { ExecutorService, executorEnvVars } from './executor.abstract.service';
 import { Job, Run } from '@prisma/client';
 import { AssumeRoleCommandInput, STSClient } from '@aws-sdk/client-sts';
 import { AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { ECSClient, RunTaskCommandInput } from '@aws-sdk/client-ecs';
 import { RunTaskCommand } from '@aws-sdk/client-ecs';
+import { AppConfigService } from 'api/src/config/app-config.service';
+import { EarthbeamApiAuthService } from '../api/auth/earthbeam-api-auth.service';
 
 @Injectable()
-export class ExecutorAwsService extends ExecutorService {
+export class ExecutorAwsService implements ExecutorService {
   private readonly logger = new Logger(ExecutorAwsService.name);
 
   private readonly stsClient = new STSClient({ region: process.env.AWS_REGION });
   private readonly ecsClient = new ECSClient({ region: process.env.AWS_REGION });
 
+  constructor(
+    private readonly appConfig: AppConfigService,
+    private readonly apiAuth: EarthbeamApiAuthService
+  ) {}
+
   async start(run: Run & { job: Job }) {
-    const envVars = await this.envVars(run.id);
+    const envVars = await executorEnvVars(run.id, this.apiAuth, this.appConfig);
     const ecsConfig = await this.appConfig.ecsConfig();
 
     const assumeRoleInput: AssumeRoleCommandInput = {
@@ -62,7 +69,7 @@ export class ExecutorAwsService extends ExecutorService {
           {
             name: containerName,
             environment: [
-              ...Object.entries(await this.envVars(run.id)).map(([name, value]) => ({
+              ...Object.entries(envVars).map(([name, value]) => ({
                 name,
                 value,
               })),

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EarthbeamBundlesService } from './earthbeam-bundles.service';
 import { EarthbeamApiAuthModule } from './api/auth/earthbeam-api-auth.module';
-import { ExecutorService } from './executor/executor.abstract.service';
+import { EXECUTOR_SERVICE } from './executor/executor.abstract.service';
 import { AppConfigService } from '../config/app-config.service';
 import { EarthbeamApiAuthService } from './api/auth/earthbeam-api-auth.service';
 import { ExecutorAwsService } from './executor/executor.aws.service';
@@ -9,14 +9,11 @@ import { ExecutorLocalPythonService } from './executor/executor.local-python.ser
 import { ExecutorLocalDockerService } from './executor/executor.local-docker.service';
 
 @Module({
-  // TODO: does this module make sense??? Maybe this is really some sort of peripherals module
-  // and they get injected differently based on local vs deployed?
-  // JCM: not my expertise but this feels pretty clean and seems to work 
   imports: [EarthbeamApiAuthModule],
   providers: [
     EarthbeamBundlesService,
     {
-      provide: ExecutorService,
+      provide: EXECUTOR_SERVICE,
       inject: [AppConfigService, EarthbeamApiAuthService],
       useFactory: (appConfig: AppConfigService, apiAuth: EarthbeamApiAuthService) => {
         if (appConfig.get('LOCAL_EXECUTOR') === 'python') {
@@ -30,6 +27,6 @@ import { ExecutorLocalDockerService } from './executor/executor.local-docker.ser
       },
     },
   ],
-  exports: [EarthbeamBundlesService, ExecutorService],
+  exports: [EarthbeamBundlesService, EXECUTOR_SERVICE],
 })
 export class EarthbeamModule {}
