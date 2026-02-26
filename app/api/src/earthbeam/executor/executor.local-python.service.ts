@@ -49,7 +49,7 @@ export class ExecutorLocalPythonService implements ExecutorService {
         PATH: `${process.env.PATH}:${path.join(cwd, 'venv/bin')}`,
         PYTHONPATH: `${path.resolve(cwd, '..')}:${process.env.PYTHONPATH ?? ''}`,
         DEPLOYMENT_MODE: 'LOCAL',
-        S3_ENDPOINT_URL: process.env.LOCAL_S3_ENDPOINT_URL ?? '',
+        S3_ENDPOINT_URL: this.appConfig.get('LOCAL_S3_ENDPOINT_URL') ?? '',
         AWS_ACCESS_KEY_ID: 'local',
         AWS_SECRET_ACCESS_KEY: 'local',
       },

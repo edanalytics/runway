@@ -22,7 +22,7 @@ export class ExecutorLocalDockerService implements ExecutorService {
     const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
 
     // The executor container reaches S3Mock via the host network.
-    const s3Endpoint = process.env.LOCAL_S3_ENDPOINT_URL?.replace(
+    const s3Endpoint = this.appConfig.get('LOCAL_S3_ENDPOINT_URL')?.replace(
       /localhost|127\.0\.0\.1/,
       'host.docker.internal'
     );

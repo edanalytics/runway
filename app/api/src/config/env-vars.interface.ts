@@ -37,8 +37,8 @@ export interface IEnvironmentVariables {
   // env vars we expect to only use locally
   LOCAL_EXECUTOR?: 'python' | 'docker';
   LOCAL_S3_ENDPOINT_URL?: string; // e.g. "http://localhost:9090" for S3Mock
-  LOCAL_EVENT_HANDLER?: 'log' | 'noop'; // default (unset) = EventBridge
-  BUNDLE_CACHE_DISABLED?: 'true' | 'false';
+  LOCAL_EVENT_EMITTER?: 'log' | 'noop'; // default (unset) = EventBridge
+  LOCAL_BUNDLE_CACHE_DISABLED?: 'true' | 'false';
 
   OAUTH2_ISSUER?: string; // token issuer for external API
   OAUTH2_AUDIENCE?: string; // token audience for external API

@@ -12,13 +12,17 @@ import { EarthbeamApiAuthService } from '../api/auth/earthbeam-api-auth.service'
 export class ExecutorAwsService implements ExecutorService {
   private readonly logger = new Logger(ExecutorAwsService.name);
 
-  private readonly stsClient = new STSClient({ region: process.env.AWS_REGION });
-  private readonly ecsClient = new ECSClient({ region: process.env.AWS_REGION });
+  private readonly stsClient: STSClient;
+  private readonly ecsClient: ECSClient;
 
   constructor(
     private readonly appConfig: AppConfigService,
     private readonly apiAuth: EarthbeamApiAuthService
-  ) {}
+  ) {
+    const region = this.appConfig.get('AWS_REGION');
+    this.stsClient = new STSClient({ region });
+    this.ecsClient = new ECSClient({ region });
+  }
 
   async start(run: Run & { job: Job }) {
     const initToken = await this.apiAuth.createInitToken({ runId: run.id });

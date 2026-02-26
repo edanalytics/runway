@@ -16,7 +16,7 @@ export class EventEmitterEventBridgeService implements EventEmitterService {
 
   constructor(private readonly appConfig: AppConfigService) {
     this.source = `runway.${this.appConfig.get('ENVLABEL') ?? 'unknown-env'}`;
-    this.eventBridgeClient = new EventBridgeClient({ region: process.env.AWS_REGION });
+    this.eventBridgeClient = new EventBridgeClient({ region: this.appConfig.get('AWS_REGION') });
   }
 
   async emit(label: string, payload: any) {

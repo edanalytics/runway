@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import {
   EVENT_EMITTER_SERVICE,
   EventEmitterEventBridgeService,
@@ -13,11 +13,16 @@ import { AppConfigService } from '../config/app-config.service';
       provide: EVENT_EMITTER_SERVICE,
       inject: [AppConfigService],
       useFactory: (appConfig: AppConfigService) => {
-        const handler = appConfig.get('LOCAL_EVENT_HANDLER');
-        if (handler === 'log') {
+        const localEmitter = appConfig.get('LOCAL_EVENT_EMITTER');
+        if (localEmitter && !appConfig.isDevEnvironment()) {
+          new Logger('EventEmitterModule').warn(
+            `LOCAL_EVENT_EMITTER=${localEmitter} is set but NODE_ENV is not "development"`
+          );
+        }
+        if (localEmitter === 'log') {
           return new EventEmitterLogService();
         }
-        if (handler === 'noop') {
+        if (localEmitter === 'noop') {
           return new EventEmitterNoopService();
         }
         return new EventEmitterEventBridgeService(appConfig);

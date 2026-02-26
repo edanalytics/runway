@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { EarthbeamBundlesService } from './earthbeam-bundles.service';
 import { EarthbeamApiAuthModule } from './api/auth/earthbeam-api-auth.module';
 import { EXECUTOR_SERVICE } from './executor/executor.service';
@@ -16,14 +16,19 @@ import { ExecutorLocalDockerService } from './executor/executor.local-docker.ser
       provide: EXECUTOR_SERVICE,
       inject: [AppConfigService, EarthbeamApiAuthService],
       useFactory: (appConfig: AppConfigService, apiAuth: EarthbeamApiAuthService) => {
-        if (appConfig.get('LOCAL_EXECUTOR') === 'python') {
+        const localExecutor = appConfig.get('LOCAL_EXECUTOR');
+        if (localExecutor && !appConfig.isDevEnvironment()) {
+          new Logger('EarthbeamModule').warn(
+            `LOCAL_EXECUTOR=${localExecutor} is set but NODE_ENV is not "development"`
+          );
+        }
+        if (localExecutor === 'python') {
           return new ExecutorLocalPythonService(appConfig, apiAuth);
         }
-        if (appConfig.get('LOCAL_EXECUTOR') === 'docker') {
+        if (localExecutor === 'docker') {
           return new ExecutorLocalDockerService(appConfig, apiAuth);
-        } else {
-          return new ExecutorAwsService(appConfig, apiAuth);
         }
+        return new ExecutorAwsService(appConfig, apiAuth);
       },
     },
   ],

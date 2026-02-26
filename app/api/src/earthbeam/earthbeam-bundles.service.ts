@@ -15,7 +15,7 @@ export class EarthbeamBundlesService {
   constructor(private readonly configService: AppConfigService) {
     const branch = this.configService.bundleBranch();
     this.bundleUrl = `https://raw.githubusercontent.com/edanalytics/earthmover_edfi_bundles/refs/heads/${branch}/registry.json`;
-    this.disableBundleCache = this.configService.get('BUNDLE_CACHE_DISABLED') === 'true';
+    this.disableBundleCache = this.configService.get('LOCAL_BUNDLE_CACHE_DISABLED') === 'true';
   }
 
   async onModuleInit() {

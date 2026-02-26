@@ -11,17 +11,20 @@ import { AppConfigService } from '../config/app-config.service';
 
 @Injectable()
 export class FileService {
-  private s3Client: S3Client = new S3Client({
-    region: process.env.AWS_REGION,
-    ...(process.env.LOCAL_S3_ENDPOINT_URL && {
-      endpoint: process.env.LOCAL_S3_ENDPOINT_URL,
-      forcePathStyle: true, // S3Mock requires path-style: http://localhost:9090/bucket/key
-      credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
-    }),
-  });
+  private s3Client: S3Client;
   private logger = new Logger(FileService.name);
 
-  constructor(private readonly appConfig: AppConfigService) {}
+  constructor(private readonly appConfig: AppConfigService) {
+    const localEndpoint = this.appConfig.get('LOCAL_S3_ENDPOINT_URL');
+    this.s3Client = new S3Client({
+      region: this.appConfig.get('AWS_REGION'),
+      ...(this.appConfig.isDevEnvironment() && localEndpoint && {
+        endpoint: localEndpoint,
+        forcePathStyle: true, // S3Mock requires path-style: http://localhost:9090/bucket/key
+        credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
+      }),
+    });
+  }
 
   async getPresignedUploadUrl({ fullPath, fileType }: { fullPath: string; fileType: string }) {
     const command = new PutObjectCommand({
