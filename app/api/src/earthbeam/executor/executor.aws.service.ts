@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ExecutorService, executorEnvVars } from './executor.abstract.service';
+import { ExecutorService } from './executor.service';
 import { Job, Run } from '@prisma/client';
 import { AssumeRoleCommandInput, STSClient } from '@aws-sdk/client-sts';
 import { AssumeRoleCommand } from '@aws-sdk/client-sts';
@@ -21,7 +21,9 @@ export class ExecutorAwsService implements ExecutorService {
   ) {}
 
   async start(run: Run & { job: Job }) {
-    const envVars = await executorEnvVars(run.id, this.apiAuth, this.appConfig);
+    const initToken = await this.apiAuth.createInitToken({ runId: run.id });
+    const initJobUrl = this.apiAuth.initEndpoint({ runId: run.id });
+    const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
     const ecsConfig = await this.appConfig.ecsConfig();
 
     const assumeRoleInput: AssumeRoleCommandInput = {
@@ -37,7 +39,7 @@ export class ExecutorAwsService implements ExecutorService {
           },
         ],
       }),
-      DurationSeconds: parseInt(envVars.TIMEOUT_SECONDS),
+      DurationSeconds: parseInt(timeoutSeconds),
     };
 
     const stsResponse = await this.stsClient.send(new AssumeRoleCommand(assumeRoleInput));
@@ -69,10 +71,9 @@ export class ExecutorAwsService implements ExecutorService {
           {
             name: containerName,
             environment: [
-              ...Object.entries(envVars).map(([name, value]) => ({
-                name,
-                value,
-              })),
+              { name: 'INIT_TOKEN', value: initToken },
+              { name: 'INIT_JOB_URL', value: initJobUrl },
+              { name: 'TIMEOUT_SECONDS', value: timeoutSeconds },
               {
                 name: 'AWS_ACCESS_KEY_ID',
                 value: stsResponse.Credentials.AccessKeyId,

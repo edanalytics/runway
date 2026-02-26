@@ -1,5 +1,5 @@
 import { Run } from '@prisma/client';
-import { ExecutorService, executorEnvVars } from './executor.abstract.service';
+import { ExecutorService } from './executor.service';
 import { rm, access } from 'fs/promises';
 import { exec } from 'child_process';
 import { Logger } from '@nestjs/common';
@@ -36,11 +36,16 @@ export class ExecutorLocalPythonService implements ExecutorService {
     await rm('../executor/local-run/output', { recursive: true, force: true });
     await rm('../executor/local-run/lb-download-dir', { recursive: true, force: true });
 
-    const envVars = await executorEnvVars(run.id, this.apiAuth, this.appConfig);
+    const initToken = await this.apiAuth.createInitToken({ runId: run.id });
+    const initJobUrl = this.apiAuth.initEndpoint({ runId: run.id });
+    const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
+
     const proc = exec(`${pythonPath} -u ${scriptPath}`, {
       cwd,
       env: {
-        ...envVars,
+        INIT_TOKEN: initToken,
+        INIT_JOB_URL: initJobUrl,
+        TIMEOUT_SECONDS: timeoutSeconds,
         PATH: `${process.env.PATH}:${path.join(cwd, 'venv/bin')}`,
         PYTHONPATH: `${path.resolve(cwd, '..')}:${process.env.PYTHONPATH ?? ''}`,
         DEPLOYMENT_MODE: 'LOCAL',

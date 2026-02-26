@@ -1,4 +1,4 @@
-import { ExecutorService, executorEnvVars } from './executor.abstract.service';
+import { ExecutorService } from './executor.service';
 import { Run } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { execFile, spawn } from 'child_process';
@@ -17,7 +17,9 @@ export class ExecutorLocalDockerService implements ExecutorService {
     await this.ensureDockerAvailable();
     await this.ensureExecutorImage();
 
-    const envVars = await executorEnvVars(run.id, this.apiAuth, this.appConfig);
+    const initToken = await this.apiAuth.createInitToken({ runId: run.id });
+    const initJobUrl = this.apiAuth.initEndpoint({ runId: run.id });
+    const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
 
     // The executor container reaches S3Mock via the host network.
     // TODO: consider putting the executor on the same docker network as S3Mock
@@ -36,11 +38,11 @@ export class ExecutorLocalDockerService implements ExecutorService {
       '-e',
       'DEPLOYMENT_MODE=LOCAL',
       '-e',
-      `INIT_TOKEN=${envVars.INIT_TOKEN}`,
+      `INIT_TOKEN=${initToken}`,
       '-e',
-      `INIT_JOB_URL=${envVars.INIT_JOB_URL}`,
+      `INIT_JOB_URL=${initJobUrl}`,
       '-e',
-      `TIMEOUT_SECONDS=${envVars.TIMEOUT_SECONDS}`,
+      `TIMEOUT_SECONDS=${timeoutSeconds}`,
       ...(s3Endpoint ? ['-e', `S3_ENDPOINT_URL=${s3Endpoint}`] : []),
       '-e',
       'AWS_ACCESS_KEY_ID=local',

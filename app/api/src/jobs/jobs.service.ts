@@ -11,7 +11,7 @@ import { PRISMA_READ_ONLY } from '../database';
 import { instanceToPlain } from 'class-transformer';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
-import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.abstract.service';
+import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 
 @Injectable()

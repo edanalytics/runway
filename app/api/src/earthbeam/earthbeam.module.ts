@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EarthbeamBundlesService } from './earthbeam-bundles.service';
 import { EarthbeamApiAuthModule } from './api/auth/earthbeam-api-auth.module';
-import { EXECUTOR_SERVICE } from './executor/executor.abstract.service';
+import { EXECUTOR_SERVICE } from './executor/executor.service';
 import { AppConfigService } from '../config/app-config.service';
 import { EarthbeamApiAuthService } from './api/auth/earthbeam-api-auth.service';
 import { ExecutorAwsService } from './executor/executor.aws.service';
