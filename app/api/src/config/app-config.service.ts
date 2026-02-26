@@ -109,33 +109,17 @@ export class AppConfigService {
   }
 
   executorCallbackBaseUrl(): string | undefined {
-    const baseUrl = this.get('MY_URL');
-    if (!baseUrl) {
-      return undefined;
+    if (this.get('LOCAL_EXECUTOR') === 'docker') {
+      const port = process.env.PORT || 3333;
+      return `http://host.docker.internal:${port}`;
     }
-
-    if (this.get('LOCAL_EXECUTOR') !== 'docker') {
-      return baseUrl;
-    }
-
-    // allow local-case override if host.docker.internal does nto work on your system
-    const override = this.get('LOCAL_EXECUTOR_CALLBACK_BASE_URL');
-    if (override) {
-      return override.replace(/\/+$/, '');
-    }
-
-    return baseUrl
-      .replace('localhost', 'host.docker.internal')
-      .replace('127.0.0.1', 'host.docker.internal');
+    return this.get('MY_URL');
   }
 
   getExternalApiConfig(): { issuerUrl: string | undefined; audience: string | undefined } {
     const issuerUrl = this.get('OAUTH2_ISSUER');
     const audience = this.get('OAUTH2_AUDIENCE') ?? this.get('MY_URL'); // OAUTH2_AUDIENCE is only used for running locally. Deployed envs should use the API url
-    return {
-      issuerUrl: this.get('OAUTH2_ISSUER'),
-      audience: this.get('OAUTH2_AUDIENCE') ?? this.get('MY_URL'),
-    };
+    return { issuerUrl, audience };
   }
 
   async ecsConfig(): Promise<{
