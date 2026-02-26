@@ -23,7 +23,10 @@ import {
 import { FileService } from 'api/src/files/file.service';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
-import { EventEmitterService } from 'api/src/event-emitter/event-emitter.service';
+import {
+  EventEmitterService,
+  EVENT_EMITTER_SERVICE,
+} from 'api/src/event-emitter/event-emitter.service';
 
 @Injectable()
 export class EarthbeamApiService {
@@ -34,7 +37,7 @@ export class EarthbeamApiService {
     private readonly encryptionService: EncryptionService,
     private readonly fileService: FileService,
     private readonly configService: AppConfigService,
-    private readonly eventEmitter: EventEmitterService
+    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
   ) {}
 
   async earthbeamInputForRun(runId: Run['id']) {
@@ -108,14 +111,6 @@ export class EarthbeamApiService {
       paramsForEarthbeam['DESCRIPTOR_NAMESPACE'] = descriptorNamespace;
     }
 
-    if (!job.fileBucketOrHost || !job.fileBasePath) {
-      return {
-        status: 'ERROR',
-        type: 'server_error',
-        message: 'File storage paths are not configured',
-      };
-    }
-
     const filesForEarthbeam = job.files.reduce<Record<string, string>>((acc, file) => {
       acc[file.templateKey] = file.nameInternal;
       return acc;
@@ -141,13 +136,10 @@ export class EarthbeamApiService {
       },
     });
 
-    const appDataBasePath = `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`;
-
-    const executorBaseUrl =
-      this.configService.executorCallbackBaseUrl() ?? this.configService.get('MY_URL');
+    const executorBaseUrl = this.configService.executorCallbackBaseUrl();
 
     const payload: EarthbeamApiJobResponseDto = {
-      appDataBasePath,
+      appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
       inputParams: paramsForEarthbeam,
       customDescriptorMappings:

@@ -2,27 +2,27 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { AppConfigService } from '../config/app-config.service';
 
+export interface EventEmitterService {
+  emit(label: string, payload: any): Promise<void>;
+}
+
+export const EVENT_EMITTER_SERVICE = 'EventEmitterService';
+
 @Injectable()
-export class EventEmitterService {
-  private readonly logger = new Logger(EventEmitterService.name);
-  private readonly eventBridgeClient?: EventBridgeClient;
+export class EventEmitterEventBridgeService implements EventEmitterService {
+  private readonly logger = new Logger(EventEmitterEventBridgeService.name);
+  private readonly eventBridgeClient: EventBridgeClient;
   private readonly source: string;
 
   constructor(private readonly appConfig: AppConfigService) {
     this.source = `runway.${this.appConfig.get('ENVLABEL') ?? 'unknown-env'}`;
-    if (!this.appConfig.isLocalExecutor()) {
-      this.eventBridgeClient = new EventBridgeClient({ region: process.env.AWS_REGION });
-    }
+    this.eventBridgeClient = new EventBridgeClient({ region: process.env.AWS_REGION });
   }
 
   async emit(label: string, payload: any) {
     // Sometimes an event is successfully sent but fails to trigger a rule. If we're not archiving
     // events (which we're not as of this writing), this log is the only way to sort out what's going on
     this.logger.log(`Emitting event: ${label} with data: ${JSON.stringify(payload)}`);
-
-    if (!this.eventBridgeClient) {
-      return;
-    }
 
     try {
       const command = new PutEventsCommand({
@@ -47,5 +47,21 @@ export class EventEmitterService {
       // failing to emit an event is not a critical error
       this.logger.error(`Error emitting event: ${error}`);
     }
+  }
+}
+
+@Injectable()
+export class EventEmitterLogService implements EventEmitterService {
+  private readonly logger = new Logger(EventEmitterLogService.name);
+
+  async emit(label: string, payload: any) {
+    this.logger.log(`Event: ${label} — ${JSON.stringify(payload)}`);
+  }
+}
+
+@Injectable()
+export class EventEmitterNoopService implements EventEmitterService {
+  async emit() {
+    // intentionally empty
   }
 }

@@ -104,11 +104,6 @@ export class AppConfigService {
     return this.get('S3_FILE_UPLOAD_BUCKET');
   }
 
-  isLocalExecutor(): boolean {
-    const localExecutor = this.get('LOCAL_EXECUTOR');
-    return localExecutor === 'python' || localExecutor === 'docker';
-  }
-
   executorCallbackBaseUrl(): string | undefined {
     if (this.get('LOCAL_EXECUTOR') === 'docker') {
       const port = process.env.PORT || 3333;
