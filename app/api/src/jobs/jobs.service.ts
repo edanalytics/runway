@@ -276,7 +276,6 @@ export class JobsService {
   }
 
   async startJob(job: Job & { files: JobFile[] }, prisma: PrismaClient) {
-    // TODO: move into controller?
     if (
       job.configStatus !== 'input_complete' ||
       job.files.some((file) => file.status !== 'upload_complete')
