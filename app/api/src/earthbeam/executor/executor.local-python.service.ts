@@ -1,12 +1,19 @@
-import { Job, Run } from '@prisma/client';
-import { ExecutorService } from './executor.abstract.service';
+import { Run } from '@prisma/client';
+import { ExecutorService, executorEnvVars } from './executor.abstract.service';
 import { rm, access } from 'fs/promises';
 import { exec } from 'child_process';
 import { Logger } from '@nestjs/common';
 import * as path from 'path';
+import { AppConfigService } from 'api/src/config/app-config.service';
+import { EarthbeamApiAuthService } from '../api/auth/earthbeam-api-auth.service';
 
-export class ExecutorLocalPythonService extends ExecutorService {
+export class ExecutorLocalPythonService implements ExecutorService {
   private readonly logger = new Logger(ExecutorLocalPythonService.name);
+
+  constructor(
+    private readonly appConfig: AppConfigService,
+    private readonly apiAuth: EarthbeamApiAuthService
+  ) {}
 
   async start(run: Run) {
     const cwd = path.resolve(process.cwd(), '../executor/local-run');
@@ -29,7 +36,7 @@ export class ExecutorLocalPythonService extends ExecutorService {
     await rm('../executor/local-run/output', { recursive: true, force: true });
     await rm('../executor/local-run/lb-download-dir', { recursive: true, force: true });
 
-    const envVars = await this.envVars(run.id);
+    const envVars = await executorEnvVars(run.id, this.apiAuth, this.appConfig);
     const proc = exec(`${pythonPath} -u ${scriptPath}`, {
       cwd,
       env: {
@@ -37,6 +44,9 @@ export class ExecutorLocalPythonService extends ExecutorService {
         PATH: `${process.env.PATH}:${path.join(cwd, 'venv/bin')}`,
         PYTHONPATH: `${path.resolve(cwd, '..')}:${process.env.PYTHONPATH ?? ''}`,
         DEPLOYMENT_MODE: 'LOCAL',
+        S3_ENDPOINT_URL: process.env.LOCAL_S3_ENDPOINT_URL ?? '',
+        AWS_ACCESS_KEY_ID: 'local',
+        AWS_SECRET_ACCESS_KEY: 'local',
       },
     });
 

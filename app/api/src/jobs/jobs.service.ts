@@ -11,12 +11,7 @@ import { PRISMA_READ_ONLY } from '../database';
 import { instanceToPlain } from 'class-transformer';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
-import { ExecutorService } from '../earthbeam/executor/executor.abstract.service';
-import { createWriteStream } from 'fs';
-import { mkdir } from 'fs/promises';
-import { pipeline } from 'stream/promises';
-import * as path from 'path';
-import { Readable } from 'stream';
+import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.abstract.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 
 @Injectable()
@@ -25,7 +20,7 @@ export class JobsService {
   constructor(
     @Inject(PRISMA_READ_ONLY) private prisma: PrismaClient,
     private fileService: FileService,
-    private executor: ExecutorService,
+    @Inject(EXECUTOR_SERVICE) private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
     private appConfig: AppConfigService
   ) {}
@@ -215,19 +210,11 @@ export class JobsService {
       };
     });
 
-    const isLocalExecutor = this.appConfig.isLocalExecutor();
-    const localStorageRoot = isLocalExecutor
-      ? this.appConfig.localExecutorStorageRoot()
-      : undefined;
-    if (isLocalExecutor && !localStorageRoot) {
-      throw new Error('Local executor storage root is not configured');
-    }
-
     const updatedJob = await prisma.job.update({
       where: { id: job.id },
       data: {
-        fileProtocol: isLocalExecutor ? 'file' : 's3',
-        fileBucketOrHost: isLocalExecutor ? localStorageRoot : this.appConfig.s3Bucket(),
+        fileProtocol: 's3',
+        fileBucketOrHost: this.appConfig.s3Bucket(),
         fileBasePath: basePath,
         files: { createMany: { data: files } },
       },
@@ -238,14 +225,6 @@ export class JobsService {
   }
 
   async getUploadUrls(files: JobFile[]) {
-    if (this.appConfig.isLocalExecutor()) {
-      const baseUrl = this.appConfig.get('MY_URL')?.replace(/\/+$/, '') ?? '';
-      return files.map((file) => ({
-        templateKey: file.templateKey,
-        url: `${baseUrl}/api/jobs/${file.jobId}/files/${file.templateKey}/upload`,
-      }));
-    }
-
     return Promise.all(
       files.map(async (file) => ({
         templateKey: file.templateKey,
@@ -258,11 +237,6 @@ export class JobsService {
   }
 
   async getDownloadUrlForInputFile(jobId: Job['id'], templateKey: JobFile['templateKey']) {
-    if (this.appConfig.isLocalExecutor()) {
-      const baseUrl = this.appConfig.get('MY_URL')?.replace(/\/+$/, '') ?? '';
-      return `${baseUrl}/api/jobs/${jobId}/files/${templateKey}/download`;
-    }
-
     const file = await this.prisma.jobFile.findUnique({
       where: { jobId_templateKey: { jobId, templateKey } },
     });
@@ -277,11 +251,6 @@ export class JobsService {
   }
 
   async getDownloadUrlForOutputFile(jobId: Job['id'], fileName: string) {
-    if (this.appConfig.isLocalExecutor()) {
-      const baseUrl = this.appConfig.get('MY_URL')?.replace(/\/+$/, '') ?? '';
-      return `${baseUrl}/api/jobs/${jobId}/output-files/${encodeURIComponent(fileName)}/download`;
-    }
-
     const file = await this.prisma.runOutputFile.findFirst({
       where: { run: { jobId }, name: fileName },
       orderBy: { runId: 'desc' },
@@ -358,61 +327,4 @@ export class JobsService {
     return { result: 'JOB_STARTED', job, run };
   }
 
-  async saveLocalUpload(jobId: Job['id'], templateKey: JobFile['templateKey'], stream: Readable) {
-    if (!this.appConfig.isLocalExecutor()) {
-      throw new Error('Local upload is only available in local executor mode');
-    }
-
-    const file = await this.prisma.jobFile.findUnique({
-      where: { jobId_templateKey: { jobId, templateKey } },
-    });
-
-    if (!file) {
-      return null;
-    }
-
-    const destination = this.fileService.localFilePath(file.path);
-    await mkdir(path.dirname(destination), { recursive: true });
-    await pipeline(stream, createWriteStream(destination));
-    return file;
-  }
-
-  async getLocalInputFileForDownload(jobId: Job['id'], templateKey: JobFile['templateKey']) {
-    if (!this.appConfig.isLocalExecutor()) {
-      throw new Error('Local download is only available in local executor mode');
-    }
-
-    const file = await this.prisma.jobFile.findUnique({
-      where: { jobId_templateKey: { jobId, templateKey } },
-    });
-
-    if (!file) {
-      return null;
-    }
-
-    return {
-      file,
-      path: this.fileService.localFilePath(file.path),
-    };
-  }
-
-  async getLocalOutputFileForDownload(jobId: Job['id'], fileName: string) {
-    if (!this.appConfig.isLocalExecutor()) {
-      throw new Error('Local download is only available in local executor mode');
-    }
-
-    const file = await this.prisma.runOutputFile.findFirst({
-      where: { run: { jobId }, name: fileName },
-      orderBy: { runId: 'desc' },
-    });
-
-    if (!file) {
-      return null;
-    }
-
-    return {
-      file,
-      path: this.fileService.localFilePath(file.path),
-    };
-  }
 }

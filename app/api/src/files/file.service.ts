@@ -8,24 +8,20 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { AppConfigService } from '../config/app-config.service';
-import { readdir } from 'fs/promises';
-import * as path from 'path';
 
 @Injectable()
 export class FileService {
-  private s3Client: S3Client = new S3Client({ region: process.env.AWS_REGION });
+  private s3Client: S3Client = new S3Client({
+    region: process.env.AWS_REGION,
+    ...(process.env.LOCAL_S3_ENDPOINT_URL && {
+      endpoint: process.env.LOCAL_S3_ENDPOINT_URL,
+      forcePathStyle: true, // S3Mock requires path-style: http://localhost:9090/bucket/key
+      credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
+    }),
+  });
   private logger = new Logger(FileService.name);
 
   constructor(private readonly appConfig: AppConfigService) {}
-
-  localFilePath(relativePath: string): string {
-    const root = this.appConfig.localStorageRoot();
-    if (!root) {
-      throw new Error('Local storage root is not configured');
-    }
-    const trimmed = relativePath.replace(/^\/+/, '');
-    return path.resolve(root, trimmed);
-  }
 
   async getPresignedUploadUrl({ fullPath, fileType }: { fullPath: string; fileType: string }) {
     const command = new PutObjectCommand({
@@ -53,15 +49,6 @@ export class FileService {
   }
 
   async listFilesAtPath(prefix: string) {
-    if (this.appConfig.isLocalExecutor()) {
-      const normalizedPrefix = prefix.replace(/\/+$/, '');
-      const localDir = this.localFilePath(normalizedPrefix);
-      const entries = await readdir(localDir, { withFileTypes: true }).catch(() => []);
-      return entries
-        .filter((entry) => entry.isFile())
-        .map((entry) => path.posix.join(normalizedPrefix, entry.name));
-    }
-
     const { Contents } = await this.s3Client.send(
       new ListObjectsV2Command({
         Bucket: this.appConfig.s3Bucket(),

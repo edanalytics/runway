@@ -47,5 +47,15 @@ services:
       IMPORT_MANAGED_CLIENTAUTHORIZATIONSCOPES: no-delete
       IMPORT_MANAGED_MESSAGEBUNDLES: no-delete
 
+  s3mock:
+    image: adobe/s3mock:latest
+    ports:
+      - 9090:9090
+    environment:
+      initialBuckets: runway-local-dev-data-integration
+    volumes:
+      - s3data:/s3mockroot
+
 volumes:
   database:
+  s3data:

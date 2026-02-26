@@ -1,34 +1,53 @@
-import { ExecutorService } from './executor.abstract.service';
+import { ExecutorService, executorEnvVars } from './executor.abstract.service';
 import { Run } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { execFile, spawn } from 'child_process';
+import { AppConfigService } from 'api/src/config/app-config.service';
+import { EarthbeamApiAuthService } from '../api/auth/earthbeam-api-auth.service';
 
-export class ExecutorLocalDockerService extends ExecutorService {
+export class ExecutorLocalDockerService implements ExecutorService {
   private readonly logger = new Logger(ExecutorLocalDockerService.name);
+
+  constructor(
+    private readonly appConfig: AppConfigService,
+    private readonly apiAuth: EarthbeamApiAuthService
+  ) {}
 
   async start(run: Run) {
     await this.ensureDockerAvailable();
     await this.ensureExecutorImage();
 
-    const envVars = await this.envVars(run.id);
-    const storageRoot = this.appConfig.localStorageRoot();
-    if (!storageRoot) {
-      throw new Error('Local storage root is not configured');
-    }
+    const envVars = await executorEnvVars(run.id, this.apiAuth, this.appConfig);
+
+    // The executor container reaches S3Mock via the host network.
+    // TODO: consider putting the executor on the same docker network as S3Mock
+    // so it can use the service name directly instead of host.docker.internal.
+    const s3Endpoint = process.env.LOCAL_S3_ENDPOINT_URL?.replace(
+      /localhost|127\.0\.0\.1/,
+      'host.docker.internal'
+    );
 
     const args = [
       'run',
       '--rm',
-      '--name', `runway-executor-${run.id}`,
+      '--name',
+      `runway-executor-${run.id}`,
       '--add-host=host.docker.internal:host-gateway',
-      '-v', `${storageRoot}:/storage`,
-      '-e', 'DEPLOYMENT_MODE=LOCAL',
-      '-e', `INIT_TOKEN=${envVars.INIT_TOKEN}`,
-      '-e', `INIT_JOB_URL=${envVars.INIT_JOB_URL}`,
-      '-e', `TIMEOUT_SECONDS=${envVars.TIMEOUT_SECONDS}`,
+      '-e',
+      'DEPLOYMENT_MODE=LOCAL',
+      '-e',
+      `INIT_TOKEN=${envVars.INIT_TOKEN}`,
+      '-e',
+      `INIT_JOB_URL=${envVars.INIT_JOB_URL}`,
+      '-e',
+      `TIMEOUT_SECONDS=${envVars.TIMEOUT_SECONDS}`,
+      ...(s3Endpoint ? ['-e', `S3_ENDPOINT_URL=${s3Endpoint}`] : []),
+      '-e',
+      'AWS_ACCESS_KEY_ID=local',
+      '-e',
+      'AWS_SECRET_ACCESS_KEY=local',
       'runway_executor',
     ];
-
 
     const proc = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 

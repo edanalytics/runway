@@ -5,7 +5,6 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { IEnvironmentVariables } from './env-vars.interface';
 import { keyBy } from 'lodash';
 import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm';
-import * as path from 'path';
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
@@ -107,27 +106,6 @@ export class AppConfigService {
 
   isLocalExecutor(): boolean {
     return !!this.get('LOCAL_EXECUTOR');
-  }
-
-  localStorageRoot(): string | undefined {
-    if (!this.isLocalExecutor()) {
-      return undefined;
-    }
-
-    return path.resolve(process.cwd(), '../storage');
-  }
-
-  localExecutorStorageRoot(): string | undefined {
-    const localExecutor = this.get('LOCAL_EXECUTOR');
-    if (!localExecutor) {
-      return undefined;
-    }
-
-    if (localExecutor === 'docker') {
-      return '/storage';
-    }
-
-    return this.localStorageRoot();
   }
 
   executorCallbackBaseUrl(): string | undefined {

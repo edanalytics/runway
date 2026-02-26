@@ -51,7 +51,8 @@ class JobExecutor:
             self.wrapper_project, "earthmover.yaml"
         )
 
-        self.s3 = boto3.client("s3")
+        endpoint_url = os.environ.get("S3_ENDPOINT_URL")
+        self.s3 = boto3.client("s3", **({"endpoint_url": endpoint_url} if endpoint_url else {}))
         self.local_mode = os.environ.get("DEPLOYMENT_MODE") == "LOCAL"
         self.conn = requests.Session()
 
