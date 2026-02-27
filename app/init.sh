@@ -231,11 +231,10 @@ ${BOLD}Services running (Docker):${RESET}
 ${BOLD}Executor mode:${RESET} ${choice}
 
 ${BOLD}Next steps:${RESET}
-  1. Configure your identity provider (see README for Keycloak setup).
-  2. Start the API and frontend in separate terminals:
+  1. Start the API and frontend in separate terminals:
        npx nx run api:serve
        npx nx run fe:serve
-  3. Open http://localhost:4200 in your browser.
+  2. Open http://localhost:4200 and log in with dev/dev.
 
 To re-run this script after pulling updates:
   ./init.sh

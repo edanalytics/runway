@@ -104,7 +104,7 @@ In deployed environments, the executor runs as a Task in Elastic Container Servi
 - `LOCAL_EXECUTOR=python`: The app spawns a Python process that runs alongside the app's Node process. In this mode, you don't need to rebuild the docker image for new code to take effect, but there's no formal isolation from anything else on your system (the bundles repo and python venv are all copied into the Runway repo).
 - `LOCAL_EXECUTOR=docker`: The app spins up a Docker container. Any executor code changes only take effect when you rebuild the image, but the overall setup is more similar to production.
 
-In both local modes, file uploads and executor artifacts are written to the `storage` directory in the repo root, mimicking the S3 path structure in production.
+In both local modes, file uploads and executor artifacts are stored in an S3Mock container, using the same S3 SDK and bucket paths as production.
 
 ### Testing in-development bundles
 

@@ -19,5 +19,7 @@ ON CONFLICT (id) DO NOTHING;
 
 \echo school_year
 INSERT INTO public.school_year (id, start_year, end_year)
-VALUES ('2526', 2025, 2026)
+VALUES ('2324', 2023, 2024),
+       ('2425', 2024, 2025),
+       ('2526', 2025, 2026)
 ON CONFLICT (id) DO NOTHING;

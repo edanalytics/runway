@@ -620,7 +620,6 @@ describe('ExternalApiV1', () => {
       let jobUid: string;
 
       beforeEach(async () => {
-        // TODO: maybe add a testing mode to LOCAL_MODE??
         earthbeamMock = jest
           .spyOn(ExecutorAwsService.prototype, 'start')
           .mockResolvedValue(undefined);

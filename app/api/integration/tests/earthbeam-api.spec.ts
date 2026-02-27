@@ -224,8 +224,6 @@ describe('Earthbeam API', () => {
       let eventEmitterMock: jest.SpyInstance;
 
       beforeEach(async () => {
-        // TODO: fix up how we handle the event emitter in the test env
-        // let eventEmitter = app.get(EVENT_EMITTER_SERVICE);
         eventEmitterMock = jest.spyOn(EventEmitterLogService.prototype, 'emit');
       });
 
