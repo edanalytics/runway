@@ -40,7 +40,11 @@ The script will prompt you to choose an executor mode (docker or python). See [R
 
 If you already have a local instance of Keycloak that you prefer, feel free to use that instead. You will have to configure an OIDC client that matches the seed IdP registration in [api/seed.sql](api/seed.sql) (or update the seed to match a client you already have configured in Keycloak).
 
-**Note**: You can add assessments to `earthmover_bundle` and `partner_earthmover_bundle` at any time to make additional bundles available for local testing. See [api/seed.sql](api/seed.sql) for the format.
+**Bundles**: Assessment bundles are synced automatically from the [earthmover_edfi_bundles registry](https://github.com/edanalytics/earthmover_edfi_bundles). To refresh bundles from the registry at any time:
+
+```bash
+cd api && bash sync-bundles.sh
+```
 
 ### Run the App
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")"
+
 # ---------------------------------------------------------------------------
 # Color helpers
 # ---------------------------------------------------------------------------
@@ -53,6 +55,18 @@ if ! command -v git &>/dev/null; then
   missing+=("git")
 else
   ok "git $(git --version | awk '{print $3}')"
+fi
+
+if ! command -v curl &>/dev/null; then
+  missing+=("curl")
+else
+  ok "curl $(curl --version | head -1 | awk '{print $2}')"
+fi
+
+if ! command -v jq &>/dev/null; then
+  missing+=("jq")
+else
+  ok "jq $(jq --version)"
 fi
 
 if (( ${#missing[@]} > 0 )); then
@@ -119,7 +133,16 @@ step "Seeding local development data"
 pushd ./api > /dev/null
 docker compose exec -T db bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < seed.sql
 popd > /dev/null
-ok "seed data loaded (IdP, partner, school year, bundles)"
+ok "seed data loaded (IdP, partner, school year)"
+
+# ---------------------------------------------------------------------------
+# Step 6b: Sync earthmover bundles from registry
+# ---------------------------------------------------------------------------
+step "Syncing earthmover bundles from registry"
+pushd ./api > /dev/null
+bash sync-bundles.sh
+popd > /dev/null
+ok "bundles synced from registry"
 
 # ---------------------------------------------------------------------------
 # Step 7: Executor setup
@@ -199,8 +222,7 @@ ok "LOCAL_EXECUTOR=${choice} set in api/.env"
 # ---------------------------------------------------------------------------
 # Step 8: Summary
 # ---------------------------------------------------------------------------
-cat << EOF
-
+printf "
 ${BOLD}Services running (Docker):${RESET}
   postgres   localhost:5432
   keycloak   localhost:8080  (admin/admin)
@@ -218,4 +240,4 @@ ${BOLD}Next steps:${RESET}
 To re-run this script after pulling updates:
   ./init.sh
 
-EOF
+"
