@@ -95,11 +95,11 @@ There are two methods to log in as a given user:
 
 #### 4. Configure an ODS
 
-You'll need a valid (even if nono-prod) place to send data in order to run local jobs.
+You'll need a valid (even if non-prod) place to send data in order to run local jobs.
 
 ### Running the executor locally
 
-In deployed environments, the executor runs as a Task in Elastic Container Service (ECS). Locally, the app initiate the executor based on the `LOCAL_EXECUTOR` environment variable:
+In deployed environments, the executor runs as a Task in Elastic Container Service (ECS). Locally, the app initiates the executor based on the `LOCAL_EXECUTOR` environment variable:
 
 - `LOCAL_EXECUTOR=python`: The app spawns a Python process that runs alongside the app's Node process. In this mode, you don't need to rebuild the docker image for new code to take effect, but there's no formal isolation from anything else on your system (the bundles repo and python venv are all copied into the Runway repo).
 - `LOCAL_EXECUTOR=docker`: The app spins up a Docker container. Any executor code changes only take effect when you rebuild the image, but the overall setup is more similar to production.
@@ -109,10 +109,11 @@ In both local modes, file uploads and executor artifacts are stored in an S3Mock
 ### Testing in-development bundles
 
 If using local Runway to test a bundle that is not on the main branch, you can follow these steps:
-  1. Connect to the locally-running backend database at localhost:5432
-  2. Add your bundle to the earthmover_bundle table, then the partner_earthmover_bundle table
-  3. Make sure you have pushed an update to the bundle registry on your branch by running `python create-registry.py assessments`
-  4. You should see the bundle as an option on the "load a new assessment" page 
+
+1. Connect to the locally-running backend database at localhost:5432
+2. Add your bundle to the earthmover_bundle table, then the partner_earthmover_bundle table
+3. Make sure you have pushed an update to the bundle registry on your branch by running `python create-registry.py assessments`
+4. You should see the bundle as an option on the "load a new assessment" page
 
 ## OSS required attributions
 

@@ -97,6 +97,11 @@ if ! grep -q '^LOCAL_EVENT_EMITTER=' ./api/.env; then
   ok "added LOCAL_EVENT_EMITTER=log to api/.env"
 fi
 
+if ! grep -q '^LOCAL_EXECUTOR=' ./api/.env; then
+  echo 'LOCAL_EXECUTOR=docker' >> ./api/.env
+  ok "added LOCAL_EXECUTOR=docker to api/.env"
+fi
+
 # ---------------------------------------------------------------------------
 # Step 3: npm install + Prisma generate
 # ---------------------------------------------------------------------------
@@ -115,9 +120,19 @@ step "Starting Docker services"
 pushd ./api > /dev/null
 docker compose up --detach --quiet-pull --wait --wait-timeout 60
 popd > /dev/null
-ok "postgres   localhost:5432"
 ok "keycloak   localhost:8080"
 ok "s3mock     localhost:9090"
+
+# Wait for postgres to accept connections on the host port (the container
+# healthcheck can pass before the port-forward is fully established).
+for i in $(seq 1 10); do
+  if pg_isready -h 127.0.0.1 -p 5432 -q 2>/dev/null || \
+     node -e "require('net').createConnection(5432,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+ok "postgres   localhost:5432"
 
 # ---------------------------------------------------------------------------
 # Step 5: Run migrations
@@ -190,8 +205,22 @@ else
   fi
   ok "python3 ${py_version}"
 
+  # ensurepip is provided by the python3.x-venv package on Debian/Ubuntu;
+  # without it, `python3 -m venv` creates a broken venv missing pip.
+  if ! python3 -c 'import ensurepip' 2>/dev/null; then
+    fail "python3 ensurepip module not found"
+    printf "  On Debian/Ubuntu, install it with: sudo apt install python3.${py_minor}-venv\n"
+    exit 1
+  fi
+
   mkdir -p ../executor/local-run
   pushd ../executor/local-run > /dev/null
+
+  # Recreate the venv if a previous run left a broken one (missing pip)
+  if [[ -d venv ]] && [[ ! -x venv/bin/pip ]]; then
+    rm -rf venv
+    ok "removed broken virtual environment (missing pip)"
+  fi
 
   if [[ ! -d venv ]]; then
     python3 -m venv venv
