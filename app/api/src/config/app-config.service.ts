@@ -28,7 +28,7 @@ type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 export class AppConfigService {
   constructor(private readonly configService: ConfigService<IEnvironmentVariables>) {}
 
-  get(key: keyof IEnvironmentVariables) {
+  get<K extends keyof IEnvironmentVariables>(key: K): IEnvironmentVariables[K] | undefined {
     return this.configService.get(key, { infer: true });
   }
 
@@ -104,6 +104,14 @@ export class AppConfigService {
     return this.get('S3_FILE_UPLOAD_BUCKET');
   }
 
+  executorCallbackBaseUrl(): string | undefined {
+    if (this.get('LOCAL_EXECUTOR') === 'docker') {
+      const port = process.env.PORT || 3333;
+      return `http://host.docker.internal:${port}`;
+    }
+    return this.get('MY_URL');
+  }
+
   getExternalApiConfig(): { issuerUrl: string | undefined; audience: string | undefined } {
     const issuerUrl = this.get('OAUTH2_ISSUER');
     const audience = this.get('OAUTH2_AUDIENCE') ?? this.get('MY_URL'); // OAUTH2_AUDIENCE is only used for running locally. Deployed envs should use the API url
@@ -117,7 +125,6 @@ export class AppConfigService {
     securityGroups: string[];
     taskRole: string;
     containerName: { small: string; medium: string; large: string };
-    timeout: number;
   }> {
     const envLabel = this.get('ENVLABEL');
     if (!envLabel) {
@@ -170,7 +177,6 @@ export class AppConfigService {
         medium: `${envLabel}-JobExecutorMedium`,
         large: `${envLabel}-JobExecutorLarge`,
       },
-      timeout: Number(this.get('TIMEOUT_SECONDS') ?? 60 * 60),
     };
   }
 

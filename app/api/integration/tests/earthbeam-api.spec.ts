@@ -6,7 +6,7 @@ import { odsConnA2425, odsConnX2425 } from '../fixtures/context-fixtures/ods-fix
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { Run } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
-import { EventEmitterService } from 'api/src/event-emitter/event-emitter.service';
+import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 
 describe('Earthbeam API', () => {
@@ -224,8 +224,7 @@ describe('Earthbeam API', () => {
       let eventEmitterMock: jest.SpyInstance;
 
       beforeEach(async () => {
-        // let eventEmitter = app.get(EventEmitterService);
-        eventEmitterMock = jest.spyOn(EventEmitterService.prototype, 'emit');
+        eventEmitterMock = jest.spyOn(EventEmitterLogService.prototype, 'emit');
       });
 
       afterEach(() => {

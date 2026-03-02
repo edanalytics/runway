@@ -7,11 +7,8 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
-import { schoolYear2324 } from '../fixtures/context-fixtures/school-year-fixtures';
 import { odsConfigA2425, odsConnA2425 } from '../fixtures/context-fixtures/ods-fixture';
 import { seedOds } from '../factories/ods-factory';
-import { EarthbeamRunService } from 'api/src/earthbeam/earthbeam-run.service';
-import { Job } from '@prisma/client';
 import { FileService } from 'api/src/files/file.service';
 import { ExternalApiAuthService } from '../../src/external-api/auth/external-api.auth.service';
 import { authHelper } from '../helpers/oidc/auth-flow';
@@ -19,6 +16,7 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { userA } from '../fixtures/user-fixtures';
 import { GetJobDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
+import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
 
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {
@@ -622,10 +620,9 @@ describe('ExternalApiV1', () => {
       let jobUid: string;
 
       beforeEach(async () => {
-        earthbeamMock = jest.spyOn(EarthbeamRunService.prototype, 'start').mockResolvedValue({
-          result: 'JOB_STARTED',
-          job: { id: 123 } as Job, // doesn't really matter
-        });
+        earthbeamMock = jest
+          .spyOn(ExecutorAwsService.prototype, 'start')
+          .mockResolvedValue(undefined);
         bundleMock = jest
           .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
           .mockResolvedValue(allBundles);

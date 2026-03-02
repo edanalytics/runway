@@ -5,14 +5,17 @@ import { AppConfigService } from '../config/app-config.service';
 @Injectable()
 export class EarthbeamBundlesService {
   private readonly logger = new Logger(EarthbeamBundlesService.name);
+  private readonly appConfig: AppConfigService;
 
   private bundleUrl: string;
   private bundles: Record<EarthmoverBundleTypes, IEarthmoverBundle[]> | undefined;
   private bundlesLastUpdated: Date | undefined;
   private bundlesCacheSec = 5 * 60;
+  private disableBundleCache: boolean;
   constructor(private readonly configService: AppConfigService) {
     const branch = this.configService.bundleBranch();
     this.bundleUrl = `https://raw.githubusercontent.com/edanalytics/earthmover_edfi_bundles/refs/heads/${branch}/registry.json`;
+    this.disableBundleCache = this.configService.get('LOCAL_BUNDLE_CACHE_DISABLED') === 'true';
   }
 
   async onModuleInit() {
@@ -42,7 +45,7 @@ export class EarthbeamBundlesService {
   }
 
   async getBundles(type: EarthmoverBundleTypes) {
-    if (this.bundleCacheExpired()) {
+    if (this.bundleCacheExpired() || this.disableBundleCache) {
       await this.fetchBundles();
     }
 
