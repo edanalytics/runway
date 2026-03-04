@@ -33,6 +33,26 @@ The access token must include the following claims:
 
 \* At least one of `client_id` or `azp` must be present. Most OAuth2 providers include `client_id` by default in client credentials tokens.
 
+### Local Development
+
+The local Keycloak instance (started by `docker compose`) comes pre-configured with a `runway-api` client for the external API. No additional IdP setup is needed.
+
+The client is configured in [`api/keycloak/config.yaml`](../../../../api/keycloak/config.yaml) with the `create:jobs` and `partner:ea` scopes and an audience of `runway-local`.
+
+Get a token and verify it:
+
+```bash
+# Obtain a token from local Keycloak
+TOKEN=$(curl -s -X POST http://localhost:8080/realms/example/protocol/openid-connect/token \
+  -d "grant_type=client_credentials" \
+  -d "client_id=runway-api" \
+  -d "client_secret=api-secret-123" | jq -r '.access_token')
+
+# Verify it against the local API
+curl -X POST http://localhost:3333/api/v1/token/verify \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ## API Usage
 
 All requests must include:
