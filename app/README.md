@@ -93,7 +93,11 @@ There are two methods to log in as a given user:
    1. Within the user record, select `Impersonate` from the Action menu in the upper right
    1. Go to http://localhost:4200 and click the login button. When you get redirected to Keycloak, Keycloak will authenticate you as the user you just impersonated.
 
-#### 4. Configure an ODS
+#### 4. Testing the External API
+
+The local Keycloak comes with a pre-configured client for the external API (client credentials flow). See the [External API README](api/src/external-api/README.md#local-development) for curl examples.
+
+#### 5. Configure an ODS
 
 You'll need a valid (even if non-prod) place to send data in order to run local jobs.
 
