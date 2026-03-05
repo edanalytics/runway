@@ -383,10 +383,11 @@ class JobExecutor:
             if err.stderr and "codec can't decode" in err.stderr and self.input_sources["INPUT_FILE"]["encoding"] != "ISO-8859-1":
                 self.logger.error(f"Failed to read file with {self.input_sources['INPUT_FILE']['encoding']} encoding. Retrying with Latin1...")
                 try:
-                    # attempt no. 2
-                    subprocess.run(
+                    # attempt no. 2 - need a new em object to overwrite the decoding error
+                    em = subprocess.run(
                         ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", artifact.EM_RESULTS.path, "--set", "sources.input.encoding", "iso-8859-1"],
-                    ).check_returncode()
+                    )
+                    em.check_returncode()
 
                     fatal = False # if we made it this far, we can abort the shutdown
                 except subprocess.CalledProcessError:
