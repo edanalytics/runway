@@ -25,11 +25,11 @@ Configure an OAuth2/OIDC client in your identity provider with:
 
 The access token must include the following claims:
 
-| Claim         | Required | Description                                                                                         |
-| ------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `client_id`   | Yes\*    | The OAuth2 client ID. Used to attribute jobs to the API client.                                     |
-| `azp`         | Yes\*    | Authorized party. Used as fallback if `client_id` is not present.                                   |
-| `client_name` | No       | Display name for the API client. If provided, shown in the Runway UI for jobs created via the API.  |
+| Claim         | Required | Description                                                                                        |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `client_id`   | Yes\*    | The OAuth2 client ID. Used to attribute jobs to the API client.                                    |
+| `azp`         | Yes\*    | Authorized party. Used as fallback if `client_id` is not present.                                  |
+| `client_name` | No       | Display name for the API client. If provided, shown in the Runway UI for jobs created via the API. |
 
 \* At least one of `client_id` or `azp` must be present. Most OAuth2 providers include `client_id` by default in client credentials tokens.
 
@@ -37,7 +37,7 @@ The access token must include the following claims:
 
 The local Keycloak instance (started by `docker compose`) comes pre-configured with a `runway-api` client for the external API. No additional IdP setup is needed.
 
-The client is configured in [`api/keycloak/config.yaml`](../../../../api/keycloak/config.yaml) with the `create:jobs` and `partner:ea` scopes and an audience of `runway-local`.
+The client is configured in [`api/keycloak/config.yaml`](../../../api/keycloak/config.yaml) with the `create:jobs` and `partner:ea` scopes and an audience of `runway-local`.
 
 Get a token and verify it:
 
