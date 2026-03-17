@@ -6,7 +6,7 @@ import { odsConnA2425, odsConnX2425 } from '../fixtures/context-fixtures/ods-fix
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { Run } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
-import { EventEmitterService } from 'api/src/event-emitter/event-emitter.service';
+import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 
 describe('Earthbeam API', () => {
@@ -48,12 +48,6 @@ describe('Earthbeam API', () => {
       runX = jobX.runs[0];
       endpointX = `/earthbeam/jobs/${runX.id}`;
       tokenX = await authService.createAccessToken({ runId: runX.id });
-    });
-
-    afterEach(async () => {
-      await prisma.job.deleteMany({
-        where: { id: { in: [runA.jobId, runX.jobId] } },
-      });
     });
 
     it('should reject unauthenticated requests', async () => {
@@ -108,10 +102,6 @@ describe('Earthbeam API', () => {
             customDescriptor: `custom_${mapping.edfiDefaultDescriptor}`,
           })),
         });
-      });
-
-      afterEach(async () => {
-        await prisma.bundleDescriptorMapping.deleteMany(); // cascade to custom descriptor mappings
       });
 
       it('should return custom descriptor mappings if they exist for the partner', async () => {
@@ -220,12 +210,6 @@ describe('Earthbeam API', () => {
       endpointA = `/earthbeam/jobs/${runA.id}/status`;
     });
 
-    afterEach(async () => {
-      await prisma.job.deleteMany({
-        where: { id: { in: [runA.jobId] } },
-      });
-    });
-
     it('should reject unauthenticated requests', async () => {
       const res = await request(app.getHttpServer()).post(endpointA);
       expect(res.status).toBe(401);
@@ -240,8 +224,7 @@ describe('Earthbeam API', () => {
       let eventEmitterMock: jest.SpyInstance;
 
       beforeEach(async () => {
-        // let eventEmitter = app.get(EventEmitterService);
-        eventEmitterMock = jest.spyOn(EventEmitterService.prototype, 'emit');
+        eventEmitterMock = jest.spyOn(EventEmitterLogService.prototype, 'emit');
       });
 
       afterEach(() => {

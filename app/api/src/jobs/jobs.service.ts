@@ -9,9 +9,9 @@ import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/cli
 import { FileService } from '../files/file.service';
 import { PRISMA_READ_ONLY } from '../database';
 import { instanceToPlain } from 'class-transformer';
-import { EarthbeamRunService } from '../earthbeam/earthbeam-run.service';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
+import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 
 @Injectable()
@@ -20,7 +20,7 @@ export class JobsService {
   constructor(
     @Inject(PRISMA_READ_ONLY) private prisma: PrismaClient,
     private fileService: FileService,
-    private earthbeamService: EarthbeamRunService,
+    @Inject(EXECUTOR_SERVICE) private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
     private appConfig: AppConfigService
   ) {}
@@ -283,6 +283,47 @@ export class JobsService {
       return { result: 'JOB_CONFIG_INCOMPLETE', job };
     }
 
-    return await this.earthbeamService.start(job, prisma);
+    const runs = await prisma.run.findMany({ where: { jobId: job.id } });
+    if (runs.some((run) => run.status === 'running' || run.status === 'new')) {
+      return { result: 'JOB_IN_PROGRESS', job };
+    }
+
+    const run = await prisma.run.create({
+      data: {
+        jobId: job.id,
+        status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
+      },
+      include: { job: true },
+    });
+
+    try {
+      await this.executor.start(run);
+    } catch (e) {
+      this.logger.error(`Failed to start run ${run.id}: ${e}`);
+
+      await prisma.run.update({
+        where: { id: run.id },
+        data: {
+          status: 'error',
+          runError: {
+            create: {
+              code: 'failed_to_start_executor',
+              payload: { stacktrace: 'stacktrace unavailable' },
+            },
+          },
+          runUpdate: {
+            create: {
+              action: 'done',
+              status: 'failure',
+            },
+          },
+        },
+      });
+
+      return { result: 'JOB_START_FAILED', job, error: e };
+    }
+
+    return { result: 'JOB_STARTED', job, run };
   }
+
 }

@@ -1,71 +1,271 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Check if node version is 22 (expected)
-RED="\e[31m"
-node_version=$(node -v)
-if [[ $node_version != v22* ]]; then
-  echo -e "${RED}\nYour current Node version is $node_version. Please install v22.x before continuing.\n"
+cd "$(dirname "$0")"
+
+# ---------------------------------------------------------------------------
+# Color helpers
+# ---------------------------------------------------------------------------
+RED='\e[31m'
+GREEN='\e[32m'
+YELLOW='\e[33m'
+BOLD='\e[1m'
+RESET='\e[0m'
+
+step()  { printf "\n${BOLD}▸ %s${RESET}\n" "$1"; }
+ok()    { printf "  ${GREEN}✓${RESET} %s\n" "$1"; }
+skip()  { printf "  ${YELLOW}—${RESET} %s (skipped)\n" "$1"; }
+fail()  { printf "  ${RED}✗${RESET} %s\n" "$1"; }
+
+# ---------------------------------------------------------------------------
+# Step 1: Check dependencies
+# ---------------------------------------------------------------------------
+step "Checking dependencies"
+
+missing=()
+
+if ! command -v node &>/dev/null; then
+  missing+=("node v22.x")
+elif [[ "$(node -v)" != v22* ]]; then
+  fail "node $(node -v) found — v22.x required"
+  missing+=("node v22.x")
+else
+  ok "node $(node -v)"
+fi
+
+if ! command -v npm &>/dev/null; then
+  missing+=("npm")
+else
+  ok "npm $(npm -v)"
+fi
+
+if ! command -v docker &>/dev/null; then
+  missing+=("docker")
+else
+  ok "docker $(docker --version | head -c 40)"
+fi
+
+if ! docker compose version &>/dev/null; then
+  missing+=("docker compose v2 (docker compose plugin)")
+else
+  ok "docker compose $(docker compose version --short)"
+fi
+
+if ! command -v git &>/dev/null; then
+  missing+=("git")
+else
+  ok "git $(git --version | awk '{print $3}')"
+fi
+
+if ! command -v curl &>/dev/null; then
+  missing+=("curl")
+else
+  ok "curl $(curl --version | head -1 | awk '{print $2}')"
+fi
+
+if ! command -v jq &>/dev/null; then
+  missing+=("jq")
+else
+  ok "jq $(jq --version)"
+fi
+
+if (( ${#missing[@]} > 0 )); then
+  printf "\n${RED}Missing required tools:${RESET}\n"
+  for tool in "${missing[@]}"; do
+    printf "  - %s\n" "$tool"
+  done
   exit 1
 fi
 
-# Copy environment variable template files
-echo "Creating untracked environment variable files."
-if [ -f ./fe/.env ] || [-f ./api/.env]; then
-  echo -e "\n"
-  while true; do
-    read -p "You have already created environment variable files. Do you want to overwrite them? (y/n) " yn
-    case $yn in
-        [Yy]* ) cp ./fe/.env.copyme ./fe/.env && cp ./api/.env.copyme ./api/.env; break;;
-        [Nn]* ) echo -e "${RED}\nCanceling init.\n" && exit 1;;
-        * ) echo "Please answer yes or no.";;
-    esac
-  done
-else
-  cp ./fe/.env.copyme ./fe/.env
-  cp ./api/.env.copyme ./api/.env
+# ---------------------------------------------------------------------------
+# Step 2: Set up env files (non-destructive)
+# ---------------------------------------------------------------------------
+step "Setting up environment files"
+
+for dir in fe api; do
+  if [[ -f "./${dir}/.env" ]]; then
+    skip "./${dir}/.env already exists"
+  else
+    cp "./${dir}/.env.copyme" "./${dir}/.env"
+    ok "created ./${dir}/.env from .env.copyme"
+  fi
+done
+
+# Backfill env vars that may be missing from older .env files
+if ! grep -q '^LOCAL_EVENT_EMITTER=' ./api/.env; then
+  echo 'LOCAL_EVENT_EMITTER=log' >> ./api/.env
+  ok "added LOCAL_EVENT_EMITTER=log to api/.env"
 fi
 
-# Install node dependencies
-echo "Installing node dependencies."
-npm install --silent
+if ! grep -q '^LOCAL_EXECUTOR=' ./api/.env; then
+  echo 'LOCAL_EXECUTOR=docker' >> ./api/.env
+  ok "added LOCAL_EXECUTOR=docker to api/.env"
+fi
 
-# Generate prisma client (postinstall script can't find schema file not in root)
-echo "Generating Prisma client to node_modules."
+# ---------------------------------------------------------------------------
+# Step 3: npm install + Prisma generate
+# ---------------------------------------------------------------------------
+step "Installing Node dependencies"
+npm install --no-fund --no-audit
+ok "npm install"
+
+step "Generating Prisma client"
 npm run prisma:generate-client
+ok "prisma generate"
 
-# Start local dev database in docker
-echo "Starting local database in docker."
+# ---------------------------------------------------------------------------
+# Step 4: Docker Compose up + wait for healthy postgres
+# ---------------------------------------------------------------------------
+step "Starting Docker services"
 pushd ./api > /dev/null
-docker compose up --detach --quiet-pull
-sleep 3
+docker compose up --detach --quiet-pull --wait --wait-timeout 60
 popd > /dev/null
+ok "keycloak   localhost:8080"
+ok "s3mock     localhost:9090"
 
-# Run migrations to prep for IdP seeding
-echo "Running database migrations."
+# Wait for postgres to accept connections on the host port (the container
+# healthcheck can pass before the port-forward is fully established).
+for i in $(seq 1 10); do
+  if pg_isready -h 127.0.0.1 -p 5432 -q 2>/dev/null || \
+     node -e "require('net').createConnection(5432,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+ok "postgres   localhost:5432"
+
+# ---------------------------------------------------------------------------
+# Step 5: Run migrations
+# ---------------------------------------------------------------------------
+step "Running database migrations"
 npm run api:migrate-local-dev
+ok "migrations applied"
 
-# Log help info
-cat << EOF
+# ---------------------------------------------------------------------------
+# Step 6: Seed local dev data
+# ---------------------------------------------------------------------------
+step "Seeding local development data"
+pushd ./api > /dev/null
+docker compose exec -T db bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < seed.sql
+popd > /dev/null
+ok "seed data loaded (IdP, partner, school year)"
 
+# ---------------------------------------------------------------------------
+# Step 6b: Sync earthmover bundles from registry
+# ---------------------------------------------------------------------------
+step "Syncing earthmover bundles from registry"
+pushd ./api > /dev/null
+bash sync-bundles.sh
+popd > /dev/null
+ok "bundles synced from registry"
 
+# ---------------------------------------------------------------------------
+# Step 7: Executor setup
+# ---------------------------------------------------------------------------
+step "Executor setup"
 
-Initialized local development environment:
-- Copied front-end and server environment variable 'copyme' files.
-- Installed node dependencies.
-- Generated Prisma ORM database client.
-- Started local app database in docker.
-- Ran database migrations
+# Detect current setting from api/.env (default: docker)
+current_mode="docker"
+if grep -qE '^LOCAL_EXECUTOR=python' ./api/.env 2>/dev/null; then
+  current_mode="python"
+fi
 
+printf "\n"
+printf "  ${BOLD}docker${RESET}  — run jobs in a container (simpler, no Python needed)\n"
+printf "  ${BOLD}python${RESET}  — run jobs as a subprocess (for developing/debugging executor code)\n"
+printf "\n"
 
-You can now connect an IdP (see README).
+while true; do
+  read -rp "Executor mode [${current_mode}]: " choice
+  choice="${choice:-$current_mode}"
+  choice="${choice,,}" # lowercase
 
+  if [[ "$choice" == "docker" || "$choice" == "python" ]]; then
+    break
+  fi
+  echo "Please enter 'docker' or 'python'."
+done
 
-When ready, start the API and client dev servers:
-npx nx run api:serve
-npx nx run fe:serve
+if [[ "$choice" == "docker" ]]; then
+  echo ""
+  docker build -t runway_executor ../executor
+  ok "executor Docker image built"
+else
+  # Check Python 3.10+
+  if ! command -v python3 &>/dev/null; then
+    fail "python3 not found — Python 3.10+ is required for python executor mode"
+    exit 1
+  fi
+  py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+  py_major=$(python3 -c 'import sys; print(sys.version_info.major)')
+  py_minor=$(python3 -c 'import sys; print(sys.version_info.minor)')
+  if (( py_major < 3 || (py_major == 3 && py_minor < 10) )); then
+    fail "Python 3.10+ required, found ${py_version}"
+    exit 1
+  fi
+  ok "python3 ${py_version}"
 
+  # ensurepip is provided by the python3.x-venv package on Debian/Ubuntu;
+  # without it, `python3 -m venv` creates a broken venv missing pip.
+  if ! python3 -c 'import ensurepip' 2>/dev/null; then
+    fail "python3 ensurepip module not found"
+    printf "  On Debian/Ubuntu, install it with: sudo apt install python3.${py_minor}-venv\n"
+    exit 1
+  fi
 
-See ./package.json and the various README files for other instructions
-and possible commands.
+  mkdir -p ../executor/local-run
+  pushd ../executor/local-run > /dev/null
 
-EOF
+  # Recreate the venv if a previous run left a broken one (missing pip)
+  if [[ -d venv ]] && [[ ! -x venv/bin/pip ]]; then
+    rm -rf venv
+    ok "removed broken virtual environment (missing pip)"
+  fi
+
+  if [[ ! -d venv ]]; then
+    python3 -m venv venv
+    ok "created virtual environment"
+  else
+    skip "virtual environment already exists"
+  fi
+
+  ./venv/bin/pip install -r ../requirements.txt
+  ./venv/bin/pip install -e ..
+  ok "pip dependencies installed"
+
+  if [[ ! -d bundles ]]; then
+    git clone https://github.com/edanalytics/earthmover_edfi_bundles.git bundles
+    ok "cloned earthmover bundles"
+  else
+    git -C bundles pull --ff-only
+    ok "updated earthmover bundles"
+  fi
+
+  popd > /dev/null
+fi
+
+# Update LOCAL_EXECUTOR in api/.env (in-place, avoids duplicates on re-run)
+sed -i "s/^LOCAL_EXECUTOR=.*/LOCAL_EXECUTOR=${choice}/" ./api/.env
+ok "LOCAL_EXECUTOR=${choice} set in api/.env"
+
+# ---------------------------------------------------------------------------
+# Step 8: Summary
+# ---------------------------------------------------------------------------
+printf "
+${BOLD}Services running (Docker):${RESET}
+  postgres   localhost:5432
+  keycloak   localhost:8080  (admin/admin)
+  s3mock     localhost:9090
+
+${BOLD}Executor mode:${RESET} ${choice}
+
+${BOLD}Next steps:${RESET}
+  1. Start the API and frontend in separate terminals:
+       npx nx run api:serve
+       npx nx run fe:serve
+  2. Open http://localhost:4200 and log in with dev/dev.
+
+To re-run this script after pulling updates:
+  ./init.sh
+
+"

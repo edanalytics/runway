@@ -2,6 +2,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppModule } from '../../../../src/app/app.module';
 import expressSession from 'express-session';
 import passport from 'passport';
@@ -18,8 +19,10 @@ import { ExternalApiAuthService } from '../../../../src/external-api/auth/extern
 export const initApp = async function () {
   try {
     // create the test app instance
+    // ConfigModule.forRoot with ignoreEnvFile prevents NestJS from loading .env,
+    // so tests rely solely on .env.test (loaded by the test harness in global-setup).
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [ConfigModule.forRoot({ ignoreEnvFile: true, isGlobal: true }), AppModule],
     })
       .overrideProvider(FileService) // S3 mock
       .useValue({

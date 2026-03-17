@@ -23,7 +23,11 @@ import {
 import { FileService } from 'api/src/files/file.service';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
-import { EventEmitterService } from 'api/src/event-emitter/event-emitter.service';
+import {
+  EventEmitterService,
+  EVENT_EMITTER_SERVICE,
+} from 'api/src/event-emitter/event-emitter.service';
+
 @Injectable()
 export class EarthbeamApiService {
   private readonly logger = new Logger(EarthbeamApiService.name);
@@ -33,7 +37,7 @@ export class EarthbeamApiService {
     private readonly encryptionService: EncryptionService,
     private readonly fileService: FileService,
     private readonly configService: AppConfigService,
-    private readonly eventEmitter: EventEmitterService
+    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
   ) {}
 
   async earthbeamInputForRun(runId: Run['id']) {
@@ -132,6 +136,8 @@ export class EarthbeamApiService {
       },
     });
 
+    const executorBaseUrl = this.configService.executorCallbackBaseUrl();
+
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
@@ -145,10 +151,10 @@ export class EarthbeamApiService {
         branch: this.configService.bundleBranch(),
       },
       appUrls: {
-        status: `${process.env.MY_URL}/${earthbeamStatusUpdateEndpoint(runId)}`,
-        error: `${process.env.MY_URL}/${earthbeamErrorUpdateEndpoint(runId)}`,
-        summary: `${process.env.MY_URL}/${earthbeamSummaryEndpoint(runId)}`,
-        unmatchedIds: `${process.env.MY_URL}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
+        status: `${executorBaseUrl}/${earthbeamStatusUpdateEndpoint(runId)}`,
+        error: `${executorBaseUrl}/${earthbeamErrorUpdateEndpoint(runId)}`,
+        summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
+        unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
       },
       assessmentDatastore: {
         apiYear: apiYear,

@@ -1,4 +1,4 @@
-import { prismaClient } from '../../db/client';
+import { pool, prismaClient } from '../../db/client';
 import { partnerA, partnerC, partnerX } from '../../../fixtures/context-fixtures/partner-fixtures';
 import {
   bundleA,
@@ -130,17 +130,23 @@ const load = async () => {
   );
 };
 
+const dbPool = pool();
 const clear = async () => {
-  const prisma = prismaClient();
-  await prisma.userTenant.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.tenant.deleteMany();
-  await prisma.identityProvider.deleteMany();
-  await prisma.partner.deleteMany();
-  await prisma.oidcConfig.deleteMany();
-  await prisma.schoolYear.deleteMany();
-  await prisma.earthmoverBundle.deleteMany();
-  await prisma.partnerEarthmoverBundle.deleteMany();
-  await prisma.odsConfig.deleteMany();
-  await prisma.odsConnection.deleteMany();
+  await Promise.all([
+    dbPool.query(`DELETE FROM user_tenant;
+      DELETE FROM "user";
+      DELETE FROM tenant;
+      DELETE FROM identity_provider;
+      DELETE FROM partner;
+      DELETE FROM oidc_config;
+      DELETE FROM school_year;
+      DELETE FROM earthmover_bundle;
+      DELETE FROM partner_earthmover_bundle;
+      DELETE FROM ods_config;
+      DELETE FROM ods_connection;
+      DELETE FROM job;
+      DELETE FROM bundle_descriptor_mapping;
+      `),
+    dbPool.query('DELETE FROM appsession."session";'),
+  ]);
 };

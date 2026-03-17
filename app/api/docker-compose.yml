@@ -7,6 +7,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
     volumes:
       - database:/var/lib/postgresql/data
   keycloak:
@@ -47,5 +52,15 @@ services:
       IMPORT_MANAGED_CLIENTAUTHORIZATIONSCOPES: no-delete
       IMPORT_MANAGED_MESSAGEBUNDLES: no-delete
 
+  s3mock:
+    image: adobe/s3mock:latest
+    ports:
+      - 9090:9090
+    environment:
+      initialBuckets: runway-local-dev-data-integration
+    volumes:
+      - s3data:/s3mockroot
+
 volumes:
   database:
+  s3data:

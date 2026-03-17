@@ -7,7 +7,11 @@ module.exports = async function () {
     console.log('🧹 Starting global teardown...');
 
     await pool().end();
-    await db.down();
+    // Leave the container running when INTEGRATION_TEST_KEEP_DB_CONTAINER is set —
+    // used by api:test:integration:local for faster local iteration.
+    if (!process.env.INTEGRATION_TEST_KEEP_DB_CONTAINER) {
+      await db.down();
+    }
 
     console.log('✅ Global teardown complete');
   } catch (error) {

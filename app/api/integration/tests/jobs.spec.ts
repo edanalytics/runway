@@ -34,7 +34,7 @@ describe('GET /jobs', () => {
     const sessionX = sessionCookie('jobs-spec-x');
 
     let aJobs: DtoableJob[] = [];
-    beforeAll(async () => {
+    beforeEach(async () => {
       // A starts with jobs, X starts with none
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
       await sessionStore.set(sessionX.sid, sessionData(userX, tenantX));
@@ -53,18 +53,6 @@ describe('GET /jobs', () => {
           outputFiles: true,
         }),
       ]);
-    });
-
-    afterAll(async () => {
-      await sessionStore.destroy(sessionA.sid);
-      await sessionStore.destroy(sessionX.sid);
-      await prisma.job.deleteMany({
-        where: {
-          id: {
-            in: aJobs.map((j) => j.id),
-          },
-        },
-      });
     });
 
     it('should return an empty array if there are no jobs', async () => {
@@ -152,28 +140,18 @@ describe('GET /jobs', () => {
         .get(endpoint)
         .set('Cookie', [sessionX.cookie]);
 
-      try {
-        expect(resA.status).toBe(200);
-        expect(resX.status).toBe(200);
+      expect(resA.status).toBe(200);
+      expect(resX.status).toBe(200);
 
-        expect(resA.body.length).toBe(aJobs.length);
-        expect(resX.body.length).toBe(xJobs.length);
+      expect(resA.body.length).toBe(aJobs.length);
+      expect(resX.body.length).toBe(xJobs.length);
 
-        expect(resA.body.map((j: GetJobDto) => j.id)).toEqual(
-          expect.arrayContaining(aJobs.map((j) => j.id))
-        );
-        expect(resX.body.map((j: GetJobDto) => j.id)).toEqual(
-          expect.arrayContaining(xJobs.map((j) => j.id))
-        );
-      } finally {
-        await prisma.job.deleteMany({
-          where: {
-            id: {
-              in: xJobs.map((j) => j.id),
-            },
-          },
-        });
-      }
+      expect(resA.body.map((j: GetJobDto) => j.id)).toEqual(
+        expect.arrayContaining(aJobs.map((j) => j.id))
+      );
+      expect(resX.body.map((j: GetJobDto) => j.id)).toEqual(
+        expect.arrayContaining(xJobs.map((j) => j.id))
+      );
     });
   });
 });
@@ -184,7 +162,7 @@ describe('GET /jobs/:id', () => {
   let jobA: Job;
   let jobB: Job;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
       seedJob({
         odsConnection: odsConnA2425,
@@ -201,12 +179,6 @@ describe('GET /jobs/:id', () => {
     endpointB = `/jobs/${jobB.id}`;
   });
 
-  afterAll(async () => {
-    await prisma.job.deleteMany({
-      where: { id: { in: [jobA.id, jobB.id] } },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).get(endpointA);
     expect(res.status).toBe(401);
@@ -218,11 +190,6 @@ describe('GET /jobs/:id', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
       cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
-    });
-
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-      await authHelper.logout(cookieB);
     });
 
     it('should return the job if the user is logged into the associated tenant', async () => {
@@ -254,7 +221,7 @@ describe('POST /jobs', () => {
     const postJobDto = makePostJobDto(jobTemplateA, odsConnA2425);
     let getBundlesMock: jest.SpyInstance;
 
-    beforeAll(async () => {
+    beforeEach(async () => {
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
       getBundlesMock = jest
         .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
@@ -262,7 +229,6 @@ describe('POST /jobs', () => {
     });
 
     afterAll(async () => {
-      await sessionStore.destroy(sessionA.sid);
       getBundlesMock.mockRestore();
     });
 
@@ -371,12 +337,6 @@ describe('PUT /jobs/:id/resolve', () => {
         tenant: tenantB,
       }),
     ]);
-  });
-
-  afterEach(async () => {
-    await prisma.job.deleteMany({
-      where: { id: { in: [jobA.id, jobB.id] } },
-    });
   });
 
   it('should reject unauthenticated requests', async () => {
@@ -496,12 +456,6 @@ describe('GET /jobs/:id/notes', () => {
     [noteA1, noteA2] = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
   });
 
-  afterEach(async () => {
-    await prisma.jobNote.deleteMany({
-      where: { jobId: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).get(endpoint(jobA.id));
     expect(res.status).toBe(401);
@@ -511,9 +465,6 @@ describe('GET /jobs/:id/notes', () => {
     let cookieA: string;
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
-    });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
     });
     it('should reject requests for jobs that are not associated with the tenant', async () => {
       const cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
@@ -553,12 +504,6 @@ describe('POST /jobs/:id/notes', () => {
     });
   });
 
-  afterEach(async () => {
-    await prisma.jobNote.deleteMany({
-      where: { jobId: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).post(endpoint(jobA.id));
     expect(res.status).toBe(401);
@@ -570,10 +515,6 @@ describe('POST /jobs/:id/notes', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
       cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
-    });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-      await authHelper.logout(cookieB);
     });
     it('should create a new note for the job', async () => {
       const noteText = 'test note for job ' + jobA.id;
@@ -661,13 +602,6 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
     });
   });
 
-  afterEach(async () => {
-    // cascade takes care of the note
-    await prisma.job.deleteMany({
-      where: { id: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer())
       .put(endpoint(jobA.id, noteA.id))
@@ -680,10 +614,6 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-    });
-
     it('should reject requests if the job is not associated with the tenant', async () => {
       const cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
       const resA = await request(app.getHttpServer())
@@ -712,13 +642,7 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
         .put(endpoint(jobA.id, noteA2.id)) // mismatch
         .set('Cookie', [cookieA])
         .send({ noteText: 'updated note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(404);
-      } finally {
-        await prisma.job.deleteMany({
-          where: { id: jobA2.id },
-        });
-      }
+      expect(resA.status).toBe(404);
     });
 
     it('should update the note text', async () => {
@@ -793,12 +717,6 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
     });
   });
 
-  afterEach(async () => {
-    await prisma.job.deleteMany({
-      where: { id: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).delete(endpoint(jobA.id, noteA1.id));
     expect(res.status).toBe(401);
@@ -809,10 +727,6 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-    });
-
     it('should delete the note', async () => {
       const resA = await request(app.getHttpServer())
         .delete(endpoint(jobA.id, noteA1.id))
@@ -829,13 +743,9 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
         .delete(endpoint(jobA.id, noteA1.id))
         .set('Cookie', [cookieB])
         .send({ noteText: 'test note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(403);
-        const notes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
-        expect(notes.length).toBe(2);
-      } finally {
-        await authHelper.logout(cookieB);
-      }
+      expect(resA.status).toBe(403);
+      const notes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
+      expect(notes.length).toBe(2);
     });
 
     it('should reject requests if the note is not associated with the job', async () => {
@@ -857,19 +767,13 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
         .delete(endpoint(jobA.id, noteA2.id)) // mismatch
         .set('Cookie', [cookieA])
         .send({ noteText: 'updated note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(404);
+      expect(resA.status).toBe(404);
 
-        const jobANotes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
-        expect(jobANotes.length).toBe(2);
-        const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
-        expect(jobA2Notes.length).toBe(1);
-        expect(jobA2Notes[0].id).toBe(noteA2.id);
-      } finally {
-        await prisma.job.deleteMany({
-          where: { id: jobA2.id },
-        });
-      }
+      const jobANotes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
+      expect(jobANotes.length).toBe(2);
+      const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
+      expect(jobA2Notes.length).toBe(1);
+      expect(jobA2Notes[0].id).toBe(noteA2.id);
     });
   });
 });

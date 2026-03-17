@@ -4,7 +4,19 @@ realm: example
 displayName: Example
 ssoSessionMaxLifespan: 7776000
 enabled: true
+
+clientScopes:
+  - name: "create:jobs"
+    protocol: openid-connect
+    attributes:
+      "include.in.token.scope": "true"
+  - name: "partner:ea"
+    protocol: openid-connect
+    attributes:
+      "include.in.token.scope": "true"
+
 clients:
+  # UI login (authorization code flow)
   - clientId: runway-local
     name: 'Runway Local Dev'
     enabled: true
@@ -50,6 +62,31 @@ clients:
           jsonType.label: String
     attributes:
       post.logout.redirect.uris: http://localhost:4200* 
+
+  # External API (client credentials flow)
+  - clientId: runway-api
+    name: 'Runway External API'
+    enabled: true
+    clientAuthenticatorType: client-secret
+    secret: api-secret-123
+    serviceAccountsEnabled: true
+    standardFlowEnabled: false
+    directAccessGrantsEnabled: false
+    defaultClientScopes:
+      - "create:jobs"
+      - "partner:ea"
+    protocolMappers:
+      # The app validates the aud claim, so we need to inject it.
+      # Value must match OAUTH2_AUDIENCE.
+      - name: API Audience
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.custom.audience: "runway-local"
+          id.token.claim: "false"
+          access.token.claim: "true"
+
 users:
   - username: dev
     credentials:
