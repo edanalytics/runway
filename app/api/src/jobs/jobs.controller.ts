@@ -173,9 +173,7 @@ export class JobsController {
             partnerId: tenant.partnerId,
           },
           id: createJobDto.odsId,
-          activeConnection: {
-            schoolYearId: createJobDto.schoolYearId,
-          },
+          schoolYearId: createJobDto.schoolYearId,
         },
       })
       .catch(() => {

@@ -60,13 +60,11 @@ export class OdsConfigController {
   @Post()
   @SkipTenantOwnership()
   async create(@Body() createOdsDto: PostOdsConfigDto, @Tenant() tenant: TTenant) {
+    // TODO(PR 3): validate schoolYearId against school_year_config.
+    // For now, invalid school years will hit the FK constraint on ods_config.school_year_id.
     const result = await this.odsConfigService.testConnection(createOdsDto);
     if (result.status === 'ERROR') {
-      const msg =
-        result.type === 'AUTH'
-          ? 'Unable to authenticate to ODS with given credentials.'
-          : 'ODS connection failed.';
-      throw new BadRequestException(msg);
+      throw new BadRequestException('Unable to authenticate to ODS with given credentials.');
     }
 
     const newOdsConfig = await this.odsConfigService.create(createOdsDto, tenant, this.prisma);
@@ -79,13 +77,10 @@ export class OdsConfigController {
     odsConfigId: number,
     @Body() updateOdsDto: PutOdsConfigDto
   ) {
+    // TODO(PR 3): decide whether schoolYearId changes on update should be allowed.
     const result = await this.odsConfigService.testConnection(updateOdsDto);
     if (result.status === 'ERROR') {
-      const msg =
-        result.type === 'AUTH'
-          ? 'Unable to authenticate to ODS with given credentials.'
-          : 'ODS connection failed.';
-      throw new BadRequestException(msg);
+      throw new BadRequestException('Unable to authenticate to ODS with given credentials.');
     }
 
     return toGetOdsConfigWithSecretDto(

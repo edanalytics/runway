@@ -40,6 +40,7 @@ export const odsConfigA2425: WithoutAudit<OdsConfig> = {
   tenantCode: tenantA.code,
   partnerId: tenantA.partnerId,
   activeConnectionId: odsConnA2425.id,
+  schoolYearId: schoolYear2425.id,
   retired: false,
   retiredOn: null,
 };
@@ -48,6 +49,7 @@ export const odsConfigA2526: WithoutAudit<OdsConfig> = {
   ...odsConfigA2425,
   id: odsA2526Id,
   activeConnectionId: odsConnA2526.id,
+  schoolYearId: schoolYear2526.id,
 };
 
 export const odsConnB2526: WithoutAudit<OdsConnection> = {
@@ -66,6 +68,7 @@ export const odsConfigB2526: WithoutAudit<OdsConfig> = {
   activeConnectionId: odsConnB2526.id,
   tenantCode: tenantB.code,
   partnerId: tenantB.partnerId,
+  schoolYearId: schoolYear2526.id,
 };
 
 export const odsConnX2425: WithoutAudit<OdsConnection> = {
@@ -84,6 +87,7 @@ export const odsConfigX2425: WithoutAudit<OdsConfig> = {
   activeConnectionId: odsConnX2425.id,
   tenantCode: tenantX.code,
   partnerId: tenantX.partnerId,
+  schoolYearId: schoolYear2425.id,
 };
 
 export const allOdsConfigs = [odsConfigA2425, odsConfigA2526, odsConfigB2526, odsConfigX2425];

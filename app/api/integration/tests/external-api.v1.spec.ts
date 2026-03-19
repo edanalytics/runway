@@ -476,19 +476,13 @@ describe('ExternalApiV1', () => {
           );
         });
 
-        it('should reject requests if multiple ODSs are found for the requested school year', async () => {
-          const secondOds = await seedOds({
-            config: { ...odsConfigA2425, id: odsConfigA2425.id + 1000 },
-            connection: { ...odsConnA2425, id: odsConnA2425.id + 1000 },
-          });
-
-          const res = await request(app.getHttpServer())
-            .post(endpoint)
-            .set('Authorization', `Bearer ${token}`)
-            .send(jobInput);
-
-          expect(res.status).toBe(500);
-          expect(res.body.message).toContain('Multiple ODS found');
+        it('should prevent duplicate non-retired ODS configs for the same tenant+partner+year', async () => {
+          await expect(
+            seedOds({
+              config: { ...odsConfigA2425, id: odsConfigA2425.id + 1000 },
+              connection: { ...odsConnA2425, id: odsConnA2425.id + 1000 },
+            })
+          ).rejects.toThrow(/Unique constraint failed/);
         });
 
         it('should ignore retired ODSs', async () => {
