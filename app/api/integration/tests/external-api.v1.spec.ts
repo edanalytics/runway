@@ -7,7 +7,7 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
-import { odsConfigA2425, odsConnA2425 } from '../fixtures/context-fixtures/ods-fixture';
+import { odsConfigA2425 } from '../fixtures/context-fixtures/ods-fixture';
 
 import { FileService } from 'api/src/files/file.service';
 import { ExternalApiAuthService } from '../../src/external-api/auth/external-api.auth.service';
