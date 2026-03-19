@@ -9,7 +9,7 @@ import {
   odsConfigA2526,
   odsConfigB2526,
 } from '../fixtures/context-fixtures/ods-fixture';
-import { schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixtures';
+import { schoolYear2324, schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixtures';
 import { EdfiService } from '../../src/edfi/edfi.service';
 
 describe('GET /ods-configs', () => {
@@ -84,6 +84,13 @@ describe('GET /ods-configs/:id', () => {
 describe('POST /ods-configs', () => {
   const endpoint = '/ods-configs';
 
+  const validInput = {
+    host: 'https://new-ods.example.com',
+    clientId: 'new-client',
+    clientSecret: 'new-secret',
+    schoolYearId: schoolYear2324.id,
+  };
+
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).post(endpoint);
     expect(res.status).toBe(401);
@@ -105,14 +112,69 @@ describe('POST /ods-configs', () => {
       testConnectionSpy.mockRestore();
     });
 
+    it('should create an ODS config and return it', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [cookieA])
+        .send(validInput);
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({
+        host: validInput.host,
+        clientId: validInput.clientId,
+        schoolYearId: validInput.schoolYearId,
+        lastUseResult: 'success',
+      });
+      expect(res.body.id).toBeDefined();
+    });
+
+    it('should test the connection before creating', async () => {
+      await request(app.getHttpServer()).post(endpoint).set('Cookie', [cookieA]).send(validInput);
+
+      expect(testConnectionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: validInput.host,
+          clientId: validInput.clientId,
+          clientSecret: validInput.clientSecret,
+        })
+      );
+    });
+
+    it('should reject the request if the connection test fails', async () => {
+      testConnectionSpy.mockResolvedValue({ status: 'ERROR', type: 'AUTH' });
+
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [cookieA])
+        .send(validInput);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('Unable to authenticate');
+    });
+
+    it('should reject requests with missing required fields', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [cookieA])
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toEqual(
+        expect.arrayContaining([
+          'EdFi base API URL is required',
+          'key is required',
+          'secret is required',
+          'year is required',
+        ])
+      );
+    });
+
     it('should reject creating an ODS config for a tenant+partner+year that already has one', async () => {
       const res = await request(app.getHttpServer())
         .post(endpoint)
         .set('Cookie', [cookieA])
         .send({
-          host: 'https://another-ods.example.com',
-          clientId: 'another-client',
-          clientSecret: 'another-secret',
+          ...validInput,
           schoolYearId: schoolYear2425.id,
         });
 
