@@ -9,6 +9,8 @@ import {
   odsConfigA2526,
   odsConfigB2526,
 } from '../fixtures/context-fixtures/ods-fixture';
+import { schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixtures';
+import { EdfiService } from '../../src/edfi/edfi.service';
 
 describe('GET /ods-configs', () => {
   it('should reject unauthenticated requests', async () => {
@@ -75,6 +77,47 @@ describe('GET /ods-configs/:id', () => {
       const res2 = await request(app.getHttpServer()).get(endpointB).set('Cookie', [cookieA]);
       expect(res1.status).toBe(403);
       expect(res2.status).toBe(403);
+    });
+  });
+});
+
+describe('POST /ods-configs', () => {
+  const endpoint = '/ods-configs';
+
+  it('should reject unauthenticated requests', async () => {
+    const res = await request(app.getHttpServer()).post(endpoint);
+    expect(res.status).toBe(401);
+  });
+
+  describe('authenticated requests', () => {
+    let cookieA: string;
+    let testConnectionSpy: jest.SpyInstance;
+
+    beforeEach(async () => {
+      cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
+      const edfiService = app.get(EdfiService);
+      testConnectionSpy = jest
+        .spyOn(edfiService, 'testConnection')
+        .mockResolvedValue({ status: 'SUCCESS' });
+    });
+
+    afterEach(() => {
+      testConnectionSpy.mockRestore();
+    });
+
+    it('should reject creating an ODS config for a tenant+partner+year that already has one', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [cookieA])
+        .send({
+          host: 'https://another-ods.example.com',
+          clientId: 'another-client',
+          clientSecret: 'another-secret',
+          schoolYearId: schoolYear2425.id,
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.message).toContain('already exists');
     });
   });
 });

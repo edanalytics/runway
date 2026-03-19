@@ -8,7 +8,7 @@ import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { odsConfigA2425, odsConnA2425 } from '../fixtures/context-fixtures/ods-fixture';
-import { seedOds } from '../factories/ods-factory';
+
 import { FileService } from 'api/src/files/file.service';
 import { ExternalApiAuthService } from '../../src/external-api/auth/external-api.auth.service';
 import { authHelper } from '../helpers/oidc/auth-flow';
@@ -474,15 +474,6 @@ describe('ExternalApiV1', () => {
               expect.stringContaining('School year must be a 4-digit end year'),
             ])
           );
-        });
-
-        it('should prevent duplicate non-retired ODS configs for the same tenant+partner+year', async () => {
-          await expect(
-            seedOds({
-              config: { ...odsConfigA2425, id: odsConfigA2425.id + 1000 },
-              connection: { ...odsConnA2425, id: odsConnA2425.id + 1000 },
-            })
-          ).rejects.toThrow(/Unique constraint failed/);
         });
 
         it('should ignore retired ODSs', async () => {
