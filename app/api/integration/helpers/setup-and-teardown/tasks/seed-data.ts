@@ -128,6 +128,15 @@ const load = async () => {
       });
     })
   );
+
+  // Reset sequences after seeding with explicit IDs to avoid PK collisions
+  // when tests create records via the API (which uses auto-increment).
+  await prisma.$queryRawUnsafe(
+    `SELECT setval('ods_config_id_seq', (SELECT COALESCE(MAX(id), 1) FROM ods_config));`
+  );
+  await prisma.$queryRawUnsafe(
+    `SELECT setval('ods_connection_id_seq', (SELECT COALESCE(MAX(id), 1) FROM ods_connection));`
+  );
 };
 
 const dbPool = pool();
