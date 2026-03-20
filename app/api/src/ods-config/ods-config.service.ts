@@ -1,15 +1,18 @@
-import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OdsConfig, OdsConnection, Prisma, PrismaClient, Tenant } from '@prisma/client';
 import { PRISMA_READ_ONLY } from '../database';
 import { PostOdsConfigDto, PutOdsConfigDto } from '@edanalytics/models';
-import { EdfiService } from '../edfi/edfi.service';
 import { EncryptionService } from '../encryption/encryption.service';
+
+type CompleteOdsConfig = OdsConfig & { activeConnection: OdsConnection };
+type OdsConfigResult =
+  | { status: 'SUCCESS'; data: CompleteOdsConfig }
+  | { status: 'ERROR'; code: 'CONFLICT' };
 
 @Injectable()
 export class OdsConfigService {
   constructor(
     @Inject(PRISMA_READ_ONLY) private prisma: PrismaClient,
-    @Inject(EdfiService) private edfiService: EdfiService,
     @Inject(EncryptionService) private encryptionService: EncryptionService
   ) {}
 
@@ -43,10 +46,6 @@ export class OdsConfigService {
     } catch (e) {
       Logger.error(`Failed to decrypt client secret for ODS config: ${odsConfig.id}`);
     }
-  }
-
-  async testConnection(connectionInfo: { host: string; clientId: string; clientSecret: string }) {
-    return await this.edfiService.testConnection(connectionInfo);
   }
 
   async findOne(id: number, prisma: PrismaClient = this.prisma) {
@@ -91,50 +90,46 @@ export class OdsConfigService {
     tenant: Tenant,
     prisma: PrismaClient,
     status: OdsConnection['lastUseResult'] = 'success'
-  ) {
-    try {
-      return await prisma.$transaction(async (tx) => {
-        const odsConfig = await tx.odsConfig.create({
-          data: {
-            tenantCode: tenant.code,
-            partnerId: tenant.partnerId,
-            schoolYearId: data.schoolYearId,
-          },
-        });
-
-        const odsConnection = await tx.odsConnection.create({
-          data: {
-            odsConfigId: odsConfig.id,
-            host: data.host,
-            clientId: data.clientId,
-            clientSecret: this.encryptionService.encrypt(data.clientSecret),
-            lastUseOn: new Date(),
-            lastUseResult: status,
-          },
-        });
-
-        const newConfig = await tx.odsConfig.update({
-          where: { id: odsConfig.id },
-          data: {
-            activeConnectionId: odsConnection.id,
-          },
-          include: { activeConnection: true },
-        });
-
-        if (!this.isCompleteConfig(newConfig)) {
-          throw new Error(`Failed to create ODS config with connection info: ${newConfig.id}`);
-        }
-
-        return newConfig;
+  ): Promise<OdsConfigResult> {
+    return prisma.$transaction(async (tx) => {
+      const odsConfig = await tx.odsConfig.create({
+        data: {
+          tenantCode: tenant.code,
+          partnerId: tenant.partnerId,
+          schoolYearId: data.schoolYearId,
+        },
       });
-    } catch (e) {
+
+      const odsConnection = await tx.odsConnection.create({
+        data: {
+          odsConfigId: odsConfig.id,
+          host: data.host,
+          clientId: data.clientId,
+          clientSecret: this.encryptionService.encrypt(data.clientSecret),
+          lastUseOn: new Date(),
+          lastUseResult: status,
+        },
+      });
+
+      const newConfig = await tx.odsConfig.update({
+        where: { id: odsConfig.id },
+        data: {
+          activeConnectionId: odsConnection.id,
+        },
+        include: { activeConnection: true },
+      });
+
+      if (!this.isCompleteConfig(newConfig)) {
+        throw new Error(`Failed to create ODS config with connection info: ${newConfig.id}`);
+      }
+
+      return { status: 'SUCCESS' as const, data: newConfig };
+    }).catch((e) => {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException(
-          'An active ODS configuration already exists for this tenant and school year.'
-        );
+        return { status: 'ERROR' as const, code: 'CONFLICT' as const };
       }
       throw e;
-    }
+    });
   }
 
   async update(
@@ -142,7 +137,7 @@ export class OdsConfigService {
     data: PutOdsConfigDto,
     prisma: PrismaClient,
     status: OdsConnection['lastUseResult'] = 'success'
-  ) {
+  ): Promise<OdsConfigResult> {
     /**
      * We treat ODS connections as immutable, so rather than do a simple update, we:
      * - create a new OdsConnection
@@ -154,50 +149,46 @@ export class OdsConfigService {
       throw new Error(`ODS configuration not found: ${id}`);
     }
 
-    try {
-      const updatedConfig = await prisma.$transaction(async (tx) => {
-        await tx.odsConnection.update({
-          where: { id: existingConfig.activeConnection.id },
-          data: {
-            retiredOn: new Date(),
-            retired: true,
-          },
-        });
+    return prisma.$transaction(async (tx) => {
+      await tx.odsConnection.update({
+        where: { id: existingConfig.activeConnection.id },
+        data: {
+          retiredOn: new Date(),
+          retired: true,
+        },
+      });
 
-        const newConnection = await tx.odsConnection.create({
-          data: {
-            odsConfigId: id,
-            host: data.host,
-            clientId: data.clientId,
-            clientSecret: this.encryptionService.encrypt(data.clientSecret),
-            lastUseOn: new Date(),
-            lastUseResult: status,
-          },
-        });
+      const newConnection = await tx.odsConnection.create({
+        data: {
+          odsConfigId: id,
+          host: data.host,
+          clientId: data.clientId,
+          clientSecret: this.encryptionService.encrypt(data.clientSecret),
+          lastUseOn: new Date(),
+          lastUseResult: status,
+        },
+      });
 
-        return tx.odsConfig.update({
-          where: { id },
-          data: {
-            activeConnectionId: newConnection.id,
-            schoolYearId: data.schoolYearId,
-          },
-          include: { activeConnection: true },
-        });
+      const updatedConfig = await tx.odsConfig.update({
+        where: { id },
+        data: {
+          activeConnectionId: newConnection.id,
+          schoolYearId: data.schoolYearId,
+        },
+        include: { activeConnection: true },
       });
 
       if (!this.isCompleteConfig(updatedConfig)) {
         throw new Error(`Failed to update ODS config with new connection info: ${updatedConfig.id}`);
       }
       this.decryptSecret(updatedConfig);
-      return updatedConfig;
-    } catch (e) {
+      return { status: 'SUCCESS' as const, data: updatedConfig };
+    }).catch((e) => {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException(
-          'An active ODS configuration already exists for this tenant and school year.'
-        );
+        return { status: 'ERROR' as const, code: 'CONFLICT' as const };
       }
       throw e;
-    }
+    });
   }
 
   async updateConnectionStatus(
