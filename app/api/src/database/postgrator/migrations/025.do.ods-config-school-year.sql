@@ -2,22 +2,12 @@
 ALTER TABLE public.ods_config
   ADD COLUMN school_year_id VARCHAR REFERENCES public.school_year(id) ON DELETE RESTRICT;
 
--- Backfill from active connection
+-- Backfill from active connection (all configs have an active connection,
+-- including retired ones, since retire does not clear active_connection_id)
 UPDATE public.ods_config oc
 SET school_year_id = conn.school_year_id
 FROM public.ods_connection conn
 WHERE oc.active_connection_id = conn.id;
-
--- Backfill retired configs (no active connection) from most recent connection
-UPDATE public.ods_config oc
-SET school_year_id = conn.school_year_id
-FROM (
-  SELECT DISTINCT ON (ods_config_id) ods_config_id, school_year_id
-  FROM public.ods_connection
-  ORDER BY ods_config_id, id DESC
-) conn
-WHERE oc.id = conn.ods_config_id
-  AND oc.school_year_id IS NULL;
 
 -- Now safe to make NOT NULL
 ALTER TABLE public.ods_config
