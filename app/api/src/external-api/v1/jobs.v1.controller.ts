@@ -96,6 +96,7 @@ export class ExternalApiV1JobsController {
       where: {
         schoolYear: { endYear: parseInt(jobInitDto.schoolYear) },
         retired: false,
+        activeConnectionId: { not: null },
         tenantCode,
         partnerId,
       },

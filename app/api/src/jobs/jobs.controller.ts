@@ -168,6 +168,7 @@ export class JobsController {
       .findUniqueOrThrow({
         where: {
           retired: false,
+          activeConnectionId: { not: null },
           tenant: {
             code: tenant.code,
             partnerId: tenant.partnerId,
