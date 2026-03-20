@@ -4,11 +4,6 @@ import { PRISMA_READ_ONLY } from '../database';
 import { PostOdsConfigDto, PutOdsConfigDto } from '@edanalytics/models';
 import { EncryptionService } from '../encryption/encryption.service';
 
-type CompleteOdsConfig = OdsConfig & { activeConnection: OdsConnection };
-type OdsConfigResult =
-  | { status: 'SUCCESS'; data: CompleteOdsConfig }
-  | { status: 'ERROR'; code: 'CONFLICT' };
-
 @Injectable()
 export class OdsConfigService {
   constructor(
@@ -90,7 +85,7 @@ export class OdsConfigService {
     tenant: Tenant,
     prisma: PrismaClient,
     status: OdsConnection['lastUseResult'] = 'success'
-  ): Promise<OdsConfigResult> {
+  ) {
     return prisma.$transaction(async (tx) => {
       const odsConfig = await tx.odsConfig.create({
         data: {
@@ -137,7 +132,7 @@ export class OdsConfigService {
     data: PutOdsConfigDto,
     prisma: PrismaClient,
     status: OdsConnection['lastUseResult'] = 'success'
-  ): Promise<OdsConfigResult> {
+  ) {
     /**
      * We treat ODS connections as immutable, so rather than do a simple update, we:
      * - create a new OdsConnection
