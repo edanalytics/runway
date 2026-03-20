@@ -9,7 +9,7 @@ import {
   odsConfigA2526,
   odsConfigB2526,
 } from '../fixtures/context-fixtures/ods-fixture';
-import { schoolYear2324, schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixtures';
+import { schoolYear2324, schoolYear2425, schoolYear2526 } from '../fixtures/context-fixtures/school-year-fixtures';
 import { EdfiService } from '../../src/edfi/edfi.service';
 
 describe('GET /ods-configs', () => {
@@ -84,6 +84,8 @@ describe('GET /ods-configs/:id', () => {
 describe('POST /ods-configs', () => {
   const endpoint = '/ods-configs';
 
+  // schoolYear2324 is not used by any seeded ODS config for tenant A,
+  // so it's available for creating a new config without hitting the uniqueness constraint.
   const validInput = {
     host: 'https://new-ods.example.com',
     clientId: 'new-client',
@@ -180,6 +182,87 @@ describe('POST /ods-configs', () => {
 
       expect(res.status).toBe(409);
       expect(res.body.message).toContain('already exists');
+    });
+  });
+});
+
+describe('PUT /ods-configs/:id', () => {
+  const endpoint = `/ods-configs/${odsConfigA2425.id}`;
+
+  const updateInput = {
+    host: 'https://updated-ods.example.com',
+    clientId: 'updated-client',
+    clientSecret: 'updated-secret',
+    schoolYearId: schoolYear2425.id,
+  };
+
+  it('should reject unauthenticated requests', async () => {
+    const res = await request(app.getHttpServer()).put(endpoint).send(updateInput);
+    expect(res.status).toBe(401);
+  });
+
+  describe('authenticated requests', () => {
+    let cookieA: string;
+    let testConnectionSpy: jest.SpyInstance;
+
+    beforeEach(async () => {
+      cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
+      const edfiService = app.get(EdfiService);
+      testConnectionSpy = jest
+        .spyOn(edfiService, 'testConnection')
+        .mockResolvedValue({ status: 'SUCCESS' });
+    });
+
+    afterEach(() => {
+      testConnectionSpy.mockRestore();
+    });
+
+    it('should update an ODS config and return the updated config', async () => {
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [cookieA])
+        .send(updateInput);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        id: odsConfigA2425.id,
+        host: updateInput.host,
+        clientId: updateInput.clientId,
+        schoolYearId: updateInput.schoolYearId,
+        lastUseResult: 'success',
+      });
+    });
+
+    it('should update the school year on the config when changed', async () => {
+      // schoolYear2324 is free for tenant A — change from 2425 to 2324
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [cookieA])
+        .send({ ...updateInput, schoolYearId: schoolYear2324.id });
+
+      expect(res.status).toBe(200);
+      expect(res.body.schoolYearId).toBe(schoolYear2324.id);
+    });
+
+    it('should reject updating to a school year that collides with another active config', async () => {
+      // odsConfigA2526 already occupies tenant A + schoolYear2526
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [cookieA])
+        .send({ ...updateInput, schoolYearId: schoolYear2526.id });
+
+      expect(res.status).toBe(409);
+      expect(res.body.message).toContain('already exists');
+    });
+
+    it('should reject requests from a different tenant', async () => {
+      const cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [cookieB])
+        .send(updateInput);
+
+      expect(res.status).toBe(403);
     });
   });
 });
