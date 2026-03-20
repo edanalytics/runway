@@ -56,6 +56,7 @@ class JobExecutor:
         self.local_mode = os.environ.get("DEPLOYMENT_MODE") == "LOCAL"
         self.conn = requests.Session()
 
+        # wipe lightbeam state so that local runs stay idempotent
         shutil.rmtree(".lightbeam", ignore_errors=True)
 
         os.mkdir(os.path.abspath(config.OUTPUT_DIR))
