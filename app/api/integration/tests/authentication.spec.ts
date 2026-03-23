@@ -485,23 +485,24 @@ describe('Authentication', () => {
       const idpService = app.get(IdentityProviderService);
       await idpService.onApplicationBootstrap();
 
-      const { claimsMocker, completeAuth } = await initiateAuth(idpA);
-      claimsMocker
-        .authUserInTenant(userA, tenantA)
-        // Required-role gate: exact runway.test.* strings. Session roles: lowercase raw token
-        // `partneradmin` must still map to AppRole PartnerAdmin when there is no prefix.
-        .addRoles(['runway.test.user', 'partneradmin']);
-      const { getSessionFromDB } = await completeAuth('pass');
+      try {
+        const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+        claimsMocker
+          .authUserInTenant(userA, tenantA)
+          // Required-role gate: exact runway.test.* strings. Session roles: lowercase raw token
+          // `partneradmin` must still map to AppRole PartnerAdmin when there is no prefix.
+          .addRoles(['runway.test.user', 'partneradmin']);
+        const { getSessionFromDB } = await completeAuth('pass');
 
-      const session = await getSessionFromDB();
-      expect(session?.passport?.user.roles).toEqual(['PartnerAdmin']);
-
-      // Restore fixture state
-      await prisma.oidcConfig.update({
-        where: { id: oidcConfigA.id },
-        data: { rolePrefix: oidcConfigA.rolePrefix },
-      });
-      await idpService.onApplicationBootstrap();
+        const session = await getSessionFromDB();
+        expect(session?.passport?.user.roles).toEqual(['PartnerAdmin']);
+      } finally {
+        await prisma.oidcConfig.update({
+          where: { id: oidcConfigA.id },
+          data: { rolePrefix: oidcConfigA.rolePrefix },
+        });
+        await idpService.onApplicationBootstrap();
+      }
     });
 
     it('should leave roles empty when no prefix is configured and raw roles do not match AppRoles', async () => {
@@ -512,20 +513,21 @@ describe('Authentication', () => {
       const idpService = app.get(IdentityProviderService);
       await idpService.onApplicationBootstrap();
 
-      const { claimsMocker, completeAuth } = await initiateAuth(idpA);
-      // 'runway.test.user' passes required_roles gate but does not match any AppRole without prefix stripping
-      claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.user');
-      const { getSessionFromDB } = await completeAuth('pass');
+      try {
+        const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+        // 'runway.test.user' passes required_roles gate but does not match any AppRole without prefix stripping
+        claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.user');
+        const { getSessionFromDB } = await completeAuth('pass');
 
-      const session = await getSessionFromDB();
-      expect(session?.passport?.user.roles).toEqual([]);
-
-      // Restore fixture state
-      await prisma.oidcConfig.update({
-        where: { id: oidcConfigA.id },
-        data: { rolePrefix: oidcConfigA.rolePrefix },
-      });
-      await idpService.onApplicationBootstrap();
+        const session = await getSessionFromDB();
+        expect(session?.passport?.user.roles).toEqual([]);
+      } finally {
+        await prisma.oidcConfig.update({
+          where: { id: oidcConfigA.id },
+          data: { rolePrefix: oidcConfigA.rolePrefix },
+        });
+        await idpService.onApplicationBootstrap();
+      }
     });
 
     it('should save matched roles via prefix stripping (EdGraph-like)', async () => {
@@ -562,15 +564,17 @@ describe('Authentication', () => {
       const idpService = app.get(IdentityProviderService);
       await idpService.onApplicationBootstrap();
 
-      const { claimsMocker, completeAuth } = await initiateAuth(idpA);
-      claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.partneradmin');
-      await completeAuth('fail');
-
-      await prisma.oidcConfig.update({
-        where: { id: oidcConfigA.id },
-        data: { requiredRoles: oidcConfigA.requiredRoles },
-      });
-      await idpService.onApplicationBootstrap();
+      try {
+        const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+        claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.partneradmin');
+        await completeAuth('fail');
+      } finally {
+        await prisma.oidcConfig.update({
+          where: { id: oidcConfigA.id },
+          data: { requiredRoles: oidcConfigA.requiredRoles },
+        });
+        await idpService.onApplicationBootstrap();
+      }
     });
   });
 

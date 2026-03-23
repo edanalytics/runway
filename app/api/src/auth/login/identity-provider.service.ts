@@ -10,6 +10,11 @@ import { AuthService } from '../auth.service';
 import { initOpenidClient } from './init-openid-client';
 import { IPassportSession, rolePrivileges, AppRoles } from '@edanalytics/models';
 
+/** Lowercase AppRole string → canonical name; derived from `rolePrivileges` at module load. */
+const CANONICAL_APP_ROLE_BY_LOWER: ReadonlyMap<string, AppRoles> = new Map(
+  (Object.keys(rolePrivileges) as AppRoles[]).map((r) => [r.toLowerCase(), r] as const)
+);
+
 /**
  * Identity Provider Service. Today, this is focused on OIDC integrations and there's
  * a lot of OIDC-specific code in here. You could imagine us factoring this out
@@ -270,6 +275,18 @@ export class IdentityProviderService implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * Maps OIDC role claim values to `AppRoles`.
+   *
+   * When `rolePrefix` is set (per IdP in DB), we match it case-insensitively. Roles without the
+   * prefix are ignored. Roles with the prefix have the prefix removed. We use lowercased strings
+   * for the match and slice to avoid Unicode case folding issues.
+   *
+   * The suffix (or full token when there is no prefix) is looked up case-insensitively in
+   * `rolePrivileges`.
+   *
+   * Values that do not map to a known app role are ignored.
+   */
   private extractAppRoles(
     claims: IdTokenClaims,
     rolesClaim: string | null,
@@ -283,28 +300,25 @@ export class IdentityProviderService implements OnApplicationBootstrap {
     const rolesArray: string[] = Array.isArray(rawRoles)
       ? rawRoles.filter((r): r is string => typeof r === 'string')
       : typeof rawRoles === 'string'
-        ? [rawRoles]
-        : [];
+      ? [rawRoles]
+      : [];
 
-    const knownRoles = Object.keys(rolePrivileges) as AppRoles[];
-    const knownRolesLower = knownRoles.map((r) => r.toLowerCase());
-
+    const prefixLower = rolePrefix?.toLowerCase() ?? null;
     const matched = new Set<AppRoles>();
     for (const role of rolesArray) {
       let candidate: string;
-      if (rolePrefix) {
-        if (role.toLowerCase().startsWith(rolePrefix.toLowerCase())) {
-          candidate = role.slice(rolePrefix.length);
-        } else {
+      const roleLower = role.toLowerCase();
+      if (prefixLower) {
+        if (!roleLower.startsWith(prefixLower)) {
           continue;
         }
+        candidate = roleLower.slice(prefixLower.length);
       } else {
-        candidate = role;
+        candidate = roleLower;
       }
-
-      const idx = knownRolesLower.indexOf(candidate.toLowerCase());
-      if (idx !== -1) {
-        matched.add(knownRoles[idx]);
+      const canonical = CANONICAL_APP_ROLE_BY_LOWER.get(candidate);
+      if (canonical !== undefined) {
+        matched.add(canonical);
       }
     }
 
