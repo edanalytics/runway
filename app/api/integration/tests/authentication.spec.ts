@@ -432,9 +432,7 @@ describe('Authentication', () => {
   describe('Role persistence', () => {
     it('should save matched roles to session after prefix stripping (UM-like)', async () => {
       const { claimsMocker, completeAuth } = await initiateAuth(idpA);
-      claimsMocker
-        .authUserInTenant(userA, tenantA)
-        .addRoles('runway.test.partneradmin');
+      claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.partneradmin');
       const { getSessionFromDB } = await completeAuth('pass');
 
       const session = await getSessionFromDB();
@@ -458,7 +456,7 @@ describe('Authentication', () => {
       const { claimsMocker, completeAuth } = await initiateAuth(idpA);
       claimsMocker
         .authUserInTenant(userA, tenantA)
-        .addRoles(['runway.test.user', 'runway.test.PARTNERADMIN']); // 'runway.test.user' passes required_roles gate
+        .addRoles(['runway.test.user', 'runway.test.PARTNERaDMIN']); // 'runway.test.user' passes required_roles gate
       const { getSessionFromDB } = await completeAuth('pass');
 
       const session = await getSessionFromDB();
@@ -473,7 +471,9 @@ describe('Authentication', () => {
       const { getSessionFromDB } = await completeAuth('pass');
 
       const session = await getSessionFromDB();
-      expect(session?.passport?.user.roles).toEqual(['User']);
+      const roles = session?.passport?.user.roles;
+      expect(roles).toHaveLength(1); // unknown role dropped; no duplicate User from runway.test.user
+      expect(roles).toEqual(['User']);
     });
 
     it('should match raw role strings case-insensitively when no prefix is configured', async () => {
@@ -488,11 +488,13 @@ describe('Authentication', () => {
       const { claimsMocker, completeAuth } = await initiateAuth(idpA);
       claimsMocker
         .authUserInTenant(userA, tenantA)
-        .addRoles(['runway.test.user', 'User']); // 'User' matches AppRoles directly
+        // Required-role gate: exact runway.test.* strings. Session roles: lowercase raw token
+        // `partneradmin` must still map to AppRole PartnerAdmin when there is no prefix.
+        .addRoles(['runway.test.user', 'partneradmin']);
       const { getSessionFromDB } = await completeAuth('pass');
 
       const session = await getSessionFromDB();
-      expect(session?.passport?.user.roles).toEqual(['User']);
+      expect(session?.passport?.user.roles).toEqual(['PartnerAdmin']);
 
       // Restore fixture state
       await prisma.oidcConfig.update({
@@ -512,9 +514,7 @@ describe('Authentication', () => {
 
       const { claimsMocker, completeAuth } = await initiateAuth(idpA);
       // 'runway.test.user' passes required_roles gate but does not match any AppRole without prefix stripping
-      claimsMocker
-        .authUserInTenant(userA, tenantA)
-        .addRoles('runway.test.user');
+      claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.user');
       const { getSessionFromDB } = await completeAuth('pass');
 
       const session = await getSessionFromDB();
@@ -542,22 +542,35 @@ describe('Authentication', () => {
 
     it('should return roles via /auth/me', async () => {
       const { claimsMocker, completeAuth } = await initiateAuth(idpA);
-      claimsMocker
-        .authUserInTenant(userA, tenantA)
-        .addRoles('runway.test.partneradmin');
+      claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.partneradmin');
       const { cookies } = await completeAuth('pass');
 
-      const res = await request(app.getHttpServer())
-        .get('/auth/me')
-        .set('Cookie', cookies);
+      const res = await request(app.getHttpServer()).get('/auth/me').set('Cookie', cookies);
       expect(res.status).toBe(200);
       expect(res.body.roles).toContain('PartnerAdmin');
     });
 
     it('should still gate login via required_roles independently of role prefix', async () => {
+      // `runway.test.partneradmin` matches a known AppRole after prefix stripping, but the gate
+      // uses exact membership in required_roles only — so login must fail if that string is
+      // not listed even though extractAppRoles would map it to PartnerAdmin.
+      // Remove this test when required_roles is retired.
+      await prisma.oidcConfig.update({
+        where: { id: oidcConfigA.id },
+        data: { requiredRoles: ['runway.test.user'] },
+      });
+      const idpService = app.get(IdentityProviderService);
+      await idpService.onApplicationBootstrap();
+
       const { claimsMocker, completeAuth } = await initiateAuth(idpA);
-      claimsMocker.authUserInTenant(userA, tenantA); // no roles added
+      claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.partneradmin');
       await completeAuth('fail');
+
+      await prisma.oidcConfig.update({
+        where: { id: oidcConfigA.id },
+        data: { requiredRoles: oidcConfigA.requiredRoles },
+      });
+      await idpService.onApplicationBootstrap();
     });
   });
 
