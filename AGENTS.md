@@ -55,13 +55,17 @@ npm run fe:typecheck
 
 ## Database Migrations
 
-Schema changes require **two** things:
-1. A SQL migration file in `app/api/src/database/postgrator/migrations/`
-2. Regenerating the Prisma client: `npm run prisma:generate-client` (from `app/`)
+Schema changes follow this workflow (all commands run from `app/`):
+
+1. Write a SQL migration file in `app/api/src/database/postgrator/migrations/`
+2. Present the SQL for review and get explicit user approval
+3. Run `npm run api:migrate-local-dev` to apply the migration to the local dev DB
+4. Run `npm run prisma:pull-and-generate` to introspect the DB and regenerate the Prisma schema + client
+5. Verify the Prisma schema diff contains all and only the expected changes
+
+**Do not edit `schema.prisma` directly** — it is generated from the database via `prisma:pull-and-generate`. The SQL migration is the source of truth.
 
 Migrations run automatically at the start of the integration test suite. If tests fail with schema errors, a missing or mismatched migration is the likely cause.
-
-**Important:** Only run `npm run api:migrate-local-dev` with explicit user approval after presenting the SQL for review.
 
 ## Architecture
 
@@ -165,6 +169,7 @@ sequenceDiagram
 
 - **Commits**: lowercase subject + body explaining the "why"
 - **API**: NestJS controller → service → repository pattern
+- **Error handling**: Services return result objects (`{ status: 'SUCCESS', data }` / `{ status: 'ERROR', code }`) for expected failure modes; unexpected errors throw. Controllers map error results to HTTP exceptions. Services should not import or throw HTTP exceptions.
 - **FE**: Chakra UI v2 with custom design tokens; prefer inline readable code over extracted helpers for short logic
 - **Icons**: `app/fe/src/assets/icons/`
 - **Documentation**: When changing behavior described in nearby docs (README.md, AGENTS.md, code comments), update the docs in the same commit. When creating a commit, review changed files for references to documentation and flag any that may need updating.

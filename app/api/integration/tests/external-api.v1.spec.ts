@@ -7,8 +7,8 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
-import { odsConfigA2425, odsConnA2425 } from '../fixtures/context-fixtures/ods-fixture';
-import { seedOds } from '../factories/ods-factory';
+import { odsConfigA2425 } from '../fixtures/context-fixtures/ods-fixture';
+
 import { FileService } from 'api/src/files/file.service';
 import { ExternalApiAuthService } from '../../src/external-api/auth/external-api.auth.service';
 import { authHelper } from '../helpers/oidc/auth-flow';
@@ -474,21 +474,6 @@ describe('ExternalApiV1', () => {
               expect.stringContaining('School year must be a 4-digit end year'),
             ])
           );
-        });
-
-        it('should reject requests if multiple ODSs are found for the requested school year', async () => {
-          const secondOds = await seedOds({
-            config: { ...odsConfigA2425, id: odsConfigA2425.id + 1000 },
-            connection: { ...odsConnA2425, id: odsConnA2425.id + 1000 },
-          });
-
-          const res = await request(app.getHttpServer())
-            .post(endpoint)
-            .set('Authorization', `Bearer ${token}`)
-            .send(jobInput);
-
-          expect(res.status).toBe(500);
-          expect(res.body.message).toContain('Multiple ODS found');
         });
 
         it('should ignore retired ODSs', async () => {

@@ -2,7 +2,7 @@ import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-ap
 import request from 'supertest';
 import { seedJob } from '../factories/job-factory';
 import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
-import { odsConnA2425, odsConnX2425 } from '../fixtures/context-fixtures/ods-fixture';
+import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods-fixture';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { Run } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
@@ -24,7 +24,7 @@ describe('Earthbeam API', () => {
 
       // Job A
       const jobA = await seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       });
@@ -38,7 +38,7 @@ describe('Earthbeam API', () => {
 
       // Job X
       const jobX = await seedJob({
-        odsConnection: odsConnX2425,
+        odsConfig: odsConfigX2425,
         bundle: bundleX,
         tenant: tenantX,
       });
@@ -197,7 +197,7 @@ describe('Earthbeam API', () => {
     beforeEach(async () => {
       const authService = app.get(EarthbeamApiAuthService);
       const jobA = await seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       });
