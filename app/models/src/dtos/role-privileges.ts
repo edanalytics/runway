@@ -1,6 +1,6 @@
 import { PrivilegeKey } from './privileges';
 
-export type AppRoles = 'PartnerAdmin';
+export type AppRoles = 'PartnerAdmin' | 'User';
 
 export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze({
   PartnerAdmin: Object.freeze(
@@ -10,4 +10,5 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
       'partner-earthmover-bundle.delete',
     ])
   ),
+  User: Object.freeze(new Set<PrivilegeKey>([])),
 });
