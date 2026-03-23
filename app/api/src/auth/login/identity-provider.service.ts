@@ -8,7 +8,7 @@ import { AppConfigService } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database';
 import { AuthService } from '../auth.service';
 import { initOpenidClient } from './init-openid-client';
-import { IPassportSession } from '@edanalytics/models';
+import { IPassportSession, rolePrivileges, AppRoles } from '@edanalytics/models';
 
 /**
  * Identity Provider Service. Today, this is focused on OIDC integrations and there's
@@ -172,6 +172,14 @@ export class IdentityProviderService implements OnApplicationBootstrap {
               }
             }
 
+            // Extract and match roles from the claim to populate session roles.
+            // This is purely additive — it does not affect login success/failure.
+            const matchedRoles = this.extractAppRoles(
+              claims,
+              idp.oidcConfig.rolesClaim,
+              idp.oidcConfig.rolePrefix
+            );
+
             let partnerId: string | undefined;
             if (idp.oidcConfig.partnerClaim) {
               // If configured to have a partner claim, enforce it: must be present and must match a partner that uses this IdP
@@ -231,7 +239,7 @@ export class IdentityProviderService implements OnApplicationBootstrap {
               tenant,
               idpSessionId: (claims.sid as string) ?? null, // used to look up session for OIDC backchannel logout
               idToken: tokenset.id_token ?? null,
-              roles: [],
+              roles: matchedRoles,
             });
           } catch (err) {
             // Log error so we can troubleshoot config but pass null to `done`
@@ -260,6 +268,47 @@ export class IdentityProviderService implements OnApplicationBootstrap {
     } else {
       return false;
     }
+  }
+
+  private extractAppRoles(
+    claims: IdTokenClaims,
+    rolesClaim: string | null,
+    rolePrefix: string | null
+  ): AppRoles[] {
+    if (!rolesClaim) return [];
+
+    const rawRoles = this.getClaimValue(claims, rolesClaim, false);
+    if (!rawRoles) return [];
+
+    const rolesArray: string[] = Array.isArray(rawRoles)
+      ? rawRoles.filter((r): r is string => typeof r === 'string')
+      : typeof rawRoles === 'string'
+        ? [rawRoles]
+        : [];
+
+    const knownRoles = Object.keys(rolePrivileges) as AppRoles[];
+    const knownRolesLower = knownRoles.map((r) => r.toLowerCase());
+
+    const matched = new Set<AppRoles>();
+    for (const role of rolesArray) {
+      let candidate: string;
+      if (rolePrefix) {
+        if (role.toLowerCase().startsWith(rolePrefix.toLowerCase())) {
+          candidate = role.slice(rolePrefix.length);
+        } else {
+          continue;
+        }
+      } else {
+        candidate = role;
+      }
+
+      const idx = knownRolesLower.indexOf(candidate.toLowerCase());
+      if (idx !== -1) {
+        matched.add(knownRoles[idx]);
+      }
+    }
+
+    return Array.from(matched);
   }
 
   private getClaimValue<K extends keyof IdTokenClaims>(
