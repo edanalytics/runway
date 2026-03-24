@@ -8,7 +8,12 @@ import { AppConfigService } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database';
 import { AuthService } from '../auth.service';
 import { initOpenidClient } from './init-openid-client';
-import { IPassportSession } from '@edanalytics/models';
+import { IPassportSession, rolePrivileges, AppRoles } from '@edanalytics/models';
+
+/** Lowercase AppRole string → canonical name; derived from `rolePrivileges` at module load. */
+const CANONICAL_APP_ROLE_BY_LOWER: ReadonlyMap<string, AppRoles> = new Map(
+  (Object.keys(rolePrivileges) as AppRoles[]).map((r) => [r.toLowerCase(), r] as const)
+);
 
 /**
  * Identity Provider Service. Today, this is focused on OIDC integrations and there's
@@ -172,6 +177,14 @@ export class IdentityProviderService implements OnApplicationBootstrap {
               }
             }
 
+            // Extract and match roles from the claim to populate session roles.
+            // This is purely additive — it does not affect login success/failure.
+            const matchedRoles = this.extractAppRoles(
+              claims,
+              idp.oidcConfig.rolesClaim,
+              idp.oidcConfig.rolePrefix
+            );
+
             let partnerId: string | undefined;
             if (idp.oidcConfig.partnerClaim) {
               // If configured to have a partner claim, enforce it: must be present and must match a partner that uses this IdP
@@ -231,7 +244,7 @@ export class IdentityProviderService implements OnApplicationBootstrap {
               tenant,
               idpSessionId: (claims.sid as string) ?? null, // used to look up session for OIDC backchannel logout
               idToken: tokenset.id_token ?? null,
-              roles: [],
+              roles: matchedRoles,
             });
           } catch (err) {
             // Log error so we can troubleshoot config but pass null to `done`
@@ -260,6 +273,56 @@ export class IdentityProviderService implements OnApplicationBootstrap {
     } else {
       return false;
     }
+  }
+
+  /**
+   * Maps OIDC role claim values to `AppRoles`.
+   *
+   * When `rolePrefix` is set (per IdP in DB), we match it case-insensitively. Roles without the
+   * prefix are ignored. Roles with the prefix have the prefix removed. We use lowercased strings
+   * for the match and slice to avoid Unicode case folding issues.
+   *
+   * The suffix (or full token when there is no prefix) is looked up case-insensitively in
+   * `rolePrivileges`.
+   *
+   * Values that do not map to a known app role are ignored.
+   */
+  private extractAppRoles(
+    claims: IdTokenClaims,
+    rolesClaim: string | null,
+    rolePrefix: string | null
+  ): AppRoles[] {
+    if (!rolesClaim) return [];
+
+    const rawRoles = this.getClaimValue(claims, rolesClaim, false);
+    if (!rawRoles) return [];
+
+    const rolesArray: string[] = Array.isArray(rawRoles)
+      ? rawRoles.filter((r): r is string => typeof r === 'string')
+      : typeof rawRoles === 'string'
+      ? [rawRoles]
+      : [];
+
+    const prefixLower = rolePrefix?.toLowerCase() ?? null;
+    const matched = new Set<AppRoles>();
+    for (const role of rolesArray) {
+      let candidate: string;
+      const roleLower = role.toLowerCase();
+      if (prefixLower) {
+        if (!roleLower.startsWith(prefixLower)) {
+          continue;
+        }
+        candidate = roleLower.slice(prefixLower.length);
+      } else {
+        candidate = roleLower;
+      }
+      const canonical = CANONICAL_APP_ROLE_BY_LOWER.get(candidate);
+      if (canonical !== undefined) {
+        matched.add(canonical);
+      }
+    }
+
+    return Array.from(matched);
   }
 
   private getClaimValue<K extends keyof IdTokenClaims>(

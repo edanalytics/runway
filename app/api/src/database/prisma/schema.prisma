@@ -134,6 +134,7 @@ model OidcConfig {
   requiredRoles                    String[]           @map("required_roles") @db.VarChar
   embeddedClaimsClaim              String?            @map("embedded_claims_claim") @db.VarChar
   partnerClaim                     String?            @map("partner_claim") @db.VarChar
+  rolePrefix                       String?            @map("role_prefix") @db.VarChar
   identityProvider                 IdentityProvider[]
   userOidcConfigCreatedByIdTouser  User?              @relation("oidc_config_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   userOidcConfigModifiedByIdTouser User?              @relation("oidc_config_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
