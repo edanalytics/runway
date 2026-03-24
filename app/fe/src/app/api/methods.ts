@@ -8,6 +8,8 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
+// Use this client when callers need access to response headers like ETag.
+// `apiClient` unwraps responses to `res.data` via its interceptor.
 export const apiClientRaw = axios.create({
   withCredentials: true,
 });

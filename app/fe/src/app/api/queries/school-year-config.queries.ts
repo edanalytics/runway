@@ -5,19 +5,19 @@ import {
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, apiClientRaw } from '../methods';
 
-const LAST_MODIFIED_HEADER = 'last-modified';
-const IF_UNMODIFIED_SINCE_HEADER = 'if-unmodified-since';
+const ETAG_HEADER = 'etag';
+const IF_MATCH_HEADER = 'if-match';
 
 export type { GetSchoolYearConfigDto, PutSchoolYearConfigRowDto };
 
 export type SchoolYearConfigQueryData = {
   rows: GetSchoolYearConfigDto[];
-  lastModifiedOn: string | null;
+  etag: string | null;
 };
 
 export type UpdateSchoolYearConfigInput = {
   rows: PutSchoolYearConfigRowDto[];
-  lastModifiedOn: string | null;
+  etag: string | null;
 };
 
 const QUERY_KEY = ['school-year-config'];
@@ -26,10 +26,10 @@ export const schoolYearConfigQueries = {
   queryKey: QUERY_KEY,
   queryFn: async () => {
     const res = await apiClientRaw.get<GetSchoolYearConfigDto[]>('/school-year-config');
-    const headerValue = res.headers[LAST_MODIFIED_HEADER];
+    const headerValue = res.headers[ETAG_HEADER];
     return {
       rows: res.data ?? [],
-      lastModifiedOn: Array.isArray(headerValue) ? headerValue[0] : (headerValue ?? null),
+      etag: Array.isArray(headerValue) ? headerValue[0] : (headerValue ?? null),
     } satisfies SchoolYearConfigQueryData;
   },
 };
@@ -37,9 +37,9 @@ export const schoolYearConfigQueries = {
 export const useUpdateSchoolYearConfig = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ rows, lastModifiedOn }: UpdateSchoolYearConfigInput) => {
+    mutationFn: async ({ rows, etag }: UpdateSchoolYearConfigInput) => {
       return apiClient.put('/school-year-config', rows, {
-        headers: lastModifiedOn ? { [IF_UNMODIFIED_SINCE_HEADER]: lastModifiedOn } : undefined,
+        headers: etag ? { [IF_MATCH_HEADER]: etag } : undefined,
       });
     },
     onSuccess: () => {

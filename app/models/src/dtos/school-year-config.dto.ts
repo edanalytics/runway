@@ -21,7 +21,7 @@ export class GetSchoolYearConfigDto {
   sendToOds: boolean;
 
   @Expose()
-  hasOds: boolean;
+  odsCount: number;
 }
 
 export const toGetSchoolYearConfigDto = makeSerializer<GetSchoolYearConfigDto>(GetSchoolYearConfigDto);

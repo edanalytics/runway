@@ -32,7 +32,7 @@ export const SchoolYearConfigSection = () => {
       {isEditing ? (
         <SchoolYearConfigEditForm
           data={config.rows}
-          lastModifiedOn={config.lastModifiedOn}
+          etag={config.etag}
           onCancel={() => setIsEditing(false)}
           onSaved={() => setIsEditing(false)}
         />
@@ -43,7 +43,7 @@ export const SchoolYearConfigSection = () => {
               <Th>School Year</Th>
               <Th>Enabled</Th>
               <Th>Send to ODS</Th>
-              <Th>ODS</Th>
+              <Th>ODS Count</Th>
             </Tr>
           </Thead>
           <Tbody>
@@ -61,9 +61,7 @@ export const SchoolYearConfigSection = () => {
                   </Badge>
                 </Td>
                 <Td>
-                  <Badge colorScheme={row.hasOds ? 'green' : 'gray'}>
-                    {row.hasOds ? 'yes' : 'no'}
-                  </Badge>
+                  {row.odsCount}
                 </Td>
               </Tr>
             ))}

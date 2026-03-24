@@ -7,8 +7,8 @@ import { partnerX } from '../fixtures/context-fixtures/partner-fixtures';
 import request from 'supertest';
 import { SessionData } from 'express-session';
 
-const LAST_MODIFIED_HEADER = 'last-modified';
-const IF_UNMODIFIED_SINCE_HEADER = 'if-unmodified-since';
+const ETAG_HEADER = 'etag';
+const IF_MATCH_HEADER = 'if-match';
 
 describe('GET /school-year-config', () => {
   const endpoint = '/school-year-config';
@@ -85,28 +85,28 @@ describe('GET /school-year-config', () => {
         expect(row2425.endYear).toBe(2025);
       });
 
-      it('should indicate whether ODS configs exist per school year', async () => {
+      it('should return ODS count per school year', async () => {
         const res = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [sessA.cookie]);
 
         // Partner A: tenant-a has ODS for 2425 and 2526, tenant-b has ODS for 2526
         const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-        expect(row2425.hasOds).toBe(true);
+        expect(row2425.odsCount).toBe(1);
 
         const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
-        expect(row2526.hasOds).toBe(true);
+        expect(row2526.odsCount).toBe(2);
 
         const row2324 = res.body.find((r: any) => r.schoolYearId === '2324');
-        expect(row2324.hasOds).toBe(false);
+        expect(row2324.odsCount).toBe(0);
       });
 
-      it('should include Last-Modified header when config rows exist', async () => {
+      it('should include ETag header when config rows exist', async () => {
         const res = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [sessA.cookie]);
 
-        expect(res.headers[LAST_MODIFIED_HEADER]).toBeDefined();
+        expect(res.headers[ETAG_HEADER]).toBeDefined();
         expect(res.body[0]).not.toHaveProperty('modifiedOn');
       });
 
@@ -166,21 +166,21 @@ describe('PUT /school-year-config', () => {
         await sessionStore.set(sessX.sid, sessionX as SessionData);
       });
 
-      function getLastModifiedOn(res: request.Response): string | null {
-        return res.headers[LAST_MODIFIED_HEADER] ?? null;
+      function getEtag(res: request.Response): string | null {
+        return res.headers[ETAG_HEADER] ?? null;
       }
 
       it('should update config for multiple years in one call', async () => {
-        // First get the current lastModifiedOn
+        // First get the current ETag
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [sessA.cookie]);
-        const lastModifiedOn = getLastModifiedOn(getRes);
+        const etag = getEtag(getRes);
 
         const req = request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie]);
-        if (lastModifiedOn) req.set(IF_UNMODIFIED_SINCE_HEADER, lastModifiedOn);
+        if (etag) req.set(IF_MATCH_HEADER, etag);
         const res = await req.send([
           { schoolYearId: '2425', isEnabled: false, sendToOds: false },
           { schoolYearId: '2526', isEnabled: true, sendToOds: false },
@@ -204,13 +204,13 @@ describe('PUT /school-year-config', () => {
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [sessA.cookie]);
-        const lastModifiedOn = getLastModifiedOn(getRes);
+        const etag = getEtag(getRes);
 
         // 2324 has no existing config row for partner A
         const req = request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie]);
-        if (lastModifiedOn) req.set(IF_UNMODIFIED_SINCE_HEADER, lastModifiedOn);
+        if (etag) req.set(IF_MATCH_HEADER, etag);
         const res = await req.send([{ schoolYearId: '2324', isEnabled: true, sendToOds: true }]);
         expect(res.status).toBe(200);
 
@@ -221,28 +221,29 @@ describe('PUT /school-year-config', () => {
         expect(row2324.isEnabled).toBe(true);
       });
 
-      it('should return 409 when lastModifiedOn does not match (stale data)', async () => {
-        const staleTimestamp = '2020-01-01T00:00:00.000Z';
+      it('should return 409 when ETag does not match (stale data)', async () => {
+        const staleEtag = '"2020-01-01T00:00:00.000Z"';
         const res = await request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie])
-          .set(IF_UNMODIFIED_SINCE_HEADER, staleTimestamp)
+          .set(IF_MATCH_HEADER, staleEtag)
           .send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
         expect(res.status).toBe(409);
       });
 
       it('should include last modifier info in 409 response', async () => {
-        const staleTimestamp = '2020-01-01T00:00:00.000Z';
+        const staleEtag = '"2020-01-01T00:00:00.000Z"';
         const res = await request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie])
-          .set(IF_UNMODIFIED_SINCE_HEADER, staleTimestamp)
+          .set(IF_MATCH_HEADER, staleEtag)
           .send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
         expect(res.status).toBe(409);
+        expect(res.body.etag).toBeDefined();
         expect(res.body.lastModifiedOn).toBeDefined();
       });
 
-      it('should succeed when lastModifiedOn is null and no config rows exist', async () => {
+      it('should succeed when ETag is absent and no config rows exist', async () => {
         // Partner X: delete its config row to simulate a fresh partner
         await global.prisma.schoolYearConfig.deleteMany({
           where: { partnerId: partnerX.id },
@@ -259,12 +260,12 @@ describe('PUT /school-year-config', () => {
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [sessA.cookie]);
-        const lastModifiedOn = getLastModifiedOn(getRes);
+        const etag = getEtag(getRes);
 
         const req = request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie]);
-        if (lastModifiedOn) req.set(IF_UNMODIFIED_SINCE_HEADER, lastModifiedOn);
+        if (etag) req.set(IF_MATCH_HEADER, etag);
         await req.send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
 
         // Partner X config should be unchanged
@@ -279,12 +280,12 @@ describe('PUT /school-year-config', () => {
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [sessA.cookie]);
-        const lastModifiedOn = getLastModifiedOn(getRes);
+        const etag = getEtag(getRes);
 
         const req = request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie]);
-        if (lastModifiedOn) req.set(IF_UNMODIFIED_SINCE_HEADER, lastModifiedOn);
+        if (etag) req.set(IF_MATCH_HEADER, etag);
         const res = await req.send([{ schoolYearId: 'nonexistent', isEnabled: true, sendToOds: true }]);
         expect(res.status).toBe(400);
       });

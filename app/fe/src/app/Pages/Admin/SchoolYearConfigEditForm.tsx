@@ -20,7 +20,7 @@ import { ConfirmChangesModal } from './ConfirmChangesModal';
 
 interface Props {
   data: GetSchoolYearConfigDto[];
-  lastModifiedOn: string | null;
+  etag: string | null;
   onCancel: () => void;
   onSaved: () => void;
 }
@@ -41,7 +41,7 @@ function describeChanges(original: GetSchoolYearConfigDto[], edited: GetSchoolYe
   return changes;
 }
 
-export const SchoolYearConfigEditForm = ({ data, lastModifiedOn, onCancel, onSaved }: Props) => {
+export const SchoolYearConfigEditForm = ({ data, etag, onCancel, onSaved }: Props) => {
   const [rows, setRows] = useState<GetSchoolYearConfigDto[]>(
     data.map((r) => ({ ...r }))
   );
@@ -73,7 +73,7 @@ export const SchoolYearConfigEditForm = ({ data, lastModifiedOn, onCancel, onSav
 
     mutation.mutate(
       {
-        lastModifiedOn,
+        etag,
         rows: changedRows.map((r) => ({
           schoolYearId: r.schoolYearId,
           isEnabled: r.isEnabled,
@@ -128,7 +128,7 @@ export const SchoolYearConfigEditForm = ({ data, lastModifiedOn, onCancel, onSav
             <Th>School Year</Th>
             <Th>Enabled</Th>
             <Th>Send to ODS</Th>
-            <Th>ODS</Th>
+            <Th>ODS Count</Th>
           </Tr>
         </Thead>
         <Tbody>
@@ -149,7 +149,7 @@ export const SchoolYearConfigEditForm = ({ data, lastModifiedOn, onCancel, onSav
                   colorScheme="green"
                 />
               </Td>
-              <Td>{row.hasOds ? 'yes' : 'no'}</Td>
+              <Td>{row.odsCount}</Td>
             </Tr>
           ))}
         </Tbody>
