@@ -170,11 +170,18 @@ export const providePrismaAnon = {
           $allModels: {
             $allOperations({ operation, args, query }) {
               if (editOperations.has(operation)) {
-                sqlHandledFields.forEach((fieldName) => {
-                  if (fieldName in (args as any).data) {
-                    delete (args as any).data[fieldName];
-                  }
-                });
+                const dataObjects =
+                  operation === 'upsert'
+                    ? [(args as any).create, (args as any).update]
+                    : [(args as any).data];
+                for (const data of dataObjects) {
+                  if (!data) continue;
+                  sqlHandledFields.forEach((fieldName) => {
+                    if (fieldName in data) {
+                      delete data[fieldName];
+                    }
+                  });
+                }
               }
               return query(args);
             },
