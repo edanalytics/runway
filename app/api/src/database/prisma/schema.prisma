@@ -35,6 +35,7 @@ model Partner {
   identityProvider              IdentityProvider?         @relation(fields: [idpId], references: [id], onUpdate: NoAction)
   userPartnerModifiedByIdTouser User?                     @relation("partner_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
   partnerEarthmoverBundle       PartnerEarthmoverBundle[]
+  schoolYearConfig              SchoolYearConfig[]
   tenant                        Tenant[]
 
   @@map("partner")
@@ -91,6 +92,8 @@ model User {
   partnerPartnerModifiedByIdTouser                                 Partner[]                 @relation("partner_modified_by_idTouser")
   runRunCreatedByIdTouser                                          Run[]                     @relation("run_created_by_idTouser")
   runRunModifiedByIdTouser                                         Run[]                     @relation("run_modified_by_idTouser")
+  schoolYearConfigSchoolYearConfigCreatedByIdTouser                SchoolYearConfig[]        @relation("school_year_config_created_by_idTouser")
+  schoolYearConfig                                                 SchoolYearConfig[]
   tenantTenantCreatedByIdTouser                                    Tenant[]                  @relation("tenant_created_by_idTouser")
   tenantTenantModifiedByIdTouser                                   Tenant[]                  @relation("tenant_modified_by_idTouser")
   userUserCreatedByIdTouser                                        User?                     @relation("user_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
@@ -161,12 +164,13 @@ model IdentityProvider {
 }
 
 model SchoolYear {
-  id            String          @id @db.VarChar
-  startYear     Int             @unique(map: "sy_unique_start_year") @map("start_year")
-  endYear       Int             @unique(map: "sy_unique_end_year") @map("end_year")
-  job           Job[]
-  odsConfig     OdsConfig[]
-  odsConnection OdsConnection[]
+  id               String             @id @db.VarChar
+  startYear        Int                @unique(map: "sy_unique_start_year") @map("start_year")
+  endYear          Int                @unique(map: "sy_unique_end_year") @map("end_year")
+  job              Job[]
+  odsConfig        OdsConfig[]
+  odsConnection    OdsConnection[]
+  schoolYearConfig SchoolYearConfig[]
 
   @@map("school_year")
 }
@@ -409,6 +413,24 @@ model JobNote {
   modifiedBy   User?    @relation("job_note_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
 
   @@map("job_note")
+}
+
+model SchoolYearConfig {
+  partnerId                             String     @map("partner_id") @db.VarChar
+  schoolYearId                          String     @map("school_year_id") @db.VarChar
+  isEnabled                             Boolean    @default(false) @map("is_enabled")
+  sendToOds                             Boolean    @default(true) @map("send_to_ods")
+  createdById                           Int?       @map("created_by_id")
+  createdOn                             DateTime   @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                          Int?       @map("modified_by_id")
+  modifiedOn                            DateTime   @default(now()) @map("modified_on") @db.Timestamp(6)
+  userSchoolYearConfigCreatedByIdTouser User?      @relation("school_year_config_created_by_idTouser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user                                  User?      @relation(fields: [modifiedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  partner                               Partner    @relation(fields: [partnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  schoolYear                            SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([partnerId, schoolYearId])
+  @@map("school_year_config")
 }
 
 enum OdsAuthResponse {
