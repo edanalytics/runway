@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Box, Button, HStack, Table, Tbody, Td, Th, Thead, Tr, VStack, Badge } from '@chakra-ui/react';
-import { useSchoolYearConfig } from '../../api/queries/school-year-config.queries';
+import { useQuery } from '@tanstack/react-query';
+import { schoolYearConfigQueries } from '../../api/queries/school-year-config.queries';
 import { SchoolYearConfigEditForm } from './SchoolYearConfigEditForm';
 
 export const SchoolYearConfigSection = () => {
-  const { data, isLoading } = useSchoolYearConfig();
+  const { data, isLoading } = useQuery(schoolYearConfigQueries);
   const [isEditing, setIsEditing] = useState(false);
 
   if (isLoading || !data) {

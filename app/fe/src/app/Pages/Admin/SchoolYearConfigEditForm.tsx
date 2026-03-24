@@ -46,6 +46,7 @@ export const SchoolYearConfigEditForm = ({ data, onCancel, onSaved }: Props) => 
     data.rows.map((r) => ({ ...r }))
   );
   const [staleError, setStaleError] = useState<{ lastModifiedOn: string; lastModifiedBy: string | null } | null>(null);
+  const [generalError, setGeneralError] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const mutation = useUpdateSchoolYearConfig();
 
@@ -89,6 +90,8 @@ export const SchoolYearConfigEditForm = ({ data, onCancel, onSaved }: Props) => 
               lastModifiedOn: error.lastModifiedOn ?? error.data?.lastModifiedOn,
               lastModifiedBy: error.lastModifiedBy ?? error.data?.lastModifiedBy,
             });
+          } else {
+            setGeneralError('Something went wrong saving your changes. Please try again.');
           }
         },
       }
@@ -111,6 +114,11 @@ export const SchoolYearConfigEditForm = ({ data, onCancel, onSaved }: Props) => 
             ? `at ${new Date(staleError.lastModifiedOn).toLocaleString()}`
             : ''}
           . Please reload the page and try again.
+        </Box>
+      )}
+      {generalError && (
+        <Box bg="pink.50" color="pink.400" p="300" borderRadius="md" mb="300">
+          {generalError}
         </Box>
       )}
 
