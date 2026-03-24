@@ -1,4 +1,4 @@
-import { Body, Controller, ConflictException, Get, Inject, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ConflictException, Get, Inject, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaClient, Tenant } from '@prisma/client';
 import { PutSchoolYearConfigDto, toGetSchoolYearConfigDto } from '@edanalytics/models';
@@ -60,6 +60,21 @@ export class SchoolYearConfigController {
     @Body() body: PutSchoolYearConfigDto,
   ) {
     const partnerId = tenant.partnerId;
+    const lastModifiedOn = body.lastModifiedOn ?? null;
+
+    // Validate all submitted schoolYearIds exist
+    if (body.rows.length > 0) {
+      const submittedIds = body.rows.map((r) => r.schoolYearId);
+      const validYears = await this.prisma.schoolYear.findMany({
+        where: { id: { in: submittedIds } },
+        select: { id: true },
+      });
+      const validIds = new Set(validYears.map((y) => y.id));
+      const invalid = submittedIds.filter((id) => !validIds.has(id));
+      if (invalid.length > 0) {
+        throw new BadRequestException(`Invalid school year IDs: ${invalid.join(', ')}`);
+      }
+    }
 
     // Optimistic concurrency check
     const existingConfigs = await this.prisma.schoolYearConfig.findMany({
@@ -75,7 +90,7 @@ export class SchoolYearConfigController {
       : null;
 
     // Compare timestamps: if client sent null, current must also be null (no rows exist)
-    if (body.lastModifiedOn === null && currentMaxModifiedOn !== null) {
+    if (lastModifiedOn === null && currentMaxModifiedOn !== null) {
       const lastModifier = existingConfigs.reduce((latest, c) =>
         c.modifiedOn > latest.modifiedOn ? c : latest
       );
@@ -89,8 +104,8 @@ export class SchoolYearConfigController {
       });
     }
 
-    if (body.lastModifiedOn !== null && currentMaxModifiedOn !== null) {
-      const clientTs = new Date(body.lastModifiedOn).getTime();
+    if (lastModifiedOn !== null && currentMaxModifiedOn !== null) {
+      const clientTs = new Date(lastModifiedOn).getTime();
       const serverTs = currentMaxModifiedOn.getTime();
       if (clientTs !== serverTs) {
         const lastModifier = existingConfigs.reduce((latest, c) =>

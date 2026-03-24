@@ -280,6 +280,21 @@ describe('PUT /school-year-config', () => {
         const xRow2425 = verifyRes.body.rows.find((r: any) => r.schoolYearId === '2425');
         expect(xRow2425.isEnabled).toBe(true); // still the original seeded value
       });
+
+      it('should return 400 for invalid school year IDs', async () => {
+        const getRes = await request(app.getHttpServer())
+          .get(endpoint)
+          .set('Cookie', [sessA.cookie]);
+
+        const res = await request(app.getHttpServer())
+          .put(endpoint)
+          .set('Cookie', [sessA.cookie])
+          .send({
+            lastModifiedOn: getRes.body.lastModifiedOn,
+            rows: [{ schoolYearId: 'nonexistent', isEnabled: true, sendToOds: true }],
+          });
+        expect(res.status).toBe(400);
+      });
     });
   });
 });
