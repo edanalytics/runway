@@ -1,10 +1,10 @@
-import { Expose, Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Expose } from 'class-transformer';
+import { IsBoolean, IsString } from 'class-validator';
 import { makeSerializer } from '../utils/make-serializer';
 
 // --- GET response ---
 
-export class GetSchoolYearConfigRowDto {
+export class GetSchoolYearConfigDto {
   @Expose()
   schoolYearId: string;
 
@@ -21,19 +21,7 @@ export class GetSchoolYearConfigRowDto {
   sendToOds: boolean;
 
   @Expose()
-  odsCount: number;
-}
-
-export class GetSchoolYearConfigDto {
-  @Expose()
-  partnerName: string;
-
-  @Expose()
-  lastModifiedOn: string | null;
-
-  @Expose()
-  @Type(() => GetSchoolYearConfigRowDto)
-  rows: GetSchoolYearConfigRowDto[];
+  hasOds: boolean;
 }
 
 export const toGetSchoolYearConfigDto = makeSerializer<GetSchoolYearConfigDto>(GetSchoolYearConfigDto);
@@ -49,15 +37,4 @@ export class PutSchoolYearConfigRowDto {
 
   @IsBoolean()
   sendToOds: boolean;
-}
-
-export class PutSchoolYearConfigDto {
-  @IsOptional()
-  @IsString()
-  lastModifiedOn: string | null;
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => PutSchoolYearConfigRowDto)
-  rows: PutSchoolYearConfigRowDto[];
 }

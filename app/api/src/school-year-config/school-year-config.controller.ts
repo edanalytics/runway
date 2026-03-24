@@ -1,10 +1,24 @@
-import { BadRequestException, Body, Controller, ConflictException, Get, Inject, Put } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  ConflictException,
+  Get,
+  Headers,
+  Inject,
+  ParseArrayPipe,
+  Put,
+  Res,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaClient, Tenant } from '@prisma/client';
-import { PutSchoolYearConfigDto, toGetSchoolYearConfigDto } from '@edanalytics/models';
+import { PutSchoolYearConfigRowDto, toGetSchoolYearConfigDto } from '@edanalytics/models';
+import { Response } from 'express';
 import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
+
+const LAST_MODIFIED_HEADER = 'x-last-modified';
 
 @ApiTags('SchoolYearConfig')
 @Controller()
@@ -13,58 +27,60 @@ export class SchoolYearConfigController {
 
   @Authorize('school-year-config.read')
   @Get()
-  async getConfig(@TenantDecorator() tenant: Tenant) {
+  async getConfig(@TenantDecorator() tenant: Tenant, @Res({ passthrough: true }) res: Response) {
     const partnerId = tenant.partnerId;
 
-    const [partner, schoolYears, configs, odsCounts] = await Promise.all([
-      this.prisma.partner.findUniqueOrThrow({ where: { id: partnerId } }),
-      this.prisma.schoolYear.findMany({ orderBy: { startYear: 'desc' } }),
-      this.prisma.schoolYearConfig.findMany({ where: { partnerId } }),
-      this.prisma.odsConfig.groupBy({
-        by: ['schoolYearId'],
-        where: { partnerId, retired: false },
-        _count: { schoolYearId: true },
-      }),
-    ]);
+    const schoolYears = await this.prisma.schoolYear.findMany({
+      orderBy: { startYear: 'desc' },
+      include: {
+        schoolYearConfig: {
+          where: { partnerId },
+        },
+        odsConfig: {
+          where: { partnerId, retired: false },
+          select: { id: true },
+        },
+      },
+    });
 
-    const configMap = new Map(configs.map((c) => [c.schoolYearId, c]));
-    const odsCountMap = new Map(odsCounts.map((o) => [o.schoolYearId, o._count.schoolYearId]));
+    let maxModifiedOn: Date | null = null;
+    for (const sy of schoolYears) {
+      const config = sy.schoolYearConfig[0];
+      if (config && (!maxModifiedOn || config.modifiedOn > maxModifiedOn)) {
+        maxModifiedOn = config.modifiedOn;
+      }
+    }
 
-    const maxModifiedOn = configs.length > 0
-      ? configs.reduce((max, c) => (c.modifiedOn > max ? c.modifiedOn : max), configs[0].modifiedOn)
-      : null;
+    if (maxModifiedOn) {
+      res.setHeader(LAST_MODIFIED_HEADER, maxModifiedOn.toISOString());
+    }
 
-    const rows = schoolYears.map((sy) => {
-      const config = configMap.get(sy.id);
+    return toGetSchoolYearConfigDto(schoolYears.map((sy) => {
+      const config = sy.schoolYearConfig[0] ?? null;
       return {
         schoolYearId: sy.id,
         startYear: sy.startYear,
         endYear: sy.endYear,
         isEnabled: config?.isEnabled ?? false,
         sendToOds: config?.sendToOds ?? true,
-        odsCount: odsCountMap.get(sy.id) ?? 0,
+        hasOds: sy.odsConfig.length > 0,
       };
-    });
-
-    return toGetSchoolYearConfigDto({
-      partnerName: partner.name,
-      lastModifiedOn: maxModifiedOn?.toISOString() ?? null,
-      rows,
-    });
+    }));
   }
 
   @Authorize('school-year-config.update')
   @Put()
   async updateConfig(
     @TenantDecorator() tenant: Tenant,
-    @Body() body: PutSchoolYearConfigDto,
+    @Headers(LAST_MODIFIED_HEADER) lastModifiedHeader: string | undefined,
+    @Body(new ParseArrayPipe({ items: PutSchoolYearConfigRowDto })) body: PutSchoolYearConfigRowDto[],
   ) {
     const partnerId = tenant.partnerId;
-    const lastModifiedOn = body.lastModifiedOn ?? null;
+    const lastModifiedOn = lastModifiedHeader ?? null;
 
     // Validate all submitted schoolYearIds exist
-    if (body.rows.length > 0) {
-      const submittedIds = body.rows.map((r) => r.schoolYearId);
+    if (body.length > 0) {
+      const submittedIds = body.map((r) => r.schoolYearId);
       const validYears = await this.prisma.schoolYear.findMany({
         where: { id: { in: submittedIds } },
         select: { id: true },
@@ -97,7 +113,7 @@ export class SchoolYearConfigController {
       throw new ConflictException({
         statusCode: 409,
         message: 'Config has been modified since you loaded it.',
-        lastModifiedOn: currentMaxModifiedOn,
+        lastModifiedOn: currentMaxModifiedOn.toISOString(),
         lastModifiedBy: lastModifier.user
           ? `${lastModifier.user.givenName} ${lastModifier.user.familyName}`
           : null,
@@ -114,7 +130,7 @@ export class SchoolYearConfigController {
         throw new ConflictException({
           statusCode: 409,
           message: 'Config has been modified since you loaded it.',
-          lastModifiedOn: currentMaxModifiedOn,
+          lastModifiedOn: currentMaxModifiedOn.toISOString(),
           lastModifiedBy: lastModifier.user
             ? `${lastModifier.user.givenName} ${lastModifier.user.familyName}`
             : null,
@@ -124,7 +140,7 @@ export class SchoolYearConfigController {
 
     // Bulk upsert — audit columns (modified_on, modified_by_id) are set by DB triggers
     await this.prisma.$transaction(
-      body.rows.map((row) =>
+      body.map((row) =>
         this.prisma.schoolYearConfig.upsert({
           where: {
             partnerId_schoolYearId: { partnerId, schoolYearId: row.schoolYearId },

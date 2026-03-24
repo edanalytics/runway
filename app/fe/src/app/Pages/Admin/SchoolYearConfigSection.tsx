@@ -5,10 +5,10 @@ import { schoolYearConfigQueries } from '../../api/queries/school-year-config.qu
 import { SchoolYearConfigEditForm } from './SchoolYearConfigEditForm';
 
 export const SchoolYearConfigSection = () => {
-  const { data, isLoading } = useQuery(schoolYearConfigQueries);
+  const { data: config, isLoading } = useQuery(schoolYearConfigQueries);
   const [isEditing, setIsEditing] = useState(false);
 
-  if (isLoading || !data) {
+  if (isLoading || !config) {
     return <Box textStyle="body">Loading...</Box>;
   }
 
@@ -28,13 +28,11 @@ export const SchoolYearConfigSection = () => {
           </Button>
         )}
       </HStack>
-      <Box textStyle="body" color="blue.100">
-        {data.partnerName}
-      </Box>
 
       {isEditing ? (
         <SchoolYearConfigEditForm
-          data={data}
+          data={config.rows}
+          lastModifiedOn={config.lastModifiedOn}
           onCancel={() => setIsEditing(false)}
           onSaved={() => setIsEditing(false)}
         />
@@ -45,11 +43,11 @@ export const SchoolYearConfigSection = () => {
               <Th>School Year</Th>
               <Th>Enabled</Th>
               <Th>Send to ODS</Th>
-              <Th>ODS Count</Th>
+              <Th>ODS</Th>
             </Tr>
           </Thead>
           <Tbody>
-            {data.rows.map((row) => (
+            {config.rows.map((row) => (
               <Tr key={row.schoolYearId}>
                 <Td>{row.startYear} - {row.endYear}</Td>
                 <Td>
@@ -62,7 +60,11 @@ export const SchoolYearConfigSection = () => {
                     {row.sendToOds ? 'yes' : 'no'}
                   </Badge>
                 </Td>
-                <Td>{row.odsCount}</Td>
+                <Td>
+                  <Badge colorScheme={row.hasOds ? 'green' : 'gray'}>
+                    {row.hasOds ? 'yes' : 'no'}
+                  </Badge>
+                </Td>
               </Tr>
             ))}
           </Tbody>

@@ -14,18 +14,18 @@ import {
 } from '@chakra-ui/react';
 import {
   GetSchoolYearConfigDto,
-  GetSchoolYearConfigRowDto,
   useUpdateSchoolYearConfig,
 } from '../../api/queries/school-year-config.queries';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
 
 interface Props {
-  data: GetSchoolYearConfigDto;
+  data: GetSchoolYearConfigDto[];
+  lastModifiedOn: string | null;
   onCancel: () => void;
   onSaved: () => void;
 }
 
-function describeChanges(original: GetSchoolYearConfigRowDto[], edited: GetSchoolYearConfigRowDto[]): string[] {
+function describeChanges(original: GetSchoolYearConfigDto[], edited: GetSchoolYearConfigDto[]): string[] {
   const changes: string[] = [];
   for (const edit of edited) {
     const orig = original.find((r) => r.schoolYearId === edit.schoolYearId);
@@ -41,16 +41,16 @@ function describeChanges(original: GetSchoolYearConfigRowDto[], edited: GetSchoo
   return changes;
 }
 
-export const SchoolYearConfigEditForm = ({ data, onCancel, onSaved }: Props) => {
-  const [rows, setRows] = useState<GetSchoolYearConfigRowDto[]>(
-    data.rows.map((r) => ({ ...r }))
+export const SchoolYearConfigEditForm = ({ data, lastModifiedOn, onCancel, onSaved }: Props) => {
+  const [rows, setRows] = useState<GetSchoolYearConfigDto[]>(
+    data.map((r) => ({ ...r }))
   );
   const [staleError, setStaleError] = useState<{ lastModifiedOn: string; lastModifiedBy: string | null } | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const mutation = useUpdateSchoolYearConfig();
 
-  const changes = describeChanges(data.rows, rows);
+  const changes = describeChanges(data, rows);
   const hasChanges = changes.length > 0;
 
   const updateRow = (schoolYearId: string, field: 'isEnabled' | 'sendToOds', value: boolean) => {
@@ -67,13 +67,13 @@ export const SchoolYearConfigEditForm = ({ data, onCancel, onSaved }: Props) => 
   const handleConfirm = () => {
     onClose();
     const changedRows = rows.filter((edit) => {
-      const orig = data.rows.find((r) => r.schoolYearId === edit.schoolYearId);
+      const orig = data.find((r) => r.schoolYearId === edit.schoolYearId);
       return orig && (orig.isEnabled !== edit.isEnabled || orig.sendToOds !== edit.sendToOds);
     });
 
     mutation.mutate(
       {
-        lastModifiedOn: data.lastModifiedOn,
+        lastModifiedOn,
         rows: changedRows.map((r) => ({
           schoolYearId: r.schoolYearId,
           isEnabled: r.isEnabled,
@@ -128,7 +128,7 @@ export const SchoolYearConfigEditForm = ({ data, onCancel, onSaved }: Props) => 
             <Th>School Year</Th>
             <Th>Enabled</Th>
             <Th>Send to ODS</Th>
-            <Th>ODS Count</Th>
+            <Th>ODS</Th>
           </Tr>
         </Thead>
         <Tbody>
@@ -149,7 +149,7 @@ export const SchoolYearConfigEditForm = ({ data, onCancel, onSaved }: Props) => 
                   colorScheme="green"
                 />
               </Td>
-              <Td>{row.odsCount}</Td>
+              <Td>{row.hasOds ? 'yes' : 'no'}</Td>
             </Tr>
           ))}
         </Tbody>
