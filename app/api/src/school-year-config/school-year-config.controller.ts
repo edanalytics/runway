@@ -18,7 +18,10 @@ import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
 
-const LAST_MODIFIED_HEADER = 'x-last-modified';
+const LAST_MODIFIED_HEADER = 'last-modified';
+const IF_UNMODIFIED_SINCE_HEADER = 'if-unmodified-since';
+
+const toHttpDate = (value: Date) => value.toUTCString();
 
 @ApiTags('SchoolYearConfig')
 @Controller()
@@ -52,7 +55,7 @@ export class SchoolYearConfigController {
     }
 
     if (maxModifiedOn) {
-      res.setHeader(LAST_MODIFIED_HEADER, maxModifiedOn.toISOString());
+      res.setHeader(LAST_MODIFIED_HEADER, toHttpDate(maxModifiedOn));
     }
 
     return toGetSchoolYearConfigDto(schoolYears.map((sy) => {
@@ -72,11 +75,15 @@ export class SchoolYearConfigController {
   @Put()
   async updateConfig(
     @TenantDecorator() tenant: Tenant,
-    @Headers(LAST_MODIFIED_HEADER) lastModifiedHeader: string | undefined,
+    @Headers(IF_UNMODIFIED_SINCE_HEADER) lastModifiedHeader: string | undefined,
     @Body(new ParseArrayPipe({ items: PutSchoolYearConfigRowDto })) body: PutSchoolYearConfigRowDto[],
   ) {
     const partnerId = tenant.partnerId;
     const lastModifiedOn = lastModifiedHeader ?? null;
+
+    if (lastModifiedOn !== null && Number.isNaN(Date.parse(lastModifiedOn))) {
+      throw new BadRequestException('Invalid If-Unmodified-Since header.');
+    }
 
     // Validate all submitted schoolYearIds exist
     if (body.length > 0) {
@@ -104,6 +111,7 @@ export class SchoolYearConfigController {
           existingConfigs[0].modifiedOn,
         )
       : null;
+    const currentLastModifiedOn = currentMaxModifiedOn ? toHttpDate(currentMaxModifiedOn) : null;
 
     // Compare timestamps: if client sent null, current must also be null (no rows exist)
     if (lastModifiedOn === null && currentMaxModifiedOn !== null) {
@@ -113,7 +121,7 @@ export class SchoolYearConfigController {
       throw new ConflictException({
         statusCode: 409,
         message: 'Config has been modified since you loaded it.',
-        lastModifiedOn: currentMaxModifiedOn.toISOString(),
+        lastModifiedOn: currentLastModifiedOn,
         lastModifiedBy: lastModifier.user
           ? `${lastModifier.user.givenName} ${lastModifier.user.familyName}`
           : null,
@@ -121,16 +129,16 @@ export class SchoolYearConfigController {
     }
 
     if (lastModifiedOn !== null && currentMaxModifiedOn !== null) {
-      const clientTs = new Date(lastModifiedOn).getTime();
-      const serverTs = currentMaxModifiedOn.getTime();
-      if (clientTs !== serverTs) {
+      // HTTP-date headers are second-granularity, so compare normalized header values
+      // instead of the raw DB timestamp to avoid false conflicts from sub-second precision.
+      if (toHttpDate(new Date(lastModifiedOn)) !== currentLastModifiedOn) {
         const lastModifier = existingConfigs.reduce((latest, c) =>
           c.modifiedOn > latest.modifiedOn ? c : latest
         );
         throw new ConflictException({
           statusCode: 409,
           message: 'Config has been modified since you loaded it.',
-          lastModifiedOn: currentMaxModifiedOn.toISOString(),
+          lastModifiedOn: currentLastModifiedOn,
           lastModifiedBy: lastModifier.user
             ? `${lastModifier.user.givenName} ${lastModifier.user.familyName}`
             : null,

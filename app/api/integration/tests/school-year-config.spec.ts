@@ -7,7 +7,8 @@ import { partnerX } from '../fixtures/context-fixtures/partner-fixtures';
 import request from 'supertest';
 import { SessionData } from 'express-session';
 
-const LAST_MODIFIED_HEADER = 'x-last-modified';
+const LAST_MODIFIED_HEADER = 'last-modified';
+const IF_UNMODIFIED_SINCE_HEADER = 'if-unmodified-since';
 
 describe('GET /school-year-config', () => {
   const endpoint = '/school-year-config';
@@ -100,7 +101,7 @@ describe('GET /school-year-config', () => {
         expect(row2324.hasOds).toBe(false);
       });
 
-      it('should include X-Last-Modified header when config rows exist', async () => {
+      it('should include Last-Modified header when config rows exist', async () => {
         const res = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [sessA.cookie]);
@@ -179,7 +180,7 @@ describe('PUT /school-year-config', () => {
         const req = request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie]);
-        if (lastModifiedOn) req.set(LAST_MODIFIED_HEADER, lastModifiedOn);
+        if (lastModifiedOn) req.set(IF_UNMODIFIED_SINCE_HEADER, lastModifiedOn);
         const res = await req.send([
           { schoolYearId: '2425', isEnabled: false, sendToOds: false },
           { schoolYearId: '2526', isEnabled: true, sendToOds: false },
@@ -209,7 +210,7 @@ describe('PUT /school-year-config', () => {
         const req = request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie]);
-        if (lastModifiedOn) req.set(LAST_MODIFIED_HEADER, lastModifiedOn);
+        if (lastModifiedOn) req.set(IF_UNMODIFIED_SINCE_HEADER, lastModifiedOn);
         const res = await req.send([{ schoolYearId: '2324', isEnabled: true, sendToOds: true }]);
         expect(res.status).toBe(200);
 
@@ -225,7 +226,7 @@ describe('PUT /school-year-config', () => {
         const res = await request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie])
-          .set(LAST_MODIFIED_HEADER, staleTimestamp)
+          .set(IF_UNMODIFIED_SINCE_HEADER, staleTimestamp)
           .send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
         expect(res.status).toBe(409);
       });
@@ -235,7 +236,7 @@ describe('PUT /school-year-config', () => {
         const res = await request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie])
-          .set(LAST_MODIFIED_HEADER, staleTimestamp)
+          .set(IF_UNMODIFIED_SINCE_HEADER, staleTimestamp)
           .send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
         expect(res.status).toBe(409);
         expect(res.body.lastModifiedOn).toBeDefined();
@@ -263,7 +264,7 @@ describe('PUT /school-year-config', () => {
         const req = request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie]);
-        if (lastModifiedOn) req.set(LAST_MODIFIED_HEADER, lastModifiedOn);
+        if (lastModifiedOn) req.set(IF_UNMODIFIED_SINCE_HEADER, lastModifiedOn);
         await req.send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
 
         // Partner X config should be unchanged
@@ -283,7 +284,7 @@ describe('PUT /school-year-config', () => {
         const req = request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [sessA.cookie]);
-        if (lastModifiedOn) req.set(LAST_MODIFIED_HEADER, lastModifiedOn);
+        if (lastModifiedOn) req.set(IF_UNMODIFIED_SINCE_HEADER, lastModifiedOn);
         const res = await req.send([{ schoolYearId: 'nonexistent', isEnabled: true, sendToOds: true }]);
         expect(res.status).toBe(400);
       });

@@ -5,7 +5,8 @@ import {
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, apiClientRaw } from '../methods';
 
-const LAST_MODIFIED_HEADER = 'x-last-modified';
+const LAST_MODIFIED_HEADER = 'last-modified';
+const IF_UNMODIFIED_SINCE_HEADER = 'if-unmodified-since';
 
 export type { GetSchoolYearConfigDto, PutSchoolYearConfigRowDto };
 
@@ -38,7 +39,7 @@ export const useUpdateSchoolYearConfig = () => {
   return useMutation({
     mutationFn: async ({ rows, lastModifiedOn }: UpdateSchoolYearConfigInput) => {
       return apiClient.put('/school-year-config', rows, {
-        headers: lastModifiedOn ? { [LAST_MODIFIED_HEADER]: lastModifiedOn } : undefined,
+        headers: lastModifiedOn ? { [IF_UNMODIFIED_SINCE_HEADER]: lastModifiedOn } : undefined,
       });
     },
     onSuccess: () => {
