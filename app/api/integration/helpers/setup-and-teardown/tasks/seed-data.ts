@@ -24,6 +24,7 @@ import {
 } from '../../../fixtures/context-fixtures/tenant-fixtures';
 import schoolYears from '../../../fixtures/context-fixtures/school-year-fixtures';
 import { userA, userB, userX } from '../../../fixtures/user-fixtures';
+import { allSchoolYearConfigs } from '../../../fixtures/context-fixtures/school-year-config-fixtures';
 
 /**
  * This file contains the seed data for the integration tests.
@@ -129,6 +130,11 @@ const load = async () => {
     })
   );
 
+  // Depends on partner + school_year
+  await prisma.schoolYearConfig.createMany({
+    data: allSchoolYearConfigs,
+  });
+
   // Reset sequences after seeding with explicit IDs to avoid PK collisions
   // when tests create records via the API (which uses auto-increment).
   await prisma.$queryRawUnsafe(
@@ -142,7 +148,8 @@ const load = async () => {
 const dbPool = pool();
 const clear = async () => {
   await Promise.all([
-    dbPool.query(`DELETE FROM user_tenant;
+    dbPool.query(`DELETE FROM school_year_config;
+      DELETE FROM user_tenant;
       DELETE FROM "user";
       DELETE FROM tenant;
       DELETE FROM identity_provider;
