@@ -12,5 +12,5 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
       'school-year-config.update',
     ])
   ),
-  User: Object.freeze(new Set<PrivilegeKey>([])),
+  User: Object.freeze(new Set<PrivilegeKey>(['school-year-config.read'])),
 });
