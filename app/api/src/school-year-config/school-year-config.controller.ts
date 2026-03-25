@@ -22,7 +22,6 @@ const ETAG_HEADER = 'etag';
 const IF_MATCH_HEADER = 'if-match';
 const CACHE_CONTROL_HEADER = 'cache-control';
 
-const toHttpDate = (value: Date) => value.toUTCString();
 const toEtag = (value: Date) => `"${value.toISOString()}"`;
 
 @ApiTags('SchoolYearConfig')
@@ -99,61 +98,33 @@ export class SchoolYearConfigController {
     }
 
     // Optimistic concurrency check
-    const existingConfigs = await this.prisma.schoolYearConfig.findMany({
+    const latestConfig = await this.prisma.schoolYearConfig.findFirst({
       where: { partnerId },
+      orderBy: { modifiedOn: 'desc' },
       include: { user: true },
     });
 
-    const currentMaxModifiedOn = existingConfigs.length > 0
-      ? existingConfigs.reduce(
-          (max, c) => (c.modifiedOn > max ? c.modifiedOn : max),
-          existingConfigs[0].modifiedOn,
-        )
+    const latestModifiedOn = latestConfig?.modifiedOn ?? null;
+    const currentLastModifiedOn = latestModifiedOn ? latestModifiedOn.toISOString() : null;
+    const currentEtag = latestModifiedOn ? toEtag(latestModifiedOn) : null;
+    const lastModifiedBy = latestConfig?.user
+      ? `${latestConfig.user.givenName} ${latestConfig.user.familyName}`
       : null;
-    const currentLastModifiedOn = currentMaxModifiedOn ? toHttpDate(currentMaxModifiedOn) : null;
-    const currentEtag = currentMaxModifiedOn ? toEtag(currentMaxModifiedOn) : null;
+    const missingIfMatchForExistingConfig = ifMatch === null && latestConfig !== null;
+    const mismatchedIfMatch = ifMatch !== null && currentEtag !== null && ifMatch !== currentEtag;
+    const ifMatchProvidedForMissingConfig = ifMatch !== null && currentEtag === null;
 
     // Compare validators: if client sent null, current must also be null (no rows exist).
     // This is still a check-then-write flow, so concurrent requests can both pass the
     // precondition before either writes. That's acceptable for now because this is a
     // low-frequency admin config surface and last-writer-wins is tolerable here.
-    if (ifMatch === null && currentMaxModifiedOn !== null) {
-      const lastModifier = existingConfigs.reduce((latest, c) =>
-        c.modifiedOn > latest.modifiedOn ? c : latest
-      );
+    if (missingIfMatchForExistingConfig || mismatchedIfMatch || ifMatchProvidedForMissingConfig) {
       throw new ConflictException({
         statusCode: 409,
         message: 'Config has been modified since you loaded it.',
         etag: currentEtag,
         lastModifiedOn: currentLastModifiedOn,
-        lastModifiedBy: lastModifier.user
-          ? `${lastModifier.user.givenName} ${lastModifier.user.familyName}`
-          : null,
-      });
-    }
-
-    if (ifMatch !== null && currentEtag !== null) {
-      if (ifMatch !== currentEtag) {
-        const lastModifier = existingConfigs.reduce((latest, c) =>
-          c.modifiedOn > latest.modifiedOn ? c : latest
-        );
-        throw new ConflictException({
-          statusCode: 409,
-          message: 'Config has been modified since you loaded it.',
-          etag: currentEtag,
-          lastModifiedOn: currentLastModifiedOn,
-          lastModifiedBy: lastModifier.user
-            ? `${lastModifier.user.givenName} ${lastModifier.user.familyName}`
-          : null,
-        });
-      }
-    } else if (ifMatch !== null && currentEtag === null) {
-      throw new ConflictException({
-        statusCode: 409,
-        message: 'Config has been modified since you loaded it.',
-        etag: null,
-        lastModifiedOn: null,
-        lastModifiedBy: null,
+        lastModifiedBy,
       });
     }
 
