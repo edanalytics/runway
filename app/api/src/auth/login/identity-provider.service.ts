@@ -1,9 +1,10 @@
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient, OidcConfig, IdentityProvider, Partner } from '@prisma/client';
 import { Request as ExpressRequest } from 'express';
 import * as jose from 'jose';
 import { BaseClient, IdTokenClaims, Strategy } from 'openid-client';
 import passport from 'passport';
+import pg from 'pg';
 import { AppConfigService } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database';
 import { AuthService } from '../auth.service';
@@ -22,7 +23,7 @@ const CANONICAL_APP_ROLE_BY_LOWER: ReadonlyMap<string, AppRoles> = new Map(
  */
 
 @Injectable()
-export class IdentityProviderService implements OnApplicationBootstrap {
+export class IdentityProviderService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(IdentityProviderService.name);
   private readonly idpRegistrations: {
     [k: IdentityProvider['id']]: {
@@ -32,18 +33,40 @@ export class IdentityProviderService implements OnApplicationBootstrap {
       feHome: string;
     };
   } = {};
+  private listenerClient: pg.PoolClient | null = null;
 
   constructor(
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     @Inject(AuthService)
     private authService: AuthService,
-    private readonly configService: AppConfigService
+    private readonly configService: AppConfigService,
+    @Inject('DatabaseService') private pool: pg.Pool
   ) {}
 
   async onApplicationBootstrap() {
+    await this.refreshRegistrations();
+    this.startListener();
+  }
+
+  async onModuleDestroy() {
+    if (this.listenerClient) {
+      try {
+        await this.listenerClient.query('UNLISTEN idp_config_changed');
+        this.listenerClient.release();
+      } catch {
+        /* ignore during shutdown */
+      }
+      this.listenerClient = null;
+    }
+  }
+
+  async refreshRegistrations() {
     const idps = await this.prisma.identityProvider.findMany({
       include: { oidcConfig: true, partners: true },
     });
+
+    const validIdpIds = new Set<string>();
+
     for (const idp of idps) {
       if (idp.oidcConfig && idp.partners.length > 0) {
         if (idp.partners.length > 1 && !idp.oidcConfig.partnerClaim) {
@@ -62,7 +85,17 @@ export class IdentityProviderService implements OnApplicationBootstrap {
           await this.registerOidcIdp(
             idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] }
           );
+          validIdpIds.add(idp.id);
         }
+      }
+    }
+
+    // Remove registrations for IdPs that are no longer valid
+    for (const existingId of Object.keys(this.idpRegistrations)) {
+      if (!validIdpIds.has(existingId)) {
+        passport.unuse(this.passportKey(existingId));
+        delete this.idpRegistrations[existingId];
+        this.logger.verbose(`Unregistered ${existingId}`);
       }
     }
   }
@@ -110,6 +143,47 @@ export class IdentityProviderService implements OnApplicationBootstrap {
         status: 'INVALID_TOKEN' as const,
       };
     }
+  }
+
+  private startListener(): void {
+    if (this.listenerClient) return; // already listening
+
+    this.pool
+      .connect()
+      .then(async (client) => {
+        this.listenerClient = client;
+        await client.query('LISTEN idp_config_changed');
+        client.on('notification', () => this.onNotification());
+        client.on('error', (err) => {
+          this.logger.error('LISTEN connection error', err);
+          this.reconnectListener();
+        });
+        this.logger.verbose('Listening for idp_config_changed notifications');
+      })
+      .catch((err) => {
+        this.logger.error('Failed to start LISTEN connection', err);
+      });
+  }
+
+  private async onNotification(): Promise<void> {
+    this.logger.verbose('Received idp_config_changed, refreshing registrations');
+    try {
+      await this.refreshRegistrations();
+    } catch (err) {
+      this.logger.error('Failed to refresh IdP registrations', err);
+    }
+  }
+
+  private reconnectListener(): void {
+    if (this.listenerClient) {
+      try {
+        this.listenerClient.release(true);
+      } catch {
+        /* ignore */
+      }
+      this.listenerClient = null;
+    }
+    setTimeout(() => this.startListener(), 5000);
   }
 
   private async registerOidcIdp(
