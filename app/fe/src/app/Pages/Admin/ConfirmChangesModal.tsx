@@ -17,35 +17,55 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  changes: string[];
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
+  changes?: string[];
 }
 
-export const ConfirmChangesModal = ({ isOpen, onClose, onConfirm, changes }: Props) => {
+export const ConfirmChangesModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title = 'confirm changes',
+  description = 'The following changes will be saved:',
+  confirmLabel = 'confirm',
+  changes = [],
+}: Props) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} isCentered>
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader>confirm changes</ModalHeader>
+        <ModalHeader>{title}</ModalHeader>
         <ModalCloseButton />
         <ModalBody>
-          <Box textStyle="body" mb="200">
-            The following changes will be saved:
+          <Box textStyle="body" mb={changes.length > 0 ? '200' : '0'}>
+            {description}
           </Box>
-          <List spacing="100">
-            {changes.map((change, i) => (
-              <ListItem key={i} textStyle="body">
-                {change}
-              </ListItem>
-            ))}
-          </List>
+          {changes.length > 0 && (
+            <List spacing="100">
+              {changes.map((change, i) => (
+                <ListItem key={i} textStyle="body">
+                  {change}
+                </ListItem>
+              ))}
+            </List>
+          )}
         </ModalBody>
         <ModalFooter>
           <HStack gap="200">
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="ghost" _hover={{ bg: 'transparent' }} onClick={onClose}>
               cancel
             </Button>
-            <Button layerStyle="buttonPrimary" onClick={onConfirm}>
-              confirm
+            <Button
+              layerStyle="buttonPrimary"
+              textStyle="button"
+              bg="green.100"
+              color="green.600"
+              _hover={{ bg: 'green.50' }}
+              onClick={onConfirm}
+            >
+              {confirmLabel}
             </Button>
           </HStack>
         </ModalFooter>

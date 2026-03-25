@@ -10,7 +10,9 @@ export const AdminPage = () => {
   if (!isPartnerAdmin) {
     return (
       <VStack paddingBottom="800" align="stretch">
-        <Box as="h1" textStyle="h1">admin</Box>
+        <Box as="h1" textStyle="h1">
+          admin
+        </Box>
         {partnerId && (
           <Box textStyle="body" color="green.600">
             partner: {partnerId}
@@ -24,11 +26,13 @@ export const AdminPage = () => {
   }
 
   return (
-    <VStack paddingBottom="800" align="stretch">
-      <Box as="h1" textStyle="h1">admin</Box>
+    <VStack paddingBottom="800" align="stretch" gap="300">
+      <Box as="h1" textStyle="h1">
+        admin settings
+      </Box>
       {partnerId && (
-        <Box textStyle="body" color="green.600">
-          partner: {partnerId}
+        <Box as="h2" textStyle="h2">
+          partner configuration: {partnerId}
         </Box>
       )}
       <SchoolYearConfigSection />

@@ -1,9 +1,13 @@
 import { Box } from '@chakra-ui/react';
+import { LuSettings2 } from 'react-icons/lu';
 import { INavButtonProps, NavButton } from './NavButton';
 import { AssessmentIcon } from '../../assets/AssessmentsIcon';
 import { ODSConfigIcon } from '../../assets/ODSConfigIcon';
-import { AdminIcon } from '../../assets/AdminIcon';
 import { useMe } from '../api/queries/me.queries';
+
+const AdminSettingsIcon = (props: React.ComponentProps<typeof LuSettings2>) => (
+  <LuSettings2 {...props} strokeWidth={1} />
+);
 
 export const Nav = () => {
   const { data: me } = useMe();
@@ -30,7 +34,7 @@ export const Nav = () => {
         <NavButton key={item.text + item.route} {...item} />
       ))}
       {isPartnerAdmin && (
-        <NavButton route="/admin" icon={AdminIcon} text="admin" />
+        <NavButton route="/admin" icon={AdminSettingsIcon} text="admin settings" />
       )}
     </Box>
   );
