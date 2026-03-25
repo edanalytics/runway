@@ -1,3 +1,4 @@
+import { GetSchoolYearConfigDto } from '@edanalytics/models';
 import { useEffect, useState } from 'react';
 import {
   Box,
@@ -14,10 +15,7 @@ import {
   SystemStyleObject,
   useDisclosure,
 } from '@chakra-ui/react';
-import {
-  GetSchoolYearConfigDto,
-  useUpdateSchoolYearConfig,
-} from '../../api/queries/school-year-config.queries';
+import { useUpdateSchoolYearConfig } from '../../api/queries/school-year-config.queries';
 import { useBlocker } from '@tanstack/react-router';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
