@@ -17,6 +17,8 @@ import { useQuery } from '@tanstack/react-query';
 import { schoolYearConfigQueries } from '../../api/queries/school-year-config.queries';
 import { SchoolYearConfigEditForm } from './SchoolYearConfigEditForm';
 
+// This mostly mirrors RunwayStdTable's shell styling. If more admin tables appear,
+// extract a shared table shell rather than continuing to duplicate the sx object.
 const tableShellSx = {
   borderCollapse: 'separate',
   borderSpacing: '0px',
@@ -70,17 +72,19 @@ export const SchoolYearConfigSection = () => {
   }
 
   return (
-    <VStack align="stretch" gap="300">
-      <HStack justify="space-between" align="center">
+    <VStack align="stretch" gap="200">
+      <HStack justify="space-between" align="baseline">
         <Box as="h3" textStyle="h3">
-          school years
+          school year configuration
         </Box>
         {!isEditing && (
           <Button
-            layerStyle="buttonPrimary"
+            variant="ghost"
             textStyle="button"
-            px="300"
-            py="300"
+            textColor="green.100"
+            px="200"
+            py="200"
+            _hover={{ bg: 'transparent' }}
             onClick={() => setIsEditing(true)}
           >
             edit
@@ -115,12 +119,14 @@ export const SchoolYearConfigSection = () => {
             <Tbody>
               {config.rows.map((row) => (
                 <Tr key={row.schoolYearId}>
-                  <Td>{row.startYear} - {row.endYear}</Td>
+                  <Td>
+                    {row.startYear} - {row.endYear}
+                  </Td>
                   <Td>
                     <Badge
                       borderRadius="999px"
                       bg={row.isEnabled ? 'green.100' : 'blue.800'}
-                      color={row.isEnabled ? 'green.600' : 'blue.100'}
+                      color={row.isEnabled ? 'green.600' : 'green.50'}
                       px="200"
                       py="100"
                       textTransform="none"
@@ -131,13 +137,13 @@ export const SchoolYearConfigSection = () => {
                   <Td>
                     <Badge
                       borderRadius="999px"
-                      bg={row.sendToOds ? 'green.100' : 'pink.100'}
-                      color={row.sendToOds ? 'green.600' : 'pink.400'}
+                      bg={row.sendToOds ? 'green.100' : 'blue.800'}
+                      color={row.sendToOds ? 'green.600' : 'green.50'}
                       px="200"
                       py="100"
                       textTransform="none"
                     >
-                      {row.sendToOds ? 'sending' : 'sideload only'}
+                      {row.sendToOds ? 'sending' : 'not sending'}
                     </Badge>
                   </Td>
                   <Td>{row.odsCount}</Td>

@@ -105,11 +105,7 @@ export class SchoolYearConfigController {
     });
 
     const latestModifiedOn = latestConfig?.modifiedOn ?? null;
-    const currentLastModifiedOn = latestModifiedOn ? latestModifiedOn.toISOString() : null;
     const currentEtag = latestModifiedOn ? toEtag(latestModifiedOn) : null;
-    const lastModifiedBy = latestConfig?.user
-      ? `${latestConfig.user.givenName} ${latestConfig.user.familyName}`
-      : null;
     const missingIfMatchForExistingConfig = ifMatch === null && latestConfig !== null;
     const mismatchedIfMatch = ifMatch !== null && currentEtag !== null && ifMatch !== currentEtag;
     const ifMatchProvidedForMissingConfig = ifMatch !== null && currentEtag === null;
@@ -123,8 +119,10 @@ export class SchoolYearConfigController {
         statusCode: 409,
         message: 'Config has been modified since you loaded it.',
         etag: currentEtag,
-        lastModifiedOn: currentLastModifiedOn,
-        lastModifiedBy,
+        lastModifiedOn: latestModifiedOn ? latestModifiedOn.toISOString() : null,
+        lastModifiedBy: latestConfig?.user
+          ? `${latestConfig.user.givenName} ${latestConfig.user.familyName}`
+          : null,
       });
     }
 

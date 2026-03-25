@@ -20,6 +20,18 @@ import { useBlocker } from '@tanstack/react-router';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
 
+const switchSx = {
+  '.chakra-switch__track': {
+    bg: 'blue.800',
+    _checked: {
+      bg: 'green.300',
+    },
+  },
+  '.chakra-switch__thumb': {
+    bg: 'blue.50',
+  },
+} as const;
+
 interface Props {
   data: GetSchoolYearConfigDto[];
   etag: string | null;
@@ -65,17 +77,6 @@ export const SchoolYearConfigEditForm = ({ data, etag, tableSx, onCancel, onSave
           : ''
       }. Please reload the page and try again.`
     : null;
-  const switchSx = {
-    '.chakra-switch__track': {
-      bg: 'blue.800',
-      _checked: {
-        bg: 'green.300',
-      },
-    },
-    '.chakra-switch__thumb': {
-      bg: 'blue.50',
-    },
-  } as const;
   const blocker = useBlocker({
     condition: shouldWarnAboutUnsavedChanges,
   });
