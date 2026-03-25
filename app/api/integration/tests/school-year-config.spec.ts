@@ -1,17 +1,17 @@
-import { sessionData } from '../helpers/session/session-factory';
-import { sessionCookie } from '../helpers/session/session-cookie';
-import sessionStore from '../helpers/session/session-store';
 import { userA, userX } from '../fixtures/user-fixtures';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { partnerX } from '../fixtures/context-fixtures/partner-fixtures';
 import request from 'supertest';
-import { SessionData } from 'express-session';
+import { authHelper } from '../helpers/oidc/auth-flow';
+import { idpA, idpX } from '../fixtures/context-fixtures/idp-fixtures';
 
 const ETAG_HEADER = 'etag';
 const IF_MATCH_HEADER = 'if-match';
 
 describe('GET /school-year-config', () => {
   const endpoint = '/school-year-config';
+  const partnerAdminRoleA = idpA.oidcConfig.requiredRoles[1];
+  const partnerAdminRoleX = idpX.oidcConfig.requiredRoles[1];
 
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).get(endpoint);
@@ -19,38 +19,35 @@ describe('GET /school-year-config', () => {
   });
 
   describe('authenticated requests', () => {
-    const sessA = sessionCookie('syc-get-a');
-    const sessX = sessionCookie('syc-get-x');
+    let cookieA: string;
 
     beforeEach(async () => {
-      await sessionStore.set(sessA.sid, sessionData(userA, tenantA));
-      await sessionStore.set(sessX.sid, sessionData(userX, tenantX));
+      cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
 
     it('should reject requests from user without PartnerAdmin role', async () => {
       const res = await request(app.getHttpServer())
         .get(endpoint)
-        .set('Cookie', [sessA.cookie]);
+        .set('Cookie', [cookieA]);
       expect(res.status).toBe(403);
     });
 
     describe('as PartnerAdmin', () => {
-      beforeEach(async () => {
-        // Grant PartnerAdmin to userA
-        const session = await sessionStore.get(sessA.sid);
-        session!.passport!.user.roles.push('PartnerAdmin');
-        await sessionStore.set(sessA.sid, session as SessionData);
+      let partnerAdminCookieA: string;
 
-        // Grant PartnerAdmin to userX
-        const sessionX = await sessionStore.get(sessX.sid);
-        sessionX!.passport!.user.roles.push('PartnerAdmin');
-        await sessionStore.set(sessX.sid, sessionX as SessionData);
+      beforeEach(async () => {
+        partnerAdminCookieA = (await authHelper.login(
+          idpA,
+          userA,
+          tenantA,
+          partnerAdminRoleA
+        )).cookies;
       });
 
       it('should return 200 with config rows for all school years', async () => {
         const res = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         expect(res.status).toBe(200);
         expect(res.body).toHaveLength(3); // 3 school years
       });
@@ -58,7 +55,7 @@ describe('GET /school-year-config', () => {
       it('should return correct config values — seeded rows enabled, others default', async () => {
         const res = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
 
         // Partner A has ODS configs for 2425 and 2526 (seeded as enabled)
         const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
@@ -78,7 +75,7 @@ describe('GET /school-year-config', () => {
       it('should include school year info in each row', async () => {
         const res = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
 
         const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
         expect(row2425.startYear).toBe(2024);
@@ -88,7 +85,7 @@ describe('GET /school-year-config', () => {
       it('should return ODS count per school year', async () => {
         const res = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
 
         // Partner A: tenant-a has ODS for 2425 and 2526, tenant-b has ODS for 2526
         const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
@@ -104,16 +101,22 @@ describe('GET /school-year-config', () => {
       it('should include ETag header when config rows exist', async () => {
         const res = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
 
         expect(res.headers[ETAG_HEADER]).toBeDefined();
         expect(res.body[0]).not.toHaveProperty('modifiedOn');
       });
 
       it('should only return config for the session partner, not other partners', async () => {
+        const partnerAdminCookieX = (await authHelper.login(
+          idpX,
+          userX,
+          tenantX,
+          partnerAdminRoleX
+        )).cookies;
         const res = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessX.cookie]);
+          .set('Cookie', [partnerAdminCookieX]);
 
         // Partner X only has ODS for 2425
         const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
@@ -132,6 +135,8 @@ describe('GET /school-year-config', () => {
 
 describe('PUT /school-year-config', () => {
   const endpoint = '/school-year-config';
+  const partnerAdminRoleA = idpA.oidcConfig.requiredRoles[1];
+  const partnerAdminRoleX = idpX.oidcConfig.requiredRoles[1];
 
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).put(endpoint).send({});
@@ -139,31 +144,30 @@ describe('PUT /school-year-config', () => {
   });
 
   describe('authenticated requests', () => {
-    const sessA = sessionCookie('syc-put-a');
-    const sessX = sessionCookie('syc-put-x');
+    let cookieA: string;
 
     beforeEach(async () => {
-      await sessionStore.set(sessA.sid, sessionData(userA, tenantA));
-      await sessionStore.set(sessX.sid, sessionData(userX, tenantX));
+      cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
 
     it('should reject requests from user without PartnerAdmin role', async () => {
       const res = await request(app.getHttpServer())
         .put(endpoint)
-        .set('Cookie', [sessA.cookie])
+        .set('Cookie', [cookieA])
         .send([]);
       expect(res.status).toBe(403);
     });
 
     describe('as PartnerAdmin', () => {
-      beforeEach(async () => {
-        const session = await sessionStore.get(sessA.sid);
-        session!.passport!.user.roles.push('PartnerAdmin');
-        await sessionStore.set(sessA.sid, session as SessionData);
+      let partnerAdminCookieA: string;
 
-        const sessionX = await sessionStore.get(sessX.sid);
-        sessionX!.passport!.user.roles.push('PartnerAdmin');
-        await sessionStore.set(sessX.sid, sessionX as SessionData);
+      beforeEach(async () => {
+        partnerAdminCookieA = (await authHelper.login(
+          idpA,
+          userA,
+          tenantA,
+          partnerAdminRoleA
+        )).cookies;
       });
 
       function getEtag(res: request.Response): string | null {
@@ -174,12 +178,12 @@ describe('PUT /school-year-config', () => {
         // First get the current ETag
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         const etag = getEtag(getRes);
 
         const req = request(app.getHttpServer())
           .put(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         if (etag) req.set(IF_MATCH_HEADER, etag);
         const res = await req.send([
           { schoolYearId: '2425', isEnabled: false, sendToOds: false },
@@ -190,7 +194,7 @@ describe('PUT /school-year-config', () => {
         // Verify the changes persisted
         const verifyRes = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         const row2425 = verifyRes.body.find((r: any) => r.schoolYearId === '2425');
         expect(row2425.isEnabled).toBe(false);
         expect(row2425.sendToOds).toBe(false);
@@ -203,20 +207,20 @@ describe('PUT /school-year-config', () => {
       it('should upsert — create config rows for years that had no row', async () => {
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         const etag = getEtag(getRes);
 
         // 2324 has no existing config row for partner A
         const req = request(app.getHttpServer())
           .put(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         if (etag) req.set(IF_MATCH_HEADER, etag);
         const res = await req.send([{ schoolYearId: '2324', isEnabled: true, sendToOds: true }]);
         expect(res.status).toBe(200);
 
         const verifyRes = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         const row2324 = verifyRes.body.find((r: any) => r.schoolYearId === '2324');
         expect(row2324.isEnabled).toBe(true);
       });
@@ -225,7 +229,7 @@ describe('PUT /school-year-config', () => {
         const staleEtag = '"2020-01-01T00:00:00.000Z"';
         const res = await request(app.getHttpServer())
           .put(endpoint)
-          .set('Cookie', [sessA.cookie])
+          .set('Cookie', [partnerAdminCookieA])
           .set(IF_MATCH_HEADER, staleEtag)
           .send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
         expect(res.status).toBe(409);
@@ -235,7 +239,7 @@ describe('PUT /school-year-config', () => {
         const staleEtag = '"2020-01-01T00:00:00.000Z"';
         const res = await request(app.getHttpServer())
           .put(endpoint)
-          .set('Cookie', [sessA.cookie])
+          .set('Cookie', [partnerAdminCookieA])
           .set(IF_MATCH_HEADER, staleEtag)
           .send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
         expect(res.status).toBe(409);
@@ -244,6 +248,12 @@ describe('PUT /school-year-config', () => {
       });
 
       it('should succeed when ETag is absent and no config rows exist', async () => {
+        const partnerAdminCookieX = (await authHelper.login(
+          idpX,
+          userX,
+          tenantX,
+          partnerAdminRoleX
+        )).cookies;
         // Partner X: delete its config row to simulate a fresh partner
         await global.prisma.schoolYearConfig.deleteMany({
           where: { partnerId: partnerX.id },
@@ -251,27 +261,39 @@ describe('PUT /school-year-config', () => {
 
         const res = await request(app.getHttpServer())
           .put(endpoint)
-          .set('Cookie', [sessX.cookie])
+          .set('Cookie', [partnerAdminCookieX])
           .send([{ schoolYearId: '2425', isEnabled: true, sendToOds: true }]);
         expect(res.status).toBe(200);
       });
 
       it('should not modify other partners config', async () => {
+        const partnerAdminCookieA = (await authHelper.login(
+          idpA,
+          userA,
+          tenantA,
+          partnerAdminRoleA
+        )).cookies;
+        const partnerAdminCookieX = (await authHelper.login(
+          idpX,
+          userX,
+          tenantX,
+          partnerAdminRoleX
+        )).cookies;
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         const etag = getEtag(getRes);
 
         const req = request(app.getHttpServer())
           .put(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         if (etag) req.set(IF_MATCH_HEADER, etag);
         await req.send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
 
         // Partner X config should be unchanged
         const verifyRes = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessX.cookie]);
+          .set('Cookie', [partnerAdminCookieX]);
         const xRow2425 = verifyRes.body.find((r: any) => r.schoolYearId === '2425');
         expect(xRow2425.isEnabled).toBe(true); // still the original seeded value
       });
@@ -279,12 +301,12 @@ describe('PUT /school-year-config', () => {
       it('should return 400 for invalid school year IDs', async () => {
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         const etag = getEtag(getRes);
 
         const req = request(app.getHttpServer())
           .put(endpoint)
-          .set('Cookie', [sessA.cookie]);
+          .set('Cookie', [partnerAdminCookieA]);
         if (etag) req.set(IF_MATCH_HEADER, etag);
         const res = await req.send([{ schoolYearId: 'nonexistent', isEnabled: true, sendToOds: true }]);
         expect(res.status).toBe(400);
