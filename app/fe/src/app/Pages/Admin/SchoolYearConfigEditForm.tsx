@@ -125,15 +125,10 @@ export const SchoolYearConfigEditForm = ({ data, etag, tableSx, onCancel, onSave
   };
 
   const handleSaveConfirm = () => {
-    const changedRows = rows.filter((edit) => {
-      const orig = data.find((r) => r.schoolYearId === edit.schoolYearId);
-      return orig && (orig.isEnabled !== edit.isEnabled || orig.sendToOds !== edit.sendToOds);
-    });
-
     mutation.mutate(
       {
         etag,
-        rows: changedRows.map((r) => ({
+        rows: rows.map((r) => ({
           schoolYearId: r.schoolYearId,
           isEnabled: r.isEnabled,
           sendToOds: r.sendToOds,

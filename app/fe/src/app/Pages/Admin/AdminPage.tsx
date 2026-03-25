@@ -28,13 +28,8 @@ export const AdminPage = () => {
   return (
     <VStack paddingBottom="800" align="stretch" gap="300">
       <Box as="h1" textStyle="h1">
-        admin settings
+        admin settings ({partnerId})
       </Box>
-      {partnerId && (
-        <Box as="h2" textStyle="h2">
-          partner configuration: {partnerId}
-        </Box>
-      )}
       <SchoolYearConfigSection />
     </VStack>
   );

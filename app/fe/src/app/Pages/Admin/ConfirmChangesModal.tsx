@@ -60,9 +60,9 @@ export const ConfirmChangesModal = ({
             <Button
               layerStyle="buttonPrimary"
               textStyle="button"
-              bg="green.100"
-              color="green.600"
-              _hover={{ bg: 'green.50' }}
+              bg="green.600"
+              color="green.50"
+              _hover={{ bg: 'green.400' }}
               onClick={onConfirm}
             >
               {confirmLabel}
