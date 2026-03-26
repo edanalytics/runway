@@ -5,6 +5,7 @@ import pg from 'pg';
 import pgSession from 'connect-pg-simple';
 import session from 'express-session';
 import passport from 'passport';
+import { RequestHandler } from 'express';
 import { AppModule } from './app/app.module';
 import { AppConfigService } from './config/app-config.service';
 import { migrate } from './database';
@@ -51,6 +52,11 @@ async function bootstrap() {
     done(null, user);
   });
 
+  app.use(((_req, res, next) => {
+    res.setHeader('cache-control', 'no-cache');
+    next();
+  }) satisfies RequestHandler);
+
   app.setGlobalPrefix(globalPrefix);
   app.useGlobalPipes(new ValidationPipe({ transform: true, stopAtFirstError: false }));
 
@@ -64,7 +70,7 @@ async function bootstrap() {
   app.enableCors({
     origin: idpRows.rows.map((row) => row.fe_home),
     credentials: true,
-    exposedHeaders: ['location', 'etag', 'cache-control'],
+    exposedHeaders: ['location', 'etag'],
   });
   app.useGlobalInterceptors(
     new ClassSerializerInterceptor(app.get(Reflector), {

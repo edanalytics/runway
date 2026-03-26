@@ -51,7 +51,6 @@ export class SchoolYearConfigController {
       }
     }
 
-    res.setHeader('cache-control', 'no-cache');
     if (maxModifiedOn) {
       res.setHeader('etag', toEtag(maxModifiedOn));
     }
