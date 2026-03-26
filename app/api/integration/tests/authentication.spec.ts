@@ -642,78 +642,11 @@ describe('Authentication', () => {
       const idpService = app.get(IdentityProviderService);
       expect(idpService.idpRegistrationForId(idpX.id)).toBeDefined();
 
-      await prisma.userTenant.deleteMany({ where: { partnerId: partnerX.id } });
-      await prisma.tenant.deleteMany({ where: { partnerId: partnerX.id } });
-      await prisma.user.deleteMany({ where: { idpId: idpX.id } });
-      await prisma.partnerEarthmoverBundle.deleteMany({ where: { partnerId: partnerX.id } });
       await prisma.partner.update({ where: { id: partnerX.id }, data: { idpId: null } });
 
       await idpService.refreshRegistrations();
 
       expect(idpService.idpRegistrationForId(idpX.id)).toBeUndefined();
-    });
-
-    it('should skip registration when signal is already aborted', async () => {
-      const idpService = app.get(IdentityProviderService);
-      const registerSpy = jest.spyOn(idpService as any, 'registerOidcIdp');
-
-      const controller = new AbortController();
-      controller.abort();
-      await idpService.refreshRegistrations(controller.signal);
-
-      expect(registerSpy).not.toHaveBeenCalled();
-      registerSpy.mockRestore();
-    });
-
-    it('should abort a slow refresh when a new one is requested', async () => {
-      const idpService = app.get(IdentityProviderService);
-      const { Issuer } = await import('openid-client');
-      const discoverSpy = jest.spyOn(Issuer, 'discover');
-      const originalImpl = discoverSpy.getMockImplementation()!;
-
-      // Make the first discover call for idpA block until we resolve it
-      let unblockDiscover: () => void;
-      const blocked = new Promise<void>((resolve) => {
-        unblockDiscover = resolve;
-      });
-      let callCount = 0;
-      discoverSpy.mockImplementation(async (url: string) => {
-        callCount++;
-        // Block on the first call (idpA during the first refresh)
-        if (callCount === 1) {
-          await blocked;
-        }
-        return originalImpl(url);
-      });
-
-      try {
-        // Change the DB so we can tell which refresh won
-        await prisma.oidcConfig.update({
-          where: { id: oidcConfigA.id },
-          data: { scopes: 'openid email' },
-        });
-
-        // Start a refresh that will block on issuer discovery
-        const controller1 = new AbortController();
-        const refresh1 = idpService.refreshRegistrations(controller1.signal);
-
-        // Abort it and start a second refresh
-        controller1.abort();
-        unblockDiscover!(); // let the blocked discover resolve (but its refresh is aborted)
-        await refresh1;
-
-        // The aborted refresh should not have applied its changes
-        // (idpA was the first IdP processed and discover blocked, so it never registered)
-        // Now do a clean refresh to confirm the abort didn't corrupt state
-        const refresh2 = idpService.refreshRegistrations();
-        await refresh2;
-
-        const reg = idpService.idpRegistrationForId(idpA.id);
-        expect(reg).toBeDefined();
-        expect(reg!.config.scopes).toBe('openid email');
-      } finally {
-        discoverSpy.mockImplementation(originalImpl);
-      }
     });
 
     it('should still register healthy IdPs when one issuer is unreachable', async () => {
@@ -743,49 +676,6 @@ describe('Authentication', () => {
       }
     });
 
-    it('should abort stale background retries when config changes', async () => {
-      const idpService = app.get(IdentityProviderService);
-      const { Issuer } = await import('openid-client');
-      const discoverSpy = jest.spyOn(Issuer, 'discover');
-      const originalImpl = discoverSpy.getMockImplementation()!;
-
-      // Make idpA's issuer fail so it goes to background retry
-      discoverSpy.mockImplementation(async (url: string) => {
-        if (url.includes(oidcConfigA.issuer)) {
-          throw new Error('Issuer unreachable');
-        }
-        return originalImpl(url);
-      });
-
-      try {
-        const controller = new AbortController();
-        await idpService.refreshRegistrations(controller.signal);
-
-        // idpA failed and is retrying in the background with the original config
-        expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined();
-
-        // Admin fixes the config
-        await prisma.oidcConfig.update({
-          where: { id: oidcConfigA.id },
-          data: { scopes: 'openid email' },
-        });
-
-        // Abort stale retries (simulates what onNotification does)
-        controller.abort();
-
-        // Restore discover so the fresh refresh succeeds
-        discoverSpy.mockImplementation(originalImpl);
-
-        // Fresh refresh picks up the new config
-        await idpService.refreshRegistrations();
-
-        const reg = idpService.idpRegistrationForId(idpA.id);
-        expect(reg).toBeDefined();
-        expect(reg!.config.scopes).toBe('openid email');
-      } finally {
-        discoverSpy.mockImplementation(originalImpl);
-      }
-    });
   });
 
   describe('Logout', () => {

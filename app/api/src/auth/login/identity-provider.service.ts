@@ -90,10 +90,11 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
       include: { oidcConfig: true, partners: true },
     });
 
+    if (signal?.aborted) return;
+
     const validIdpIds = new Set<string>();
 
     const registrations = idps.map((idp) => {
-      if (signal?.aborted) return null;
       if (idp.oidcConfig && idp.partners.length > 0) {
         if (idp.partners.length > 1 && !idp.oidcConfig.partnerClaim) {
           // We allow the app to boot since the misconfiguration might not impact all IdPs.
