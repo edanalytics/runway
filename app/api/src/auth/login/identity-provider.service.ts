@@ -18,9 +18,31 @@ const CANONICAL_APP_ROLE_BY_LOWER: ReadonlyMap<string, AppRoles> = new Map(
 );
 
 /**
- * Identity Provider Service. Today, this is focused on OIDC integrations and there's
- * a lot of OIDC-specific code in here. You could imagine us factoring this out
- * if we someday add SAML support, too.
+ * Identity Provider Service. Manages OIDC identity provider registrations as
+ * in-memory Passport strategies (required by Passport's architecture).
+ *
+ * ## Lifecycle
+ *
+ * **Boot** — `onApplicationBootstrap` reads all IdPs from the DB and attempts
+ * issuer discovery for each (concurrently). IdPs whose issuers respond get a
+ * Passport strategy registered immediately. IdPs whose issuers are unreachable
+ * are retried in the background with exponential backoff (up to ~14 min total)
+ * so retry backoff does not block app startup. The initial discovery attempt
+ * for each IdP is still awaited.
+ *
+ * **Live refresh** — PostgreSQL triggers on `oidc_config`, `identity_provider`,
+ * and `partner` fire `NOTIFY idp_config_changed`. A dedicated LISTEN connection
+ * (started from `main.ts` after boot) picks these up and re-runs registration.
+ * IdPs that are no longer valid (deleted, misconfigured, or failed discovery)
+ * are pruned, so the runtime refresh path fails closed.
+ *
+ * **Abort / supersede** — bootstrap and LISTEN-driven refreshes each get an
+ * `AbortController`. When a new notification arrives, the previous controller
+ * is aborted, cancelling any in-flight discovery retries so a config fix isn't
+ * stuck waiting behind stale retries against a bad issuer URL.
+ *
+ * Today this is focused on OIDC. You could imagine factoring the protocol-
+ * specific code out if we someday add SAML support.
  */
 
 @Injectable()
@@ -160,9 +182,9 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
    * Start listening for `idp_config_changed` PostgreSQL notifications. Must be
    * called externally (e.g. from main.ts after app.listen()) rather than from
    * onApplicationBootstrap for two reasons:
-   * 1. The bootstrap refreshRegistrations() has no abort signal, so a notification
-   *    arriving mid-bootstrap would start a second refresh that can't cancel the
-   *    first, risking stale state.
+   * 1. onApplicationBootstrap runs during app.init() (called by app.listen()),
+   *    so starting the listener there would allow notifications to arrive while
+   *    the bootstrap refresh is still in flight.
    * 2. Notification triggers fire during test seed operations, and a listener
    *    active during seed teardown/reload can race with the test harness.
    */
