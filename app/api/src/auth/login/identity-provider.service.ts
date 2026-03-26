@@ -161,7 +161,8 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
         this.logger.verbose('Listening for idp_config_changed notifications');
       })
       .catch((err) => {
-        this.logger.error('Failed to start LISTEN connection', err);
+        this.logger.error('Failed to start LISTEN connection, retrying in 5s', err);
+        this.reconnectListener();
       });
   }
 
