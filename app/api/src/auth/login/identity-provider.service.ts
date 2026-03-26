@@ -59,7 +59,6 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
   private listenerClient: pg.PoolClient | null = null;
   private connecting = false;
   private destroyed = false;
-  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshAbortController: AbortController | null = null;
 
   constructor(
@@ -78,10 +77,6 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
 
   async onModuleDestroy() {
     this.destroyed = true;
-    if (this.connectTimer) {
-      clearTimeout(this.connectTimer);
-      this.connectTimer = null;
-    }
     if (this.listenerClient) {
       try {
         await this.listenerClient.query('UNLISTEN idp_config_changed');
@@ -89,7 +84,6 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
       } catch {
         /* ignore during shutdown */
       }
-      this.listenerClient = null;
     }
   }
 
@@ -199,9 +193,9 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
    * 2. Notification triggers fire during test seed operations, and a listener
    *    active during seed teardown/reload can race with the test harness.
    *
-   * Also handles reconnection on error — the `connecting` flag and
-   * `connectTimer` ensure only one connection attempt is in flight at a time,
-   * and `onModuleDestroy` cancels any pending retry.
+   * Also handles reconnection on error — the `connecting` flag ensures only
+   * one connection attempt is in flight at a time, and the `destroyed` flag
+   * prevents reconnection after shutdown.
    */
   scheduleListener(delaySec = 0): void {
     if (this.connecting || this.destroyed) return;
@@ -217,6 +211,10 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
     }
 
     const connect = () => {
+      if (this.destroyed) {
+        this.connecting = false;
+        return;
+      }
       this.pool
         .connect()
         .then(async (client) => {
@@ -243,7 +241,7 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
     };
 
     if (delaySec > 0) {
-      this.connectTimer = setTimeout(connect, delaySec * 1000);
+      setTimeout(connect, delaySec * 1000);
     } else {
       connect();
     }
