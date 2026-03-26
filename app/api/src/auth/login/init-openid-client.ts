@@ -4,21 +4,17 @@ import { Issuer, Client } from 'openid-client';
 
 const logger = new Logger('InitOpenidClient');
 
-type InitResult =
-  | { status: 'SUCCESS'; client: Client }
-  | { status: 'FAILURE' };
-
 /**
  * Single-attempt OIDC issuer discovery + client creation.
  * Callers are responsible for retry logic.
  */
-export const initOpenidClient = async (config: OidcConfig): Promise<InitResult> => {
+export const initOpenidClient = async (config: OidcConfig) => {
   try {
     const TrustIssuer = await Issuer.discover(
       `${config.issuer}/.well-known/openid-configuration`
     );
     return {
-      status: 'SUCCESS',
+      status: 'SUCCESS' as const,
       client: new TrustIssuer.Client({
         client_id: config.clientId,
         client_secret: config.clientSecret,
@@ -26,6 +22,6 @@ export const initOpenidClient = async (config: OidcConfig): Promise<InitResult> 
     };
   } catch (e) {
     logger.error(`Failed to contact OIDC issuer: ${config.id}. ${e}`);
-    return { status: 'FAILURE' };
+    return { status: 'FAILURE' as const };
   }
 };

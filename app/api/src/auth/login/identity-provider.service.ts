@@ -32,7 +32,7 @@ const CANONICAL_APP_ROLE_BY_LOWER: ReadonlyMap<string, AppRoles> = new Map(
  *
  * **Live refresh** — PostgreSQL triggers on `oidc_config`, `identity_provider`,
  * and `partner` fire `NOTIFY idp_config_changed`. A dedicated LISTEN connection
- * (started from `main.ts` after boot) picks these up and re-runs registration.
+ * (scheduled from `main.ts` after boot) picks these up and re-runs registration.
  * IdPs that are no longer valid (deleted, misconfigured, or failed discovery)
  * are pruned, so the runtime refresh path fails closed.
  *
@@ -57,6 +57,9 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
     };
   } = {};
   private listenerClient: pg.PoolClient | null = null;
+  private connecting = false;
+  private destroyed = false;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshAbortController: AbortController | null = null;
 
   constructor(
@@ -74,6 +77,11 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
   }
 
   async onModuleDestroy() {
+    this.destroyed = true;
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
     if (this.listenerClient) {
       try {
         await this.listenerClient.query('UNLISTEN idp_config_changed');
@@ -94,7 +102,8 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
 
     const validIdpIds = new Set<string>();
 
-    const registrations = idps.map((idp) => {
+    const registrations: Promise<void>[] = [];
+    for (const idp of idps) {
       if (idp.oidcConfig && idp.partners.length > 0) {
         if (idp.partners.length > 1 && !idp.oidcConfig.partnerClaim) {
           // We allow the app to boot since the misconfiguration might not impact all IdPs.
@@ -108,19 +117,20 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
                 ', '
               )}. Users for these partners will not be able to log in until this is fixed.`
           );
-          return null;
+        } else {
+          registrations.push(
+            this.registerOidcIdp(
+              idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+              signal
+            ).then((registered) => {
+              if (registered) validIdpIds.add(idp.id);
+            })
+          );
         }
-        return this.registerOidcIdp(
-          idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
-          signal
-        ).then((registered) => {
-          if (registered) validIdpIds.add(idp.id);
-        });
       }
-      return null;
-    });
+    }
 
-    await Promise.allSettled(registrations.filter(Boolean));
+    await Promise.allSettled(registrations);
 
     if (signal?.aborted) return;
 
@@ -180,34 +190,63 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
   }
 
   /**
-   * Start listening for `idp_config_changed` PostgreSQL notifications. Must be
-   * called externally (e.g. from main.ts after app.listen()) rather than from
-   * onApplicationBootstrap for two reasons:
+   * Schedule the LISTEN connection for `idp_config_changed` PostgreSQL
+   * notifications. Must be called externally (e.g. from main.ts after
+   * app.listen()) rather than from onApplicationBootstrap for two reasons:
    * 1. onApplicationBootstrap runs during app.init() (called by app.listen()),
    *    so starting the listener there would allow notifications to arrive while
    *    the bootstrap refresh is still in flight.
    * 2. Notification triggers fire during test seed operations, and a listener
    *    active during seed teardown/reload can race with the test harness.
+   *
+   * Also handles reconnection on error — the `connecting` flag and
+   * `connectTimer` ensure only one connection attempt is in flight at a time,
+   * and `onModuleDestroy` cancels any pending retry.
    */
-  startListener(): void {
-    if (this.listenerClient) return; // already listening
+  scheduleListener(delaySec = 0): void {
+    if (this.connecting || this.destroyed) return;
+    this.connecting = true;
 
-    this.pool
-      .connect()
-      .then(async (client) => {
-        this.listenerClient = client;
-        await client.query('LISTEN idp_config_changed');
-        client.on('notification', () => this.onNotification());
-        client.on('error', (err) => {
-          this.logger.error('LISTEN connection error', err);
-          this.reconnectListener();
+    if (this.listenerClient) {
+      try {
+        this.listenerClient.release(true);
+      } catch {
+        /* ignore */
+      }
+      this.listenerClient = null;
+    }
+
+    const connect = () => {
+      this.pool
+        .connect()
+        .then(async (client) => {
+          if (this.destroyed) {
+            client.release(true);
+            return;
+          }
+          this.listenerClient = client;
+          await client.query('LISTEN idp_config_changed');
+          client.on('notification', () => this.onNotification());
+          client.on('error', (err) => {
+            this.logger.error('LISTEN connection error', err);
+            this.scheduleListener(5);
+          });
+          this.logger.verbose('Listening for idp_config_changed notifications');
+        })
+        .catch((err) => {
+          this.logger.error('Failed to start LISTEN connection', err);
+          if (!this.destroyed) this.scheduleListener(5);
+        })
+        .finally(() => {
+          this.connecting = false;
         });
-        this.logger.verbose('Listening for idp_config_changed notifications');
-      })
-      .catch((err) => {
-        this.logger.error('Failed to start LISTEN connection, retrying in 5s', err);
-        this.reconnectListener();
-      });
+    };
+
+    if (delaySec > 0) {
+      this.connectTimer = setTimeout(connect, delaySec * 1000);
+    } else {
+      connect();
+    }
   }
 
   private async onNotification(): Promise<void> {
@@ -225,18 +264,6 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
         this.logger.error('Failed to refresh IdP registrations', err);
       }
     }
-  }
-
-  private reconnectListener(): void {
-    if (this.listenerClient) {
-      try {
-        this.listenerClient.release(true);
-      } catch {
-        /* ignore */
-      }
-      this.listenerClient = null;
-    }
-    setTimeout(() => this.startListener(), 5000);
   }
 
   private static readonly MAX_RETRIES = 10;

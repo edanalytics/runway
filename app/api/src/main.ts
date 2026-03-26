@@ -95,9 +95,9 @@ async function bootstrap() {
     await app.listen(port);
   }
 
-  // Start after app.listen() so the bootstrap refreshRegistrations() (triggered by
+  // Schedule after app.listen() so the bootstrap refreshRegistrations() (triggered by
   // onApplicationBootstrap during init) is complete before notifications can arrive.
-  app.get(IdentityProviderService).startListener();
+  app.get(IdentityProviderService).scheduleListener();
   Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 
