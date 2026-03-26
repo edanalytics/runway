@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { wait } from '@edanalytics/utils';
 import { PrismaClient, OidcConfig, IdentityProvider, Partner } from '@prisma/client';
 import { Request as ExpressRequest } from 'express';
 import * as jose from 'jose';
@@ -45,7 +46,9 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
   ) {}
 
   async onApplicationBootstrap() {
-    await this.refreshRegistrations();
+    const controller = new AbortController();
+    this.refreshAbortController = controller;
+    await this.refreshRegistrations(controller.signal);
   }
 
   async onModuleDestroy() {
@@ -213,25 +216,67 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
     setTimeout(() => this.startListener(), 5000);
   }
 
+  private static readonly MAX_RETRIES = 10;
+  private static readonly MAX_RETRY_DELAY_SEC = 5 * 60;
+
   private async registerOidcIdp(
     idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
     signal?: AbortSignal
   ): Promise<boolean> {
-    const initClientResult = await initOpenidClient(idp.oidcConfig, signal);
+    const result = await initOpenidClient(idp.oidcConfig);
 
     if (signal?.aborted) return false;
 
-    if (initClientResult.client) {
-      this.idpRegistrations[idp.id] = {
-        id: idp.id,
-        client: initClientResult.client,
-        config: idp.oidcConfig,
-        feHome: idp.feHome,
-      };
+    if (result.status === 'SUCCESS') {
+      this.applyIdpRegistration(idp, result.client);
+      return true;
+    }
 
-      const strategy = new Strategy<IPassportSession | false>(
+    this.logger.warn(`Failed to contact issuer for ${idp.id}, retrying in background`);
+    this.retryRegistration(idp, signal);
+    return false;
+  }
+
+  private async retryRegistration(
+    idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+    signal?: AbortSignal
+  ): Promise<void> {
+    let retryDelay = 1;
+    for (let retry = 1; retry <= IdentityProviderService.MAX_RETRIES; retry++) {
+      if (signal?.aborted) return;
+
+      await wait(retryDelay * 1000);
+      if (signal?.aborted) return;
+
+      const result = await initOpenidClient(idp.oidcConfig);
+      if (signal?.aborted) return;
+
+      if (result.status === 'SUCCESS') {
+        this.logger.log(`Successfully contacted OIDC issuer on retry: ${idp.id}`);
+        this.applyIdpRegistration(idp, result.client);
+        return;
+      }
+
+      retryDelay = Math.min(retryDelay * 2, IdentityProviderService.MAX_RETRY_DELAY_SEC);
+      this.logger.warn(`Retry ${retry}/${IdentityProviderService.MAX_RETRIES} failed for ${idp.id}, next attempt in ${retryDelay}s`);
+    }
+    this.logger.error(`Exhausted retries for ${idp.id}`);
+  }
+
+  private applyIdpRegistration(
+    idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+    client: BaseClient
+  ): void {
+    this.idpRegistrations[idp.id] = {
+      id: idp.id,
+      client,
+      config: idp.oidcConfig,
+      feHome: idp.feHome,
+    };
+
+    const strategy = new Strategy<IPassportSession | false>(
         {
-          client: initClientResult.client,
+          client,
           params: {
             redirect_uri: `${this.configService.get('MY_URL')}/api/auth/callback/${idp.id}`,
             scope: idp.oidcConfig.scopes ?? 'openid email profile',
@@ -362,13 +407,8 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
           }
         }
       );
-      passport.use(this.passportKey(idp.id), strategy);
-      this.logger.verbose(`Registered ${idp.id}`);
-      return true;
-    } else {
-      this.logger.warn(`Failed to contact issuer for ${idp.id}`);
-      return false;
-    }
+    passport.use(this.passportKey(idp.id), strategy);
+    this.logger.verbose(`Registered ${idp.id}`);
   }
 
   private hasARequiredRole(roleOrRoles: unknown, requiredRoles: string[]): boolean {
