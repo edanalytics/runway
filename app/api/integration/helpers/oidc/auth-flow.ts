@@ -84,10 +84,11 @@ export const initiateAuth = async (idp: IdpFixture) => {
 const login = async (
   idp: IdpFixture,
   user: Pick<User, 'email' | 'givenName' | 'familyName'>,
-  tenant: Pick<Tenant, 'code'>
+  tenant: Pick<Tenant, 'code'>,
+  roles: string | string[] = idp.oidcConfig.requiredRoles[0]
 ) => {
   const { claimsMocker, completeAuth } = await initiateAuth(idp);
-  claimsMocker.authUserInTenant(user, tenant).addRoles(idp.oidcConfig.requiredRoles[0]);
+  claimsMocker.authUserInTenant(user, tenant).addRoles(roles);
   return await completeAuth('pass');
 };
 
