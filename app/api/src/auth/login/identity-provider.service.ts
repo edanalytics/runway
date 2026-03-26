@@ -46,7 +46,6 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
 
   async onApplicationBootstrap() {
     await this.refreshRegistrations();
-    this.startListener();
   }
 
   async onModuleDestroy() {
@@ -150,7 +149,13 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
     }
   }
 
-  private startListener(): void {
+  /**
+   * Start listening for `idp_config_changed` PostgreSQL notifications. Must be
+   * called externally (e.g. from main.ts) rather than from onApplicationBootstrap
+   * because the notification triggers fire during test seed operations, and
+   * a listener active during seed teardown/reload can race with the test harness.
+   */
+  startListener(): void {
     if (this.listenerClient) return; // already listening
 
     this.pool

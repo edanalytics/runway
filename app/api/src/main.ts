@@ -6,11 +6,14 @@ import pgSession from 'connect-pg-simple';
 import session from 'express-session';
 import passport from 'passport';
 import { AppModule } from './app/app.module';
+import { IdentityProviderService } from './auth/login/identity-provider.service';
 import { AppConfigService } from './config/app-config.service';
 import { migrate } from './database';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.get(IdentityProviderService).startListener();
+
   const globalPrefix = 'api';
   const configService = app.get(AppConfigService);
 
