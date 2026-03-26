@@ -34,6 +34,7 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
     };
   } = {};
   private listenerClient: pg.PoolClient | null = null;
+  private refreshAbortController: AbortController | null = null;
 
   constructor(
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
@@ -60,7 +61,7 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
     }
   }
 
-  async refreshRegistrations() {
+  async refreshRegistrations(signal?: AbortSignal) {
     const idps = await this.prisma.identityProvider.findMany({
       include: { oidcConfig: true, partners: true },
     });
@@ -68,6 +69,7 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
     const validIdpIds = new Set<string>();
 
     for (const idp of idps) {
+      if (signal?.aborted) return;
       if (idp.oidcConfig && idp.partners.length > 0) {
         if (idp.partners.length > 1 && !idp.oidcConfig.partnerClaim) {
           // We allow the app to boot since the misconfiguration might not impact all IdPs.
@@ -83,12 +85,15 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
           );
         } else {
           await this.registerOidcIdp(
-            idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] }
+            idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+            signal
           );
           validIdpIds.add(idp.id);
         }
       }
     }
+
+    if (signal?.aborted) return;
 
     // Remove registrations for IdPs that are no longer valid
     for (const existingId of Object.keys(this.idpRegistrations)) {
@@ -167,11 +172,19 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
   }
 
   private async onNotification(): Promise<void> {
+    // Abort any in-flight refresh so it doesn't block or overwrite us
+    this.refreshAbortController?.abort();
+
+    const controller = new AbortController();
+    this.refreshAbortController = controller;
+
     this.logger.verbose('Received idp_config_changed, refreshing registrations');
     try {
-      await this.refreshRegistrations();
+      await this.refreshRegistrations(controller.signal);
     } catch (err) {
-      this.logger.error('Failed to refresh IdP registrations', err);
+      if (!controller.signal.aborted) {
+        this.logger.error('Failed to refresh IdP registrations', err);
+      }
     }
   }
 
@@ -188,9 +201,12 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
   }
 
   private async registerOidcIdp(
-    idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] }
+    idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+    signal?: AbortSignal
   ): Promise<void> {
-    const initClientResult = await initOpenidClient(idp.oidcConfig);
+    const initClientResult = await initOpenidClient(idp.oidcConfig, signal);
+
+    if (signal?.aborted) return;
 
     if (initClientResult.client) {
       this.idpRegistrations[idp.id] = {

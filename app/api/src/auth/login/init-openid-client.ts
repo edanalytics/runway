@@ -7,12 +7,13 @@ const logger = new Logger('InitOpenidClient');
 const maxRetryDelaySec = 5 * 60;
 const maxRetries = 10;
 
-export const initOpenidClient = async (config: OidcConfig) => {
+export const initOpenidClient = async (config: OidcConfig, signal?: AbortSignal) => {
   let retryInterval: number | undefined = undefined;
 
   const _getIssuer = async (
     retry: number
-  ): Promise<{ status: 'SUCCESS'; issuer: Issuer } | { status: 'FAILURE' }> => {
+  ): Promise<{ status: 'SUCCESS'; issuer: Issuer } | { status: 'FAILURE' | 'ABORTED' }> => {
+    if (signal?.aborted) return { status: 'ABORTED' };
     try {
       const TrustIssuer = await Issuer.discover(
         `${config.issuer}/.well-known/openid-configuration`
@@ -25,6 +26,7 @@ export const initOpenidClient = async (config: OidcConfig) => {
         issuer: TrustIssuer,
       };
     } catch (e) {
+      if (signal?.aborted) return { status: 'ABORTED' };
       if (retry > maxRetries) {
         logger.error(`No more retries to contact issuer: ${config.id}. ${e}`);
         return {
@@ -56,7 +58,7 @@ export const initOpenidClient = async (config: OidcConfig) => {
     };
   } else {
     return {
-      status: 'FAILURE' as const,
+      status: issuerResult.status as 'FAILURE' | 'ABORTED',
     };
   }
 };
