@@ -18,10 +18,6 @@ import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
 
-const ETAG_HEADER = 'etag';
-const IF_MATCH_HEADER = 'if-match';
-const CACHE_CONTROL_HEADER = 'cache-control';
-
 const toEtag = (value: Date) => `"${value.toISOString()}"`;
 
 @ApiTags('SchoolYearConfig')
@@ -55,9 +51,9 @@ export class SchoolYearConfigController {
       }
     }
 
-    res.setHeader(CACHE_CONTROL_HEADER, 'no-cache');
+    res.setHeader('cache-control', 'no-cache');
     if (maxModifiedOn) {
-      res.setHeader(ETAG_HEADER, toEtag(maxModifiedOn));
+      res.setHeader('etag', toEtag(maxModifiedOn));
     }
 
     return toGetSchoolYearConfigDto(schoolYears.map((sy) => {
@@ -77,7 +73,7 @@ export class SchoolYearConfigController {
   @Put()
   async updateConfig(
     @TenantDecorator() tenant: Tenant,
-    @Headers(IF_MATCH_HEADER) ifMatchHeader: string | undefined,
+    @Headers('if-match') ifMatchHeader: string | undefined,
     @Body(new ParseArrayPipe({ items: PutSchoolYearConfigRowDto })) body: PutSchoolYearConfigRowDto[],
   ) {
     const partnerId = tenant.partnerId;
@@ -106,15 +102,10 @@ export class SchoolYearConfigController {
 
     const latestModifiedOn = latestConfig?.modifiedOn ?? null;
     const currentEtag = latestModifiedOn ? toEtag(latestModifiedOn) : null;
-    const missingIfMatchForExistingConfig = ifMatch === null && latestConfig !== null;
-    const mismatchedIfMatch = ifMatch !== null && currentEtag !== null && ifMatch !== currentEtag;
-    const ifMatchProvidedForMissingConfig = ifMatch !== null && currentEtag === null;
 
-    // Compare validators: if client sent null, current must also be null (no rows exist).
-    // This is still a check-then-write flow, so concurrent requests can both pass the
-    // precondition before either writes. That's acceptable for now because this is a
-    // low-frequency admin config surface and last-writer-wins is tolerable here.
-    if (missingIfMatchForExistingConfig || mismatchedIfMatch || ifMatchProvidedForMissingConfig) {
+    // Check-then-write: concurrent requests can both pass before either writes.
+    // Acceptable for a low-frequency admin config surface.
+    if (ifMatch !== currentEtag) {
       throw new ConflictException({
         statusCode: 409,
         message: 'Config has been modified since you loaded it.',

@@ -6,16 +6,13 @@ import { plainToInstance } from 'class-transformer';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, apiClientRaw } from '../methods';
 
-const ETAG_HEADER = 'etag';
-const IF_MATCH_HEADER = 'if-match';
-
 const QUERY_KEY = ['school-year-config'];
 
 export const schoolYearConfigQueries = {
   queryKey: QUERY_KEY,
   queryFn: async () => {
     const res = await apiClientRaw.get<GetSchoolYearConfigDto[]>('/school-year-config');
-    const headerValue = res.headers[ETAG_HEADER];
+    const headerValue = res.headers['etag'];
     return {
       rows: plainToInstance(GetSchoolYearConfigDto, res.data ?? []),
       etag: Array.isArray(headerValue) ? headerValue[0] : (headerValue ?? null),
@@ -34,7 +31,7 @@ export const useUpdateSchoolYearConfig = () => {
       etag: string | null;
     }) => {
       return apiClient.put('/school-year-config', rows, {
-        headers: etag ? { [IF_MATCH_HEADER]: etag } : undefined,
+        headers: etag ? { 'if-match': etag } : undefined,
       });
     },
     onSuccess: () => {
