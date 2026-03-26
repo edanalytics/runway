@@ -12,8 +12,6 @@ import { migrate } from './database';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.get(IdentityProviderService).startListener();
-
   const globalPrefix = 'api';
   const configService = app.get(AppConfigService);
 
@@ -97,6 +95,9 @@ async function bootstrap() {
     await app.listen(port);
   }
 
+  // Start after app.listen() so the bootstrap refreshRegistrations() (triggered by
+  // onApplicationBootstrap during init) is complete before notifications can arrive.
+  app.get(IdentityProviderService).startListener();
   Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 

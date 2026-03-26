@@ -67,8 +67,8 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
 
     const validIdpIds = new Set<string>();
 
-    for (const idp of idps) {
-      if (signal?.aborted) return;
+    const registrations = idps.map((idp) => {
+      if (signal?.aborted) return null;
       if (idp.oidcConfig && idp.partners.length > 0) {
         if (idp.partners.length > 1 && !idp.oidcConfig.partnerClaim) {
           // We allow the app to boot since the misconfiguration might not impact all IdPs.
@@ -82,15 +82,19 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
                 ', '
               )}. Users for these partners will not be able to log in until this is fixed.`
           );
-        } else {
-          await this.registerOidcIdp(
-            idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
-            signal
-          );
-          validIdpIds.add(idp.id);
+          return null;
         }
+        return this.registerOidcIdp(
+          idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+          signal
+        ).then((registered) => {
+          if (registered) validIdpIds.add(idp.id);
+        });
       }
-    }
+      return null;
+    });
+
+    await Promise.allSettled(registrations.filter(Boolean));
 
     if (signal?.aborted) return;
 
@@ -151,9 +155,13 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
 
   /**
    * Start listening for `idp_config_changed` PostgreSQL notifications. Must be
-   * called externally (e.g. from main.ts) rather than from onApplicationBootstrap
-   * because the notification triggers fire during test seed operations, and
-   * a listener active during seed teardown/reload can race with the test harness.
+   * called externally (e.g. from main.ts after app.listen()) rather than from
+   * onApplicationBootstrap for two reasons:
+   * 1. The bootstrap refreshRegistrations() has no abort signal, so a notification
+   *    arriving mid-bootstrap would start a second refresh that can't cancel the
+   *    first, risking stale state.
+   * 2. Notification triggers fire during test seed operations, and a listener
+   *    active during seed teardown/reload can race with the test harness.
    */
   startListener(): void {
     if (this.listenerClient) return; // already listening
@@ -208,10 +216,10 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
   private async registerOidcIdp(
     idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
     signal?: AbortSignal
-  ): Promise<void> {
+  ): Promise<boolean> {
     const initClientResult = await initOpenidClient(idp.oidcConfig, signal);
 
-    if (signal?.aborted) return;
+    if (signal?.aborted) return false;
 
     if (initClientResult.client) {
       this.idpRegistrations[idp.id] = {
@@ -356,8 +364,10 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
       );
       passport.use(this.passportKey(idp.id), strategy);
       this.logger.verbose(`Registered ${idp.id}`);
+      return true;
     } else {
       this.logger.warn(`Failed to contact issuer for ${idp.id}`);
+      return false;
     }
   }
 
