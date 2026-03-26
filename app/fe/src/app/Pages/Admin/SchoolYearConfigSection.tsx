@@ -16,52 +16,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { schoolYearConfigQueries } from '../../api/queries/school-year-config.queries';
 import { SchoolYearConfigEditForm } from './SchoolYearConfigEditForm';
-
-// This mostly mirrors RunwayStdTable's shell styling. If more admin tables appear,
-// extract a shared table shell rather than continuing to duplicate the sx object.
-const tableShellSx = {
-  borderCollapse: 'separate',
-  borderSpacing: '0px',
-  th: {
-    borderBottom: '1px solid',
-    borderColor: 'blue.50-40',
-    padding: '300',
-    color: 'blue.50',
-    fontSize: '0.875rem',
-    fontWeight: '600',
-    letterSpacing: '0.02em',
-    textTransform: 'none',
-  },
-  td: {
-    padding: '300',
-    color: 'blue.50',
-    borderTop: '1px solid',
-    borderColor: 'transparent',
-  },
-  thead: {
-    '&::after': {
-      content: '""',
-      display: 'block',
-      width: '100%',
-      height: '8px',
-      backgroundColor: 'transparent',
-    },
-  },
-  tbody: {
-    tr: {
-      transition: 'background-color 120ms ease',
-      _hover: {
-        bg: 'blue.600',
-        '& td:first-of-type': {
-          borderLeftRadius: '4px',
-        },
-        '& td:last-of-type': {
-          borderRightRadius: '4px',
-        },
-      },
-    },
-  },
-} as const;
+import { runwayTableSx } from '../../components/Table/RunwayStdTable';
 
 export const SchoolYearConfigSection = () => {
   const { data: config, isLoading } = useQuery(schoolYearConfigQueries);
@@ -96,7 +51,7 @@ export const SchoolYearConfigSection = () => {
         <SchoolYearConfigEditForm
           data={config.rows}
           etag={config.etag}
-          tableSx={tableShellSx}
+          tableSx={runwayTableSx}
           onCancel={() => setIsEditing(false)}
           onSaved={() => setIsEditing(false)}
         />
@@ -107,7 +62,7 @@ export const SchoolYearConfigSection = () => {
           layerStyle="contentBox"
           padding="300"
         >
-          <Table variant="simple" size="sm" sx={tableShellSx}>
+          <Table variant="simple" size="sm" sx={runwayTableSx}>
             <Thead>
               <Tr>
                 <Th>School Year</Th>
