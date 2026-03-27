@@ -675,8 +675,6 @@ class JobExecutor:
                     resource = key[len(dest_prefix):]
                     self.summary[resource] = {
                         "records_processed": count,
-                        "records_skipped": 0,
-                        "records_failed": 0,
                     }
 
         if self.summary:
