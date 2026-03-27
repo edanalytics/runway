@@ -116,10 +116,10 @@ class JobExecutor:
 
             if self.send_to_ods:
                 self.lightbeam_send()
-                self._send_output_files_to_app("ods")
+                self.upload_output("ods")
                 self.compile_summary(sent_to_ods=True)
             else:
-                self.upload_output()
+                self.upload_output("non_ods")
                 self.compile_summary(sent_to_ods=False)
 
         # NOTE: all specific exceptions are handled in sub-methods
@@ -701,17 +701,18 @@ class JobExecutor:
         if self.summary:
             self.send_summary(sent_to_ods)
 
-    def upload_output(self):
-        """Notify the app about non-ODS output files produced by earthmover"""
-        self.set_action(action.UPLOAD_OUTPUT)
-        self._send_output_files_to_app("non_ods")
+    def upload_output(self, output_type):
+        """Notify the app about output files produced by earthmover.
 
-    def _send_output_files_to_app(self, output_type):
-        """POST each earthmover output file to the app's outputFiles endpoint.
+        For non-ODS jobs this is a distinct action phase. For ODS jobs it runs
+        after lightbeam_send without its own action status.
 
         Args:
             output_type: "ods" or "non_ods" — tells the app how these records were delivered.
         """
+        if output_type == "non_ods":
+            self.set_action(action.UPLOAD_OUTPUT)
+
         output_dir = os.path.abspath(config.OUTPUT_DIR)
         em_output_files = []
         for fname in os.listdir(output_dir):
