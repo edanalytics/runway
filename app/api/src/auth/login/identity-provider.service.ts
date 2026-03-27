@@ -23,23 +23,25 @@ const CANONICAL_APP_ROLE_BY_LOWER: ReadonlyMap<string, AppRoles> = new Map(
  *
  * ## Lifecycle
  *
- * **Boot** — `onApplicationBootstrap` reads all IdPs from the DB and attempts
- * issuer discovery for each (concurrently). IdPs whose issuers respond get a
- * Passport strategy registered immediately. IdPs whose issuers are unreachable
- * are retried in the background with exponential backoff (up to ~14 min total)
- * so retry backoff does not block app startup. The initial discovery attempt
- * for each IdP is still awaited.
+ * **Registration** — `refreshRegistrations` reads all IdPs from the DB and
+ * attempts issuer discovery for each (concurrently). The initial discovery
+ * attempt for each IdP is awaited, but if an issuer is unreachable, retries
+ * continue in the background with exponential backoff. This means:
+ * - At boot, the app starts serving immediately; unreachable issuers don't
+ *   block startup and will be registered once the retry succeeds.
+ * - On a live refresh, an IdP whose issuer fails discovery is pruned (fail
+ *   closed — its Passport strategy is removed so login is blocked). If the
+ *   background retry later succeeds, the strategy is re-registered.
  *
  * **Live refresh** — PostgreSQL triggers on `oidc_config`, `identity_provider`,
  * and `partner` fire `NOTIFY idp_config_changed`. A dedicated LISTEN connection
  * (scheduled from `main.ts` after boot) picks these up and re-runs registration.
- * IdPs that are no longer valid (deleted, misconfigured, or failed discovery)
- * are pruned, so the runtime refresh path fails closed.
  *
- * **Abort / supersede** — bootstrap and LISTEN-driven refreshes each get an
- * `AbortController`. When a new notification arrives, the previous controller
- * is aborted, cancelling any in-flight discovery retries so a config fix isn't
- * stuck waiting behind stale retries against a bad issuer URL.
+ * **Abort / supersede** — each refresh gets an `AbortController`. When a new
+ * notification arrives, the previous controller is aborted, cancelling any
+ * in-flight discovery, registration, and background retries. Without this,
+ * a stale refresh could overwrite the newer one's registrations with
+ * outdated config.
  *
  * Today this is focused on OIDC. You could imagine factoring the protocol-
  * specific code out if we someday add SAML support.
