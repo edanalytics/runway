@@ -1,6 +1,6 @@
 BUNDLE_DIR = 'bundles'
 OUTPUT_DIR = 'output'
-LB_DOWNLOAD_DIR = 'lb-download-dir'
+ROSTER_DOWNLOAD_DIR = 'roster-download-dir'
 
 REQUIRED_ID_MATCH_RATE = 0.5
 STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75
