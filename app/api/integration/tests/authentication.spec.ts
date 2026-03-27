@@ -483,7 +483,7 @@ describe('Authentication', () => {
       });
       // Re-register the IdP so the strategy picks up the null prefix
       const idpService = app.get(IdentityProviderService);
-      await idpService.onApplicationBootstrap();
+      await idpService.refreshRegistrations();
 
       try {
         const { claimsMocker, completeAuth } = await initiateAuth(idpA);
@@ -501,7 +501,7 @@ describe('Authentication', () => {
           where: { id: oidcConfigA.id },
           data: { rolePrefix: oidcConfigA.rolePrefix },
         });
-        await idpService.onApplicationBootstrap();
+        await idpService.refreshRegistrations();
       }
     });
 
@@ -511,7 +511,7 @@ describe('Authentication', () => {
         data: { rolePrefix: null },
       });
       const idpService = app.get(IdentityProviderService);
-      await idpService.onApplicationBootstrap();
+      await idpService.refreshRegistrations();
 
       try {
         const { claimsMocker, completeAuth } = await initiateAuth(idpA);
@@ -526,7 +526,7 @@ describe('Authentication', () => {
           where: { id: oidcConfigA.id },
           data: { rolePrefix: oidcConfigA.rolePrefix },
         });
-        await idpService.onApplicationBootstrap();
+        await idpService.refreshRegistrations();
       }
     });
 
@@ -562,7 +562,7 @@ describe('Authentication', () => {
         data: { requiredRoles: ['runway.test.user'] },
       });
       const idpService = app.get(IdentityProviderService);
-      await idpService.onApplicationBootstrap();
+      await idpService.refreshRegistrations();
 
       try {
         const { claimsMocker, completeAuth } = await initiateAuth(idpA);
@@ -573,7 +573,7 @@ describe('Authentication', () => {
           where: { id: oidcConfigA.id },
           data: { requiredRoles: oidcConfigA.requiredRoles },
         });
-        await idpService.onApplicationBootstrap();
+        await idpService.refreshRegistrations();
       }
     });
   });
@@ -598,15 +598,12 @@ describe('Authentication', () => {
       });
 
       const loggerSpy = jest.spyOn(Logger.prototype, 'error');
-      const registrationSpy = jest.spyOn(idpService as any, 'registerOidcIdp'); // spy on the private method
-      await idpService.onApplicationBootstrap();
+      await idpService.refreshRegistrations();
       expect(Logger.prototype.error).toHaveBeenCalledWith(
         `${idpA.id} does not have a partner claim but is used by ${partnerA.id}, ${partnerC.id}. Users for these partners will not be able to log in until this is fixed.`
       );
-      expect(registrationSpy).toHaveBeenCalledTimes(1); // once for IdPX
-      // expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined(); // This check doesn't work since the earlier registation is still around
+      expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined();
       loggerSpy.mockClear();
-      registrationSpy.mockClear();
 
       await prisma.oidcConfig.update({
         where: {
@@ -616,10 +613,69 @@ describe('Authentication', () => {
           partnerClaim: originalConfig.partnerClaim,
         },
       });
-      // No need to reset since the original registration was not overwritten
-      // await idpService.onApplicationBootstrap(); // restore for other tests
-      // expect(idpService.idpRegistrationForId(idpA.id)).toBeDefined();
+      await idpService.refreshRegistrations();
+      expect(idpService.idpRegistrationForId(idpA.id)).toBeDefined();
     });
+  });
+
+  describe('Registration refresh', () => {
+    it('should pick up oidc_config changes on refresh', async () => {
+      const idpService = app.get(IdentityProviderService);
+
+      const regBefore = idpService.idpRegistrationForId(idpA.id);
+      expect(regBefore).toBeDefined();
+      expect(regBefore!.config.scopes).toBe(oidcConfigA.scopes);
+
+      await prisma.oidcConfig.update({
+        where: { id: oidcConfigA.id },
+        data: { scopes: 'openid email' },
+      });
+
+      await idpService.refreshRegistrations();
+
+      const regAfter = idpService.idpRegistrationForId(idpA.id);
+      expect(regAfter).toBeDefined();
+      expect(regAfter!.config.scopes).toBe('openid email');
+    });
+
+    it('should unregister an IdP when its sole partner is removed', async () => {
+      const idpService = app.get(IdentityProviderService);
+      expect(idpService.idpRegistrationForId(idpX.id)).toBeDefined();
+
+      await prisma.partner.update({ where: { id: partnerX.id }, data: { idpId: null } });
+
+      await idpService.refreshRegistrations();
+
+      expect(idpService.idpRegistrationForId(idpX.id)).toBeUndefined();
+    });
+
+    it('should still register healthy IdPs when one issuer is unreachable', async () => {
+      const idpService = app.get(IdentityProviderService);
+      const { Issuer } = await import('openid-client');
+      const discoverSpy = jest.spyOn(Issuer, 'discover');
+      const originalImpl = discoverSpy.getMockImplementation()!;
+
+      // Make idpA's issuer fail, let idpX succeed
+      discoverSpy.mockImplementation(async (url: string) => {
+        if (url.includes(oidcConfigA.issuer)) {
+          throw new Error('Issuer unreachable');
+        }
+        return originalImpl(url);
+      });
+
+      try {
+        await idpService.refreshRegistrations();
+
+        // idpA should be pruned (discovery failed), idpX should be registered
+        expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined();
+        expect(idpService.idpRegistrationForId(idpX.id)).toBeDefined();
+      } finally {
+        discoverSpy.mockImplementation(originalImpl);
+        // Restore idpA registration for subsequent tests
+        await idpService.refreshRegistrations();
+      }
+    });
+
   });
 
   describe('Logout', () => {

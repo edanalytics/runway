@@ -7,6 +7,7 @@ import session from 'express-session';
 import passport from 'passport';
 import { RequestHandler } from 'express';
 import { AppModule } from './app/app.module';
+import { IdentityProviderService } from './auth/login/identity-provider.service';
 import { AppConfigService } from './config/app-config.service';
 import { migrate } from './database';
 
@@ -100,6 +101,9 @@ async function bootstrap() {
     await app.listen(port);
   }
 
+  // Called here rather than in onApplicationBootstrap so tests don't start a listener
+  // (seed operations fire the notification triggers and would race with the test harness).
+  app.get(IdentityProviderService).scheduleListener();
   Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 
