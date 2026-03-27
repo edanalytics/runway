@@ -30,7 +30,10 @@ handler.setFormatter(_formatter)
 
 
 class JobExecutor:
-    """Responsible for performing actions, producing artifacts, and reporting errors"""
+    """Responsible for performing actions, producing artifacts, and reporting error
+    
+    To understand the logical flow, start with the execute() method
+    """
 
     def __init__(self):
         self.logger = logging.getLogger("runway")
