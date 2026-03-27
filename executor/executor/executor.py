@@ -116,11 +116,9 @@ class JobExecutor:
 
             if self.send_to_ods:
                 self.lightbeam_send()
-                self.upload_output("ods")
-                self.compile_summary(sent_to_ods=True)
-            else:
-                self.upload_output("non_ods")
-                self.compile_summary(sent_to_ods=False)
+
+            self.upload_output()
+            self.compile_summary()
 
         # NOTE: all specific exceptions are handled in sub-methods
         except:
@@ -668,13 +666,13 @@ class JobExecutor:
 
         self.upload_artifact(artifact.LB_SEND_RESULTS)
 
-    def compile_summary(self, sent_to_ods):
+    def compile_summary(self):
         """Build and send a summary of output records.
 
         For ODS jobs, reads lightbeam send results. For non-ODS jobs, reads earthmover
         destination counts from em-results.json.
         """
-        if sent_to_ods:
+        if self.send_to_ods:
             lb_send_results = {}
             with open(artifact.LB_SEND_RESULTS.path) as f:
                 lb_send_results = json.load(f)
@@ -699,18 +697,16 @@ class JobExecutor:
                     }
 
         if self.summary:
-            self.send_summary(sent_to_ods)
+            self.send_summary()
 
-    def upload_output(self, output_type):
+    def upload_output(self):
         """Notify the app about output files produced by earthmover.
 
-        For non-ODS jobs this is a distinct action phase. For ODS jobs it runs
-        after lightbeam_send without its own action status.
-
-        Args:
-            output_type: "ods" or "non_ods" — tells the app how these records were delivered.
+        For non-ODS jobs this is a distinct action phase (replacing lightbeam_send).
+        For ODS jobs it runs after lightbeam_send without its own action status.
         """
-        if output_type == "non_ods":
+        output_type = "ods" if self.send_to_ods else "non_ods"
+        if not self.send_to_ods:
             self.set_action(action.UPLOAD_OUTPUT)
 
         output_dir = os.path.abspath(config.OUTPUT_DIR)
@@ -823,11 +819,11 @@ class JobExecutor:
         self.logger.debug("Sending error report")
         self.conn.post(self.error_url, json=self.error.to_json())
 
-    def send_summary(self, sent_to_ods):
+    def send_summary(self):
         """Send a user-facing message to app indicating what data was produced"""
-        self.logger.debug(f"Sending summary (sentToOds={sent_to_ods})")
+        self.logger.debug(f"Sending summary (sentToOds={self.send_to_ods})")
         self.conn.post(self.summary_url, json={
-            "sentToOds": sent_to_ods,
+            "sentToOds": self.send_to_ods,
             "resources": self.summary,
         })
 
