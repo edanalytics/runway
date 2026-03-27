@@ -170,7 +170,7 @@ class JobExecutor:
                 self.logger.info("side-load mode: will not send to ODS")
                 # API_YEAR is still needed by earthmover bundles
                 if job.get("inputParams", {}).get("API_YEAR"):
-                    os.environ["API_YEAR"] = str(job["inputParams"]["API_YEAR"])
+                    os.environ["API_YEAR"] = str(job["inputParams"]["API_YEAR"]) # FIXME: get from env var
                 artifact.LB_SEND_RESULTS.needs_upload = False
             else:
                 # API_YEAR will be overwritten by the bundle metadata's env_var
@@ -210,7 +210,7 @@ class JobExecutor:
             err_message = "job.inputFiles must include an INPUT_FILE item"
             self.error = error.InvalidJobError(err_message)
             raise ValueError(err_message)
-        if not self.send_to_ods and not self.roster_file_path:
+        if not self.send_to_ods and not self.roster_file_path: # FIXME: remove
             err_message = "job.rosterFilePath is required when sendToOds is false"
             self.error = error.InvalidJobError(err_message)
             raise ValueError(err_message)
