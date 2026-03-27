@@ -102,7 +102,7 @@ class JobExecutor:
             self.refresh_bundle_code()
             self.earthmover_deps()
 
-            if self.local_mode:
+            if self.send_to_ods and self.local_mode:
                 self.modify_local_lightbeam()
 
             self.get_student_roster()
@@ -111,9 +111,13 @@ class JobExecutor:
             self.map_descriptors()
             self.earthmover_run()
 
-            self.lightbeam_send()
-
-            self.compile_summary()
+            if self.send_to_ods:
+                self.lightbeam_send()
+                self._send_output_files_to_app("ods")
+                self.compile_summary(sent_to_ods=True)
+            else:
+                self.upload_output()
+                self.compile_summary(sent_to_ods=False)
 
         # NOTE: all specific exceptions are handled in sub-methods
         except:
@@ -149,6 +153,10 @@ class JobExecutor:
             self.error_url = job["appUrls"]["error"]
             self.matches_url = job["appUrls"]["unmatchedIds"]
             self.summary_url = job["appUrls"]["summary"]
+            self.output_files_url = job["appUrls"]["outputFiles"]
+
+            self.send_to_ods = job.get("sendToOds", True)
+            self.roster_file_path = job.get("rosterFilePath")
 
             self.assessment_project = os.path.join(
                 self.wrapper_project, "packages", *job["bundle"]["path"].split("/")[1:]
@@ -160,14 +168,21 @@ class JobExecutor:
                 self.assessment_project, "lightbeam.yaml"
             )
 
-            # API_YEAR will be overwritten by the bundle metadata's env_var
-            # config if necessary
-            os.environ["API_YEAR"] = str(job["assessmentDatastore"]["apiYear"])
-            os.environ["EDFI_API_BASE_URL"] = job["assessmentDatastore"]["url"]
-            os.environ["EDFI_API_CLIENT_ID"] = job["assessmentDatastore"]["clientId"]
-            os.environ["EDFI_API_CLIENT_SECRET"] = job["assessmentDatastore"]["clientSecret"]
-            # remove the secret so we don't log it
-            del job["assessmentDatastore"]["clientSecret"]
+            if not self.send_to_ods:
+                self.logger.info("side-load mode: will not send to ODS")
+                # API_YEAR is still needed by earthmover bundles
+                if job.get("inputParams", {}).get("API_YEAR"):
+                    os.environ["API_YEAR"] = str(job["inputParams"]["API_YEAR"])
+                artifact.LB_SEND_RESULTS.needs_upload = False
+            else:
+                # API_YEAR will be overwritten by the bundle metadata's env_var
+                # config if necessary
+                os.environ["API_YEAR"] = str(job["assessmentDatastore"]["apiYear"])
+                os.environ["EDFI_API_BASE_URL"] = job["assessmentDatastore"]["url"]
+                os.environ["EDFI_API_CLIENT_ID"] = job["assessmentDatastore"]["clientId"]
+                os.environ["EDFI_API_CLIENT_SECRET"] = job["assessmentDatastore"]["clientSecret"]
+                # remove the secret so we don't log it
+                del job["assessmentDatastore"]["clientSecret"]
 
             os.environ["ASSESSMENT_BUNDLE"] = os.path.basename(job["bundle"]["path"])
             os.environ["ASSESSMENT_BUNDLE_BRANCH"] = job["bundle"]["branch"]
@@ -192,6 +207,10 @@ class JobExecutor:
         # semantic validation
         if "INPUT_FILE" not in self.input_sources:
             err_message = "job.inputFiles must include an INPUT_FILE item"
+            self.error = error.InvalidJobError(err_message)
+            raise ValueError(err_message)
+        if not self.send_to_ods and not self.roster_file_path:
+            err_message = "job.rosterFilePath is required when sendToOds is false"
             self.error = error.InvalidJobError(err_message)
             raise ValueError(err_message)
         pprint(job)
@@ -238,9 +257,22 @@ class JobExecutor:
         )
 
     def get_student_roster(self):
-        """Download a list of students from the ODS so they can be used to match IDs"""
+        """Download a list of students so they can be used to match IDs.
+
+        In standard mode, fetches from the ODS via lightbeam.
+        In side-load mode, downloads a pre-built roster file from S3.
+        """
         self.set_action(action.GET_ROSTER)
 
+        if self.send_to_ods:
+            self._get_roster_from_ods()
+        else:
+            self._get_roster_from_s3()
+
+        self.upload_artifact(artifact.ROSTER)
+
+    def _get_roster_from_ods(self):
+        """Fetch student roster from the ODS via lightbeam"""
         try:
             subprocess.run(
                 ["lightbeam", "-c", self.assessment_lightbeam, "fetch", "-s", "studentEducationOrganizationAssociations", "-k", "studentIdentificationCodes,educationOrganizationReference,studentReference"]
@@ -259,14 +291,38 @@ class JobExecutor:
         except (ValueError, FileNotFoundError):
             self.error = error.MissingOdsRosterError()
             raise
-    
+
         except subprocess.CalledProcessError:
             self.error = error.LightbeamFetchError(
                 "studentEducationOrganizationAssociations"
             )
             raise
 
-        self.upload_artifact(artifact.ROSTER)
+    def _get_roster_from_s3(self):
+        """Download a pre-built roster file from S3 for side-load jobs"""
+        self.logger.info(f"side-load mode: downloading roster from {self.roster_file_path}")
+        os.makedirs(config.LB_DOWNLOAD_DIR, exist_ok=True)
+
+        try:
+            roster_uri = parse.urlparse(self.roster_file_path, allow_fragments=False)
+            if roster_uri.scheme == "file":
+                shutil.copy2(roster_uri.path, artifact.ROSTER.path)
+            else:
+                bucket = roster_uri.hostname
+                key = roster_uri.path.lstrip("/")
+                self.s3.download_file(bucket, key, artifact.ROSTER.path)
+
+            if os.stat(artifact.ROSTER.path).st_size == 0:
+                raise ValueError("Downloaded roster file is empty")
+
+        except (ValueError, FileNotFoundError):
+            self.error = error.MissingOdsRosterError()
+            raise
+        except botocore.exceptions.ClientError:
+            self.error = error.InputS3DownloadError(
+                "rosterFilePath", self.roster_file_path
+            )
+            raise
 
     def get_input_files(self):
         """Download user-uploaded files from S3"""
@@ -609,21 +665,67 @@ class JobExecutor:
 
         self.upload_artifact(artifact.LB_SEND_RESULTS)
 
-    def compile_summary(self):
-        """Post results from lightbeam send to share with the user"""
-        lb_send_results = {}
-        with open(artifact.LB_SEND_RESULTS.path) as f:
-            lb_send_results = json.load(f)
+    def compile_summary(self, sent_to_ods):
+        """Build and send a summary of output records.
 
-        required_counts = ["records_processed", "records_skipped", "records_failed"]
-        for resource, counts in lb_send_results["resources"].items():
-            # grab the counts we care about
-            self.summary[resource] = {
-                key: val for key, val in counts.items() if key in required_counts
-            }
-        
+        For ODS jobs, reads lightbeam send results. For non-ODS jobs, reads earthmover
+        destination counts from em-results.json.
+        """
+        if sent_to_ods:
+            lb_send_results = {}
+            with open(artifact.LB_SEND_RESULTS.path) as f:
+                lb_send_results = json.load(f)
+
+            required_counts = ["records_processed", "records_skipped", "records_failed"]
+            for resource, counts in lb_send_results["resources"].items():
+                self.summary[resource] = {
+                    key: val for key, val in counts.items() if key in required_counts
+                }
+        else:
+            with open(artifact.EM_RESULTS.path) as f:
+                em_results = json.load(f)
+
+            dest_prefix = "$destinations."
+            for key, count in em_results.get("row_counts", {}).items():
+                if key.startswith(dest_prefix):
+                    resource = key[len(dest_prefix):]
+                    self.summary[resource] = {
+                        "records_processed": count,
+                        "records_skipped": 0,
+                        "records_failed": 0,
+                    }
+
         if self.summary:
-            self.send_summary()
+            self.send_summary(sent_to_ods)
+
+    def upload_output(self):
+        """Notify the app about non-ODS output files produced by earthmover"""
+        self.set_action(action.UPLOAD_OUTPUT)
+        self._send_output_files_to_app("non_ods")
+
+    def _send_output_files_to_app(self, output_type):
+        """POST each earthmover output file to the app's outputFiles endpoint.
+
+        Args:
+            output_type: "ods" or "non_ods" — tells the app how these records were delivered.
+        """
+        output_dir = os.path.abspath(config.OUTPUT_DIR)
+        em_output_files = []
+        for fname in os.listdir(output_dir):
+            fpath = os.path.join(output_dir, fname)
+            if os.path.isfile(fpath) and os.stat(fpath).st_size > 0:
+                em_output_files.append(fname)
+
+        if not em_output_files:
+            self.logger.warning("no earthmover output files found")
+            return
+
+        for fname in em_output_files:
+            self.logger.info(f"notifying app of output file: {fname} (type={output_type})")
+            self.conn.post(self.output_files_url, json={
+                "name": fname,
+                "type": output_type,
+            })
 
     def upload_remaining_artifacts(self):
         """Attempt to upload all artifacts that have not yet been uploaded"""
@@ -717,10 +819,13 @@ class JobExecutor:
         self.logger.debug("Sending error report")
         self.conn.post(self.error_url, json=self.error.to_json())
 
-    def send_summary(self):
-        """Send a user-facing message to app indicating what data was loaded"""
-        self.logger.debug("Sending `lightbeam send` summary")
-        self.conn.post(self.summary_url, json=self.summary)
+    def send_summary(self, sent_to_ods):
+        """Send a user-facing message to app indicating what data was produced"""
+        self.logger.debug(f"Sending summary (sentToOds={sent_to_ods})")
+        self.conn.post(self.summary_url, json={
+            "sentToOds": sent_to_ods,
+            "resources": self.summary,
+        })
 
 
 def localize_s3_path(path):
