@@ -92,8 +92,6 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
       include: { oidcConfig: true, partners: true },
     });
 
-    if (signal?.aborted) return;
-
     const validIdpIds = new Set<string>();
 
     const registrations: Promise<void>[] = [];
@@ -186,12 +184,10 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
   /**
    * Schedule the LISTEN connection for `idp_config_changed` PostgreSQL
    * notifications. Must be called externally (e.g. from main.ts after
-   * app.listen()) rather than from onApplicationBootstrap for two reasons:
-   * 1. onApplicationBootstrap runs during app.init() (called by app.listen()),
-   *    so starting the listener there would allow notifications to arrive while
-   *    the bootstrap refresh is still in flight.
-   * 2. Notification triggers fire during test seed operations, and a listener
-   *    active during seed teardown/reload can race with the test harness.
+   * app.listen()) rather than from onApplicationBootstrap so that tests
+   * don't start a listener — seed operations fire the notification triggers
+   * and a listener active during seed teardown/reload can race with the
+   * test harness.
    *
    * Also handles reconnection on error — the `connecting` flag ensures only
    * one connection attempt is in flight at a time, and the `destroyed` flag
@@ -203,7 +199,7 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
 
     if (this.listenerClient) {
       try {
-        this.listenerClient.release(true);
+        this.listenerClient.release(true); // destroy; don't return a broken connection to the pool
       } catch {
         /* ignore */
       }
@@ -229,14 +225,13 @@ export class IdentityProviderService implements OnApplicationBootstrap, OnModule
             this.logger.error('LISTEN connection error', err);
             this.scheduleListener(5);
           });
+          this.connecting = false;
           this.logger.verbose('Listening for idp_config_changed notifications');
         })
         .catch((err) => {
+          this.connecting = false;
           this.logger.error('Failed to start LISTEN connection', err);
           if (!this.destroyed) this.scheduleListener(5);
-        })
-        .finally(() => {
-          this.connecting = false;
         });
     };
 
