@@ -16,6 +16,7 @@ import { EncryptionService } from 'api/src/encryption/encryption.service';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
+  earthbeamOutputFilesEndpoint,
   earthbeamStatusUpdateEndpoint,
   earthbeamSummaryEndpoint,
   earthbeamUnmatchedIdsEndpoint,
@@ -150,11 +151,13 @@ export class EarthbeamApiService {
         path: template.path,
         branch: this.configService.bundleBranch(),
       },
+      outputFilesBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}/output`,
       appUrls: {
         status: `${executorBaseUrl}/${earthbeamStatusUpdateEndpoint(runId)}`,
         error: `${executorBaseUrl}/${earthbeamErrorUpdateEndpoint(runId)}`,
         summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
+        outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
       },
       assessmentDatastore: {
         apiYear: apiYear,

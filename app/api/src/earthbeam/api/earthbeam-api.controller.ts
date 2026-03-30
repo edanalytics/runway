@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Inject,
   InternalServerErrorException,
   Logger,
@@ -17,6 +18,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { makeEarthbeamJWTGuard } from './auth/earthbeam-api-auth.guard';
 import { Public } from 'api/src/auth/login/public.decorator';
 import {
+  EarthbeamApiOutputFilesPayloadDto,
   EarthbeamApiStatusPayloadDto,
   EarthbeamApiUnmatchedIdsPayloadDto,
   JsonValue,
@@ -135,6 +137,32 @@ export class EarthbeamApiController {
         errorStack
       );
       throw new InternalServerErrorException('Failed to save unmatched ID guidance');
+    }
+  }
+
+  @Post(':runId/output-files')
+  @HttpCode(201)
+  async reportOutputFiles(
+    @Param('runId', ParseIntPipe) runId: number,
+    @Body() body: EarthbeamApiOutputFilesPayloadDto
+  ) {
+    try {
+      const outputFileSet = await this.prisma.runOutputFileSet.create({
+        data: {
+          runId,
+          files: body.files,
+          sentToOds: body.sentToOds,
+        },
+      });
+      return { uid: outputFileSet.uid };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `failed to save output file set for run ${runId}: ${errorMessage}`,
+        errorStack
+      );
+      throw new InternalServerErrorException('Failed to save output file set');
     }
   }
 }

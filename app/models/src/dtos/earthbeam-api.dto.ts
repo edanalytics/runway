@@ -1,6 +1,6 @@
 import { Expose } from 'class-transformer';
 import { makeSerializer } from '../utils';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class EarthbeamApiInitResponseDto {
   @Expose()
@@ -43,7 +43,11 @@ export class EarthbeamApiJobResponseDto {
     error: string;
     summary: string;
     unmatchedIds: string;
+    outputFiles: string;
   };
+
+  @Expose()
+  outputFilesBasePath: string;
 
   @Expose()
   assessmentDatastore: {
@@ -80,4 +84,13 @@ export class EarthbeamApiUnmatchedIdsPayloadDto {
 
   @IsOptional()
   count?: number;
+}
+
+export class EarthbeamApiOutputFilesPayloadDto {
+  @IsArray()
+  @IsString({ each: true })
+  files: string[];
+
+  @IsBoolean()
+  sentToOds: boolean;
 }

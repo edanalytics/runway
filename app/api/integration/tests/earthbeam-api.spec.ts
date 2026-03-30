@@ -311,4 +311,130 @@ describe('Earthbeam API', () => {
       });
     });
   });
+
+  describe('POST /:runId/output-files', () => {
+    let runA: Run;
+    let tokenA: string;
+    let endpointA: string;
+    let jobA: Awaited<ReturnType<typeof seedJob>>;
+
+    let tokenX: string;
+
+    beforeEach(async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      jobA = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      if (!jobA?.runs?.[0]) {
+        throw new Error('Failed to seed job and run');
+      }
+      runA = jobA.runs[0];
+      tokenA = await authService.createAccessToken({ runId: runA.id });
+      endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
+
+      // Job X — for cross-run auth test
+      const jobX = await seedJob({
+        odsConfig: odsConfigX2425,
+        bundle: bundleX,
+        tenant: tenantX,
+      });
+      if (!jobX?.runs?.[0]) {
+        throw new Error('Failed to seed job and run');
+      }
+      tokenX = await authService.createAccessToken({ runId: jobX.runs[0].id });
+    });
+
+    it('should reject unauthenticated requests', async () => {
+      const res = await request(app.getHttpServer()).post(endpointA);
+      expect(res.status).toBe(401);
+    });
+
+    it('should reject requests if the token does not match the run id', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenX}`)
+        .send({ files: ['output.jsonl'], sentToOds: true });
+      expect(res.status).toBe(403);
+    });
+
+    it('should save an output file set and return the uid', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ files: ['output1.jsonl', 'output2.jsonl'], sentToOds: true });
+
+      expect(res.status).toBe(201);
+      expect(res.body.uid).toBeDefined();
+      expect(typeof res.body.uid).toBe('string');
+
+      const saved = await prisma.runOutputFileSet.findUnique({
+        where: { uid: res.body.uid },
+      });
+      expect(saved).not.toBeNull();
+      expect(saved!.runId).toBe(runA.id);
+      expect(saved!.files).toEqual(['output1.jsonl', 'output2.jsonl']);
+      expect(saved!.sentToOds).toBe(true);
+    });
+
+    it('should save sentToOds as false when sent as false', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ files: ['sideloaded.jsonl'], sentToOds: false });
+
+      expect(res.status).toBe(201);
+
+      const saved = await prisma.runOutputFileSet.findUnique({
+        where: { uid: res.body.uid },
+      });
+      expect(saved!.sentToOds).toBe(false);
+    });
+  });
+
+  describe('GET /:runId — job payload', () => {
+    let runA: Run;
+    let tokenA: string;
+    let endpointA: string;
+    let jobA: Awaited<ReturnType<typeof seedJob>>;
+
+    beforeEach(async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      jobA = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      if (!jobA?.runs?.[0]) {
+        throw new Error('Failed to seed job and run');
+      }
+      runA = jobA.runs[0];
+      endpointA = `/earthbeam/jobs/${runA.id}`;
+      tokenA = await authService.createAccessToken({ runId: runA.id });
+    });
+
+    it('should include appUrls.outputFiles in the job payload', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.appUrls.outputFiles).toBeDefined();
+      expect(res.body.appUrls.outputFiles).toContain(`/earthbeam/jobs/${runA.id}/output-files`);
+    });
+
+    it('should include outputFilesBasePath in the job payload', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.outputFilesBasePath).toBe(
+        `${jobA.fileProtocol}://${jobA.fileBucketOrHost}/${jobA.fileBasePath}/output`
+      );
+    });
+  });
 });
