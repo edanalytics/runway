@@ -3,6 +3,9 @@ import { tenantA, tenantB, tenantX } from '../fixtures/context-fixtures/tenant-f
 import request from 'supertest';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { idpA, idpX } from '../fixtures/context-fixtures/idp-fixtures';
+import sessionStore from '../helpers/session/session-store';
+import { sidFromCookie } from '../helpers/session/session-cookie';
+import { odsConfigA2425 } from '../fixtures/context-fixtures/ods-fixture';
 
 describe('GET /school-years/config', () => {
   const endpoint = '/school-years/config';
@@ -23,6 +26,17 @@ describe('GET /school-years/config', () => {
     it('should allow requests from user role (read access drives year selection)', async () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
       expect(res.status).toBe(200);
+    });
+
+    it('should reject authenticated users without school-year-config.read', async () => {
+      const sid = sidFromCookie(cookieA);
+      const session = await sessionStore.get(sid);
+      expect(session).toBeDefined();
+      session!.passport!.user.roles = [];
+      await sessionStore.set(sid, session!);
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+      expect(res.status).toBe(403);
     });
 
     it('should return all school years sorted by startYear descending', async () => {
@@ -52,6 +66,34 @@ describe('GET /school-years/config', () => {
       expect(row2324.sendToOds).toBe(true);
     });
 
+    it('should reflect sendToOds=false rows from school_year_config', async () => {
+      await global.prisma.schoolYearConfig.update({
+        where: {
+          partnerId_schoolYearId: {
+            partnerId: tenantA.partnerId,
+            schoolYearId: '2425',
+          },
+        },
+        data: { sendToOds: false },
+      });
+
+      try {
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+        const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+        expect(row2425.sendToOds).toBe(false);
+      } finally {
+        await global.prisma.schoolYearConfig.update({
+          where: {
+            partnerId_schoolYearId: {
+              partnerId: tenantA.partnerId,
+              schoolYearId: '2425',
+            },
+          },
+          data: { sendToOds: true },
+        });
+      }
+    });
+
     it('should return hasOds=true only when the querying tenant has an active ODS for that year', async () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
 
@@ -65,6 +107,24 @@ describe('GET /school-years/config', () => {
       // No ODS for 2324
       const row2324 = res.body.find((r: any) => r.schoolYearId === '2324');
       expect(row2324.hasOds).toBe(false);
+    });
+
+    it('should ignore retired ODS configs when calculating hasOds', async () => {
+      await global.prisma.odsConfig.update({
+        where: { id: odsConfigA2425.id },
+        data: { retired: true, retiredOn: new Date() },
+      });
+
+      try {
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+        const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+        expect(row2425.hasOds).toBe(false);
+      } finally {
+        await global.prisma.odsConfig.update({
+          where: { id: odsConfigA2425.id },
+          data: { retired: false, retiredOn: null },
+        });
+      }
     });
 
     it('should scope hasOds to tenant — a different tenants ODS does not set hasOds=true', async () => {

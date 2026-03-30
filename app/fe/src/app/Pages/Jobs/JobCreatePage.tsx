@@ -85,10 +85,16 @@ export const JobCreatePage = () => {
   };
 
   const submit = handleSubmit((data, e) => {
+    const odsConfigId = odsConfigByYear[data.year]?.id;
+    if (!odsConfigId) {
+      handleError('Unable to load the ODS configuration for this school year. Please try again.');
+      return;
+    }
+
     setIsSaving(true);
     setFormError(null);
     postJob.mutate(
-      { entity: formDataToDto(data) },
+      { entity: formDataToDto(data, odsConfigId) },
       {
         onSuccess: async (result) => {
           // save files to s3
@@ -156,7 +162,7 @@ export const JobCreatePage = () => {
   const { years, doesYearHaveOds } = useSchoolYears();
   const { data: odsConfigs } = useQuery(odsConfigQueries.getAll({}));
   const odsConfigByYear = keyBy(odsConfigs, 'schoolYearId');
-  const formDataToDto = (data: IJobForm): PostJobDto => {
+  const formDataToDto = (data: IJobForm, odsConfigId: number): PostJobDto => {
     const template = jobTemplates?.find((t) => t.name === data.name);
     if (!template) {
       throw new Error('No template found');
@@ -165,7 +171,7 @@ export const JobCreatePage = () => {
     // TODO: refactor this payload to better match the slimmed-down payload the external API uses
     return {
       name: data.name,
-      odsId: odsConfigByYear[data.year]?.id,
+      odsId: odsConfigId,
       schoolYearId: data.year,
       files: [...data.requiredFiles, ...data.supplementaryFiles]
         .map((fileFields) => {
