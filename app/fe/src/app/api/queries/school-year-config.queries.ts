@@ -5,6 +5,7 @@ import {
 import { plainToInstance } from 'class-transformer';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, apiClientRaw } from '../methods';
+import { schoolYearWithConfigQueries } from './school-year-with-config.queries';
 
 const QUERY_KEY = ['school-year-config'];
 
@@ -36,6 +37,7 @@ export const useUpdateSchoolYearConfig = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: schoolYearWithConfigQueries.queryKey });
     },
   });
 };

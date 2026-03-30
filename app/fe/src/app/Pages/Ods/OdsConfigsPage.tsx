@@ -21,12 +21,17 @@ import {
 } from '../../../assets/icons';
 import { Link as RouterLink } from '@tanstack/react-router';
 import { odsConfigQueries } from '../../api';
-import { GetOdsConfigDto } from '@edanalytics/models';
+import { GetOdsConfigDto, GetSchoolYearWithConfigDto } from '@edanalytics/models';
 import { useState } from 'react';
-import { SchoolYearWithOds, useSchoolYears } from '../../helpers/useSchoolYears';
+import { useSchoolYears } from '../../helpers/useSchoolYears';
+import { useQuery } from '@tanstack/react-query';
+import { keyBy } from 'lodash';
 
 export const OdsConfigsPage = () => {
   const { yearsSinceFirstOds } = useSchoolYears();
+  // TODO: Two independent queries can cause a brief loading flash — revisit when ODS data is consolidated (PR 5+)
+  const { data: odsConfigs } = useQuery(odsConfigQueries.getAll({}));
+  const odsConfigByYear = keyBy(odsConfigs, 'schoolYearId');
 
   const testConnectionQuery = odsConfigQueries.testConnection();
   const testConnection = (odsConfig: GetOdsConfigDto) => {
@@ -38,17 +43,19 @@ export const OdsConfigsPage = () => {
     onOpen: openDeleteModal,
     onClose: closeDeleteModal,
   } = useDisclosure();
-  const [yearToDeleteConfig, setYeartoDeleteConfig] = useState<SchoolYearWithOds | null>(null);
+  const [yearToDeleteConfig, setYeartoDeleteConfig] = useState<GetSchoolYearWithConfigDto | null>(
+    null
+  );
   const deleteConnectionQuery = odsConfigQueries.delete();
-  const confirmDelete = (yearWithOds: SchoolYearWithOds) => {
-    setYeartoDeleteConfig(yearWithOds);
+  const confirmDelete = (year: GetSchoolYearWithConfigDto) => {
+    setYeartoDeleteConfig(year);
     openDeleteModal();
   };
   const deleteConfigAndCloseModal = () => {
     if (yearToDeleteConfig) {
-      const id = yearToDeleteConfig.odsConfig?.id;
-      if (id) {
-        deleteConnectionQuery.mutate({ id });
+      const odsConfig = odsConfigByYear[yearToDeleteConfig.schoolYearId];
+      if (odsConfig) {
+        deleteConnectionQuery.mutate({ id: odsConfig.id });
       }
     }
     setYeartoDeleteConfig(null);
@@ -84,12 +91,13 @@ export const OdsConfigsPage = () => {
         </HStack>
 
         <VStack gap="700">
-          {yearsSinceFirstOds?.map(({ year, odsConfig }) => {
+          {yearsSinceFirstOds?.map((y) => {
+            const odsConfig = odsConfigByYear[y.schoolYearId] as GetOdsConfigDto | undefined;
             const verified = odsConfig?.lastUseResult === 'success';
             return (
-              <Box key={year.id} maxWidth="31rem" width="100%">
+              <Box key={y.schoolYearId} maxWidth="31rem" width="100%">
                 <Box as="h2" textStyle="h2" marginBottom="300">
-                  {year.startYear} - {year.endYear} school year
+                  {y.startYear} - {y.endYear} school year
                 </Box>
                 {odsConfig ? (
                   <Box borderWidth="4px" borderColor="blue.600" borderRadius="8px" padding="300">
@@ -127,7 +135,7 @@ export const OdsConfigsPage = () => {
                         variant="unstyled"
                         padding="200"
                         gap="200"
-                        onClick={() => confirmDelete({ year, odsConfig })}
+                        onClick={() => confirmDelete(y)}
                       >
                         <IconTrash />
                         <Box>delete</Box>
@@ -162,8 +170,8 @@ export const OdsConfigsPage = () => {
           <ModalCloseButton />
           <ModalBody textStyle="body">
             Are you sure you want to delete the ODS configuration for the{' '}
-            {yearToDeleteConfig?.year.startYear} - {yearToDeleteConfig?.year.endYear} school year?
-            This action cannot be undone.
+            {yearToDeleteConfig?.startYear} - {yearToDeleteConfig?.endYear} school year? This action
+            cannot be undone.
           </ModalBody>
 
           <ModalFooter gap="200">

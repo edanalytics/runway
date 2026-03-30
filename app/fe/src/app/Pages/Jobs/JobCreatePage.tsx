@@ -7,6 +7,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { GetJobTemplateDto, GetSchoolYearDto, PostFileDto, PostJobDto } from '@edanalytics/models';
 import { jobQueries } from '../../api/queries/job.queries';
 import { useSchoolYears } from '../../helpers/useSchoolYears';
+import { odsConfigQueries } from '../../api';
+import { keyBy } from 'lodash';
 import { jobTemplateQueries } from '../../api/queries/job-template.queries';
 import { RunwayFileInput } from '../../components/Form/RunwayFileInput';
 import { useEffect, useState } from 'react';
@@ -14,7 +16,7 @@ import { uploadToS3 } from '../../helpers/uploadToS3';
 import { FormSection } from '../../components/Form/FormSection';
 import { FileFormatWarning } from './JobConfigPage/FileFormatWarning';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 
 /**
  * This interface defines ths shape of the form. For most other
@@ -151,7 +153,9 @@ export const JobCreatePage = () => {
     }
   }, [selectedAssessment, jobTemplates]);
 
-  const { allYears, doesYearHaveOds, odsConfigForYear } = useSchoolYears();
+  const { years, doesYearHaveOds } = useSchoolYears();
+  const { data: odsConfigs } = useQuery(odsConfigQueries.getAll({}));
+  const odsConfigByYear = keyBy(odsConfigs, 'schoolYearId');
   const formDataToDto = (data: IJobForm): PostJobDto => {
     const template = jobTemplates?.find((t) => t.name === data.name);
     if (!template) {
@@ -161,7 +165,7 @@ export const JobCreatePage = () => {
     // TODO: refactor this payload to better match the slimmed-down payload the external API uses
     return {
       name: data.name,
-      odsId: odsConfigForYear(data.year).id,
+      odsId: odsConfigByYear[data.year]?.id,
       schoolYearId: data.year,
       files: [...data.requiredFiles, ...data.supplementaryFiles]
         .map((fileFields) => {
@@ -179,16 +183,16 @@ export const JobCreatePage = () => {
     };
   };
 
-  if (!allYears) {
+  if (!years) {
     // TODO: add suspense query in useSchoolYears
     return null;
   }
 
-  if (allYears.length === 0 || jobTemplates.length === 0) {
+  if (years.length === 0 || jobTemplates.length === 0) {
     const missingRequirement =
-      allYears.length === 0 && jobTemplates.length === 0
+      years.length === 0 && jobTemplates.length === 0
         ? 'school years or assessment types'
-        : allYears.length === 0
+        : years.length === 0
         ? 'school years'
         : 'assessment types';
     return (
@@ -211,11 +215,11 @@ export const JobCreatePage = () => {
               <RunwaySelect
                 label="year"
                 controller={yearController}
-                options={allYears.map(({ year, odsConfig }) => ({
-                  label: `${year.startYear} - ${year.endYear} school year${
-                    !odsConfig ? ' (no ODS configured)' : ''
+                options={years.map((y) => ({
+                  label: `${y.startYear} - ${y.endYear} school year${
+                    !y.hasOds ? ' (no ODS configured)' : ''
                   }`,
-                  value: year.id,
+                  value: y.schoolYearId,
                 }))}
                 isOptionDisabled={(option) => !doesYearHaveOds(option.value)}
               ></RunwaySelect>

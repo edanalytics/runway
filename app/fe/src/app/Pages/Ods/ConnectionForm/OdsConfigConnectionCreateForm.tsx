@@ -18,8 +18,7 @@ export const OdsConfigConnectionCreateForm = () => {
     successCallback: (result) => navigate({ to: '/ods-configs' }),
   });
 
-  const { allYears, isYearSelectableForConfig } = useSchoolYears();
-  const isYearAvailable = isYearSelectableForConfig();
+  const { years, doesYearHaveOds } = useSchoolYears();
 
   return (
     <FormLayout title="setup ODS" backLink="/ods-configs">
@@ -28,12 +27,12 @@ export const OdsConfigConnectionCreateForm = () => {
         submit={submit}
         mutation={postOdsConfig}
         yearOptions={
-          allYears?.map(({ year }) => ({
-            label: `${year.startYear} - ${year.endYear} school year`,
-            value: year.id,
+          years?.map((y) => ({
+            label: `${y.startYear} - ${y.endYear} school year`,
+            value: y.schoolYearId,
           })) ?? []
         }
-        isOptionDisabled={(option) => !isYearAvailable(option.value)}
+        isOptionDisabled={(option) => doesYearHaveOds(option.value)}
       />
     </FormLayout>
   );

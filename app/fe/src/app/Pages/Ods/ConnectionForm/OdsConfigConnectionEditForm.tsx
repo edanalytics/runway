@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router';
 import { odsConfigQueries } from '../../../api';
-import { GetOdsConfigDto, GetOdsConfigWithSecretDto, PutOdsConfigDto } from '@edanalytics/models';
+import { GetOdsConfigWithSecretDto, PutOdsConfigDto } from '@edanalytics/models';
 import { classValidatorResolver } from '@hookform/resolvers/class-validator';
 import { FormLayout } from '../../../components/Form/FormLayout';
 import { OdsConnectionForm } from './OdsConnectionForm';
@@ -29,8 +29,7 @@ export const OdsConfigConnectionEditForm = ({
     );
   });
 
-  const { allYears, isYearSelectableForConfig } = useSchoolYears();
-  const isYearAvailable = isYearSelectableForConfig(odsConfig.id);
+  const { years, doesYearHaveOds } = useSchoolYears();
 
   return (
     <FormLayout title="edit ODS" backLink="/ods-configs">
@@ -39,12 +38,14 @@ export const OdsConfigConnectionEditForm = ({
         submit={submit}
         mutation={putOdsConfig}
         yearOptions={
-          allYears?.map(({ year }) => ({
-            label: `${year.startYear} - ${year.endYear} school year`,
-            value: year.id,
+          years?.map((y) => ({
+            label: `${y.startYear} - ${y.endYear} school year`,
+            value: y.schoolYearId,
           })) ?? []
         }
-        isOptionDisabled={(option) => !isYearAvailable(option.value)}
+        isOptionDisabled={(option) =>
+          doesYearHaveOds(option.value) && option.value !== odsConfig.schoolYearId
+        }
       />
     </FormLayout>
   );
