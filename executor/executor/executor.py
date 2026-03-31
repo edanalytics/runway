@@ -695,7 +695,7 @@ class JobExecutor:
         uploaded = False
         for fname in os.listdir(self.output_dir):
             fpath = os.path.join(self.output_dir, fname)
-            if not os.path.isfile(fpath) or os.stat(fpath).st_size == 0:
+            if not fname.endswith(".jsonl") or not os.path.isfile(fpath) or os.stat(fpath).st_size == 0:
                 continue
 
             dest_fname = f"{s3_subdir}/{fname}"
