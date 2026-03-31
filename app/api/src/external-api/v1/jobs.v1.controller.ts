@@ -91,36 +91,41 @@ export class ExternalApiV1JobsController {
       );
     }
 
-    // ─── Validate ODS ───────────────────────────────────────────────────────
-    const odsConfigs = await this.prismaRO.odsConfig.findMany({
+    const schoolYear = await this.prismaRO.schoolYear.findUnique({
       where: {
-        schoolYear: { endYear: parseInt(jobInitDto.schoolYear) },
-        retired: false,
-        activeConnectionId: { not: null },
-        tenantCode,
-        partnerId,
-      },
-      include: {
-        schoolYear: true,
+        endYear: parseInt(jobInitDto.schoolYear),
       },
     });
-
-    if (odsConfigs.length === 0) {
-      throw new BadRequestException(`No ODS found for school year: ${jobInitDto.schoolYear}`);
+    if (!schoolYear) {
+      throw new BadRequestException(`Invalid school year: ${jobInitDto.schoolYear}`);
     }
-    if (odsConfigs.length > 1) {
-      this.logger.error(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
-      throw new InternalServerErrorException(
-        `Multiple ODS found for school year: ${jobInitDto.schoolYear}`
-      );
+
+    const destination = await this.jobsService.resolveJobDestination({
+      schoolYearId: schoolYear.id,
+      tenant,
+    });
+    if (destination.status === 'error') {
+      if (destination.code === 'multiple_ods_found') {
+        this.logger.error(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
+        throw new InternalServerErrorException(
+          `Multiple ODS found for school year: ${jobInitDto.schoolYear}`
+        );
+      }
+
+      if (destination.code === 'ods_not_found') {
+        throw new BadRequestException(`No ODS found for school year: ${jobInitDto.schoolYear}`);
+      }
+
+      throw new BadRequestException(`School year is not enabled: ${jobInitDto.schoolYear}`);
     }
 
     // ─── Create job ───────────────────────────────────────────────────────────
     const result = await this.jobsService.createJob(
       {
         bundlePath: jobInitDto.bundle,
-        odsId: odsConfigs[0].id,
-        schoolYearId: odsConfigs[0].schoolYear.id,
+        odsId: destination.data.odsId,
+        sendToOds: destination.data.sendToOds,
+        schoolYearId: destination.data.schoolYearId,
         files: Object.entries(jobInitDto.files).map(([envVar, fileName]) => ({
           templateKey: envVar,
           nameFromUser: fileName,

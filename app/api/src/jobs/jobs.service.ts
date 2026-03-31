@@ -43,12 +43,108 @@ export class JobsService {
     return lastRun?.runError;
   }
 
+  async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<
+    | {
+        status: 'success';
+        data: {
+          schoolYearId: string;
+          sendToOds: boolean;
+          odsId: number | null;
+        };
+      }
+    | {
+        status: 'error';
+        code:
+          | 'school_year_config_missing'
+          | 'school_year_disabled'
+          | 'ods_not_found'
+          | 'multiple_ods_found';
+        message: string;
+      }
+  > {
+    const config = await this.prisma.schoolYearConfig.findUnique({
+      where: {
+        partnerId_schoolYearId: {
+          partnerId: input.tenant.partnerId,
+          schoolYearId: input.schoolYearId,
+        },
+      },
+      include: {
+        schoolYear: {
+          include: {
+            odsConfig: {
+              where: {
+                partnerId: input.tenant.partnerId,
+                tenantCode: input.tenant.code,
+                retired: false,
+                activeConnectionId: { not: null },
+              },
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!config) {
+      return {
+        status: 'error',
+        code: 'school_year_config_missing',
+        message: `School year is not enabled: ${input.schoolYearId}`,
+      };
+    }
+
+    if (!config.isEnabled) {
+      return {
+        status: 'error',
+        code: 'school_year_disabled',
+        message: `School year is not enabled: ${input.schoolYearId}`,
+      };
+    }
+
+    if (!config.sendToOds) {
+      return {
+        status: 'success',
+        data: {
+          schoolYearId: config.schoolYearId,
+          sendToOds: false,
+          odsId: null,
+        },
+      };
+    }
+
+    if (config.schoolYear.odsConfig.length === 0) {
+      return {
+        status: 'error',
+        code: 'ods_not_found',
+        message: `No ODS found for school year: ${input.schoolYearId}`,
+      };
+    }
+
+    if (config.schoolYear.odsConfig.length > 1) {
+      return {
+        status: 'error',
+        code: 'multiple_ods_found',
+        message: `Multiple ODS found for school year: ${input.schoolYearId}`,
+      };
+    }
+
+    return {
+      status: 'success',
+      data: {
+        schoolYearId: config.schoolYearId,
+        sendToOds: true,
+        odsId: config.schoolYear.odsConfig[0].id,
+      },
+    };
+  }
+
   /**
    * Creates a new job with validated inputs.
    *
    * Controllers are responsible for:
    * - Auth/authorization
-   * - Tenant and ODS lookup/validation
+   * - Tenant and school year destination lookup/validation
    * - Verifying bundle is enabled for partner
    *
    * This method handles:
@@ -60,7 +156,8 @@ export class JobsService {
   async createJob(
     input: {
       bundlePath: string;
-      odsId: number;
+      odsId: number | null;
+      sendToOds: boolean;
       schoolYearId: string;
       files: Array<{ templateKey: string; nameFromUser: string; type: string }>;
       params: Record<string, string>;
@@ -183,6 +280,7 @@ export class JobsService {
       data: {
         name: bundle.display_name,
         odsId: input.odsId,
+        sendToOds: input.sendToOds,
         schoolYearId: input.schoolYearId,
         template: instanceToPlain(toGetJobTemplateDto(bundle)),
         inputParams: enrichedParams,
@@ -293,7 +391,7 @@ export class JobsService {
         jobId: job.id,
         status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
       },
-      include: { job: true },
+      include: { job: { include: { schoolYear: true } } },
     });
 
     try {

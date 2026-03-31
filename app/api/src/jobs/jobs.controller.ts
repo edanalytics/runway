@@ -163,26 +163,18 @@ export class JobsController {
         );
       });
 
-    // ─── Look up and validate ODS ─────────────────────────────────────────────
-    await this.prisma.odsConfig
-      .findUniqueOrThrow({
-        where: {
-          retired: false,
-          activeConnectionId: { not: null },
-          tenant: {
-            code: tenant.code,
-            partnerId: tenant.partnerId,
-          },
-          id: createJobDto.odsId,
-          schoolYearId: createJobDto.schoolYearId,
-        },
-      })
-      .catch(() => {
-        this.logger.error(
-          `Invalid ODS selected: ODS ID: ${createJobDto.odsId}, School Year: ${createJobDto.schoolYearId}, Tenant: ${tenant.code}, Partner: ${tenant.partnerId}`
-        );
-        throw new BadRequestException(`Invalid ODS selected: ${createJobDto.odsId}`);
-      });
+    const destination = await this.jobService.resolveJobDestination({
+      schoolYearId: createJobDto.schoolYearId,
+      tenant,
+    });
+    if (destination.status === 'error') {
+      if (destination.code === 'multiple_ods_found') {
+        this.logger.error(destination.message);
+        throw new InternalServerErrorException(destination.message);
+      }
+
+      throw new BadRequestException(destination.message);
+    }
 
     // Flatten params to Record<string, string>
     // Service will add fresh metadata from the bundle. We shouldn't trust the metadata coming in here anyway.
@@ -196,8 +188,9 @@ export class JobsController {
     const result = await this.jobService.createJob(
       {
         bundlePath: createJobDto.template.path,
-        odsId: createJobDto.odsId,
-        schoolYearId: createJobDto.schoolYearId,
+        odsId: destination.data.odsId,
+        sendToOds: destination.data.sendToOds,
+        schoolYearId: destination.data.schoolYearId,
         files: createJobDto.files,
         params: flatParams,
       },

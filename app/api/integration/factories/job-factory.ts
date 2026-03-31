@@ -27,6 +27,8 @@ export const seedJob = async ({
   return prisma.job.create({
     data: {
       ...postJobDto,
+      odsId: odsConfig.id,
+      sendToOds: true,
       inputParams: postJobDto.inputParams as unknown as JsonArray,
       template: instanceToPlain(postJobDto.template),
       tenantCode: tenant.code,

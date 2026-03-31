@@ -111,6 +111,7 @@ export class EarthbeamApiService {
     if (descriptorNamespace) {
       paramsForEarthbeam['DESCRIPTOR_NAMESPACE'] = descriptorNamespace;
     }
+    const rosterFilePath = `__rosters/${job.partnerId}/${job.tenantCode}/${apiYear}`;
 
     const filesForEarthbeam = job.files.reduce<Record<string, string>>((acc, file) => {
       acc[file.templateKey] = file.nameInternal;
@@ -159,6 +160,7 @@ export class EarthbeamApiService {
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
       },
       sendToOds: job.sendToOds,
+      rosterFilePath: job.sendToOds ? undefined : rosterFilePath,
       assessmentDatastore: job.odsConfig?.activeConnection
         ? {
             apiYear: apiYear,

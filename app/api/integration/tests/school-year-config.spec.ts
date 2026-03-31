@@ -1,6 +1,6 @@
-import { userA, userX } from '../fixtures/user-fixtures';
-import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
-import { partnerX } from '../fixtures/context-fixtures/partner-fixtures';
+import { userA, userB, userX } from '../fixtures/user-fixtures';
+import { tenantA, tenantB, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
+import { partnerA, partnerX } from '../fixtures/context-fixtures/partner-fixtures';
 import request from 'supertest';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { idpA, idpX } from '../fixtures/context-fixtures/idp-fixtures';
@@ -252,6 +252,87 @@ describe('PUT /school-year-config', () => {
         ]);
         expect(res.status).toBe(400);
       });
+    });
+  });
+});
+
+describe('GET /school-year-config/tenant', () => {
+  const endpoint = '/school-year-config/tenant';
+  const userRoleA = 'runway.test.user';
+
+  it('should reject unauthenticated requests', async () => {
+    const res = await request(app.getHttpServer()).get(endpoint);
+    expect(res.status).toBe(401);
+  });
+
+  describe('authenticated requests', () => {
+    let cookieA: string;
+
+    beforeEach(async () => {
+      cookieA = (await authHelper.login(idpA, userA, tenantA, userRoleA)).cookies;
+    });
+
+    it('should return only enabled school years', async () => {
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+      expect(res.status).toBe(200);
+
+      // Partner A has 2425 and 2526 enabled; 2324 has no config row (not enabled)
+      expect(res.body).toHaveLength(2);
+      const yearIds = res.body.map((r: any) => r.schoolYearId);
+      expect(yearIds).toContain('2425');
+      expect(yearIds).toContain('2526');
+      expect(yearIds).not.toContain('2324');
+    });
+
+    it('should include sendToOds config per year', async () => {
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+      expect(row2425.sendToOds).toBe(true);
+    });
+
+    it('should indicate whether the tenant has an active ODS for each year', async () => {
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+      // Tenant A has ODS for 2425 and 2526
+      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+      expect(row2425.hasOds).toBe(true);
+
+      const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
+      expect(row2526.hasOds).toBe(true);
+    });
+
+    it('should return hasOds=false when tenant has no ODS for an enabled year', async () => {
+      // Enable 2324 for partner A but don't create an ODS for it
+      await global.prisma.schoolYearConfig.create({
+        data: { partnerId: partnerA.id, schoolYearId: '2324', isEnabled: true, sendToOds: true },
+      });
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+      const row2324 = res.body.find((r: any) => r.schoolYearId === '2324');
+      expect(row2324).toBeDefined();
+      expect(row2324.hasOds).toBe(false);
+    });
+
+    it('should scope ODS availability to the session tenant, not the whole partner', async () => {
+      // Tenant B (same partner A) has ODS for 2526 but not 2425
+      const cookieB = (await authHelper.login(idpA, userB, tenantB, userRoleA)).cookies;
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieB]);
+
+      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+      expect(row2425.hasOds).toBe(false); // tenant B has no ODS for 2425
+
+      const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
+      expect(row2526.hasOds).toBe(true); // tenant B has ODS for 2526
+    });
+
+    it('should include school year display fields', async () => {
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+      expect(row2425.startYear).toBe(2024);
+      expect(row2425.endYear).toBe(2025);
     });
   });
 });

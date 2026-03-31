@@ -29,6 +29,11 @@ export class ExecutorAwsService implements ExecutorService {
     const initJobUrl = this.apiAuth.initEndpoint({ runId: run.id });
     const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
     const ecsConfig = await this.appConfig.ecsConfig();
+    const schoolYear = (run.job as Job & { schoolYear?: { endYear: number } }).schoolYear;
+    const rosterResource =
+      !run.job.sendToOds && schoolYear
+        ? `arn:aws:s3:::${run.job.fileBucketOrHost}/__rosters/${run.job.partnerId}/${run.job.tenantCode}/${schoolYear.endYear}/*`
+        : null;
 
     const assumeRoleInput: AssumeRoleCommandInput = {
       RoleArn: ecsConfig.taskRole,
@@ -41,6 +46,15 @@ export class ExecutorAwsService implements ExecutorService {
             Action: ['s3:GetObject', 's3:PutObject'],
             Resource: [`arn:aws:s3:::${run.job.fileBucketOrHost}/${run.job.fileBasePath}/*`],
           },
+          ...(rosterResource
+            ? [
+                {
+                  Effect: 'Allow',
+                  Action: ['s3:GetObject'],
+                  Resource: [rosterResource],
+                },
+              ]
+            : []),
         ],
       }),
       DurationSeconds: parseInt(timeoutSeconds),
