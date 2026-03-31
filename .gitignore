@@ -5,3 +5,8 @@ storage/
 executor/local-run
 *.egg-info
 __pycache__
+
+docs/*
+.cursor/skills/*
+.claude/skills/*
+.agents/*

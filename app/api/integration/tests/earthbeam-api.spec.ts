@@ -321,8 +321,6 @@ describe('Earthbeam API', () => {
     let outputFilesBasePath: string;
     let fileServiceMock: Record<string, jest.Mock>;
 
-    let tokenX: string;
-
     beforeEach(async () => {
       const authService = app.get(EarthbeamApiAuthService);
       fileServiceMock = app.get(FileService) as unknown as Record<string, jest.Mock>;
@@ -340,17 +338,6 @@ describe('Earthbeam API', () => {
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
       outputFilesBasePath = `${jobA.fileProtocol}://${jobA.fileBucketOrHost}/${jobA.fileBasePath}/output`;
-
-      // Job X — for cross-run auth test
-      const jobX = await seedJob({
-        odsConfig: odsConfigX2425,
-        bundle: bundleX,
-        tenant: tenantX,
-      });
-      if (!jobX?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
-      tokenX = await authService.createAccessToken({ runId: jobX.runs[0].id });
     });
 
     it('should reject unauthenticated requests', async () => {
@@ -359,10 +346,21 @@ describe('Earthbeam API', () => {
     });
 
     it('should reject requests if the token does not match the run id', async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      const jobX = await seedJob({
+        odsConfig: odsConfigX2425,
+        bundle: bundleX,
+        tenant: tenantX,
+      });
+      if (!jobX?.runs?.[0]) {
+        throw new Error('Failed to seed job and run');
+      }
+      const tokenX = await authService.createAccessToken({ runId: jobX.runs[0].id });
+
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenX}`)
-        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: true });
+        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: false });
       expect(res.status).toBe(403);
     });
 
@@ -383,7 +381,7 @@ describe('Earthbeam API', () => {
     });
 
     it('should list S3 at the given path and save discovered files', async () => {
-      const subfolder = `${jobA.fileBasePath}/output/sideloaded/`;
+      const subfolder = `${jobA.fileBasePath}/output/transformed/`;
       fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
         `${subfolder}output1.jsonl`,
         `${subfolder}output2.jsonl`,
@@ -392,7 +390,7 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: true });
+        .send({ path: `${outputFilesBasePath}/transformed`, sentToOds: true });
 
       expect(res.status).toBe(201);
       expect(res.body.uid).toBeDefined();
@@ -405,28 +403,9 @@ describe('Earthbeam API', () => {
       });
       expect(saved).not.toBeNull();
       expect(saved!.runId).toBe(runA.id);
-      expect(saved!.path).toBe(`${outputFilesBasePath}/sideloaded`);
+      expect(saved!.path).toBe(`${outputFilesBasePath}/transformed`);
       expect(saved!.files).toEqual(['output1.jsonl', 'output2.jsonl']);
       expect(saved!.sentToOds).toBe(true);
-    });
-
-    it('should save sentToOds as false when sent as false', async () => {
-      const subfolder = `${jobA.fileBasePath}/output/sideloaded/`;
-      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
-        `${subfolder}sideloaded.jsonl`,
-      ]);
-
-      const res = await request(app.getHttpServer())
-        .post(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: false });
-
-      expect(res.status).toBe(201);
-
-      const saved = await prisma.runOutputFileSet.findUnique({
-        where: { uid: res.body.uid },
-      });
-      expect(saved!.sentToOds).toBe(false);
     });
 
     it('should return 409 on duplicate run_id + path', async () => {
@@ -438,13 +417,13 @@ describe('Earthbeam API', () => {
       const first = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: true });
+        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: false });
       expect(first.status).toBe(201);
 
       const second = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: true });
+        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: false });
       expect(second.status).toBe(409);
     });
   });

@@ -4,6 +4,6 @@ CREATE TABLE public.run_output_file_set (
     files JSONB NOT NULL,
     sent_to_ods BOOLEAN NOT NULL DEFAULT true,
     path TEXT NOT NULL,
-    created_on TIMESTAMP(6) NOT NULL DEFAULT now(),
+    created_on TIMESTAMP NOT NULL DEFAULT now(),
     UNIQUE(run_id, path)
 );

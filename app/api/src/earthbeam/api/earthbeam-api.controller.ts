@@ -27,7 +27,7 @@ import {
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { FileService } from 'api/src/files/file.service';
 
 @Controller()
@@ -181,15 +181,6 @@ export class EarthbeamApiController {
       .map((key) => key?.split(normalizedPrefix)[1])
       .filter((name): name is string => typeof name === 'string' && name.length > 0);
 
-    const existing = await this.prisma.runOutputFileSet.findFirst({
-      where: { runId, path: body.path },
-    });
-    if (existing) {
-      throw new ConflictException(
-        `Output file set already exists for this run and path`
-      );
-    }
-
     try {
       const outputFileSet = await this.prisma.runOutputFileSet.create({
         data: {
@@ -201,6 +192,11 @@ export class EarthbeamApiController {
       });
       return { uid: outputFileSet.uid };
     } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException(
+          `Output file set already exists for this run and path`
+        );
+      }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
