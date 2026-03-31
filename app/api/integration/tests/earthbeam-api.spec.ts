@@ -337,7 +337,7 @@ describe('Earthbeam API', () => {
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
-      outputFilesBasePath = `${jobA.fileProtocol}://${jobA.fileBucketOrHost}/${jobA.fileBasePath}/output`;
+      outputFilesBasePath = `${jobA.fileBasePath}/output`;
     });
 
     it('should reject unauthenticated requests', async () => {
@@ -368,7 +368,7 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: 's3://other-bucket/other-path/output/evil', sentToOds: true });
+        .send({ path: 'other-partner/other-tenant/other-year/other-job/output/evil', sentToOds: true });
       expect(res.status).toBe(400);
     });
 
@@ -378,6 +378,41 @@ describe('Earthbeam API', () => {
         .set('Authorization', `Bearer ${tokenA}`)
         .send({ path: `${outputFilesBasePath}-evil`, sentToOds: true });
       expect(res.status).toBe(400);
+    });
+
+    it('should reject the bare base path (must be a subfolder)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: outputFilesBasePath, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject the bare base path with trailing slash', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${outputFilesBasePath}/`, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should canonicalize trailing slashes and store the path without them', async () => {
+      const subfolder = `${jobA.fileBasePath}/output/transformed/`;
+      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+        `${subfolder}output1.jsonl`,
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${outputFilesBasePath}/transformed/`, sentToOds: true });
+
+      expect(res.status).toBe(201);
+
+      const saved = await prisma.runOutputFileSet.findUnique({
+        where: { uid: res.body.uid },
+      });
+      expect(saved!.path).toBe(`${outputFilesBasePath}/transformed`);
     });
 
     it('should list S3 at the given path and save discovered files', async () => {
@@ -466,9 +501,7 @@ describe('Earthbeam API', () => {
         .set('Authorization', `Bearer ${tokenA}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.outputFilesBasePath).toBe(
-        `${jobA.fileProtocol}://${jobA.fileBucketOrHost}/${jobA.fileBasePath}/output`
-      );
+      expect(res.body.outputFilesBasePath).toBe(`${jobA.fileBasePath}/output`);
     });
   });
 });

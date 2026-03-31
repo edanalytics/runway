@@ -153,7 +153,7 @@ export class EarthbeamApiController {
       where: { id: runId },
       include: {
         job: {
-          select: { fileProtocol: true, fileBucketOrHost: true, fileBasePath: true },
+          select: { fileBasePath: true },
         },
       },
     });
@@ -162,46 +162,45 @@ export class EarthbeamApiController {
       throw new NotFoundException(`Run not found: ${runId}`);
     }
 
-    const { fileProtocol, fileBucketOrHost, fileBasePath } = run.job;
-    const outputFilesBasePath = `${fileProtocol}://${fileBucketOrHost}/${fileBasePath}/output`;
+    const outputFilesBasePath = `${run.job.fileBasePath}/output`;
 
-    if (body.path !== outputFilesBasePath && !body.path.startsWith(`${outputFilesBasePath}/`)) {
+    // Canonicalize: strip trailing slashes for consistent storage and uniqueness checks
+    const canonicalPath = body.path.replace(/\/+$/, '');
+
+    if (!canonicalPath.startsWith(`${outputFilesBasePath}/`)) {
       throw new BadRequestException(
-        'Invalid output files path: must be within the run\'s output directory'
+        "Invalid output files path: must be a subfolder within the run's output directory"
       );
     }
 
-    // Extract S3 key prefix from the full path (strip protocol://bucket/)
-    const protocolBucketPrefix = `${fileProtocol}://${fileBucketOrHost}/`;
-    const s3KeyPrefix = body.path.slice(protocolBucketPrefix.length);
-    const normalizedPrefix = s3KeyPrefix.endsWith('/') ? s3KeyPrefix : `${s3KeyPrefix}/`;
+    const s3KeyPrefix = `${canonicalPath}/`;
 
-    const s3Keys = await this.fileService.listFilesAtPath(normalizedPrefix);
+    const s3Keys = await this.fileService.listFilesAtPath(s3KeyPrefix);
     const files = (s3Keys ?? [])
-      .map((key) => key?.split(normalizedPrefix)[1])
+      .map((key) => key?.split(s3KeyPrefix)[1])
       .filter((name): name is string => typeof name === 'string' && name.length > 0);
 
-    const outputFileSet = await this.prisma.runOutputFileSet.create({
-      data: {
-        runId,
-        path: body.path,
-        files,
-        sentToOds: body.sentToOds,
-      },
-    }).catch((error) => {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException(
-          `Output file set already exists for this run and path`
+    const outputFileSet = await this.prisma.runOutputFileSet
+      .create({
+        data: {
+          runId,
+          path: canonicalPath,
+          files,
+          sentToOds: body.sentToOds,
+        },
+      })
+      .catch((error) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new ConflictException(`Output file set already exists for this run and path`);
+        }
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(
+          `failed to save output file set for run ${runId}: ${errorMessage}`,
+          errorStack
         );
-      }
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(
-        `failed to save output file set for run ${runId}: ${errorMessage}`,
-        errorStack
-      );
-      throw new InternalServerErrorException('Failed to save output file set');
-    });
+        throw new InternalServerErrorException('Failed to save output file set');
+      });
 
     return { uid: outputFileSet.uid };
   }
