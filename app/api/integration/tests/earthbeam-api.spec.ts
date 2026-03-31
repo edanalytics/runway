@@ -428,6 +428,25 @@ describe('Earthbeam API', () => {
       });
       expect(saved!.sentToOds).toBe(false);
     });
+
+    it('should return 409 on duplicate run_id + path', async () => {
+      const subfolder = `${jobA.fileBasePath}/output/sideloaded/`;
+      fileServiceMock.listFilesAtPath.mockResolvedValue([
+        `${subfolder}output1.jsonl`,
+      ]);
+
+      const first = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: true });
+      expect(first.status).toBe(201);
+
+      const second = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: true });
+      expect(second.status).toBe(409);
+    });
   });
 
   describe('GET /:runId — job payload', () => {

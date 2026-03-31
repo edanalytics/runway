@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
   HttpCode,
@@ -179,6 +180,15 @@ export class EarthbeamApiController {
     const files = (s3Keys ?? [])
       .map((key) => key?.split(normalizedPrefix)[1])
       .filter((name): name is string => typeof name === 'string' && name.length > 0);
+
+    const existing = await this.prisma.runOutputFileSet.findFirst({
+      where: { runId, path: body.path },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `Output file set already exists for this run and path`
+      );
+    }
 
     try {
       const outputFileSet = await this.prisma.runOutputFileSet.create({
