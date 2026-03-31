@@ -181,17 +181,14 @@ export class EarthbeamApiController {
       .map((key) => key?.split(normalizedPrefix)[1])
       .filter((name): name is string => typeof name === 'string' && name.length > 0);
 
-    try {
-      const outputFileSet = await this.prisma.runOutputFileSet.create({
-        data: {
-          runId,
-          path: body.path,
-          files,
-          sentToOds: body.sentToOds,
-        },
-      });
-      return { uid: outputFileSet.uid };
-    } catch (error) {
+    const outputFileSet = await this.prisma.runOutputFileSet.create({
+      data: {
+        runId,
+        path: body.path,
+        files,
+        sentToOds: body.sentToOds,
+      },
+    }).catch((error) => {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException(
           `Output file set already exists for this run and path`
@@ -204,6 +201,8 @@ export class EarthbeamApiController {
         errorStack
       );
       throw new InternalServerErrorException('Failed to save output file set');
-    }
+    });
+
+    return { uid: outputFileSet.uid };
   }
 }
