@@ -27,6 +27,7 @@ import {
 import { EarthbeamApiService } from './earthbeam-api.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { PrismaClient } from '@prisma/client';
+import { FileService } from 'api/src/files/file.service';
 
 @Controller()
 @Public()
@@ -36,7 +37,8 @@ export class EarthbeamApiController {
   private readonly logger = new Logger(EarthbeamApiController.name);
   constructor(
     private readonly earthbeamApiService: EarthbeamApiService,
-    @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient
+    @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
+    private readonly fileService: FileService
   ) {}
 
   @Get(':runId')
@@ -146,11 +148,44 @@ export class EarthbeamApiController {
     @Param('runId', ParseIntPipe) runId: number,
     @Body() body: EarthbeamApiOutputFilesPayloadDto
   ) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      include: {
+        job: {
+          select: { fileProtocol: true, fileBucketOrHost: true, fileBasePath: true },
+        },
+      },
+    });
+
+    if (!run) {
+      throw new NotFoundException(`Run not found: ${runId}`);
+    }
+
+    const { fileProtocol, fileBucketOrHost, fileBasePath } = run.job;
+    const outputFilesBasePath = `${fileProtocol}://${fileBucketOrHost}/${fileBasePath}/output`;
+
+    if (body.path !== outputFilesBasePath && !body.path.startsWith(`${outputFilesBasePath}/`)) {
+      throw new BadRequestException(
+        'Invalid output files path: must be within the run\'s output directory'
+      );
+    }
+
+    // Extract S3 key prefix from the full path (strip protocol://bucket/)
+    const protocolBucketPrefix = `${fileProtocol}://${fileBucketOrHost}/`;
+    const s3KeyPrefix = body.path.slice(protocolBucketPrefix.length);
+    const normalizedPrefix = s3KeyPrefix.endsWith('/') ? s3KeyPrefix : `${s3KeyPrefix}/`;
+
+    const s3Keys = await this.fileService.listFilesAtPath(normalizedPrefix);
+    const files = (s3Keys ?? [])
+      .map((key) => key?.split(normalizedPrefix)[1])
+      .filter((name): name is string => typeof name === 'string' && name.length > 0);
+
     try {
       const outputFileSet = await this.prisma.runOutputFileSet.create({
         data: {
           runId,
-          files: body.files,
+          path: body.path,
+          files,
           sentToOds: body.sentToOds,
         },
       });

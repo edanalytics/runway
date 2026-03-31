@@ -8,6 +8,7 @@ import { Run } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
+import { FileService } from 'api/src/files/file.service';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -317,11 +318,15 @@ describe('Earthbeam API', () => {
     let tokenA: string;
     let endpointA: string;
     let jobA: Awaited<ReturnType<typeof seedJob>>;
+    let outputFilesBasePath: string;
+    let fileServiceMock: Record<string, jest.Mock>;
 
     let tokenX: string;
 
     beforeEach(async () => {
       const authService = app.get(EarthbeamApiAuthService);
+      fileServiceMock = app.get(FileService) as unknown as Record<string, jest.Mock>;
+
       jobA = await seedJob({
         odsConfig: odsConfigA2425,
         bundle: bundleA,
@@ -334,6 +339,7 @@ describe('Earthbeam API', () => {
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
+      outputFilesBasePath = `${jobA.fileProtocol}://${jobA.fileBucketOrHost}/${jobA.fileBasePath}/output`;
 
       // Job X — for cross-run auth test
       const jobX = await seedJob({
@@ -356,34 +362,64 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenX}`)
-        .send({ files: ['output.jsonl'], sentToOds: true });
+        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: true });
       expect(res.status).toBe(403);
     });
 
-    it('should save an output file set and return the uid', async () => {
+    it('should reject paths that do not start with the outputFilesBasePath', async () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ files: ['output1.jsonl', 'output2.jsonl'], sentToOds: true });
+        .send({ path: 's3://other-bucket/other-path/output/evil', sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject sibling paths that share the outputFilesBasePath prefix', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${outputFilesBasePath}-evil`, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should list S3 at the given path and save discovered files', async () => {
+      const subfolder = `${jobA.fileBasePath}/output/sideloaded/`;
+      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+        `${subfolder}output1.jsonl`,
+        `${subfolder}output2.jsonl`,
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: true });
 
       expect(res.status).toBe(201);
       expect(res.body.uid).toBeDefined();
       expect(typeof res.body.uid).toBe('string');
+
+      expect(fileServiceMock.listFilesAtPath).toHaveBeenCalledWith(subfolder);
 
       const saved = await prisma.runOutputFileSet.findUnique({
         where: { uid: res.body.uid },
       });
       expect(saved).not.toBeNull();
       expect(saved!.runId).toBe(runA.id);
+      expect(saved!.path).toBe(`${outputFilesBasePath}/sideloaded`);
       expect(saved!.files).toEqual(['output1.jsonl', 'output2.jsonl']);
       expect(saved!.sentToOds).toBe(true);
     });
 
     it('should save sentToOds as false when sent as false', async () => {
+      const subfolder = `${jobA.fileBasePath}/output/sideloaded/`;
+      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+        `${subfolder}sideloaded.jsonl`,
+      ]);
+
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ files: ['sideloaded.jsonl'], sentToOds: false });
+        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: false });
 
       expect(res.status).toBe(201);
 

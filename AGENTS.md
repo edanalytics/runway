@@ -111,6 +111,7 @@ sequenceDiagram
     Exec->>Exec: earthmover run (transform data)
     Exec->>ODS: lightbeam send (load to ODS)
     Exec->>S3: Upload output artifacts
+    Exec->>App: POST /output-files (path + sentToOds → app lists S3, saves run_output_file_set)
 
     Exec->>App: POST /status, /error, /summary, /unmatched-ids
     Exec->>App: POST /status {action: done}
@@ -156,7 +157,8 @@ sequenceDiagram
 6. **Transform**: `earthmover run` (with encoding detection + retry)
 7. **Load**: `lightbeam send` to Ed-Fi ODS
 8. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
-9. **Done**: POST status `{action: DONE, status: success|failure}`
+9. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
+10. **Done**: POST status `{action: DONE, status: success|failure}`
 
 ### S3 Path Structure
 

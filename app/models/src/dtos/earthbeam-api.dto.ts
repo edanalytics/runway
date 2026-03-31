@@ -1,6 +1,6 @@
 import { Expose } from 'class-transformer';
 import { makeSerializer } from '../utils';
-import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class EarthbeamApiInitResponseDto {
   @Expose()
@@ -87,9 +87,9 @@ export class EarthbeamApiUnmatchedIdsPayloadDto {
 }
 
 export class EarthbeamApiOutputFilesPayloadDto {
-  @IsArray()
-  @IsString({ each: true })
-  files: string[];
+  @IsString()
+  @IsNotEmpty()
+  path: string;
 
   @IsBoolean()
   sentToOds: boolean;
