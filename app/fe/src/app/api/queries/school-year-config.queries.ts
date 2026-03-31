@@ -1,10 +1,11 @@
 import {
   GetSchoolYearConfigDto,
+  GetTenantSchoolYearConfigDto,
   PutSchoolYearConfigRowDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient, apiClientRaw } from '../methods';
+import { apiClient, apiClientRaw, methods } from '../methods';
 
 const QUERY_KEY = ['school-year-config'];
 
@@ -17,6 +18,10 @@ export const schoolYearConfigQueries = {
       rows: plainToInstance(GetSchoolYearConfigDto, res.data ?? []),
       etag: Array.isArray(headerValue) ? headerValue[0] : (headerValue ?? null),
     } satisfies { rows: GetSchoolYearConfigDto[]; etag: string | null };
+  },
+  tenant: {
+    queryKey: [...QUERY_KEY, 'tenant'],
+    queryFn: () => methods.getMany('/school-year-config/tenant', GetTenantSchoolYearConfigDto),
   },
 };
 

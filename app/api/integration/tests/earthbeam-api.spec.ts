@@ -9,6 +9,8 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
+import { instanceToPlain } from 'class-transformer';
+import { makeJobTemplate } from '../factories/job-template-factory';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -61,6 +63,69 @@ describe('Earthbeam API', () => {
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenX}`);
       expect(res.status).toBe(403);
+    });
+
+    it('should include ODS credentials for send-to-ODS jobs', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.sendToOds).toBe(true);
+      expect(res.body.assessmentDatastore).toBeDefined();
+      expect(res.body.rosterFilePath).toBeUndefined();
+    });
+
+    it('should omit ODS credentials and include a roster path for no-ODS jobs', async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      const noOdsJob = await prisma.job.create({
+        data: {
+          name: bundleA.display_name,
+          odsId: null,
+          sendToOds: false,
+          schoolYearId: '2324',
+          template: instanceToPlain(makeJobTemplate(bundleA)),
+          inputParams: [],
+          configStatus: 'input_complete',
+          tenantCode: tenantA.code,
+          partnerId: tenantA.partnerId,
+          fileProtocol: 's3',
+          fileBucketOrHost: 'test-bucket',
+          fileBasePath: 'partner-a/tenant-a/2324/test-job',
+          files: {
+            createMany: {
+              data: [
+                {
+                  templateKey: 'INPUT_FILE',
+                  nameFromUser: 'input-file.csv',
+                  type: 'text/csv',
+                  nameInternal: 'INPUT_FILE__input-file.csv',
+                  path: 'partner-a/tenant-a/2324/test-job/input/INPUT_FILE__input-file.csv',
+                },
+              ],
+            },
+          },
+          runs: {
+            create: {
+              status: 'new',
+            },
+          },
+        },
+        include: {
+          runs: true,
+        },
+      });
+
+      const noOdsRun = noOdsJob.runs[0];
+      const noOdsToken = await authService.createAccessToken({ runId: noOdsRun.id });
+      const res = await request(app.getHttpServer())
+        .get(`/earthbeam/jobs/${noOdsRun.id}`)
+        .set('Authorization', `Bearer ${noOdsToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.sendToOds).toBe(false);
+      expect(res.body.assessmentDatastore).toBeUndefined();
+      expect(res.body.rosterFilePath).toBe('__rosters/partner-a/tenant-a/2024');
     });
 
     // TODO: add tests for things other than descriptor mappings

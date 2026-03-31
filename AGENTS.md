@@ -165,6 +165,7 @@ sequenceDiagram
 ```
 {partnerId}/{tenantCode}/{schoolYearId}/{jobId}/input/{templateKey}__{fileName}
 {partnerId}/{tenantCode}/{schoolYearId}/{jobId}/output/{artifactFileName}
+__rosters/{partnerId}/{tenantCode}/{schoolYearEndYear}/*
 ```
 
 ## Development Conventions

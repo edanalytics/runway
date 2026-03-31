@@ -9,7 +9,6 @@ export const makePostJobDto = (
 ): PostJobDto => {
   return {
     name: template.name,
-    odsId: odsConfig.id,
     schoolYearId: odsConfig.schoolYearId,
     files: template.files.map((f) => ({
       nameFromUser: `${f.templateKey}-file.csv`,

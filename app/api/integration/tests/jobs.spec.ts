@@ -239,6 +239,10 @@ describe('POST /jobs', () => {
         .set('Cookie', [sessionA.cookie])
         .send(postJobDto);
       expect(res.status).toBe(201);
+
+      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+      expect(job?.odsId).toBe(odsConfigA2425.id);
+      expect(job?.sendToOds).toBe(true);
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
@@ -282,16 +286,62 @@ describe('POST /jobs', () => {
       expect(res.status).toBe(400);
     });
 
-    it('should reject requests with an ODS that is not owned by the tenant', async () => {
-      const jobInputWithNonOwnedOds: PostJobDto = {
-        ...postJobDto,
-        odsId: odsConfigX2425.id,
-      };
+    it('should create a job without an ODS when the year is configured not to send to ODS', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
       const res = await request(app.getHttpServer())
         .post(endpoint)
         .set('Cookie', [sessionA.cookie])
-        .send(jobInputWithNonOwnedOds);
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
+
+      expect(res.status).toBe(201);
+
+      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+      expect(job?.odsId).toBeNull();
+      expect(job?.sendToOds).toBe(false);
+    });
+
+    it('should reject requests when the school year is not enabled', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
       expect(res.status).toBe(400);
+    });
+
+    it('should reject requests when an enabled send-to-ODS year has no ODS', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: true,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('No ODS found');
     });
 
     it('should reject requests if a file name is an empty string', async () => {

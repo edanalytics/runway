@@ -225,14 +225,10 @@ export class GetJobDto
 
 export const toGetJobDto = makeSerializerCustomType<GetJobDto, DtoableJob>(GetJobDto);
 
-export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto> {
+export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto, 'odsId'> {
   @Expose()
   @IsString()
   name: string;
-
-  @Expose()
-  @IsNumber()
-  odsId: number;
 
   @Expose()
   @IsString()
