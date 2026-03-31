@@ -167,7 +167,7 @@ class JobExecutor:
             )
 
             if not self.send_to_ods:
-                self.logger.info("this job is not sending Earthmover output to an ODS")
+                self.logger.info("this job is not sending Earthmover output set to an ODS")
                 artifact.LB_SEND_RESULTS.needs_upload = False
                 # if bypassing the ODS, a roster file is required, for now
                 self.roster_file_path = job["rosterFilePath"]
@@ -686,7 +686,7 @@ class JobExecutor:
             self.send_job_summary()
 
     def upload_output(self):
-        """Upload Earthmover output files to S3 and notify the app of their location"""
+        """Upload Earthmover output set to S3 and notify the app of their location"""
         self.set_action(action.UPLOAD_OUTPUT)
 
         output_type = "ods" if self.send_to_ods else "non-ods"
@@ -811,8 +811,8 @@ class JobExecutor:
         self.conn.post(self.summary_url, json=self.summary)
 
     def send_job_output_alert(self, s3_prefix):
-        """Notify the app that Earthmover output has been uploaded to S3"""
-        self.logger.debug(f"Notifying app of output at {s3_prefix}")
+        """Notify the app that an Earthmover output set has been uploaded to S3"""
+        self.logger.debug(f"Notifying app of output set at {s3_prefix}")
         self.conn.post(self.output_files_url, json={
             "sentToOds": self.send_to_ods,
             "path": s3_prefix,
