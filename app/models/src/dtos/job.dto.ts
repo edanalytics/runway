@@ -22,7 +22,7 @@ interface IBaseJobDto {
   id: number;
   uid: string;
   name: string;
-  odsId: number;
+  odsId: number | null;
   schoolYearId: string;
   template: GetJobTemplateDto;
   inputParams: JobInputParamDto[] | null;
@@ -63,7 +63,10 @@ export class GetJobDto
   name: string;
 
   @Expose()
-  odsId: number;
+  odsId: number | null;
+
+  @Expose()
+  sendToOds: boolean;
 
   @Expose()
   schoolYearId: string;

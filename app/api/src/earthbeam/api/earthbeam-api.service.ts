@@ -73,7 +73,7 @@ export class EarthbeamApiService {
     }
 
     const job = run.job;
-    if (!job.odsConfig.activeConnection) {
+    if (job.sendToOds && !job.odsConfig?.activeConnection) {
       return {
         status: 'ERROR',
         type: 'server_error',
@@ -158,14 +158,17 @@ export class EarthbeamApiService {
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
       },
-      assessmentDatastore: {
-        apiYear: apiYear,
-        url: job.odsConfig.activeConnection.host,
-        clientId: job.odsConfig.activeConnection.clientId,
-        clientSecret: await this.encryptionService.decrypt(
-          job.odsConfig.activeConnection.clientSecret
-        ),
-      },
+      sendToOds: job.sendToOds,
+      assessmentDatastore: job.odsConfig?.activeConnection
+        ? {
+            apiYear: apiYear,
+            url: job.odsConfig.activeConnection.host,
+            clientId: job.odsConfig.activeConnection.clientId,
+            clientSecret: await this.encryptionService.decrypt(
+              job.odsConfig.activeConnection.clientSecret
+            ),
+          }
+        : undefined,
     };
     return {
       status: 'SUCCESS',
@@ -241,7 +244,7 @@ export class EarthbeamApiService {
       const hasUnmatchedStudents = runOutputFiles?.some(
         (file) => file.name === 'input_no_student_id_match.csv'
       );
-      const odsUrl = run.job.odsConfig.activeConnection?.host;
+      const odsUrl = run.job.odsConfig?.activeConnection?.host;
       const assessmentType = run.job.name;
       const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
       const tenantCode = run.job.tenantCode;

@@ -228,7 +228,7 @@ model OdsConnection {
 model Job {
   id               Int                  @id @default(autoincrement())
   name             String               @db.VarChar
-  odsId            Int                  @map("ods_id")
+  odsId            Int?                 @map("ods_id")
   schoolYearId     String               @map("school_year_id") @db.VarChar
   template         Json
   configStatus     JobConfigStatus      @default(initialized) @map("config_status")
@@ -249,9 +249,10 @@ model Job {
   apiIssuer        String?              @map("api_issuer") @db.VarChar
   apiClientId      String?              @map("api_client_id") @db.VarChar
   apiClientName    String?              @map("api_client_name") @db.VarChar
+  sendToOds        Boolean              @default(true) @map("send_to_ods")
   createdBy        User?                @relation("job_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   modifiedBy       User?                @relation("job_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
-  odsConfig        OdsConfig            @relation(fields: [odsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  odsConfig        OdsConfig?           @relation(fields: [odsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   job              Job?                 @relation("jobTojob", fields: [previousJobId], references: [id], onUpdate: NoAction)
   otherJob         Job[]                @relation("jobTojob")
   schoolYear       SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Cascade, onUpdate: NoAction)
