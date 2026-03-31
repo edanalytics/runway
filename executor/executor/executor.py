@@ -675,6 +675,8 @@ class JobExecutor:
                     resource = key[len(dest_prefix):]
                     self.summary[resource] = {
                         "records_processed": count,
+                        "records_skipped": 0,
+                        "records_failed": 0,
                     }
 
         if self.summary:
@@ -803,10 +805,7 @@ class JobExecutor:
     def send_job_summary(self):
         """Send a user-facing message to app indicating what data was produced"""
         self.logger.debug(f"Sending summary")
-        self.conn.post(self.summary_url, json={
-            "sentToOds": self.send_to_ods,
-            "resources": self.summary,
-        })
+        self.conn.post(self.summary_url, json=self.summary)
 
     def send_job_output_alert(self, s3_prefix):
         """Notify the app that Earthmover output has been uploaded to S3"""
