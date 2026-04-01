@@ -20,6 +20,7 @@ import { PrismaClient } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database/database.service';
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 import { FileService } from 'api/src/files/file.service';
+import { toOutputSetV1Dto } from '@edanalytics/models';
 
 @Controller('output-sets')
 @ApiTags('External API - Output Sets')
@@ -72,7 +73,7 @@ export class ExternalApiV1OutputSetsController {
         where: { endYear: parseInt(schoolYear) },
       });
       if (!sy) {
-        return { data: [] };
+        return [];
       }
       schoolYearId = sy.id;
     }
@@ -109,8 +110,8 @@ export class ExternalApiV1OutputSetsController {
     // produces a valid output set before failing. Filtering to success is the safe
     // default for v1; revisit if needed.
 
-    return {
-      data: sets.map((set) => ({
+    return toOutputSetV1Dto(
+      sets.map((set) => ({
         uid: set.uid,
         files: set.files,
         sentToOds: set.sentToOds,
@@ -120,8 +121,8 @@ export class ExternalApiV1OutputSetsController {
         tenant: set.run.job.tenantCode,
         schoolYear: String(set.run.job.schoolYear.endYear),
         bundle: (set.run.job.template as any)?.path ?? null,
-      })),
-    };
+      }))
+    );
   }
 
   @Post(':setUid/download-links')
@@ -146,7 +147,7 @@ export class ExternalApiV1OutputSetsController {
       throw new NotFoundException('Output file set not found');
     }
 
-    const files = set.files as string[];
+    const files = set.files;
     const downloadLinks: Record<string, string> = {};
 
     for (const filename of files) {

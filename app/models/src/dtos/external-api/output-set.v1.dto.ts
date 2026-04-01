@@ -30,13 +30,3 @@ export class OutputSetV1Dto {
   bundle: string;
 }
 export const toOutputSetV1Dto = makeSerializer(OutputSetV1Dto);
-
-export class OutputSetListV1ResponseDto {
-  @Expose()
-  data: OutputSetV1Dto[];
-}
-
-export class OutputSetDownloadLinksV1ResponseDto {
-  @Expose()
-  downloadLinks: Record<string, string>;
-}
