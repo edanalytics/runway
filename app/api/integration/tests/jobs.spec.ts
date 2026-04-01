@@ -14,6 +14,7 @@ import { makePostJobDto } from '../factories/job-input-factory';
 import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { DtoableJob, GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
+import { FileService } from 'api/src/files/file.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
 import { Job, JobNote } from '@prisma/client';
@@ -309,6 +310,35 @@ describe('POST /jobs', () => {
       const job = await prisma.job.findUnique({ where: { id: res.body.id } });
       expect(job?.odsId).toBeNull();
       expect(job?.sendToOds).toBe(false);
+    });
+
+    it('should reject no-ODS jobs when the roster file does not exist', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
+      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
+      doFilesExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('No roster file found');
+      } finally {
+        doFilesExistMock.mockResolvedValue(true);
+      }
     });
 
     it('should reject requests when the school year is not enabled', async () => {
