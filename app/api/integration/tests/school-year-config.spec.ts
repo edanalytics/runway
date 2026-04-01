@@ -4,6 +4,7 @@ import { partnerA, partnerX } from '../fixtures/context-fixtures/partner-fixture
 import request from 'supertest';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { idpA, idpX } from '../fixtures/context-fixtures/idp-fixtures';
+import { FileService } from 'api/src/files/file.service';
 
 const ETAG_HEADER = 'etag';
 const IF_MATCH_HEADER = 'if-match';
@@ -333,6 +334,28 @@ describe('GET /school-year-config/tenant', () => {
       const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
       expect(row2425.startYear).toBe(2024);
       expect(row2425.endYear).toBe(2025);
+    });
+
+    it('should return hasRoster from S3 check', async () => {
+      // Default mock returns true for doFilesExist
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+      expect(row2425.hasRoster).toBe(true);
+    });
+
+    it('should return hasRoster=false when roster file does not exist', async () => {
+      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
+      doFilesExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+        const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+        expect(row2425.hasRoster).toBe(false);
+      } finally {
+        doFilesExistMock.mockResolvedValue(true);
+      }
     });
   });
 });
