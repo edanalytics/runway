@@ -19,6 +19,8 @@ Configure an OAuth2/OIDC client in your identity provider with:
 2. **Audience**: Set to match the Runway backend URL (e.g., `https://api.runway.example.com`)
 3. **Scopes**: The token's `scope` claim must include:
    - `create:jobs` — Required to create and start jobs
+   - `read:jobs` — Required to list output sets
+   - `read:jobs:output-files` — Required to fetch presigned download links for output files
    - `partner:<code>` — One or more partner scopes (e.g., `partner:acme`) to authorize access to specific partners
 
 ### Token Claims
@@ -63,11 +65,13 @@ Authorization: Bearer <access_token>
 
 ### Endpoints
 
-| Method | Endpoint                     | Description                                         |
-| ------ | ---------------------------- | --------------------------------------------------- |
-| POST   | `/api/v1/jobs`               | Create a job and get presigned S3 upload URLs       |
-| POST   | `/api/v1/jobs/:jobUid/start` | Start a job after uploading files                   |
-| POST   | `/api/v1/token/verify`       | Verify a token and see which partners it authorizes |
+| Method | Endpoint                                     | Description                                            |
+| ------ | -------------------------------------------- | ------------------------------------------------------ |
+| POST   | `/api/v1/jobs`                               | Create a job and get presigned S3 upload URLs          |
+| POST   | `/api/v1/jobs/:jobUid/start`                 | Start a job after uploading files                      |
+| GET    | `/api/v1/output-sets`                        | List output sets for completed runs                    |
+| POST   | `/api/v1/output-sets/:setUid/download-links` | Get presigned download URLs for files in an output set |
+| POST   | `/api/v1/token/verify`                       | Verify a token and see which partners it authorizes    |
 
 ### Workflow Overview
 
@@ -75,6 +79,8 @@ Authorization: Bearer <access_token>
 2. **Create a job**: `POST /api/v1/jobs` — Returns presigned S3 upload URLs
 3. **Upload files** to the presigned URLs
 4. **Start the job**: `POST /api/v1/jobs/:jobUid/start`
+5. **Query for output sets**: `GET /api/v1/output-sets`
+6. **Download output files**: `POST /api/v1/output-sets/:setUid/download-links`
 
 ---
 
@@ -90,7 +96,7 @@ curl --request POST \
     "client_id": "<client_id>",
     "client_secret": "<client_secret>",
     "audience": "<api_audience>",
-    "scope": "create:jobs partner:<partner_code>",
+    "scope": "create:jobs read:jobs read:jobs:output-files partner:<partner_code>",
     "grant_type": "client_credentials"
   }'
 ```
@@ -199,6 +205,94 @@ curl -X POST \
 ```
 
 Returns `202 Accepted` on success.
+
+---
+
+## Step 5: List Output Sets
+
+`GET /api/v1/output-sets`
+
+Use this endpoint to poll for processed output sets from completed runs.
+
+### Required Scope
+
+- `read:jobs`
+
+### Query Parameters
+
+| Field          | Type    | Required | Description                                                              |
+| -------------- | ------- | -------- | ------------------------------------------------------------------------ |
+| `partner`      | string  | Yes      | Partner code. Must match a `partner:<code>` scope on the token.          |
+| `tenant`       | string  | No       | Filter to a tenant code                                                  |
+| `schoolYear`   | string  | No       | 4-digit school-year end year (for example `2026`)                        |
+| `sentToOds`    | boolean | No       | Filter to output sets that were or were not sent to an ODS               |
+| `createdAfter` | string  | No       | ISO 8601 timestamp. Only output sets created after this value are listed |
+| `bundle`       | string  | No       | Filter to a bundle key such as `assessments/PSAT_SAT`                    |
+
+### Example Request
+
+```bash
+curl -G \
+  --url <runway_api_url>/api/v1/output-sets \
+  --header 'Authorization: Bearer <token>' \
+  -d 'partner=acme' \
+  -d 'tenant=acme' \
+  -d 'sentToOds=false' \
+  -d 'createdAfter=2026-03-01T00:00:00Z'
+```
+
+### Response
+
+The response is a flat array of output sets ordered by `createdAt` ascending.
+
+```json
+[
+  {
+    "uid": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
+    "files": ["studentAssessments.jsonl", "objectiveAssessments.jsonl"],
+    "sentToOds": false,
+    "createdAt": "2026-03-15T14:30:00Z",
+    "jobUid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "partner": "acme",
+    "tenant": "acme",
+    "schoolYear": "2026",
+    "bundle": "assessments/PSAT_SAT"
+  }
+]
+```
+
+---
+
+## Step 6: Get Download Links for an Output Set
+
+`POST /api/v1/output-sets/:setUid/download-links`
+
+Use the output set `uid` from the previous step to fetch presigned download links for all files in the set.
+
+### Required Scope
+
+- `read:jobs:output-files`
+
+### Example Request
+
+```bash
+curl -X POST \
+  --url <runway_api_url>/api/v1/output-sets/<set_uid>/download-links \
+  --header 'Authorization: Bearer <token>'
+```
+
+### Response
+
+```json
+{
+  "downloadLinks": {
+    "studentAssessments.jsonl": "https://s3.amazonaws.com/bucket/path/studentAssessments.jsonl?X-Amz-...",
+    "objectiveAssessments.jsonl": "https://s3.amazonaws.com/bucket/path/objectiveAssessments.jsonl?X-Amz-..."
+  }
+}
+```
+
+The presigned URLs are valid for 1 hour. If a download fails because the URL has expired, request a fresh set of download links.
 
 ---
 
