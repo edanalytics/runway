@@ -125,7 +125,9 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(200);
       expect(res.body.sendToOds).toBe(false);
       expect(res.body.assessmentDatastore).toBeUndefined();
-      expect(res.body.rosterFilePath).toBe('__rosters/partner-a/tenant-a/2024');
+      expect(res.body.rosterFilePath).toBe(
+        's3://test-file-bucket/__rosters/partner-a/tenant-a/2024/studentEducationOrganizationAssociations.jsonl'
+      );
     });
 
     // TODO: add tests for things other than descriptor mappings
