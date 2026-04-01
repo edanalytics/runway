@@ -6,7 +6,8 @@ declare global {
     type UnmatchedStudentsInfo = { name: string; type: string; count?: number } | null;
     // Use JobInputParamDto as the element type - Prisma JSON stores plain objects matching this shape
     type JobInputParams = JobInputParamDto[];
+    type RunOutputFileSetFiles = string[];
   }
 }
-    
+
 export {};
