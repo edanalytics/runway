@@ -246,7 +246,7 @@ class JobExecutor:
 
         try:
             subprocess.run(
-                ["lightbeam", "-c", self.assessment_lightbeam, "fetch", "--set", "state_dir", ".lightbeam", "-s", "studentEducationOrganizationAssociations", "-k", "studentIdentificationCodes,educationOrganizationReference,studentReference"]
+                ["lightbeam", "-c", self.assessment_lightbeam, "fetch", "-s", "studentEducationOrganizationAssociations", "-k", "studentIdentificationCodes,educationOrganizationReference,studentReference"]
             ).check_returncode()
 
             # $ mv output lb-download-dir
