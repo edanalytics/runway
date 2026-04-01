@@ -30,7 +30,7 @@ export class ExecutorAwsService implements ExecutorService {
     const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
     const ecsConfig = await this.appConfig.ecsConfig();
     const rosterResource = !run.job.sendToOds
-      ? `arn:aws:s3:::${run.job.fileBucketOrHost}/__rosters/${run.job.partnerId}/${run.job.tenantCode}/${run.job.schoolYear.endYear}/*`
+      ? `arn:aws:s3:::${this.appConfig.rosterBucket()}/__rosters/${run.job.partnerId}/${run.job.tenantCode}/${run.job.schoolYear.endYear}/*`
       : null;
 
     const assumeRoleInput: AssumeRoleCommandInput = {
