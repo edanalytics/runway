@@ -74,9 +74,11 @@ export class SchoolYearConfigController {
           );
         }
 
-        const hasRoster = await this.fileService.doFilesExist([
-          `__rosters/${tenant.partnerId}/${tenant.code}/${schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`,
-        ]);
+        const hasRoster = config.sendToOds
+          ? null
+          : await this.fileService.doFilesExist([
+              `__rosters/${tenant.partnerId}/${tenant.code}/${schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`,
+            ]);
 
         return {
           schoolYearId: schoolYear.id,

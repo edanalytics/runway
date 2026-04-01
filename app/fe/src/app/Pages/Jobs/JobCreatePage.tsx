@@ -209,7 +209,7 @@ export const JobCreatePage = () => {
                   label: `${year.startYear} - ${year.endYear} school year${
                     year.sendToOds && !year.hasOds
                       ? ' (no ODS configured)'
-                      : !year.sendToOds && !year.hasRoster
+                      : !year.sendToOds && year.hasRoster !== true
                       ? ' (no roster file loaded)'
                       : ''
                   }`,
@@ -219,7 +219,7 @@ export const JobCreatePage = () => {
                   const year = selectableYears.find((row) => row.schoolYearId === option.value);
                   if (!year) return true;
                   if (year.sendToOds && !year.hasOds) return true;
-                  if (!year.sendToOds && !year.hasRoster) return true;
+                  if (!year.sendToOds && year.hasRoster !== true) return true;
                   return false;
                 }}
               ></RunwaySelect>

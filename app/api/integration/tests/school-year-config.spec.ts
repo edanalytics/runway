@@ -336,15 +336,24 @@ describe('GET /school-year-config/tenant', () => {
       expect(row2425.endYear).toBe(2025);
     });
 
-    it('should return hasRoster from S3 check', async () => {
-      // Default mock returns true for doFilesExist
+    it('should return hasRoster=null for send-to-ODS years without checking S3', async () => {
+      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
+
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
 
       const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-      expect(row2425.hasRoster).toBe(true);
+      expect(row2425.hasRoster).toBeNull();
+      expect(doFilesExistMock).not.toHaveBeenCalled();
     });
 
-    it('should return hasRoster=false when roster file does not exist', async () => {
+    it('should return hasRoster=false when a no-ODS roster file does not exist', async () => {
+      await global.prisma.schoolYearConfig.update({
+        where: {
+          partnerId_schoolYearId: { partnerId: partnerA.id, schoolYearId: '2425' },
+        },
+        data: { sendToOds: false },
+      });
+
       const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
       doFilesExistMock.mockResolvedValue(false);
 

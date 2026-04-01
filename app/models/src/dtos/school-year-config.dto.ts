@@ -43,7 +43,7 @@ export class GetTenantSchoolYearConfigDto {
   hasOds: boolean;
 
   @Expose()
-  hasRoster: boolean;
+  hasRoster: boolean | null;
 }
 
 export const toGetTenantSchoolYearConfigDto = makeSerializer<GetTenantSchoolYearConfigDto>(
