@@ -438,6 +438,7 @@ model SchoolYearConfig {
 model RunOutputFileSet {
   uid       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   runId     Int      @map("run_id")
+  /// [RunOutputFileSetFiles]
   files     Json
   sentToOds Boolean  @default(true) @map("sent_to_ods")
   path      String

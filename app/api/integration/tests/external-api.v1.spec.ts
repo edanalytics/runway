@@ -902,10 +902,10 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          expect(res.body.data).toBeInstanceOf(Array);
-          expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+          expect(res.body).toBeInstanceOf(Array);
+          expect(res.body.length).toBeGreaterThanOrEqual(1);
 
-          const set = res.body.data.find((s: any) => s.uid === setA.uid);
+          const set = res.body.find((s: any) => s.uid === setA.uid);
           expect(set).toBeDefined();
           expect(set.files).toEqual(['output1.jsonl', 'output2.jsonl']);
           expect(set.sentToOds).toBe(true);
@@ -940,7 +940,7 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          const uids = res.body.data.map((s: any) => s.jobUid);
+          const uids = res.body.map((s: any) => s.jobUid);
           expect(uids).toContain(jobA.uid);
           expect(uids).not.toContain(failedJob.uid);
         });
@@ -967,7 +967,7 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          const partners = res.body.data.map((s: any) => s.partner);
+          const partners = res.body.map((s: any) => s.partner);
           expect(partners.every((p: string) => p === partnerA.id)).toBe(true);
         });
 
@@ -994,11 +994,11 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          expect(res.body.data.length).toBeGreaterThanOrEqual(1);
-          const tenants = res.body.data.map((s: any) => s.tenant);
+          expect(res.body.length).toBeGreaterThanOrEqual(1);
+          const tenants = res.body.map((s: any) => s.tenant);
           expect(tenants.every((t: string) => t === tenantA.code)).toBe(true);
           // Verify the tenant-b set was actually excluded
-          const uids = res.body.data.map((s: any) => s.jobUid);
+          const uids = res.body.map((s: any) => s.jobUid);
           expect(uids).not.toContain(jobB.uid);
         });
 
@@ -1025,11 +1025,11 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          expect(res.body.data.length).toBeGreaterThanOrEqual(1);
-          const years = res.body.data.map((s: any) => s.schoolYear);
+          expect(res.body.length).toBeGreaterThanOrEqual(1);
+          const years = res.body.map((s: any) => s.schoolYear);
           expect(years.every((y: string) => y === String(schoolYear2425.endYear))).toBe(true);
           // Verify the other-year set was actually excluded
-          const uids = res.body.data.map((s: any) => s.jobUid);
+          const uids = res.body.map((s: any) => s.jobUid);
           expect(uids).not.toContain(jobOtherYear.uid);
         });
 
@@ -1060,8 +1060,8 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          expect(res.body.data.length).toBeGreaterThanOrEqual(1);
-          expect(res.body.data.every((s: any) => s.sentToOds === false)).toBe(true);
+          expect(res.body.length).toBeGreaterThanOrEqual(1);
+          expect(res.body.every((s: any) => s.sentToOds === false)).toBe(true);
         });
 
         it('should filter by createdAfter', async () => {
@@ -1097,16 +1097,16 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+          expect(res.body.length).toBeGreaterThanOrEqual(1);
 
           // The old set should be excluded
-          const uids = res.body.data.map((s: any) => s.uid);
+          const uids = res.body.map((s: any) => s.uid);
           expect(uids).not.toContain(setA.uid);
           // The newer set should be included
           expect(uids).toContain(newerSet.uid);
 
           // All returned sets should have createdAt after the filter
-          for (const set of res.body.data) {
+          for (const set of res.body) {
             expect(new Date(set.createdAt).getTime()).toBeGreaterThan(
               new Date(cutoff).getTime()
             );
@@ -1136,8 +1136,8 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          expect(res.body.data.length).toBeGreaterThanOrEqual(1);
-          expect(res.body.data.every((s: any) => s.bundle === bundleA.path)).toBe(true);
+          expect(res.body.length).toBeGreaterThanOrEqual(1);
+          expect(res.body.every((s: any) => s.bundle === bundleA.path)).toBe(true);
         });
 
         it('should return results ordered by createdAt ascending', async () => {
@@ -1163,7 +1163,7 @@ describe('ExternalApiV1', () => {
             .set('Authorization', `Bearer ${token}`);
 
           expect(res.status).toBe(200);
-          const dates = res.body.data.map((s: any) => new Date(s.createdAt).getTime());
+          const dates = res.body.map((s: any) => new Date(s.createdAt).getTime());
           for (let i = 1; i < dates.length; i++) {
             expect(dates[i]).toBeGreaterThanOrEqual(dates[i - 1]);
           }
