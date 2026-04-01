@@ -151,7 +151,6 @@ export class EarthbeamApiService {
         path: template.path,
         branch: this.configService.bundleBranch(),
       },
-      outputFilesBasePath: `${job.fileBasePath}/output`,
       appUrls: {
         status: `${executorBaseUrl}/${earthbeamStatusUpdateEndpoint(runId)}`,
         error: `${executorBaseUrl}/${earthbeamErrorUpdateEndpoint(runId)}`,

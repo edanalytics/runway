@@ -318,7 +318,7 @@ describe('Earthbeam API', () => {
     let tokenA: string;
     let endpointA: string;
     let jobA: Awaited<ReturnType<typeof seedJob>>;
-    let outputFilesBasePath: string;
+    let fileBasePath: string;
     let fileServiceMock: Record<string, jest.Mock>;
 
     beforeEach(async () => {
@@ -337,7 +337,7 @@ describe('Earthbeam API', () => {
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
-      outputFilesBasePath = `${jobA.fileBasePath}/output`;
+      fileBasePath = jobA.fileBasePath!;
     });
 
     it('should reject unauthenticated requests', async () => {
@@ -360,11 +360,11 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenX}`)
-        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: false });
+        .send({ path: `${fileBasePath}/output/sideloaded`, sentToOds: false });
       expect(res.status).toBe(403);
     });
 
-    it('should reject paths that do not start with the outputFilesBasePath', async () => {
+    it('should reject paths outside the job data directory', async () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
@@ -372,19 +372,19 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(400);
     });
 
-    it('should reject sibling paths that share the outputFilesBasePath prefix', async () => {
+    it('should reject sibling paths that share the fileBasePath prefix', async () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}-evil`, sentToOds: true });
+        .send({ path: `${fileBasePath}-evil`, sentToOds: true });
       expect(res.status).toBe(400);
     });
 
-    it('should reject the bare base path (must be a subfolder)', async () => {
+    it('should reject the bare base path (must be a child)', async () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: outputFilesBasePath, sentToOds: true });
+        .send({ path: fileBasePath, sentToOds: true });
       expect(res.status).toBe(400);
     });
 
@@ -392,7 +392,7 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/`, sentToOds: true });
+        .send({ path: `${fileBasePath}/`, sentToOds: true });
       expect(res.status).toBe(400);
     });
 
@@ -405,14 +405,14 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/transformed/`, sentToOds: true });
+        .send({ path: `${fileBasePath}/output/transformed/`, sentToOds: true });
 
       expect(res.status).toBe(201);
 
       const saved = await prisma.runOutputFileSet.findUnique({
         where: { uid: res.body.uid },
       });
-      expect(saved!.path).toBe(`${outputFilesBasePath}/transformed`);
+      expect(saved!.path).toBe(`${fileBasePath}/output/transformed`);
     });
 
     it('should list S3 at the given path and save discovered files', async () => {
@@ -425,7 +425,7 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/transformed`, sentToOds: true });
+        .send({ path: `${fileBasePath}/output/transformed`, sentToOds: true });
 
       expect(res.status).toBe(201);
       expect(res.body.uid).toBeDefined();
@@ -438,7 +438,7 @@ describe('Earthbeam API', () => {
       });
       expect(saved).not.toBeNull();
       expect(saved!.runId).toBe(runA.id);
-      expect(saved!.path).toBe(`${outputFilesBasePath}/transformed`);
+      expect(saved!.path).toBe(`${fileBasePath}/output/transformed`);
       expect(saved!.files).toEqual(['output1.jsonl', 'output2.jsonl']);
       expect(saved!.sentToOds).toBe(true);
     });
@@ -452,13 +452,13 @@ describe('Earthbeam API', () => {
       const first = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: false });
+        .send({ path: `${fileBasePath}/output/sideloaded`, sentToOds: false });
       expect(first.status).toBe(201);
 
       const second = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${outputFilesBasePath}/sideloaded`, sentToOds: false });
+        .send({ path: `${fileBasePath}/output/sideloaded`, sentToOds: false });
       expect(second.status).toBe(409);
     });
   });
@@ -495,13 +495,13 @@ describe('Earthbeam API', () => {
       expect(res.body.appUrls.outputFiles).toContain(`/earthbeam/jobs/${runA.id}/output-files`);
     });
 
-    it('should include outputFilesBasePath in the job payload', async () => {
+    it('should not include outputFilesBasePath in the job payload', async () => {
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenA}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.outputFilesBasePath).toBe(`${jobA.fileBasePath}/output`);
+      expect(res.body.outputFilesBasePath).toBeUndefined();
     });
   });
 });

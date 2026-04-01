@@ -162,14 +162,12 @@ export class EarthbeamApiController {
       throw new NotFoundException(`Run not found: ${runId}`);
     }
 
-    const outputFilesBasePath = `${run.job.fileBasePath}/output`;
-
     // Canonicalize: strip trailing slashes for consistent storage and uniqueness checks
     const canonicalPath = body.path.replace(/\/+$/, '');
 
-    if (!canonicalPath.startsWith(`${outputFilesBasePath}/`)) {
+    if (!canonicalPath.startsWith(`${run.job.fileBasePath}/`)) {
       throw new BadRequestException(
-        "Invalid output files path: must be a subfolder within the run's output directory"
+        "Invalid output files path: must be within the job's data directory"
       );
     }
 

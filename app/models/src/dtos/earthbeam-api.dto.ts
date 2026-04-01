@@ -47,9 +47,6 @@ export class EarthbeamApiJobResponseDto {
   };
 
   @Expose()
-  outputFilesBasePath: string;
-
-  @Expose()
   assessmentDatastore: {
     apiYear: string;
     url: string;
