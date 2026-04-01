@@ -500,6 +500,18 @@ describe('ExternalApiV1', () => {
           expect(res.body.message).toContain('No ODS found');
         });
 
+        it('should reject requests when no school year config row exists', async () => {
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+              ...jobInput,
+              schoolYear: '2024', // 2324 school year has no config row
+            });
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('School year is not enabled');
+        });
+
         it('should reject requests with an invalid school year format', async () => {
           // This test checks that we're hitting the class validator requirements in the DTO
           const res = await request(app.getHttpServer())

@@ -14,7 +14,7 @@ import { uploadToS3 } from '../../helpers/uploadToS3';
 import { FormSection } from '../../components/Form/FormSection';
 import { FileFormatWarning } from './JobConfigPage/FileFormatWarning';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
-import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 
 /**
  * This interface defines ths shape of the form. For most other
@@ -151,7 +151,7 @@ export const JobCreatePage = () => {
     }
   }, [selectedAssessment, jobTemplates]);
 
-  const { data: selectableYears } = useQuery(schoolYearConfigQueries.tenant);
+  const { data: selectableYears } = useSuspenseQuery(schoolYearConfigQueries.tenant);
   const formDataToDto = (data: IJobForm): PostJobDto => {
     const template = jobTemplates?.find((t) => t.name === data.name);
     if (!template) {
@@ -177,10 +177,6 @@ export const JobCreatePage = () => {
       previousJobId: null,
     };
   };
-
-  if (!selectableYears) {
-    return null;
-  }
 
   if (selectableYears.length === 0 || jobTemplates.length === 0) {
     const missingRequirement =
