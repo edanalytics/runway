@@ -512,6 +512,35 @@ describe('ExternalApiV1', () => {
           expect(res.body.message).toContain('School year is not enabled');
         });
 
+        it('should reject no-ODS years when the roster file is missing', async () => {
+          await prisma.schoolYearConfig.create({
+            data: {
+              partnerId: partnerA.id,
+              schoolYearId: '2324',
+              isEnabled: true,
+              sendToOds: false,
+            },
+          });
+
+          const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
+          doFilesExistMock.mockResolvedValue(false);
+
+          try {
+            const res = await request(app.getHttpServer())
+              .post(endpoint)
+              .set('Authorization', `Bearer ${token}`)
+              .send({
+                ...jobInput,
+                schoolYear: '2024',
+              });
+
+            expect(res.status).toBe(400);
+            expect(res.body.message).toContain('No roster file found');
+          } finally {
+            doFilesExistMock.mockResolvedValue(true);
+          }
+        });
+
         it('should reject requests with an invalid school year format', async () => {
           // This test checks that we're hitting the class validator requirements in the DTO
           const res = await request(app.getHttpServer())

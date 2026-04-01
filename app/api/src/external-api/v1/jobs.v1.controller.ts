@@ -116,6 +116,10 @@ export class ExternalApiV1JobsController {
         throw new BadRequestException(`No ODS found for school year: ${jobInitDto.schoolYear}`);
       }
 
+      if (destination.code === 'roster_file_missing') {
+        throw new BadRequestException(destination.message);
+      }
+
       throw new BadRequestException(`School year is not enabled: ${jobInitDto.schoolYear}`);
     }
 
