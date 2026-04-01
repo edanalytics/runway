@@ -1,6 +1,6 @@
 # External API
 
-The External API allows external systems to programmatically submit jobs to Runway using OAuth2 bearer tokens.
+The External API allows external systems to programmatically submit jobs to Runway and retrieve processed output files using OAuth2 bearer tokens.
 
 ## Configuration
 
@@ -39,7 +39,7 @@ The access token must include the following claims:
 
 The local Keycloak instance (started by `docker compose`) comes pre-configured with a `runway-api` client for the external API. No additional IdP setup is needed.
 
-The client is configured in [`api/keycloak/config.yaml`](../../../api/keycloak/config.yaml) with the `create:jobs` and `partner:ea` scopes and an audience of `runway-local`.
+The client is configured in [`api/keycloak/config.yaml`](../../../api/keycloak/config.yaml) with the `create:jobs`, `read:jobs`, `read:jobs:output-files`, and `partner:ea` scopes and an audience of `runway-local`.
 
 Get a token and verify it:
 
@@ -75,12 +75,12 @@ Authorization: Bearer <access_token>
 
 ### Workflow Overview
 
-1. **Obtain a token** from your identity provider using client credentials
-2. **Create a job**: `POST /api/v1/jobs` — Returns presigned S3 upload URLs
-3. **Upload files** to the presigned URLs
-4. **Start the job**: `POST /api/v1/jobs/:jobUid/start`
-5. **Query for output sets**: `GET /api/v1/output-sets`
-6. **Download output files**: `POST /api/v1/output-sets/:setUid/download-links`
+There are two related but independent flows:
+
+1. **Job submission flow**: Use `POST /api/v1/jobs` and `POST /api/v1/jobs/:jobUid/start` to create and launch jobs through the external API.
+2. **Output retrieval flow**: Use `GET /api/v1/output-sets` and `POST /api/v1/output-sets/:setUid/download-links` to discover and download processed JSONL output files for completed runs.
+
+The output retrieval endpoints are not limited to jobs created through the external API. They can be used to pull output files for any job, whether created via the API or the web app, as long as the caller has the required partner scope and read scopes.
 
 ---
 
@@ -113,9 +113,15 @@ curl --request POST \
 
 This endpoint verifies that the token is signed by the expected issuer, has the correct audience, and includes the `create:jobs` scope. The response indicates which partner(s) the token is authorized to operate on.
 
+This is slightly awkward for read-only clients: `/api/v1/token/verify` currently requires `create:jobs`, so a token intended only for output retrieval cannot use this endpoint for validation. Updating that behavior is cleanup outside the scope of this PR.
+
 ---
 
-## Step 2: Create the Job
+## Job Submission Flow
+
+Use this flow when you want to create and run a job through the external API.
+
+### Step 1: Create the Job
 
 `POST /api/v1/jobs`
 
@@ -179,7 +185,7 @@ curl --request POST \
 
 ---
 
-## Step 3: Upload Files to S3
+### Step 2: Upload Files to S3
 
 Use the presigned URLs from the previous response to upload your input files. You can use any HTTP client—no AWS SDK required.
 
@@ -192,7 +198,7 @@ curl -X PUT \
 
 ---
 
-## Step 4: Start the Job
+### Step 3: Start the Job
 
 `POST /api/v1/jobs/:jobUid/start`
 
@@ -208,7 +214,11 @@ Returns `202 Accepted` on success.
 
 ---
 
-## Step 5: List Output Sets
+## Output Retrieval Flow
+
+Use this flow when you want to discover and download processed output files from completed runs.
+
+### Step 1: List Output Sets
 
 `GET /api/v1/output-sets`
 
@@ -263,7 +273,7 @@ The response is a flat array of output sets ordered by `createdAt` ascending.
 
 ---
 
-## Step 6: Get Download Links for an Output Set
+### Step 2: Get Download Links for an Output Set
 
 `POST /api/v1/output-sets/:setUid/download-links`
 

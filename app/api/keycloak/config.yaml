@@ -15,6 +15,14 @@ clientScopes:
     protocol: openid-connect
     attributes:
       "include.in.token.scope": "true"
+  - name: "read:jobs"
+    protocol: openid-connect
+    attributes:
+      "include.in.token.scope": "true"
+  - name: "read:jobs:output-files"
+    protocol: openid-connect
+    attributes:
+      "include.in.token.scope": "true"
   - name: "partner:ea"
     protocol: openid-connect
     attributes:
@@ -90,6 +98,8 @@ clients:
     directAccessGrantsEnabled: false
     defaultClientScopes:
       - "create:jobs"
+      - "read:jobs"
+      - "read:jobs:output-files"
       - "partner:ea"
     protocolMappers:
       # The app validates the aud claim, so we need to inject it.
