@@ -207,13 +207,20 @@ export const JobCreatePage = () => {
                 controller={yearController}
                 options={selectableYears.map((year) => ({
                   label: `${year.startYear} - ${year.endYear} school year${
-                    year.sendToOds && !year.hasOds ? ' (no ODS configured)' : ''
+                    year.sendToOds && !year.hasOds
+                      ? ' (no ODS configured)'
+                      : !year.sendToOds && !year.hasRoster
+                      ? ' (no roster file loaded)'
+                      : ''
                   }`,
                   value: year.schoolYearId,
                 }))}
                 isOptionDisabled={(option) => {
                   const year = selectableYears.find((row) => row.schoolYearId === option.value);
-                  return !!year?.sendToOds && !year.hasOds;
+                  if (!year) return true;
+                  if (year.sendToOds && !year.hasOds) return true;
+                  if (!year.sendToOds && !year.hasRoster) return true;
+                  return false;
                 }}
               ></RunwaySelect>
               <RunwaySelect

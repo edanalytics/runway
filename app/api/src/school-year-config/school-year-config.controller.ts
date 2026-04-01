@@ -21,13 +21,17 @@ import { Response } from 'express';
 import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
+import { FileService } from '../files/file.service';
 
 const toEtag = (value: Date) => `"${value.toISOString()}"`;
 
 @ApiTags('SchoolYearConfig')
 @Controller()
 export class SchoolYearConfigController {
-  constructor(@Inject(PRISMA_APP_USER) private prisma: PrismaClient) {}
+  constructor(
+    @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
+    private fileService: FileService,
+  ) {}
 
   @Authorize('school-year-config.read')
   @Get('tenant')
@@ -61,8 +65,8 @@ export class SchoolYearConfigController {
       },
     });
 
-    return toGetTenantSchoolYearConfigDto(
-      schoolYears.map((schoolYear) => {
+    const rows = await Promise.all(
+      schoolYears.map(async (schoolYear) => {
         const config = schoolYear.schoolYearConfig[0];
         if (!config) {
           throw new BadRequestException(
@@ -70,15 +74,22 @@ export class SchoolYearConfigController {
           );
         }
 
+        const hasRoster = await this.fileService.doFilesExist([
+          `__rosters/${tenant.partnerId}/${tenant.code}/${schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`,
+        ]);
+
         return {
           schoolYearId: schoolYear.id,
           startYear: schoolYear.startYear,
           endYear: schoolYear.endYear,
           sendToOds: config.sendToOds,
           hasOds: schoolYear.odsConfig.length > 0,
+          hasRoster,
         };
       })
     );
+
+    return toGetTenantSchoolYearConfigDto(rows);
   }
 
   @Authorize('school-year-config.read')
