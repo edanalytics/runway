@@ -160,7 +160,7 @@ export class EarthbeamApiService {
       sendToOds: job.sendToOds,
       rosterFilePath: job.sendToOds
         ? undefined
-        : `__rosters/${job.partnerId}/${job.tenantCode}/${apiYear}`,
+        : `s3://${this.configService.rosterBucket()}/__rosters/${job.partnerId}/${job.tenantCode}/${apiYear}/studentEducationOrganizationAssociations.jsonl`,
       assessmentDatastore: job.sendToOds
         ? {
             apiYear: apiYear,

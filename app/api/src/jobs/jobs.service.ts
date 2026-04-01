@@ -58,7 +58,8 @@ export class JobsService {
           | 'school_year_config_missing'
           | 'school_year_disabled'
           | 'ods_not_found'
-          | 'multiple_ods_found';
+          | 'multiple_ods_found'
+          | 'roster_file_missing';
         message: string;
       }
   > {
@@ -103,6 +104,16 @@ export class JobsService {
     }
 
     if (!config.sendToOds) {
+      const rosterKey = `__rosters/${input.tenant.partnerId}/${input.tenant.code}/${config.schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`;
+      const rosterExists = await this.fileService.doFilesExist([rosterKey]);
+      if (!rosterExists) {
+        return {
+          status: 'error',
+          code: 'roster_file_missing',
+          message: `No roster file found for ${input.tenant.code} / ${config.schoolYear.endYear}`,
+        };
+      }
+
       return {
         status: 'success',
         data: {
