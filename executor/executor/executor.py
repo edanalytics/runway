@@ -56,6 +56,9 @@ class JobExecutor:
         self.local_mode = os.environ.get("DEPLOYMENT_MODE") == "LOCAL"
         self.conn = requests.Session()
 
+        # wipe lightbeam state so that local runs stay idempotent
+        shutil.rmtree(".lightbeam", ignore_errors=True)
+
         os.mkdir(os.path.abspath(config.OUTPUT_DIR))
         os.environ["DATA_DIR"] = os.path.abspath(config.OUTPUT_DIR)
         os.environ["OUTPUT_DIR"] = os.path.abspath(config.OUTPUT_DIR)
@@ -606,7 +609,7 @@ class JobExecutor:
         self.set_action(action.LIGHTBEAM_SEND)
         try:
             subprocess.run(
-                ["lightbeam", "-c", self.assessment_lightbeam, "send", "--results-file", artifact.LB_SEND_RESULTS.path]
+                ["lightbeam", "-c", self.assessment_lightbeam, "send", "--set", "state_dir", ".lightbeam", "--results-file", artifact.LB_SEND_RESULTS.path]
             ).check_returncode()
 
             # TODO: ostensibly should check for Ed-Fi warnings here but failed uploads still make it back via the summary report
