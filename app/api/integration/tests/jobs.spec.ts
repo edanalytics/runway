@@ -5,10 +5,9 @@ import { tenantA, tenantB, tenantX } from '../fixtures/context-fixtures/tenant-f
 import { userA, userB, userX } from '../fixtures/user-fixtures';
 import { sessionData } from '../helpers/session/session-factory';
 import {
+  odsConfigA2425,
+  odsConfigB2526,
   odsConfigX2425,
-  odsConnA2425,
-  odsConnB2526,
-  odsConnX2425,
 } from '../fixtures/context-fixtures/ods-fixture';
 import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { makePostJobDto } from '../factories/job-input-factory';
@@ -40,12 +39,12 @@ describe('GET /jobs', () => {
       await sessionStore.set(sessionX.sid, sessionData(userX, tenantX));
       aJobs = await Promise.all([
         seedJob({
-          odsConnection: odsConnA2425,
+          odsConfig: odsConfigA2425,
           bundle: bundleA,
           tenant: tenantA,
         }),
         seedJob({
-          odsConnection: odsConnA2425,
+          odsConfig: odsConfigA2425,
           bundle: bundleA,
           tenant: tenantA,
           summary: true,
@@ -127,7 +126,7 @@ describe('GET /jobs', () => {
     it('should return a list of jobs for each tenant', async () => {
       const xJobs: DtoableJob[] = [
         await seedJob({
-          odsConnection: odsConnX2425,
+          odsConfig: odsConfigX2425,
           bundle: bundleX,
           tenant: tenantX,
         }),
@@ -165,12 +164,12 @@ describe('GET /jobs/:id', () => {
   beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
       seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       }),
       seedJob({
-        odsConnection: odsConnB2526,
+        odsConfig: odsConfigB2526,
         bundle: bundleA, // same bundle for both tenants is fine
         tenant: tenantB,
       }),
@@ -218,7 +217,7 @@ describe('POST /jobs', () => {
   describe('authenticated requests', () => {
     const sessionA = sessionCookie('jobs-spec');
     const jobTemplateA = makeJobTemplate(bundleA);
-    const postJobDto = makePostJobDto(jobTemplateA, odsConnA2425);
+    const postJobDto = makePostJobDto(jobTemplateA, odsConfigA2425);
     let getBundlesMock: jest.SpyInstance;
 
     beforeEach(async () => {
@@ -327,12 +326,12 @@ describe('PUT /jobs/:id/resolve', () => {
   beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
       seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       }),
       seedJob({
-        odsConnection: odsConnB2526,
+        odsConfig: odsConfigB2526,
         bundle: bundleA,
         tenant: tenantB,
       }),
@@ -438,7 +437,7 @@ describe('GET /jobs/:id/notes', () => {
   let noteA2: JobNote;
   beforeEach(async () => {
     jobA = await seedJob({
-      odsConnection: odsConnA2425,
+      odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
     });
@@ -498,7 +497,7 @@ describe('POST /jobs/:id/notes', () => {
 
   beforeEach(async () => {
     jobA = await seedJob({
-      odsConnection: odsConnA2425,
+      odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
     });
@@ -588,7 +587,7 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
   let noteA: JobNote;
   beforeEach(async () => {
     jobA = await seedJob({
-      odsConnection: odsConnA2425,
+      odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
     });
@@ -625,7 +624,7 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
 
     it('should reject requests if the note is not associated with the job', async () => {
       const jobA2 = await seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       });
@@ -695,7 +694,7 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
   let noteA2: JobNote;
   beforeEach(async () => {
     jobA = await seedJob({
-      odsConnection: odsConnA2425,
+      odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
     });
@@ -750,7 +749,7 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
 
     it('should reject requests if the note is not associated with the job', async () => {
       const jobA2 = await seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       });

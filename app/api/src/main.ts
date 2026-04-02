@@ -5,7 +5,9 @@ import pg from 'pg';
 import pgSession from 'connect-pg-simple';
 import session from 'express-session';
 import passport from 'passport';
+import { RequestHandler } from 'express';
 import { AppModule } from './app/app.module';
+import { IdentityProviderService } from './auth/login/identity-provider.service';
 import { AppConfigService } from './config/app-config.service';
 import { migrate } from './database';
 
@@ -51,6 +53,11 @@ async function bootstrap() {
     done(null, user);
   });
 
+  app.use(((_req, res, next) => {
+    res.setHeader('cache-control', 'no-cache');
+    next();
+  }) satisfies RequestHandler);
+
   app.setGlobalPrefix(globalPrefix);
   app.useGlobalPipes(new ValidationPipe({ transform: true, stopAtFirstError: false }));
 
@@ -64,7 +71,7 @@ async function bootstrap() {
   app.enableCors({
     origin: idpRows.rows.map((row) => row.fe_home),
     credentials: true,
-    exposedHeaders: 'location',
+    exposedHeaders: ['location', 'etag'],
   });
   app.useGlobalInterceptors(
     new ClassSerializerInterceptor(app.get(Reflector), {
@@ -94,6 +101,9 @@ async function bootstrap() {
     await app.listen(port);
   }
 
+  // Called here rather than in onApplicationBootstrap so tests don't start a listener
+  // (seed operations fire the notification triggers and would race with the test harness).
+  app.get(IdentityProviderService).scheduleListener();
   Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 

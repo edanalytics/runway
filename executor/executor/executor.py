@@ -56,6 +56,9 @@ class JobExecutor:
         self.local_mode = os.environ.get("DEPLOYMENT_MODE") == "LOCAL"
         self.conn = requests.Session()
 
+        # wipe lightbeam state so that local runs stay idempotent
+        shutil.rmtree(".lightbeam", ignore_errors=True)
+
         os.mkdir(os.path.abspath(config.OUTPUT_DIR))
         os.environ["DATA_DIR"] = os.path.abspath(config.OUTPUT_DIR)
         os.environ["OUTPUT_DIR"] = os.path.abspath(config.OUTPUT_DIR)
@@ -170,14 +173,11 @@ class JobExecutor:
             os.environ["ASSESSMENT_BUNDLE_BRANCH"] = job["bundle"]["branch"]
 
             app_base_uri = parse.urlparse(job["appDataBasePath"])
-            self.local_data_path = None
-            if app_base_uri.scheme == "file":
-                self.local_data_path = app_base_uri.path
-            else:
-                self.app_bucket = app_base_uri.hostname
-                app_prefix = app_base_uri.path.strip("/")
-                self.s3_in_path = f"{app_prefix}/input"
-                self.s3_out_path = f"{app_prefix}/output"
+
+            self.app_bucket = app_base_uri.hostname
+            app_prefix = app_base_uri.path.strip("/")
+            self.s3_in_path = f"{app_prefix}/input"
+            self.s3_out_path = f"{app_prefix}/output"
 
             self.input_sources = job["inputFiles"]
 
@@ -276,30 +276,24 @@ class JobExecutor:
         for env_name, path in self.input_sources.items():
             # if allow_fragments is True, paths containing a '#' are incorrectly split
             uri = parse.urlparse(path, allow_fragments=False)
-            if uri.scheme == "file":
-                os.environ[env_name] = uri.path
-                # normalize local paths to the same dict used by S3 sources
-                self.input_sources[env_name] = {"path": uri.path}
-            # NOTE: for now this assumes S3
-            else:
-                try:
-                    # NOTE: there's a world where we don't need to download the file
-                    # and we can use something like s3fs to just give Earthmover an
-                    # s3 path, but we're not living in that world yet. s3fs seems to
-                    # have serious problems and without it, this would require a
-                    # change to earthmover itself
-                    uri_path = uri.path.lstrip("/")
-                    local_path = os.path.abspath(localize_s3_path(uri_path))
-                    self.s3.download_file(
-                        self.app_bucket, f"{self.s3_in_path}/{uri_path}", local_path
-                    )
-                    os.environ[env_name] = local_path
-                    self.input_sources[env_name] = {"path": local_path}
-                except botocore.exceptions.ClientError:
-                    self.error = error.InputS3DownloadError(
-                        env_name, f"{self.s3_in_path}/{uri_path}"
-                    )
-                    raise
+            try:
+                # NOTE: there's a world where we don't need to download the file
+                # and we can use something like s3fs to just give Earthmover an
+                # s3 path, but we're not living in that world yet. s3fs seems to
+                # have serious problems and without it, this would require a
+                # change to earthmover itself
+                uri_path = uri.path.lstrip("/")
+                local_path = os.path.abspath(localize_s3_path(uri_path))
+                self.s3.download_file(
+                    self.app_bucket, f"{self.s3_in_path}/{uri_path}", local_path
+                )
+                os.environ[env_name] = local_path
+                self.input_sources[env_name] = {"path": local_path}
+            except botocore.exceptions.ClientError:
+                self.error = error.InputS3DownloadError(
+                    env_name, f"{self.s3_in_path}/{uri_path}"
+                )
+                raise
 
     def map_descriptors(self):
         """Replace assessment bundle seed files' Ed-Fi descriptors with custom values"""
@@ -383,10 +377,11 @@ class JobExecutor:
             if err.stderr and "codec can't decode" in err.stderr and self.input_sources["INPUT_FILE"]["encoding"] != "ISO-8859-1":
                 self.logger.error(f"Failed to read file with {self.input_sources['INPUT_FILE']['encoding']} encoding. Retrying with Latin1...")
                 try:
-                    # attempt no. 2
-                    subprocess.run(
+                    # attempt no. 2 - need a new em object to overwrite the decoding error
+                    em = subprocess.run(
                         ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", artifact.EM_RESULTS.path, "--set", "sources.input.encoding", "iso-8859-1"],
-                    ).check_returncode()
+                    )
+                    em.check_returncode()
 
                     fatal = False # if we made it this far, we can abort the shutdown
                 except subprocess.CalledProcessError:
@@ -605,7 +600,7 @@ class JobExecutor:
         self.set_action(action.LIGHTBEAM_SEND)
         try:
             subprocess.run(
-                ["lightbeam", "-c", self.assessment_lightbeam, "send", "--results-file", artifact.LB_SEND_RESULTS.path]
+                ["lightbeam", "-c", self.assessment_lightbeam, "send", "--set", "state_dir", ".lightbeam", "--results-file", artifact.LB_SEND_RESULTS.path]
             ).check_returncode()
 
             # TODO: ostensibly should check for Ed-Fi warnings here but failed uploads still make it back via the summary report
@@ -655,28 +650,18 @@ class JobExecutor:
             self.error_obj = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
             raise FileNotFoundError(fpath)
 
-        # these variables pretty much always correlate, but they don't necessarily have to
-        if self.local_mode and self.local_data_path:
-            self.logger.debug(
-                f"local mode: copying artifact to {os.path.join(self.local_data_path, 'output')}"
+        try:
+            self.s3.upload_file(
+                fpath, self.app_bucket, f"{self.s3_out_path}/{os.path.basename(fpath)}"
             )
-            local_output_dir = os.path.join(self.local_data_path, "output")
-            os.makedirs(local_output_dir, exist_ok=True)
-            shutil.copy2(fpath, os.path.join(local_output_dir, os.path.basename(fpath)))
-        else:
-            # deployed case
-            try:
-                self.s3.upload_file(
-                    fpath, self.app_bucket, f"{self.s3_out_path}/{os.path.basename(fpath)}"
-                )
-            except botocore.exceptions.ClientError:
-                if fail_ok:
-                    self.logger.debug(f"upload failed during shutdown. continuing...")
-                    return
-                self.error = error.ArtifactS3UploadError(
-                    artifact_to_upload, f"{self.bucket_out_path}/{os.path.basename(fpath)}"
-                )
-                raise
+        except botocore.exceptions.ClientError:
+            if fail_ok:
+                self.logger.debug(f"upload failed during shutdown. continuing...")
+                return
+            self.error = error.ArtifactS3UploadError(
+                artifact_to_upload, f"{self.bucket_out_path}/{os.path.basename(fpath)}"
+            )
+            raise
 
         artifact_to_upload.needs_upload = False
 

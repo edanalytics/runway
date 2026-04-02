@@ -13,6 +13,7 @@
 import { Route as rootRoute } from './routes/__root'
 import { Route as OdsConfigsImport } from './routes/ods-configs'
 import { Route as AssessmentsImport } from './routes/assessments'
+import { Route as AdminImport } from './routes/admin'
 import { Route as IndexImport } from './routes/index'
 import { Route as OdsConfigsIndexImport } from './routes/ods-configs.index'
 import { Route as AssessmentsIndexImport } from './routes/assessments.index'
@@ -36,6 +37,11 @@ const OdsConfigsRoute = OdsConfigsImport.update({
 
 const AssessmentsRoute = AssessmentsImport.update({
   path: '/assessments',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const AdminRoute = AdminImport.update({
+  path: '/admin',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -119,6 +125,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexImport
+      parentRoute: typeof rootRoute
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminImport
       parentRoute: typeof rootRoute
     }
     '/assessments': {
@@ -226,6 +239,7 @@ declare module '@tanstack/react-router' {
 
 export const routeTree = rootRoute.addChildren({
   IndexRoute,
+  AdminRoute,
   AssessmentsRoute: AssessmentsRoute.addChildren({
     AssessmentsAssessmentIdRoute: AssessmentsAssessmentIdRoute.addChildren({
       AssessmentsAssessmentIdSubmittedRoute,
@@ -256,12 +270,16 @@ export const routeTree = rootRoute.addChildren({
       "filePath": "__root.tsx",
       "children": [
         "/",
+        "/admin",
         "/assessments",
         "/ods-configs"
       ]
     },
     "/": {
       "filePath": "index.tsx"
+    },
+    "/admin": {
+      "filePath": "admin.tsx"
     },
     "/assessments": {
       "filePath": "assessments.tsx",

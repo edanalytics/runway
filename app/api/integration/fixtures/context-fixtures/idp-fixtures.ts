@@ -16,9 +16,10 @@ export const oidcConfigA: WithoutAudit<OidcConfig> = {
   scopes: 'openid profile email',
   requireRole: true,
   rolesClaim: 'session.roles',
-  requiredRoles: ['runway.test.user', 'runway.test.admin'],
+  requiredRoles: ['runway.test.user', 'runway.test.partneradmin'],
   embeddedClaimsClaim: 'context',
   partnerClaim: 'session.partnerCode',
+  rolePrefix: 'runway.test.',
 };
 
 export const idpA: IdpFixture = {
@@ -41,9 +42,10 @@ export const oidcConfigX: WithoutAudit<OidcConfig> = {
   scopes: 'openid profile email',
   requireRole: true,
   rolesClaim: 'roles',
-  requiredRoles: ['Runway.User'],
+  requiredRoles: ['Runway.User', 'Runway.PartnerAdmin'],
   embeddedClaimsClaim: null, // like EdGraph
   partnerClaim: null,
+  rolePrefix: 'Runway.',
 };
 
 export const idpX: IdpFixture = {

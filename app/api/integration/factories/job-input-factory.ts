@@ -1,16 +1,16 @@
 import { GetJobTemplateDto, PostJobDto } from '@edanalytics/models';
-import { OdsConnection } from '@prisma/client';
+import { OdsConfig } from '@prisma/client';
 import { WithoutAudit } from '../fixtures/utils/created-modified';
 
 export const makePostJobDto = (
   template: GetJobTemplateDto,
-  ods: WithoutAudit<OdsConnection>,
+  odsConfig: WithoutAudit<OdsConfig>,
   overrides?: Partial<PostJobDto>
 ): PostJobDto => {
   return {
     name: template.name,
-    odsId: ods.odsConfigId,
-    schoolYearId: ods.schoolYearId,
+    odsId: odsConfig.id,
+    schoolYearId: odsConfig.schoolYearId,
     files: template.files.map((f) => ({
       nameFromUser: `${f.templateKey}-file.csv`,
       type: f.fileType[0] ?? 'csv',

@@ -65,7 +65,7 @@ const entityToDtoInput = (entity: DtoableEntity) => {
     clientSecret: entity.activeConnection.clientSecret,
     lastUseResult: entity.activeConnection.lastUseResult,
     lastUseOn: entity.activeConnection.lastUseOn,
-    schoolYearId: entity.activeConnection.schoolYearId,
+    schoolYearId: entity.schoolYearId,
   };
 };
 

@@ -429,6 +429,155 @@ describe('Authentication', () => {
     });
   });
 
+  describe('Role persistence', () => {
+    it('should save matched roles to session after prefix stripping (UM-like)', async () => {
+      const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+      claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.partneradmin');
+      const { getSessionFromDB } = await completeAuth('pass');
+
+      const session = await getSessionFromDB();
+      expect(session?.passport?.user.roles).toContain('PartnerAdmin');
+    });
+
+    it('should save multiple matched roles to session', async () => {
+      const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+      claimsMocker
+        .authUserInTenant(userA, tenantA)
+        .addRoles(['runway.test.user', 'runway.test.partneradmin']);
+      const { getSessionFromDB } = await completeAuth('pass');
+
+      const session = await getSessionFromDB();
+      expect(session?.passport?.user.roles).toContain('User');
+      expect(session?.passport?.user.roles).toContain('PartnerAdmin');
+      expect(session?.passport?.user.roles).toHaveLength(2);
+    });
+
+    it('should match roles case-insensitively', async () => {
+      const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+      claimsMocker
+        .authUserInTenant(userA, tenantA)
+        .addRoles(['runway.test.user', 'runway.test.PARTNERaDMIN']); // 'runway.test.user' passes required_roles gate
+      const { getSessionFromDB } = await completeAuth('pass');
+
+      const session = await getSessionFromDB();
+      expect(session?.passport?.user.roles).toContain('PartnerAdmin');
+    });
+
+    it('should silently drop unrecognized roles after prefix stripping', async () => {
+      const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+      claimsMocker
+        .authUserInTenant(userA, tenantA)
+        .addRoles(['runway.test.user', 'runway.test.unknownrole']);
+      const { getSessionFromDB } = await completeAuth('pass');
+
+      const session = await getSessionFromDB();
+      const roles = session?.passport?.user.roles;
+      expect(roles).toHaveLength(1); // unknown role dropped; no duplicate User from runway.test.user
+      expect(roles).toEqual(['User']);
+    });
+
+    it('should match raw role strings case-insensitively when no prefix is configured', async () => {
+      await prisma.oidcConfig.update({
+        where: { id: oidcConfigA.id },
+        data: { rolePrefix: null },
+      });
+      // Re-register the IdP so the strategy picks up the null prefix
+      const idpService = app.get(IdentityProviderService);
+      await idpService.refreshRegistrations();
+
+      try {
+        const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+        claimsMocker
+          .authUserInTenant(userA, tenantA)
+          // Required-role gate: exact runway.test.* strings. Session roles: lowercase raw token
+          // `partneradmin` must still map to AppRole PartnerAdmin when there is no prefix.
+          .addRoles(['runway.test.user', 'partneradmin']);
+        const { getSessionFromDB } = await completeAuth('pass');
+
+        const session = await getSessionFromDB();
+        expect(session?.passport?.user.roles).toEqual(['PartnerAdmin']);
+      } finally {
+        await prisma.oidcConfig.update({
+          where: { id: oidcConfigA.id },
+          data: { rolePrefix: oidcConfigA.rolePrefix },
+        });
+        await idpService.refreshRegistrations();
+      }
+    });
+
+    it('should leave roles empty when no prefix is configured and raw roles do not match AppRoles', async () => {
+      await prisma.oidcConfig.update({
+        where: { id: oidcConfigA.id },
+        data: { rolePrefix: null },
+      });
+      const idpService = app.get(IdentityProviderService);
+      await idpService.refreshRegistrations();
+
+      try {
+        const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+        // 'runway.test.user' passes required_roles gate but does not match any AppRole without prefix stripping
+        claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.user');
+        const { getSessionFromDB } = await completeAuth('pass');
+
+        const session = await getSessionFromDB();
+        expect(session?.passport?.user.roles).toEqual([]);
+      } finally {
+        await prisma.oidcConfig.update({
+          where: { id: oidcConfigA.id },
+          data: { rolePrefix: oidcConfigA.rolePrefix },
+        });
+        await idpService.refreshRegistrations();
+      }
+    });
+
+    it('should save matched roles via prefix stripping (EdGraph-like)', async () => {
+      const { claimsMocker, completeAuth } = await initiateAuth(idpX);
+      claimsMocker
+        .authUserInTenant(userX, tenantX)
+        .addRoles(['Runway.User', 'Runway.PartnerAdmin']);
+      const { getSessionFromDB } = await completeAuth('pass');
+
+      const session = await getSessionFromDB();
+      expect(session?.passport?.user.roles).toContain('User');
+      expect(session?.passport?.user.roles).toContain('PartnerAdmin');
+    });
+
+    it('should return roles via /auth/me', async () => {
+      const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+      claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.partneradmin');
+      const { cookies } = await completeAuth('pass');
+
+      const res = await request(app.getHttpServer()).get('/auth/me').set('Cookie', cookies);
+      expect(res.status).toBe(200);
+      expect(res.body.roles).toContain('PartnerAdmin');
+    });
+
+    it('should still gate login via required_roles independently of role prefix', async () => {
+      // `runway.test.partneradmin` matches a known AppRole after prefix stripping, but the gate
+      // uses exact membership in required_roles only — so login must fail if that string is
+      // not listed even though extractAppRoles would map it to PartnerAdmin.
+      // Remove this test when required_roles is retired.
+      await prisma.oidcConfig.update({
+        where: { id: oidcConfigA.id },
+        data: { requiredRoles: ['runway.test.user'] },
+      });
+      const idpService = app.get(IdentityProviderService);
+      await idpService.refreshRegistrations();
+
+      try {
+        const { claimsMocker, completeAuth } = await initiateAuth(idpA);
+        claimsMocker.authUserInTenant(userA, tenantA).addRoles('runway.test.partneradmin');
+        await completeAuth('fail');
+      } finally {
+        await prisma.oidcConfig.update({
+          where: { id: oidcConfigA.id },
+          data: { requiredRoles: oidcConfigA.requiredRoles },
+        });
+        await idpService.refreshRegistrations();
+      }
+    });
+  });
+
   describe('Misconfiguration', () => {
     it('should not register a multi-partner IdP without a partner claim', async () => {
       const idpService = app.get(IdentityProviderService);
@@ -449,15 +598,12 @@ describe('Authentication', () => {
       });
 
       const loggerSpy = jest.spyOn(Logger.prototype, 'error');
-      const registrationSpy = jest.spyOn(idpService as any, 'registerOidcIdp'); // spy on the private method
-      await idpService.onApplicationBootstrap();
+      await idpService.refreshRegistrations();
       expect(Logger.prototype.error).toHaveBeenCalledWith(
         `${idpA.id} does not have a partner claim but is used by ${partnerA.id}, ${partnerC.id}. Users for these partners will not be able to log in until this is fixed.`
       );
-      expect(registrationSpy).toHaveBeenCalledTimes(1); // once for IdPX
-      // expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined(); // This check doesn't work since the earlier registation is still around
+      expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined();
       loggerSpy.mockClear();
-      registrationSpy.mockClear();
 
       await prisma.oidcConfig.update({
         where: {
@@ -467,10 +613,69 @@ describe('Authentication', () => {
           partnerClaim: originalConfig.partnerClaim,
         },
       });
-      // No need to reset since the original registration was not overwritten
-      // await idpService.onApplicationBootstrap(); // restore for other tests
-      // expect(idpService.idpRegistrationForId(idpA.id)).toBeDefined();
+      await idpService.refreshRegistrations();
+      expect(idpService.idpRegistrationForId(idpA.id)).toBeDefined();
     });
+  });
+
+  describe('Registration refresh', () => {
+    it('should pick up oidc_config changes on refresh', async () => {
+      const idpService = app.get(IdentityProviderService);
+
+      const regBefore = idpService.idpRegistrationForId(idpA.id);
+      expect(regBefore).toBeDefined();
+      expect(regBefore!.config.scopes).toBe(oidcConfigA.scopes);
+
+      await prisma.oidcConfig.update({
+        where: { id: oidcConfigA.id },
+        data: { scopes: 'openid email' },
+      });
+
+      await idpService.refreshRegistrations();
+
+      const regAfter = idpService.idpRegistrationForId(idpA.id);
+      expect(regAfter).toBeDefined();
+      expect(regAfter!.config.scopes).toBe('openid email');
+    });
+
+    it('should unregister an IdP when its sole partner is removed', async () => {
+      const idpService = app.get(IdentityProviderService);
+      expect(idpService.idpRegistrationForId(idpX.id)).toBeDefined();
+
+      await prisma.partner.update({ where: { id: partnerX.id }, data: { idpId: null } });
+
+      await idpService.refreshRegistrations();
+
+      expect(idpService.idpRegistrationForId(idpX.id)).toBeUndefined();
+    });
+
+    it('should still register healthy IdPs when one issuer is unreachable', async () => {
+      const idpService = app.get(IdentityProviderService);
+      const { Issuer } = await import('openid-client');
+      const discoverSpy = jest.spyOn(Issuer, 'discover');
+      const originalImpl = discoverSpy.getMockImplementation()!;
+
+      // Make idpA's issuer fail, let idpX succeed
+      discoverSpy.mockImplementation(async (url: string) => {
+        if (url.includes(oidcConfigA.issuer)) {
+          throw new Error('Issuer unreachable');
+        }
+        return originalImpl(url);
+      });
+
+      try {
+        await idpService.refreshRegistrations();
+
+        // idpA should be pruned (discovery failed), idpX should be registered
+        expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined();
+        expect(idpService.idpRegistrationForId(idpX.id)).toBeDefined();
+      } finally {
+        discoverSpy.mockImplementation(originalImpl);
+        // Restore idpA registration for subsequent tests
+        await idpService.refreshRegistrations();
+      }
+    });
+
   });
 
   describe('Logout', () => {

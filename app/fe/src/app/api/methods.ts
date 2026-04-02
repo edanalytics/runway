@@ -8,22 +8,28 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
-apiClient.interceptors.response.use(
-  (res) => res.data,
-  (error) => {
-    if ([401].includes(error?.response?.status)) {
-      console.log('Redirecting to login');
-      window.location.href = `${import.meta.env.VITE_API_URL.replace(
-        /\/?$/,
-        ''
-      )}/api/auth/login?redirect=${encodeURIComponent(
-        window.location.href.replace(window.location.origin, '')
-      )}&origin=${encodeURIComponent(window.location.origin)}`;
-    } else {
-      throw error?.response?.data ?? error;
-    }
+// Use this client when callers need access to response headers like ETag.
+// `apiClient` unwraps responses to `res.data` via its interceptor.
+export const apiClientRaw = axios.create({
+  withCredentials: true,
+});
+
+const handleApiError = (error: any) => {
+  if ([401].includes(error?.response?.status)) {
+    console.log('Redirecting to login');
+    window.location.href = `${import.meta.env.VITE_API_URL.replace(
+      /\/?$/,
+      ''
+    )}/api/auth/login?redirect=${encodeURIComponent(
+      window.location.href.replace(window.location.origin, '')
+    )}&origin=${encodeURIComponent(window.location.origin)}`;
+  } else {
+    throw error?.response?.data ?? error;
   }
-);
+};
+
+apiClient.interceptors.response.use((res) => res.data, handleApiError);
+apiClientRaw.interceptors.response.use((res) => res, handleApiError);
 
 async function getManyMap<R extends object>(
   url: string,

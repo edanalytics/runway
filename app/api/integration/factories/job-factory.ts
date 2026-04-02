@@ -1,4 +1,4 @@
-import { OdsConnection, RunStatus, Tenant } from '@prisma/client';
+import { OdsConfig, RunStatus, Tenant } from '@prisma/client';
 import { WithoutAudit } from '../fixtures/utils/created-modified';
 import { DtoableJob, IEarthmoverBundle, JsonArray } from '@edanalytics/models';
 import { makePostJobDto } from './job-input-factory';
@@ -7,7 +7,7 @@ import { randomString } from '../fixtures/utils/random-string';
 import { instanceToPlain } from 'class-transformer';
 
 export const seedJob = async ({
-  odsConnection,
+  odsConfig,
   bundle,
   tenant,
   runStatus = 'new',
@@ -15,7 +15,7 @@ export const seedJob = async ({
   unmatchedStudentsInfo = false,
   outputFiles = false,
 }: {
-  odsConnection: WithoutAudit<OdsConnection>;
+  odsConfig: WithoutAudit<OdsConfig>;
   bundle: IEarthmoverBundle;
   tenant: WithoutAudit<Tenant>;
   runStatus?: RunStatus;
@@ -23,7 +23,7 @@ export const seedJob = async ({
   unmatchedStudentsInfo?: boolean;
   outputFiles?: boolean;
 }): Promise<DtoableJob> => {
-  const postJobDto = makePostJobDto(makeJobTemplate(bundle), odsConnection);
+  const postJobDto = makePostJobDto(makeJobTemplate(bundle), odsConfig);
   return prisma.job.create({
     data: {
       ...postJobDto,
