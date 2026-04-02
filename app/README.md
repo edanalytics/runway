@@ -70,7 +70,7 @@ npx nx run fe:serve
 
 Visit [http://localhost:4200](http://localhost:4200) to see the app
 
-_Warning: If you click the http://localhost:4200 link from the terminal output in VS Code, your browser might swap out localhost for 127.0.0.1 which will result in a CORS error. If this happens, replace 127.0.0.1 with locahost and you'll be fine._
+_Warning: If you click the http://localhost:4200 link from the terminal output in VS Code, your browser might swap out localhost for 127.0.0.1 which will result in a CORS error. If this happens, replace 127.0.0.1 with localhost and you'll be fine._
 
 #### 3. Log in
 
