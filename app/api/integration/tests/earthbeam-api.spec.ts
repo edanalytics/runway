@@ -407,6 +407,16 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(400);
     });
 
+    it('should reject when no files are found at the given path', async () => {
+      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([]);
+
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/output/empty`, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
     it('should canonicalize trailing slashes and store the path without them', async () => {
       const subfolder = `${jobA.fileBasePath}/output/transformed/`;
       fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
