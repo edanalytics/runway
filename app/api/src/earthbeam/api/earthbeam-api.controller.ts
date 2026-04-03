@@ -190,13 +190,7 @@ export class EarthbeamApiController {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           throw new ConflictException(`Output file set already exists for this run and path`);
         }
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        this.logger.error(
-          `failed to save output file set for run ${runId}: ${errorMessage}`,
-          errorStack
-        );
-        throw new InternalServerErrorException('Failed to save output file set');
+        throw error;
       });
 
     return { uid: outputFileSet.uid };
