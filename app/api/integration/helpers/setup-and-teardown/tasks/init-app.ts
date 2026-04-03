@@ -32,7 +32,10 @@ export const initApp = async function () {
         getPresignedDownloadUrl: jest
           .fn()
           .mockImplementation((f) => Promise.resolve(`s3-test-download-url://${f.fullPath}`)),
-        listFilesAtPath: jest.fn().mockResolvedValue(['test-file-1', 'test-file-2']),
+        listFilesAtPath: jest.fn().mockResolvedValue([
+          { key: 'test-path/test-file-1', name: 'test-file-1' },
+          { key: 'test-path/test-file-2', name: 'test-file-2' },
+        ]),
         doFilesExist: jest.fn().mockResolvedValue(true),
       })
       .compile();

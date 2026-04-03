@@ -51,14 +51,19 @@ export class FileService {
     return await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
   }
 
-  async listFilesAtPath(prefix: string) {
+  async listFilesAtPath(prefix: string): Promise<{ key: string; name: string }[]> {
     const { Contents } = await this.s3Client.send(
       new ListObjectsV2Command({
         Bucket: this.appConfig.s3Bucket(),
         Prefix: prefix,
       })
     );
-    return Contents?.map((content) => content.Key);
+    // Filter out undefined keys (possible per the S3 SDK types) and the prefix
+    // itself, which S3 returns when a "folder marker" object exists at the path.
+    return (Contents ?? [])
+      .map((content) => content.Key)
+      .filter((key): key is string => typeof key === 'string' && key !== prefix)
+      .map((key) => ({ key, name: key.replace(prefix, '') }));
   }
 
   async doFilesExist(fullPaths: string[]): Promise<boolean> {

@@ -187,22 +187,14 @@ export class EarthbeamApiService {
 
     // Save output files
     const basePath = `${run.job.fileBasePath}/output/`;
-    const filePaths = await this.fileService.listFilesAtPath(basePath);
-    const runOutputFiles = filePaths
-      ?.map((fullPath) => ({ name: fullPath?.split(basePath)[1], path: fullPath }))
-      .filter(
-        (file): file is { name: string; path: string } =>
-          typeof file.name == 'string' && typeof file.path == 'string'
-      )
-      .map((file) => ({
-        runId: run.id,
-        name: file.name,
-        path: file.path, // contains the full path including file name
-      }));
-
-    if (runOutputFiles && runOutputFiles.length > 0) {
+    const outputFiles = await this.fileService.listFilesAtPath(basePath);
+    if (outputFiles.length > 0) {
       await prisma.runOutputFile.createMany({
-        data: runOutputFiles,
+        data: outputFiles.map((file) => ({
+          runId: run.id,
+          name: file.name,
+          path: file.key,
+        })),
       });
     }
 
@@ -238,7 +230,7 @@ export class EarthbeamApiService {
         ? resourceErrors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',')
         : '';
 
-      const hasUnmatchedStudents = runOutputFiles?.some(
+      const hasUnmatchedStudents = outputFiles.some(
         (file) => file.name === 'input_no_student_id_match.csv'
       );
       const odsUrl = run.job.odsConfig.activeConnection?.host;

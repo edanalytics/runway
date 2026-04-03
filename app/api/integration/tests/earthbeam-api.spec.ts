@@ -234,13 +234,42 @@ describe('Earthbeam API', () => {
     describe('Complete Run', () => {
       // TODO: more tests re: run completion
       let eventEmitterMock: jest.SpyInstance;
+      let fileServiceMock: Record<string, jest.Mock>;
 
       beforeEach(async () => {
         eventEmitterMock = jest.spyOn(EventEmitterLogService.prototype, 'emit');
+        fileServiceMock = app.get(FileService) as unknown as Record<string, jest.Mock>;
       });
 
       afterEach(() => {
         eventEmitterMock.mockRestore();
+      });
+
+      it('should save output files from S3 listing', async () => {
+        fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+          { key: 'partner/tenant/2025/1/output/results.jsonl', name: 'results.jsonl' },
+          { key: 'partner/tenant/2025/1/output/summary.csv', name: 'summary.csv' },
+        ]);
+
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ action: 'done', status: 'success' });
+        expect(res.status).toBe(201);
+
+        const outputFiles = await prisma.runOutputFile.findMany({
+          where: { runId: runA.id },
+          orderBy: { name: 'asc' },
+        });
+        expect(outputFiles).toHaveLength(2);
+        expect(outputFiles[0]).toMatchObject({
+          name: 'results.jsonl',
+          path: 'partner/tenant/2025/1/output/results.jsonl',
+        });
+        expect(outputFiles[1]).toMatchObject({
+          name: 'summary.csv',
+          path: 'partner/tenant/2025/1/output/summary.csv',
+        });
       });
 
       describe('Slack Notifiction', () => {
@@ -420,7 +449,7 @@ describe('Earthbeam API', () => {
     it('should canonicalize trailing slashes and store the path without them', async () => {
       const subfolder = `${jobA.fileBasePath}/output/transformed/`;
       fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
-        `${subfolder}output1.jsonl`,
+        { key: `${subfolder}output1.jsonl`, name: 'output1.jsonl' },
       ]);
 
       const res = await request(app.getHttpServer())
@@ -439,8 +468,8 @@ describe('Earthbeam API', () => {
     it('should list S3 at the given path and save discovered files', async () => {
       const subfolder = `${jobA.fileBasePath}/output/transformed/`;
       fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
-        `${subfolder}output1.jsonl`,
-        `${subfolder}output2.jsonl`,
+        { key: `${subfolder}output1.jsonl`, name: 'output1.jsonl' },
+        { key: `${subfolder}output2.jsonl`, name: 'output2.jsonl' },
       ]);
 
       const res = await request(app.getHttpServer())
@@ -467,7 +496,7 @@ describe('Earthbeam API', () => {
     it('should return 409 on duplicate run_id + path', async () => {
       const subfolder = `${jobA.fileBasePath}/output/sideloaded/`;
       fileServiceMock.listFilesAtPath.mockResolvedValue([
-        `${subfolder}output1.jsonl`,
+        { key: `${subfolder}output1.jsonl`, name: 'output1.jsonl' },
       ]);
 
       const first = await request(app.getHttpServer())

@@ -173,21 +173,16 @@ export class EarthbeamApiController {
 
     const s3KeyPrefix = `${canonicalPath}/`;
 
-    const s3Keys = await this.fileService.listFilesAtPath(s3KeyPrefix);
-    const files = (s3Keys ?? [])
-      .map((key) => key?.split(s3KeyPrefix)[1])
-      .filter((name): name is string => typeof name === 'string' && name.length > 0);
-
-    if (files.length === 0) {
+    const outputFiles = await this.fileService.listFilesAtPath(s3KeyPrefix);
+    if (outputFiles.length === 0) {
       throw new BadRequestException('No files found at the given path');
     }
-
     const outputFileSet = await this.prisma.runOutputFileSet
       .create({
         data: {
           runId,
           path: canonicalPath,
-          files,
+          files: outputFiles.map((f) => f.name),
           sentToOds: body.sentToOds,
         },
       })
