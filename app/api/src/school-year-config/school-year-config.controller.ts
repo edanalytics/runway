@@ -22,6 +22,7 @@ import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
 import { FileService } from '../files/file.service';
+import { AppConfigService } from '../config/app-config.service';
 
 const toEtag = (value: Date) => `"${value.toISOString()}"`;
 
@@ -31,6 +32,7 @@ export class SchoolYearConfigController {
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
     private fileService: FileService,
+    private appConfig: AppConfigService,
   ) {}
 
   @Authorize('school-year-config.read')
@@ -76,9 +78,10 @@ export class SchoolYearConfigController {
 
         const hasRoster = config.sendToOds
           ? null
-          : await this.fileService.doFilesExist([
-              `__rosters/${tenant.partnerId}/${tenant.code}/${schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`,
-            ]);
+          : await this.fileService.doFilesExist(
+              [`__rosters/${tenant.partnerId}/${tenant.code}/${schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`],
+              this.appConfig.rosterBucket(),
+            );
 
         return {
           schoolYearId: schoolYear.id,

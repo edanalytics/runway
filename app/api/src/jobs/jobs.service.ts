@@ -105,7 +105,7 @@ export class JobsService {
 
     if (!config.sendToOds) {
       const rosterKey = `__rosters/${input.tenant.partnerId}/${input.tenant.code}/${config.schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`;
-      const rosterExists = await this.fileService.doFilesExist([rosterKey]);
+      const rosterExists = await this.fileService.doFilesExist([rosterKey], this.appConfig.rosterBucket());
       if (!rosterExists) {
         return {
           status: 'error',
