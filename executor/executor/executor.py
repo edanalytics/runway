@@ -250,7 +250,7 @@ class JobExecutor:
         )
 
     def get_student_roster(self):
-        """Download a list of students so they can be used to match IDs."""
+        """Download a list of students so they can be used to match IDs"""
         self.set_action(action.GET_ROSTER)
 
         if self.send_to_ods:
