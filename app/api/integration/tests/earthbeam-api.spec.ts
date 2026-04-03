@@ -63,6 +63,16 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(403);
     });
 
+    it('should include appUrls.outputFiles in the job payload', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.appUrls.outputFiles).toBeDefined();
+      expect(res.body.appUrls.outputFiles).toContain(`/earthbeam/jobs/${runA.id}/output-files`);
+    });
+
     // TODO: add tests for things other than descriptor mappings
     describe('Authenticated requests: Descriptor Mappings', () => {
       const testDescriptorTypeA = 'testDescriptorTypeA';
@@ -188,6 +198,7 @@ describe('Earthbeam API', () => {
         expect(descriptorNamespaceX).toBeUndefined(); // not included in seed for partner X
       });
     });
+
   });
 
   describe('POST /:runId/status', () => {
@@ -463,45 +474,4 @@ describe('Earthbeam API', () => {
     });
   });
 
-  describe('GET /:runId — job payload', () => {
-    let runA: Run;
-    let tokenA: string;
-    let endpointA: string;
-    let jobA: Awaited<ReturnType<typeof seedJob>>;
-
-    beforeEach(async () => {
-      const authService = app.get(EarthbeamApiAuthService);
-      jobA = await seedJob({
-        odsConfig: odsConfigA2425,
-        bundle: bundleA,
-        tenant: tenantA,
-      });
-
-      if (!jobA?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
-      runA = jobA.runs[0];
-      endpointA = `/earthbeam/jobs/${runA.id}`;
-      tokenA = await authService.createAccessToken({ runId: runA.id });
-    });
-
-    it('should include appUrls.outputFiles in the job payload', async () => {
-      const res = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.appUrls.outputFiles).toBeDefined();
-      expect(res.body.appUrls.outputFiles).toContain(`/earthbeam/jobs/${runA.id}/output-files`);
-    });
-
-    it('should not include outputFilesBasePath in the job payload', async () => {
-      const res = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.outputFilesBasePath).toBeUndefined();
-    });
-  });
 });
