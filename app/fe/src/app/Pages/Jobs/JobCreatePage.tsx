@@ -7,7 +7,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { GetJobTemplateDto, PostFileDto, PostJobDto } from '@edanalytics/models';
 import { jobQueries } from '../../api/queries/job.queries';
 import { jobTemplateQueries } from '../../api/queries/job-template.queries';
-import { schoolYearConfigQueries } from '../../api/queries/school-year-config.queries';
+import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-config.queries';
 import { RunwayFileInput } from '../../components/Form/RunwayFileInput';
 import { useEffect, useState } from 'react';
 import { uploadToS3 } from '../../helpers/uploadToS3';
@@ -151,7 +151,7 @@ export const JobCreatePage = () => {
     }
   }, [selectedAssessment, jobTemplates]);
 
-  const { data: selectableYears } = useSuspenseQuery(schoolYearConfigQueries.tenant);
+  const { data: selectableYears } = useSuspenseQuery(tenantSchoolYearConfigQuery);
   const formDataToDto = (data: IJobForm): PostJobDto => {
     const template = jobTemplates?.find((t) => t.name === data.name);
     if (!template) {

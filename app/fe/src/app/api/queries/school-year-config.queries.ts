@@ -9,7 +9,7 @@ import { apiClient, apiClientRaw, methods } from '../methods';
 
 const QUERY_KEY = ['school-year-config'];
 
-export const schoolYearConfigQueries = {
+export const schoolYearConfigQuery = {
   queryKey: QUERY_KEY,
   queryFn: async () => {
     const res = await apiClientRaw.get<GetSchoolYearConfigDto[]>('/school-year-config');
@@ -19,10 +19,11 @@ export const schoolYearConfigQueries = {
       etag: Array.isArray(headerValue) ? headerValue[0] : (headerValue ?? null),
     } satisfies { rows: GetSchoolYearConfigDto[]; etag: string | null };
   },
-  tenant: {
-    queryKey: [...QUERY_KEY, 'tenant'],
-    queryFn: () => methods.getMany('/school-year-config/tenant', GetTenantSchoolYearConfigDto),
-  },
+};
+
+export const tenantSchoolYearConfigQuery = {
+  queryKey: [...QUERY_KEY, 'tenant'],
+  queryFn: () => methods.getMany('/school-year-config/tenant', GetTenantSchoolYearConfigDto),
 };
 
 export const useUpdateSchoolYearConfig = () => {
