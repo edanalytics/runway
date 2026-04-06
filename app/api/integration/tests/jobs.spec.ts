@@ -64,6 +64,24 @@ describe('GET /jobs', () => {
       expect(resX.body).toEqual([]);
     });
 
+    it('should return odsId=null and sendToOds=false for no-ODS jobs', async () => {
+      const noOdsJob = await seedJob({
+        sendToOds: false,
+        schoolYearId: '2324',
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(endpoint)
+        .set('Cookie', [sessionA.cookie]);
+
+      const dto = res.body.find((j: GetJobDto) => j.id === noOdsJob.id);
+      expect(dto).toBeDefined();
+      expect(dto.odsId).toBeNull();
+      expect(dto.sendToOds).toBe(false);
+    });
+
     it('should match the expected values', async () => {
       const resA = await request(app.getHttpServer())
         .get(endpoint)
@@ -196,6 +214,22 @@ describe('GET /jobs/:id', () => {
       const resA = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       expect(resA.status).toBe(200);
       expect(resA.body.id).toEqual(jobA.id);
+    });
+
+    it('should return odsId=null and sendToOds=false for a no-ODS job', async () => {
+      const noOdsJob = await seedJob({
+        sendToOds: false,
+        schoolYearId: '2324',
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/jobs/${noOdsJob.id}`)
+        .set('Cookie', [cookieA]);
+      expect(res.status).toBe(200);
+      expect(res.body.odsId).toBeNull();
+      expect(res.body.sendToOds).toBe(false);
     });
 
     it('should reject requests for jobs that are not associated with the tenant', async () => {
@@ -336,6 +370,34 @@ describe('POST /jobs', () => {
 
         expect(res.status).toBe(400);
         expect(res.body.message).toContain('No roster file found');
+      } finally {
+        doFilesExistMock.mockResolvedValue(true);
+      }
+    });
+
+    it('should propagate S3 errors from roster check instead of treating them as missing', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
+      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
+      doFilesExistMock.mockRejectedValue(new Error('S3 operational failure'));
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(500);
       } finally {
         doFilesExistMock.mockResolvedValue(true);
       }
