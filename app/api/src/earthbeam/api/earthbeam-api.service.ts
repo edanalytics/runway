@@ -22,6 +22,7 @@ import {
   earthbeamUnmatchedIdsEndpoint,
 } from './earthbeam-api.endpoints';
 import { FileService } from 'api/src/files/file.service';
+import { rosterFileKey } from 'api/src/earthbeam/roster-path';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
 import {
@@ -160,7 +161,7 @@ export class EarthbeamApiService {
       sendToOds: job.sendToOds,
       rosterFilePath: job.sendToOds
         ? undefined
-        : `s3://${this.configService.rosterBucket()}/__rosters/${job.partnerId}/${job.tenantCode}/${apiYear}/studentEducationOrganizationAssociations.jsonl`,
+        : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
       assessmentDatastore: job.sendToOds
         ? {
             apiYear: apiYear,

@@ -7,6 +7,7 @@ import {
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/client';
 import { FileService } from '../files/file.service';
+import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
 import { instanceToPlain } from 'class-transformer';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
@@ -104,7 +105,7 @@ export class JobsService {
     }
 
     if (!config.sendToOds) {
-      const rosterKey = `__rosters/${input.tenant.partnerId}/${input.tenant.code}/${config.schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`;
+      const rosterKey = rosterFileKey({ partnerId: input.tenant.partnerId, tenantCode: input.tenant.code }, config.schoolYear);
       const rosterExists = await this.fileService.doFilesExist([rosterKey], this.appConfig.rosterBucket());
       if (!rosterExists) {
         return {

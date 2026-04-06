@@ -22,6 +22,7 @@ import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
 import { FileService } from '../files/file.service';
+import { rosterFileKey } from '../earthbeam/roster-path';
 import { AppConfigService } from '../config/app-config.service';
 
 const toEtag = (value: Date) => `"${value.toISOString()}"`;
@@ -69,17 +70,18 @@ export class SchoolYearConfigController {
 
     const rows = await Promise.all(
       schoolYears.map(async (schoolYear) => {
+        // Should never be undefined — the where clause filters to years with an enabled config
         const config = schoolYear.schoolYearConfig[0];
         if (!config) {
-          throw new BadRequestException(
-            `Enabled school year missing config for ${tenant.partnerId}/${schoolYear.id}`
+          throw new Error(
+            `Enabled school year missing config for ${tenant.partnerId}/${schoolYear.id}`,
           );
         }
 
         const hasRoster = config.sendToOds
           ? null
           : await this.fileService.doFilesExist(
-              [`__rosters/${tenant.partnerId}/${tenant.code}/${schoolYear.endYear}/studentEducationOrganizationAssociations.jsonl`],
+              [rosterFileKey({ partnerId: tenant.partnerId, tenantCode: tenant.code }, schoolYear)],
               this.appConfig.rosterBucket(),
             );
 
