@@ -74,7 +74,8 @@ export class EarthbeamApiService {
     }
 
     const job = run.job;
-    if (job.sendToOds && !job.odsConfig?.activeConnection) {
+    const odsConnection = job.odsConfig?.activeConnection;
+    if (job.sendToOds && !odsConnection) {
       return {
         status: 'ERROR',
         type: 'server_error',
@@ -162,14 +163,13 @@ export class EarthbeamApiService {
       rosterFilePath: job.sendToOds
         ? undefined
         : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
-      assessmentDatastore: job.sendToOds
+      // odsConnection check narrows the type — the early guard ensures it's present when sendToOds
+      assessmentDatastore: odsConnection && job.sendToOds
         ? {
-            apiYear: apiYear,
-            url: job.odsConfig!.activeConnection!.host,
-            clientId: job.odsConfig!.activeConnection!.clientId,
-            clientSecret: await this.encryptionService.decrypt(
-              job.odsConfig!.activeConnection!.clientSecret
-            ),
+            apiYear: job.schoolYear.endYear.toString(),
+            url: odsConnection.host,
+            clientId: odsConnection.clientId,
+            clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
           }
         : undefined,
     };
@@ -263,6 +263,7 @@ export class EarthbeamApiService {
         status: run.status,
         completedWithErrors:
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
+        sendToOds: run.job.sendToOds,
         odsUrl,
         schoolYear: run.job.schoolYearId,
         unmatchedStudentsCount: unmatchedStudentsInfo?.count ?? 0,
