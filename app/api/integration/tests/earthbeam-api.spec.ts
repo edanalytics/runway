@@ -9,8 +9,6 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
-import { instanceToPlain } from 'class-transformer';
-import { makeJobTemplate } from '../factories/job-template-factory';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -32,9 +30,7 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
-      if (!jobA?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       runA = jobA.runs[0];
       endpointA = `/earthbeam/jobs/${runA.id}`;
       tokenA = await authService.createAccessToken({ runId: runA.id });
@@ -45,9 +41,7 @@ describe('Earthbeam API', () => {
         bundle: bundleX,
         tenant: tenantX,
       });
-      if (!jobX?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       runX = jobX.runs[0];
       endpointX = `/earthbeam/jobs/${runX.id}`;
       tokenX = await authService.createAccessToken({ runId: runX.id });
@@ -88,42 +82,11 @@ describe('Earthbeam API', () => {
 
     it('should omit ODS credentials and include a roster path for no-ODS jobs', async () => {
       const authService = app.get(EarthbeamApiAuthService);
-      const noOdsJob = await prisma.job.create({
-        data: {
-          name: bundleA.display_name,
-          odsId: null,
-          sendToOds: false,
-          schoolYearId: '2324',
-          template: instanceToPlain(makeJobTemplate(bundleA)),
-          inputParams: [],
-          configStatus: 'input_complete',
-          tenantCode: tenantA.code,
-          partnerId: tenantA.partnerId,
-          fileProtocol: 's3',
-          fileBucketOrHost: 'test-bucket',
-          fileBasePath: 'partner-a/tenant-a/2324/test-job',
-          files: {
-            createMany: {
-              data: [
-                {
-                  templateKey: 'INPUT_FILE',
-                  nameFromUser: 'input-file.csv',
-                  type: 'text/csv',
-                  nameInternal: 'INPUT_FILE__input-file.csv',
-                  path: 'partner-a/tenant-a/2324/test-job/input/INPUT_FILE__input-file.csv',
-                },
-              ],
-            },
-          },
-          runs: {
-            create: {
-              status: 'new',
-            },
-          },
-        },
-        include: {
-          runs: true,
-        },
+      const noOdsJob = await seedJob({
+        sendToOds: false,
+        schoolYearId: '2324',
+        bundle: bundleA,
+        tenant: tenantA,
       });
 
       const noOdsRun = noOdsJob.runs[0];
@@ -281,9 +244,7 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
-      if (!jobA?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/status`;
@@ -438,9 +399,7 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
-      if (!jobA?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
@@ -459,9 +418,7 @@ describe('Earthbeam API', () => {
         bundle: bundleX,
         tenant: tenantX,
       });
-      if (!jobX?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       const tokenX = await authService.createAccessToken({ runId: jobX.runs[0].id });
 
       const res = await request(app.getHttpServer())

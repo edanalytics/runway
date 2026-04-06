@@ -1,4 +1,4 @@
-import { OdsConfig, RunStatus, Tenant } from '@prisma/client';
+import { OdsConfig, Run, RunError, RunOutputFile, RunStatus, Tenant } from '@prisma/client';
 import { WithoutAudit } from '../fixtures/utils/created-modified';
 import { DtoableJob, IEarthmoverBundle, JsonArray } from '@edanalytics/models';
 import { makePostJobDto } from './job-input-factory';
@@ -6,29 +6,40 @@ import { makeJobTemplate } from './job-template-factory';
 import { randomString } from '../fixtures/utils/random-string';
 import { instanceToPlain } from 'class-transformer';
 
-export const seedJob = async ({
-  odsConfig,
-  bundle,
-  tenant,
-  runStatus = 'new',
-  summary = false,
-  unmatchedStudentsInfo = false,
-  outputFiles = false,
-}: {
-  odsConfig: WithoutAudit<OdsConfig>;
+type SeededJob = DtoableJob & {
+  runs: Array<Run & { runError: RunError[]; runOutputFile: RunOutputFile[] }>;
+};
+
+type SeedJobParams = {
   bundle: IEarthmoverBundle;
   tenant: WithoutAudit<Tenant>;
   runStatus?: RunStatus;
   summary?: boolean;
   unmatchedStudentsInfo?: boolean;
   outputFiles?: boolean;
-}): Promise<DtoableJob> => {
-  const postJobDto = makePostJobDto(makeJobTemplate(bundle), odsConfig);
+} & (
+  | { sendToOds?: true; odsConfig: WithoutAudit<OdsConfig> }
+  | { sendToOds: false; odsConfig?: WithoutAudit<OdsConfig>; schoolYearId: string }
+);
+
+export const seedJob = async (params: SeedJobParams): Promise<SeededJob> => {
+  const {
+    bundle,
+    tenant,
+    runStatus = 'new',
+    summary = false,
+    unmatchedStudentsInfo = false,
+    outputFiles = false,
+    odsConfig,
+    sendToOds = true,
+  } = params;
+  const schoolYearId = odsConfig?.schoolYearId ?? (params as { schoolYearId: string }).schoolYearId;
+  const postJobDto = makePostJobDto(makeJobTemplate(bundle), odsConfig ?? { schoolYearId } as WithoutAudit<OdsConfig>);
   return prisma.job.create({
     data: {
       ...postJobDto,
-      odsId: odsConfig.id,
-      sendToOds: true,
+      odsId: odsConfig?.id ?? null,
+      sendToOds,
       inputParams: postJobDto.inputParams as unknown as JsonArray,
       template: instanceToPlain(postJobDto.template),
       tenantCode: tenant.code,
