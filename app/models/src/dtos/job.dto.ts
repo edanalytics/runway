@@ -22,7 +22,6 @@ interface IBaseJobDto {
   id: number;
   uid: string;
   name: string;
-  odsId: number | null;
   schoolYearId: string;
   template: GetJobTemplateDto;
   inputParams: JobInputParamDto[] | null;
@@ -47,7 +46,7 @@ export class GetJobDto
   extends DtoGetBase
   implements
     GetDto<
-      Omit<Job, 'template' | 'inputParams'> & {
+      Omit<Job, 'template' | 'inputParams' | 'odsId'> & {
         template: GetJobTemplateDto;
         inputParams: JobInputParamDto[] | null;
       }
@@ -61,9 +60,6 @@ export class GetJobDto
 
   @Expose()
   name: string;
-
-  @Expose()
-  odsId: number | null;
 
   @Expose()
   sendToOds: boolean;
@@ -225,7 +221,7 @@ export class GetJobDto
 
 export const toGetJobDto = makeSerializerCustomType<GetJobDto, DtoableJob>(GetJobDto);
 
-export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto, 'odsId'> {
+export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto> {
   @Expose()
   @IsString()
   name: string;
