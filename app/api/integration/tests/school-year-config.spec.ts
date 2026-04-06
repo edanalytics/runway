@@ -274,9 +274,9 @@ describe('GET /school-year-config/tenant', () => {
     });
 
     it('should return enabled years with config, ODS availability, and display fields', async () => {
-      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
-      doFilesExistMock.mockClear();
-      doFilesExistMock.mockResolvedValue(true);
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockClear();
+      doesFileExistMock.mockResolvedValue(true);
 
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
       expect(res.status).toBe(200);
@@ -309,7 +309,7 @@ describe('GET /school-year-config/tenant', () => {
       });
 
       // S3 check only for the no-ODS year
-      expect(doFilesExistMock).toHaveBeenCalledTimes(1);
+      expect(doesFileExistMock).toHaveBeenCalledTimes(1);
     });
 
     it('should return hasOds=false when tenant has no ODS for an enabled year', async () => {
@@ -326,8 +326,8 @@ describe('GET /school-year-config/tenant', () => {
     });
 
     it('should scope ODS availability to the session tenant, not the whole partner', async () => {
-      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
-      doFilesExistMock.mockResolvedValue(true);
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(true);
 
       // Tenant B (same partner A) has ODS for 2526 but not 2425
       const cookieB = (await authHelper.login(idpA, userB, tenantB, userRoleA)).cookies;
@@ -343,8 +343,8 @@ describe('GET /school-year-config/tenant', () => {
     });
 
     it('should return hasRoster=false when roster file does not exist', async () => {
-      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
-      doFilesExistMock.mockResolvedValue(false);
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
 
       try {
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
@@ -353,7 +353,7 @@ describe('GET /school-year-config/tenant', () => {
         const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
         expect(row2526.hasRoster).toBe(false);
       } finally {
-        doFilesExistMock.mockResolvedValue(true);
+        doesFileExistMock.mockResolvedValue(true);
       }
     });
   });

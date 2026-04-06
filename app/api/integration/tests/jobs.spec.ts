@@ -356,8 +356,8 @@ describe('POST /jobs', () => {
         },
       });
 
-      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
-      doFilesExistMock.mockResolvedValue(false);
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
 
       try {
         const res = await request(app.getHttpServer())
@@ -371,7 +371,7 @@ describe('POST /jobs', () => {
         expect(res.status).toBe(400);
         expect(res.body.message).toContain('No roster file found');
       } finally {
-        doFilesExistMock.mockResolvedValue(true);
+        doesFileExistMock.mockResolvedValue(true);
       }
     });
 
@@ -385,8 +385,8 @@ describe('POST /jobs', () => {
         },
       });
 
-      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
-      doFilesExistMock.mockRejectedValue(new Error('S3 operational failure'));
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockRejectedValue(new Error('S3 operational failure'));
 
       try {
         const res = await request(app.getHttpServer())
@@ -399,7 +399,7 @@ describe('POST /jobs', () => {
 
         expect(res.status).toBe(500);
       } finally {
-        doFilesExistMock.mockResolvedValue(true);
+        doesFileExistMock.mockResolvedValue(true);
       }
     });
 

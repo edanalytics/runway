@@ -522,8 +522,8 @@ describe('ExternalApiV1', () => {
             },
           });
 
-          const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
-          doFilesExistMock.mockResolvedValue(false);
+          const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+          doesFileExistMock.mockResolvedValue(false);
 
           try {
             const res = await request(app.getHttpServer())
@@ -537,7 +537,7 @@ describe('ExternalApiV1', () => {
             expect(res.status).toBe(400);
             expect(res.body.message).toContain('No roster file found');
           } finally {
-            doFilesExistMock.mockResolvedValue(true);
+            doesFileExistMock.mockResolvedValue(true);
           }
         });
 

@@ -96,7 +96,7 @@ export class JobsService {
 
     if (!config.sendToOds) {
       const rosterKey = rosterFileKey({ partnerId: input.tenant.partnerId, tenantCode: input.tenant.code }, config.schoolYear);
-      const rosterExists = await this.fileService.doFilesExist([rosterKey], this.appConfig.rosterBucket());
+      const rosterExists = await this.fileService.doesFileExist(rosterKey, this.appConfig.rosterBucket());
       if (!rosterExists) {
         return { status: 'error', code: 'roster_file_missing' };
       }

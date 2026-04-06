@@ -80,8 +80,8 @@ export class SchoolYearConfigController {
 
         const hasRoster = config.sendToOds
           ? null
-          : await this.fileService.doFilesExist(
-              [rosterFileKey({ partnerId: tenant.partnerId, tenantCode: tenant.code }, schoolYear)],
+          : await this.fileService.doesFileExist(
+              rosterFileKey({ partnerId: tenant.partnerId, tenantCode: tenant.code }, schoolYear),
               this.appConfig.rosterBucket(),
             );
 
