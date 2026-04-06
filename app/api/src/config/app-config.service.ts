@@ -100,15 +100,15 @@ export class AppConfigService {
     return this.get('BUNDLE_BRANCH') ?? 'main';
   }
 
-  s3Bucket() {
-    return this.get('S3_FILE_UPLOAD_BUCKET');
+  s3Bucket(): string {
+    return this.get('S3_FILE_UPLOAD_BUCKET')!;
   }
 
   // Roster files don't need to live in the same bucket as job uploads.
   // For now they share a bucket, but this can be split to a dedicated
   // env var if rosters move to a separate bucket.
-  rosterBucket() {
-    return this.get('S3_FILE_UPLOAD_BUCKET');
+  rosterBucket(): string {
+    return this.get('S3_FILE_UPLOAD_BUCKET')!;
   }
 
   executorCallbackBaseUrl(): string | undefined {

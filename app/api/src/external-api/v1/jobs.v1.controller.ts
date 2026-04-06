@@ -24,6 +24,7 @@ import { PRISMA_ANONYMOUS, PRISMA_READ_ONLY } from 'api/src/database/database.se
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 import { InitJobPayloadV1Dto, toInitJobResponseV1Dto } from '@edanalytics/models';
 import { FileService } from 'api/src/files/file.service';
+import { AppConfigService } from 'api/src/config/app-config.service';
 import { ApiTokenClient, ExternalApiTokenClient } from '../external-api-token-client.decorator';
 
 @Controller('jobs')
@@ -37,7 +38,8 @@ export class ExternalApiV1JobsController {
     private readonly jobsService: JobsService,
     @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient,
     @Inject(PRISMA_ANONYMOUS) private readonly prismaAnon: PrismaClient,
-    private readonly fileService: FileService
+    private readonly fileService: FileService,
+    private readonly appConfig: AppConfigService,
   ) {}
 
   @Post()
@@ -179,7 +181,7 @@ export class ExternalApiV1JobsController {
       throw new NotFoundException(`Job not found: ${jobUid}`);
     }
 
-    const filesExist = await this.fileService.doFilesExist(job.files.map((f) => f.path));
+    const filesExist = await this.fileService.doFilesExist(job.files.map((f) => f.path), this.appConfig.s3Bucket());
     if (!filesExist) {
       throw new BadRequestException(
         `Some expected files were not found. Expected files: ${job.files

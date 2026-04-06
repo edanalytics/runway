@@ -66,14 +66,13 @@ export class FileService {
       .map((key) => ({ key, name: key.replace(prefix, '') }));
   }
 
-  async doFilesExist(fullPaths: string[], bucket?: string): Promise<boolean> {
-    const targetBucket = bucket ?? this.appConfig.s3Bucket();
+  async doFilesExist(fullPaths: string[], bucket: string): Promise<boolean> {
     const results = await Promise.all(
       fullPaths.map(async (fullPath) => {
         try {
           const result = await this.s3Client.send(
             new HeadObjectCommand({
-              Bucket: targetBucket,
+              Bucket: bucket,
               Key: fullPath,
             })
           );
