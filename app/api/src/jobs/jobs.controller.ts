@@ -168,11 +168,6 @@ export class JobsController {
       tenant,
     });
     if (destination.status === 'error') {
-      if (destination.code === 'multiple_ods_found') {
-        this.logger.error(destination.message);
-        throw new InternalServerErrorException(destination.message);
-      }
-
       throw new BadRequestException(destination.message);
     }
 

@@ -59,7 +59,6 @@ export class JobsService {
           | 'school_year_config_missing'
           | 'school_year_disabled'
           | 'ods_not_found'
-          | 'multiple_ods_found'
           | 'roster_file_missing';
         message: string;
       }
@@ -130,14 +129,6 @@ export class JobsService {
         status: 'error',
         code: 'ods_not_found',
         message: `No ODS found for school year: ${input.schoolYearId}`,
-      };
-    }
-
-    if (config.schoolYear.odsConfig.length > 1) {
-      return {
-        status: 'error',
-        code: 'multiple_ods_found',
-        message: `Multiple ODS found for school year: ${input.schoolYearId}`,
       };
     }
 

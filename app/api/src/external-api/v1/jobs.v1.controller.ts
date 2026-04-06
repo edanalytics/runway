@@ -107,13 +107,6 @@ export class ExternalApiV1JobsController {
       tenant,
     });
     if (destination.status === 'error') {
-      if (destination.code === 'multiple_ods_found') {
-        this.logger.error(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
-        throw new InternalServerErrorException(
-          `Multiple ODS found for school year: ${jobInitDto.schoolYear}`
-        );
-      }
-
       if (destination.code === 'ods_not_found') {
         throw new BadRequestException(`No ODS found for school year: ${jobInitDto.schoolYear}`);
       }
