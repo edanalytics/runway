@@ -168,7 +168,14 @@ export class JobsController {
       tenant,
     });
     if (destination.status === 'error') {
-      throw new BadRequestException(destination.message);
+      const year = createJobDto.schoolYearId;
+      const messages: Record<typeof destination.code, string> = {
+        school_year_config_missing: `School year is not enabled: ${year}`,
+        school_year_disabled: `School year is not enabled: ${year}`,
+        ods_not_found: `No ODS found for school year: ${year}`,
+        roster_file_missing: `No roster file found for school year: ${year}`,
+      };
+      throw new BadRequestException(messages[destination.code]);
     }
 
     // Flatten params to Record<string, string>

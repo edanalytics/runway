@@ -60,7 +60,6 @@ export class JobsService {
           | 'school_year_disabled'
           | 'ods_not_found'
           | 'roster_file_missing';
-        message: string;
       }
   > {
     const config = await this.prisma.schoolYearConfig.findUnique({
@@ -88,30 +87,18 @@ export class JobsService {
     });
 
     if (!config) {
-      return {
-        status: 'error',
-        code: 'school_year_config_missing',
-        message: `School year is not enabled: ${input.schoolYearId}`,
-      };
+      return { status: 'error', code: 'school_year_config_missing' };
     }
 
     if (!config.isEnabled) {
-      return {
-        status: 'error',
-        code: 'school_year_disabled',
-        message: `School year is not enabled: ${input.schoolYearId}`,
-      };
+      return { status: 'error', code: 'school_year_disabled' };
     }
 
     if (!config.sendToOds) {
       const rosterKey = rosterFileKey({ partnerId: input.tenant.partnerId, tenantCode: input.tenant.code }, config.schoolYear);
       const rosterExists = await this.fileService.doFilesExist([rosterKey], this.appConfig.rosterBucket());
       if (!rosterExists) {
-        return {
-          status: 'error',
-          code: 'roster_file_missing',
-          message: `No roster file found for ${input.tenant.code} / ${config.schoolYear.endYear}`,
-        };
+        return { status: 'error', code: 'roster_file_missing' };
       }
 
       return {
@@ -125,11 +112,7 @@ export class JobsService {
     }
 
     if (config.schoolYear.odsConfig.length === 0) {
-      return {
-        status: 'error',
-        code: 'ods_not_found',
-        message: `No ODS found for school year: ${input.schoolYearId}`,
-      };
+      return { status: 'error', code: 'ods_not_found' };
     }
 
     return {

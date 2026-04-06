@@ -107,15 +107,14 @@ export class ExternalApiV1JobsController {
       tenant,
     });
     if (destination.status === 'error') {
-      if (destination.code === 'ods_not_found') {
-        throw new BadRequestException(`No ODS found for school year: ${jobInitDto.schoolYear}`);
-      }
-
-      if (destination.code === 'roster_file_missing') {
-        throw new BadRequestException(destination.message);
-      }
-
-      throw new BadRequestException(`School year is not enabled: ${jobInitDto.schoolYear}`);
+      const year = jobInitDto.schoolYear;
+      const messages: Record<typeof destination.code, string> = {
+        school_year_config_missing: `School year is not enabled: ${year}`,
+        school_year_disabled: `School year is not enabled: ${year}`,
+        ods_not_found: `No ODS found for school year: ${year}`,
+        roster_file_missing: `No roster file found for school year: ${year}`,
+      };
+      throw new BadRequestException(messages[destination.code]);
     }
 
     // ─── Create job ───────────────────────────────────────────────────────────
