@@ -39,16 +39,16 @@ describe('GET /school-year-config', () => {
     it('should return correct config values — seeded rows enabled, others default', async () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
 
-      // Partner A has ODS configs for 2425 and 2526 (seeded as enabled)
+      // Partner A: 2425 (sendToOds=true), 2526 (sendToOds=false)
       const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
       expect(row2425.isEnabled).toBe(true);
       expect(row2425.sendToOds).toBe(true);
 
       const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
       expect(row2526.isEnabled).toBe(true);
-      expect(row2526.sendToOds).toBe(true);
+      expect(row2526.sendToOds).toBe(false);
 
-      // 2324 has no ODS config for partner A → defaults
+      // 2324 has no config row for partner A → defaults
       const row2324 = res.body.find((r: any) => r.schoolYearId === '2324');
       expect(row2324.isEnabled).toBe(false);
       expect(row2324.sendToOds).toBe(true);
@@ -273,34 +273,43 @@ describe('GET /school-year-config/tenant', () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA, userRoleA)).cookies;
     });
 
-    it('should return only enabled school years', async () => {
+    it('should return enabled years with config, ODS availability, and display fields', async () => {
+      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
+      doFilesExistMock.mockClear();
+      doFilesExistMock.mockResolvedValue(true);
+
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
       expect(res.status).toBe(200);
 
-      // Partner A has 2425 and 2526 enabled; 2324 has no config row (not enabled)
+      // Only enabled years — partner A has 2425 and 2526 enabled; 2324 has no config row
       expect(res.body).toHaveLength(2);
       const yearIds = res.body.map((r: any) => r.schoolYearId);
       expect(yearIds).toContain('2425');
       expect(yearIds).toContain('2526');
       expect(yearIds).not.toContain('2324');
-    });
 
-    it('should include sendToOds config per year', async () => {
-      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
-
+      // 2425: sendToOds=true → hasRoster is null (no S3 check), hasOds from tenant's ODS config
       const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-      expect(row2425.sendToOds).toBe(true);
-    });
+      expect(row2425).toMatchObject({
+        sendToOds: true,
+        hasOds: true,
+        hasRoster: null,
+        startYear: 2024,
+        endYear: 2025,
+      });
 
-    it('should indicate whether the tenant has an active ODS for each year', async () => {
-      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
-
-      // Tenant A has ODS for 2425 and 2526
-      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-      expect(row2425.hasOds).toBe(true);
-
+      // 2526: sendToOds=false → hasRoster checked via S3, hasOds still reflects ODS config existence
       const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
-      expect(row2526.hasOds).toBe(true);
+      expect(row2526).toMatchObject({
+        sendToOds: false,
+        hasOds: true,
+        hasRoster: true,
+        startYear: 2025,
+        endYear: 2026,
+      });
+
+      // S3 check only for the no-ODS year
+      expect(doFilesExistMock).toHaveBeenCalledTimes(1);
     });
 
     it('should return hasOds=false when tenant has no ODS for an enabled year', async () => {
@@ -317,68 +326,32 @@ describe('GET /school-year-config/tenant', () => {
     });
 
     it('should scope ODS availability to the session tenant, not the whole partner', async () => {
+      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
+      doFilesExistMock.mockResolvedValue(true);
+
       // Tenant B (same partner A) has ODS for 2526 but not 2425
       const cookieB = (await authHelper.login(idpA, userB, tenantB, userRoleA)).cookies;
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieB]);
 
+      // The meaningful assertion: tenant B has no ODS for 2425 even though tenant A does
       const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-      expect(row2425.hasOds).toBe(false); // tenant B has no ODS for 2425
+      expect(row2425.hasOds).toBe(false);
 
+      // 2526 is sendToOds=false so hasOds is less interesting here, but still tenant-scoped
       const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
-      expect(row2526.hasOds).toBe(true); // tenant B has ODS for 2526
+      expect(row2526.hasOds).toBe(true);
     });
 
-    it('should include school year display fields', async () => {
-      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
-
-      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-      expect(row2425.startYear).toBe(2024);
-      expect(row2425.endYear).toBe(2025);
-    });
-
-    it('should return hasRoster=null for send-to-ODS years without checking S3', async () => {
-      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
-
-      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
-
-      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-      expect(row2425.hasRoster).toBeNull();
-      expect(doFilesExistMock).not.toHaveBeenCalled();
-    });
-
-    it('should return hasRoster=true when a no-ODS roster file exists', async () => {
-      await global.prisma.schoolYearConfig.update({
-        where: {
-          partnerId_schoolYearId: { partnerId: partnerA.id, schoolYearId: '2425' },
-        },
-        data: { sendToOds: false },
-      });
-
-      const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
-      doFilesExistMock.mockResolvedValue(true);
-
-      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
-
-      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-      expect(row2425.hasRoster).toBe(true);
-    });
-
-    it('should return hasRoster=false when a no-ODS roster file does not exist', async () => {
-      await global.prisma.schoolYearConfig.update({
-        where: {
-          partnerId_schoolYearId: { partnerId: partnerA.id, schoolYearId: '2425' },
-        },
-        data: { sendToOds: false },
-      });
-
+    it('should return hasRoster=false when roster file does not exist', async () => {
       const doFilesExistMock = app.get(FileService).doFilesExist as jest.Mock;
       doFilesExistMock.mockResolvedValue(false);
 
       try {
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
 
-        const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
-        expect(row2425.hasRoster).toBe(false);
+        // 2526 is seeded as sendToOds=false, so hasRoster reflects the S3 check
+        const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
+        expect(row2526.hasRoster).toBe(false);
       } finally {
         doFilesExistMock.mockResolvedValue(true);
       }
