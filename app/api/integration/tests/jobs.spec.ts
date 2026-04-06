@@ -252,7 +252,7 @@ describe('POST /jobs', () => {
   describe('authenticated requests', () => {
     const sessionA = sessionCookie('jobs-spec');
     const jobTemplateA = makeJobTemplate(bundleA);
-    const postJobDto = makePostJobDto(jobTemplateA, odsConfigA2425);
+    const postJobDto = makePostJobDto(jobTemplateA, odsConfigA2425.schoolYearId);
     let getBundlesMock: jest.SpyInstance;
 
     beforeEach(async () => {

@@ -6,23 +6,23 @@ import { makeJobTemplate } from './job-template-factory';
 import { randomString } from '../fixtures/utils/random-string';
 import { instanceToPlain } from 'class-transformer';
 
-type SeededJob = DtoableJob & {
-  runs: Array<Run & { runError: RunError[]; runOutputFile: RunOutputFile[] }>;
-};
-
-type SeedJobParams = {
-  bundle: IEarthmoverBundle;
-  tenant: WithoutAudit<Tenant>;
-  runStatus?: RunStatus;
-  summary?: boolean;
-  unmatchedStudentsInfo?: boolean;
-  outputFiles?: boolean;
-} & (
-  | { sendToOds?: true; odsConfig: WithoutAudit<OdsConfig> }
-  | { sendToOds: false; odsConfig?: WithoutAudit<OdsConfig>; schoolYearId: string }
-);
-
-export const seedJob = async (params: SeedJobParams): Promise<SeededJob> => {
+export const seedJob = async (
+  params: {
+    bundle: IEarthmoverBundle;
+    tenant: WithoutAudit<Tenant>;
+    runStatus?: RunStatus;
+    summary?: boolean;
+    unmatchedStudentsInfo?: boolean;
+    outputFiles?: boolean;
+  } & (
+    // Each branch has exactly one way to provide schoolYearId, so callers can't
+    // construct a plausible-looking but inconsistent set of args.
+    | { sendToOds?: true; odsConfig: WithoutAudit<OdsConfig>; schoolYearId?: never }
+    | { sendToOds: false; schoolYearId: string; odsConfig?: never }
+  )
+): Promise<
+  DtoableJob & { runs: Array<Run & { runError: RunError[]; runOutputFile: RunOutputFile[] }> }
+> => {
   const {
     bundle,
     tenant,
@@ -30,15 +30,19 @@ export const seedJob = async (params: SeedJobParams): Promise<SeededJob> => {
     summary = false,
     unmatchedStudentsInfo = false,
     outputFiles = false,
-    odsConfig,
-    sendToOds = true,
   } = params;
-  const schoolYearId = odsConfig?.schoolYearId ?? (params as { schoolYearId: string }).schoolYearId;
-  const postJobDto = makePostJobDto(makeJobTemplate(bundle), odsConfig ?? { schoolYearId } as WithoutAudit<OdsConfig>);
+
+  const { odsId, schoolYearId, sendToOds } =
+    params.sendToOds !== false
+      ? { odsId: params.odsConfig.id, schoolYearId: params.odsConfig.schoolYearId, sendToOds: true }
+      : { odsId: null, schoolYearId: params.schoolYearId, sendToOds: false };
+
+  const postJobDto = makePostJobDto(makeJobTemplate(bundle), schoolYearId);
+
   return prisma.job.create({
     data: {
       ...postJobDto,
-      odsId: odsConfig?.id ?? null,
+      odsId,
       sendToOds,
       inputParams: postJobDto.inputParams as unknown as JsonArray,
       template: instanceToPlain(postJobDto.template),
