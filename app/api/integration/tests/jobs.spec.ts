@@ -64,7 +64,7 @@ describe('GET /jobs', () => {
       expect(resX.body).toEqual([]);
     });
 
-    it('should return odsId=null and sendToOds=false for no-ODS jobs', async () => {
+    it('should return sendToOds=false for no-ODS jobs', async () => {
       const noOdsJob = await seedJob({
         sendToOds: false,
         schoolYearId: '2324',
@@ -78,7 +78,6 @@ describe('GET /jobs', () => {
 
       const dto = res.body.find((j: GetJobDto) => j.id === noOdsJob.id);
       expect(dto).toBeDefined();
-      expect(dto.odsId).toBeNull();
       expect(dto.sendToOds).toBe(false);
     });
 
@@ -97,7 +96,6 @@ describe('GET /jobs', () => {
 
           expect(jDto.name).toBe(original?.name);
           expect(jDto.template).toEqual(original?.template);
-          expect(jDto.odsId).toBe(original?.odsId);
           expect(jDto.schoolYearId).toBe(original?.schoolYearId);
           expect(jDto.inputParams).toEqual(original.inputParams);
           // expect(jDto.createdBy.id).toBe(original.createdById); // Not testing this at the moment given how createdBy is set from the PG trigger and the test suite doesn't use the request-scoped DB connections these expect
@@ -216,7 +214,7 @@ describe('GET /jobs/:id', () => {
       expect(resA.body.id).toEqual(jobA.id);
     });
 
-    it('should return odsId=null and sendToOds=false for a no-ODS job', async () => {
+    it('should return sendToOds=false for a no-ODS job', async () => {
       const noOdsJob = await seedJob({
         sendToOds: false,
         schoolYearId: '2324',
@@ -228,7 +226,6 @@ describe('GET /jobs/:id', () => {
         .get(`/jobs/${noOdsJob.id}`)
         .set('Cookie', [cookieA]);
       expect(res.status).toBe(200);
-      expect(res.body.odsId).toBeNull();
       expect(res.body.sendToOds).toBe(false);
     });
 
