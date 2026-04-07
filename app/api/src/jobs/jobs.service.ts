@@ -115,6 +115,9 @@ export class JobsService {
       return { status: 'error', code: 'ods_not_found' };
     }
 
+    // Safe to take [0]: a DB uniqueness constraint enforces one non-retired ODS
+    // config per tenant per school year, and the query above filters to exactly
+    // that combination.
     return {
       status: 'success',
       data: {
