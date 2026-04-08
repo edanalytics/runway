@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
+  HttpCode,
   Inject,
   InternalServerErrorException,
   Logger,
@@ -17,6 +19,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { makeEarthbeamJWTGuard } from './auth/earthbeam-api-auth.guard';
 import { Public } from 'api/src/auth/login/public.decorator';
 import {
+  EarthbeamApiOutputFilesPayloadDto,
   EarthbeamApiStatusPayloadDto,
   EarthbeamApiUnmatchedIdsPayloadDto,
   JsonValue,
@@ -24,7 +27,8 @@ import {
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { FileService } from 'api/src/files/file.service';
 
 @Controller()
 @Public()
@@ -34,7 +38,8 @@ export class EarthbeamApiController {
   private readonly logger = new Logger(EarthbeamApiController.name);
   constructor(
     private readonly earthbeamApiService: EarthbeamApiService,
-    @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient
+    @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
+    private readonly fileService: FileService
   ) {}
 
   @Get(':runId')
@@ -136,5 +141,58 @@ export class EarthbeamApiController {
       );
       throw new InternalServerErrorException('Failed to save unmatched ID guidance');
     }
+  }
+
+  @Post(':runId/output-files')
+  @HttpCode(201)
+  async reportOutputFiles(
+    @Param('runId', ParseIntPipe) runId: number,
+    @Body() body: EarthbeamApiOutputFilesPayloadDto
+  ) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      include: {
+        job: {
+          select: { fileBasePath: true },
+        },
+      },
+    });
+
+    if (!run) {
+      throw new NotFoundException(`Run not found: ${runId}`);
+    }
+
+    // Canonicalize: strip trailing slashes for consistent storage and uniqueness checks
+    const canonicalPath = body.path.replace(/\/+$/, '');
+
+    if (!canonicalPath.startsWith(`${run.job.fileBasePath}/`)) {
+      throw new BadRequestException(
+        "Invalid output files path: must be within the job's data directory"
+      );
+    }
+
+    const s3KeyPrefix = `${canonicalPath}/`;
+
+    const outputFiles = await this.fileService.listFilesAtPath(s3KeyPrefix);
+    if (outputFiles.length === 0) {
+      throw new BadRequestException('No files found at the given path');
+    }
+    const outputFileSet = await this.prisma.runOutputFileSet
+      .create({
+        data: {
+          runId,
+          path: canonicalPath,
+          files: outputFiles.map((f) => f.name),
+          sentToOds: body.sentToOds,
+        },
+      })
+      .catch((error) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new ConflictException(`Output file set already exists for this run and path`);
+        }
+        throw error;
+      });
+
+    return { uid: outputFileSet.uid };
   }
 }

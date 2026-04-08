@@ -34,7 +34,7 @@ export class ExecutorLocalPythonService implements ExecutorService {
     // interfere with an already-running Executor process! But that's just a limitation of
     // this local mode: you can only run one Executor process at a time.
     await rm('../executor/local-run/output', { recursive: true, force: true });
-    await rm('../executor/local-run/lb-download-dir', { recursive: true, force: true });
+    await rm('../executor/local-run/roster-download-dir', { recursive: true, force: true });
 
     const initToken = await this.apiAuth.createInitToken({ runId: run.id });
     const initJobUrl = this.apiAuth.initEndpoint({ runId: run.id });

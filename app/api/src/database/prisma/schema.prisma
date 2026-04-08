@@ -265,22 +265,23 @@ model Job {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model Run {
-  id                        Int             @id @default(autoincrement())
-  jobId                     Int             @map("job_id")
-  status                    RunStatus       @default(new)
-  createdById               Int?            @map("created_by_id")
-  createdOn                 DateTime        @default(now()) @map("created_on") @db.Timestamp(6)
-  modifiedById              Int?            @map("modified_by_id")
-  modifiedOn                DateTime        @default(now()) @map("modified_on") @db.Timestamp(6)
+  id                        Int                @id @default(autoincrement())
+  jobId                     Int                @map("job_id")
+  status                    RunStatus          @default(new)
+  createdById               Int?               @map("created_by_id")
+  createdOn                 DateTime           @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById              Int?               @map("modified_by_id")
+  modifiedOn                DateTime           @default(now()) @map("modified_on") @db.Timestamp(6)
   /// [RunSummary]
-  summary                   Json?           @db.Json
+  summary                   Json?              @db.Json
   /// [UnmatchedStudentsInfo]
-  unmatchedStudentsInfo     Json?           @map("unmatched_students_info")
-  userRunCreatedByIdTouser  User?           @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
-  job                       Job             @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  userRunModifiedByIdTouser User?           @relation("run_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  unmatchedStudentsInfo     Json?              @map("unmatched_students_info")
+  userRunCreatedByIdTouser  User?              @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  job                       Job                @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  userRunModifiedByIdTouser User?              @relation("run_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
   runError                  RunError[]
   runOutputFile             RunOutputFile[]
+  runOutputFileSet          RunOutputFileSet[]
   runUpdate                 RunUpdate[]
 
   @@map("run")
@@ -431,6 +432,20 @@ model SchoolYearConfig {
 
   @@id([partnerId, schoolYearId])
   @@map("school_year_config")
+}
+
+model RunOutputFileSet {
+  uid       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId     Int      @map("run_id")
+  /// [RunOutputFileSetFiles]
+  files     Json
+  sentToOds Boolean  @default(true) @map("sent_to_ods")
+  path      String
+  createdOn DateTime @default(now()) @map("created_on") @db.Timestamp(6)
+  run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([runId, path])
+  @@map("run_output_file_set")
 }
 
 enum OdsAuthResponse {
