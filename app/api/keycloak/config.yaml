@@ -5,6 +5,11 @@ displayName: Example
 ssoSessionMaxLifespan: 7776000
 enabled: true
 
+roles:
+  realm:
+    - name: User
+    - name: PartnerAdmin
+
 clientScopes:
   - name: "create:jobs"
     protocol: openid-connect
@@ -60,6 +65,17 @@ clients:
           access.token.claim: 'true'
           claim.name: tenant_code
           jsonType.label: String
+      - name: Roles
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-realm-role-mapper
+        consentRequired: false
+        config:
+          multivalued: 'true'
+          claim.name: roles
+          jsonType.label: String
+          id.token.claim: 'true'
+          access.token.claim: 'true'
+          userinfo.token.claim: 'true'
     attributes:
       post.logout.redirect.uris: http://localhost:4200* 
 
@@ -97,6 +113,8 @@ users:
     firstName: Dev
     lastName: D'Evdeverson
     emailVerified: true
+    realmRoles:
+      - User
   - username: admin
     credentials:
       - type: password
@@ -106,3 +124,5 @@ users:
     firstName: Admin
     lastName: McAdminFace
     emailVerified: true
+    realmRoles:
+      - PartnerAdmin

@@ -151,13 +151,34 @@ popd > /dev/null
 ok "seed data loaded (IdP, partner, school year)"
 
 # ---------------------------------------------------------------------------
-# Step 6b: Sync earthmover bundles from registry
+# Step 6b: Seed local roster file into S3Mock
+# ---------------------------------------------------------------------------
+step "Seeding local roster file into S3Mock"
+AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local \
+  aws s3 mb s3://runway-local-dev-data-integration \
+  --endpoint-url http://localhost:9090 --region us-east-2 2>/dev/null || true
+for year in 2024 2025 2026; do
+  AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local \
+    aws s3 cp ./api/local-data/studentEducationOrganizationAssociations.jsonl \
+      "s3://runway-local-dev-data-integration/__rosters/ea/runway-local-example-tenant/${year}/studentEducationOrganizationAssociations.jsonl" \
+      --endpoint-url http://localhost:9090 \
+      --region us-east-2 \
+      --quiet
+done
+ok "roster file seeded for school years 2024, 2025, 2026"
+
+# ---------------------------------------------------------------------------
+# Step 6c: Sync earthmover bundles from registry
 # ---------------------------------------------------------------------------
 step "Syncing earthmover bundles from registry"
 pushd ./api > /dev/null
-bash sync-bundles.sh
+if bash sync-bundles.sh 2>/dev/null; then
+  ok "bundles synced from registry"
+else
+  fail "bundle sync failed — likely a network/VPN issue blocking raw.githubusercontent.com"
+  fail "run 'bash api/sync-bundles.sh' manually when off VPN"
+fi
 popd > /dev/null
-ok "bundles synced from registry"
 
 # ---------------------------------------------------------------------------
 # Step 7: Executor setup

@@ -53,11 +53,13 @@ services:
       IMPORT_MANAGED_MESSAGEBUNDLES: no-delete
 
   s3mock:
-    image: adobe/s3mock:latest
+    image: adobe/s3mock:4.12.4
     ports:
       - 9090:9090
     environment:
-      initialBuckets: runway-local-dev-data-integration
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIALBUCKETS: runway-local-dev-data-integration
+      COM_ADOBE_TESTING_S3MOCK_STORE_ROOT: /s3mockroot
+      COM_ADOBE_TESTING_S3MOCK_STORE_RETAINFILESONEXIT: "true"
     volumes:
       - s3data:/s3mockroot
 
