@@ -69,7 +69,7 @@ Authorization: Bearer <access_token>
 | ------ | -------------------------------------------- | ------------------------------------------------------ |
 | POST   | `/api/v1/jobs`                               | Create a job and get presigned S3 upload URLs          |
 | POST   | `/api/v1/jobs/:jobUid/start`                 | Start a job after uploading files                      |
-| GET    | `/api/v1/output-sets`                        | List output sets for completed runs                    |
+| GET    | `/api/v1/output-sets`                        | List output sets for successful runs                   |
 | POST   | `/api/v1/output-sets/:setUid/download-links` | Get presigned download URLs for files in an output set |
 | POST   | `/api/v1/token/verify`                       | Verify a token and see which partners it authorizes    |
 
@@ -78,7 +78,7 @@ Authorization: Bearer <access_token>
 There are two related but independent flows:
 
 1. **Job submission flow**: Use `POST /api/v1/jobs` and `POST /api/v1/jobs/:jobUid/start` to create and launch jobs through the external API.
-2. **Output retrieval flow**: Use `GET /api/v1/output-sets` and `POST /api/v1/output-sets/:setUid/download-links` to discover and download processed JSONL output files for completed runs.
+2. **Output retrieval flow**: Use `GET /api/v1/output-sets` and `POST /api/v1/output-sets/:setUid/download-links` to discover and download processed JSONL output files for successful runs.
 
 The output retrieval endpoints are not limited to jobs created through the external API. They can be used to pull output files for any job, whether created via the API or the web app, as long as the caller has the required partner scope and read scopes.
 
@@ -216,13 +216,13 @@ Returns `202 Accepted` on success.
 
 ## Output Retrieval Flow
 
-Use this flow when you want to discover and download processed output files from completed runs.
+Use this flow when you want to discover and download processed output files from successful runs.
 
 ### Step 1: List Output Sets
 
 `GET /api/v1/output-sets`
 
-Use this endpoint to poll for processed output sets from completed runs.
+Use this endpoint to poll for processed output sets from successful runs.
 
 ### Required Scope
 
