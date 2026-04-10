@@ -119,6 +119,16 @@ If using local Runway to test a bundle that is not on the main branch, you can f
 3. Make sure you have pushed an update to the bundle registry on your branch by running `python create-registry.py assessments`
 4. You should see the bundle as an option on the "load a new assessment" page
 
+## Package Supply Chain Safety
+
+The project `.npmrc` sets `min-release-age=14`, which prevents `npm install` from resolving any package version published less than 14 days ago. This reduces exposure to supply chain attacks via newly-published or compromised packages.
+
+- **`npm ci`** (used in CI) ignores this setting — it installs exactly what the lockfile specifies, so builds are unaffected.
+- **To override locally** when you need a package published within the last 14 days:
+  ```bash
+  npm install some-package --min-release-age=0
+  ```
+
 ## OSS required attributions
 
 This project uses [caniuse-lite](https://caniuse.com) which is based on [caniuse.com](caniuse.com).
