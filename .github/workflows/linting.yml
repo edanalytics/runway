@@ -30,14 +30,7 @@ jobs:
         pip install cfn-lint==1.48.1
         pip install checkov==3.2.513
     - name: CFN Lint Templates
-      run: |
-        mapfile -d '' templates < <(git ls-files -z 'cloudformation/templates/*.yml')
-        # This repo always tracks CloudFormation templates here; missing files means checkout/path resolution is broken.
-        if [ ${#templates[@]} -eq 0 ]; then
-          echo "No tracked CloudFormation templates found under cloudformation/templates" >&2
-          exit 1
-        fi
-        cfn-lint --include-checks I -- "${templates[@]}"
+      run: cfn-lint --include-checks I -- cloudformation/templates/*.yml
     - name: Checkov
       run: |
         checkov --directory cloudformation/templates/ --quiet
