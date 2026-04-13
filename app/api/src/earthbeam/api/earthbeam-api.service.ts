@@ -22,6 +22,7 @@ import {
   earthbeamUnmatchedIdsEndpoint,
 } from './earthbeam-api.endpoints';
 import { FileService } from 'api/src/files/file.service';
+import { rosterFileKey } from 'api/src/earthbeam/roster-path';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
 import {
@@ -73,7 +74,8 @@ export class EarthbeamApiService {
     }
 
     const job = run.job;
-    if (!job.odsConfig.activeConnection) {
+    const odsConnection = job.odsConfig?.activeConnection;
+    if (job.sendToOds && !odsConnection) {
       return {
         status: 'ERROR',
         type: 'server_error',
@@ -111,7 +113,6 @@ export class EarthbeamApiService {
     if (descriptorNamespace) {
       paramsForEarthbeam['DESCRIPTOR_NAMESPACE'] = descriptorNamespace;
     }
-
     const filesForEarthbeam = job.files.reduce<Record<string, string>>((acc, file) => {
       acc[file.templateKey] = file.nameInternal;
       return acc;
@@ -158,14 +159,19 @@ export class EarthbeamApiService {
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
       },
-      assessmentDatastore: {
-        apiYear: apiYear,
-        url: job.odsConfig.activeConnection.host,
-        clientId: job.odsConfig.activeConnection.clientId,
-        clientSecret: await this.encryptionService.decrypt(
-          job.odsConfig.activeConnection.clientSecret
-        ),
-      },
+      sendToOds: job.sendToOds,
+      rosterFilePath: job.sendToOds
+        ? undefined
+        : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
+      // odsConnection check narrows the type — the early guard ensures it's present when sendToOds
+      assessmentDatastore: odsConnection && job.sendToOds
+        ? {
+            apiYear: job.schoolYear.endYear.toString(),
+            url: odsConnection.host,
+            clientId: odsConnection.clientId,
+            clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
+          }
+        : undefined,
     };
     return {
       status: 'SUCCESS',
@@ -233,7 +239,7 @@ export class EarthbeamApiService {
       const hasUnmatchedStudents = outputFiles.some(
         (file) => file.name === 'input_no_student_id_match.csv'
       );
-      const odsUrl = run.job.odsConfig.activeConnection?.host;
+      const odsUrl = run.job.odsConfig?.activeConnection?.host;
       const assessmentType = run.job.name;
       const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
       const tenantCode = run.job.tenantCode;
@@ -257,6 +263,7 @@ export class EarthbeamApiService {
         status: run.status,
         completedWithErrors:
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
+        sendToOds: run.job.sendToOds,
         odsUrl,
         schoolYear: run.job.schoolYearId,
         unmatchedStudentsCount: unmatchedStudentsInfo?.count ?? 0,

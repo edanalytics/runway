@@ -47,7 +47,13 @@ export class EarthbeamApiJobResponseDto {
   };
 
   @Expose()
-  assessmentDatastore: {
+  sendToOds: boolean;
+
+  @Expose()
+  rosterFilePath?: string;
+
+  @Expose()
+  assessmentDatastore?: {
     apiYear: string;
     url: string;
     clientId: string;

@@ -30,9 +30,7 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
-      if (!jobA?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       runA = jobA.runs[0];
       endpointA = `/earthbeam/jobs/${runA.id}`;
       tokenA = await authService.createAccessToken({ runId: runA.id });
@@ -43,9 +41,7 @@ describe('Earthbeam API', () => {
         bundle: bundleX,
         tenant: tenantX,
       });
-      if (!jobX?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       runX = jobX.runs[0];
       endpointX = `/earthbeam/jobs/${runX.id}`;
       tokenX = await authService.createAccessToken({ runId: runX.id });
@@ -71,6 +67,40 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(200);
       expect(res.body.appUrls.outputFiles).toBeDefined();
       expect(res.body.appUrls.outputFiles).toContain(`/earthbeam/jobs/${runA.id}/output-files`);
+    });
+
+    it('should include ODS credentials for send-to-ODS jobs', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.sendToOds).toBe(true);
+      expect(res.body.assessmentDatastore).toBeDefined();
+      expect(res.body.rosterFilePath).toBeUndefined();
+    });
+
+    it('should omit ODS credentials and include a roster path for no-ODS jobs', async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      const noOdsJob = await seedJob({
+        sendToOds: false,
+        schoolYearId: '2324',
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      const noOdsRun = noOdsJob.runs[0];
+      const noOdsToken = await authService.createAccessToken({ runId: noOdsRun.id });
+      const res = await request(app.getHttpServer())
+        .get(`/earthbeam/jobs/${noOdsRun.id}`)
+        .set('Authorization', `Bearer ${noOdsToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.sendToOds).toBe(false);
+      expect(res.body.assessmentDatastore).toBeUndefined();
+      expect(res.body.rosterFilePath).toBe(
+        's3://test-file-bucket/__rosters/partner-a/tenant-a/2024/studentEducationOrganizationAssociations.jsonl'
+      );
     });
 
     // TODO: add tests for things other than descriptor mappings
@@ -214,9 +244,7 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
-      if (!jobA?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/status`;
@@ -371,9 +399,7 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
-      if (!jobA?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
@@ -392,9 +418,7 @@ describe('Earthbeam API', () => {
         bundle: bundleX,
         tenant: tenantX,
       });
-      if (!jobX?.runs?.[0]) {
-        throw new Error('Failed to seed job and run');
-      }
+
       const tokenX = await authService.createAccessToken({ runId: jobX.runs[0].id });
 
       const res = await request(app.getHttpServer())

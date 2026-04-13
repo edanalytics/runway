@@ -66,23 +66,25 @@ export class FileService {
       .map((key) => ({ key, name: key.replace(prefix, '') }));
   }
 
-  async doFilesExist(fullPaths: string[]): Promise<boolean> {
-    const results = await Promise.all(
-      fullPaths.map(async (fullPath) => {
-        try {
-          const result = await this.s3Client.send(
-            new HeadObjectCommand({
-              Bucket: this.appConfig.s3Bucket(),
-              Key: fullPath,
-            })
-          );
-          return result.ContentLength !== undefined && result.ContentLength > 0;
-        } catch (error) {
-          // NotFound or similar errors mean the file doesn't exist
-          return false;
-        }
-      })
-    );
+  async doesFileExist(fullPath: string, bucket: string): Promise<boolean> {
+    try {
+      const result = await this.s3Client.send(
+        new HeadObjectCommand({
+          Bucket: bucket,
+          Key: fullPath,
+        })
+      );
+      return result.ContentLength !== undefined && result.ContentLength > 0;
+    } catch (error: any) {
+      if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async doFilesExist(fullPaths: string[], bucket: string): Promise<boolean> {
+    const results = await Promise.all(fullPaths.map((p) => this.doesFileExist(p, bucket)));
     return results.every((exists) => exists);
   }
 }

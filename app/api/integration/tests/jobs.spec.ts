@@ -14,6 +14,7 @@ import { makePostJobDto } from '../factories/job-input-factory';
 import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { DtoableJob, GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
+import { FileService } from 'api/src/files/file.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
 import { Job, JobNote } from '@prisma/client';
@@ -63,6 +64,23 @@ describe('GET /jobs', () => {
       expect(resX.body).toEqual([]);
     });
 
+    it('should return sendToOds=false for no-ODS jobs', async () => {
+      const noOdsJob = await seedJob({
+        sendToOds: false,
+        schoolYearId: '2324',
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(endpoint)
+        .set('Cookie', [sessionA.cookie]);
+
+      const dto = res.body.find((j: GetJobDto) => j.id === noOdsJob.id);
+      expect(dto).toBeDefined();
+      expect(dto.sendToOds).toBe(false);
+    });
+
     it('should match the expected values', async () => {
       const resA = await request(app.getHttpServer())
         .get(endpoint)
@@ -78,7 +96,6 @@ describe('GET /jobs', () => {
 
           expect(jDto.name).toBe(original?.name);
           expect(jDto.template).toEqual(original?.template);
-          expect(jDto.odsId).toBe(original?.odsId);
           expect(jDto.schoolYearId).toBe(original?.schoolYearId);
           expect(jDto.inputParams).toEqual(original.inputParams);
           // expect(jDto.createdBy.id).toBe(original.createdById); // Not testing this at the moment given how createdBy is set from the PG trigger and the test suite doesn't use the request-scoped DB connections these expect
@@ -197,6 +214,21 @@ describe('GET /jobs/:id', () => {
       expect(resA.body.id).toEqual(jobA.id);
     });
 
+    it('should return sendToOds=false for a no-ODS job', async () => {
+      const noOdsJob = await seedJob({
+        sendToOds: false,
+        schoolYearId: '2324',
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/jobs/${noOdsJob.id}`)
+        .set('Cookie', [cookieA]);
+      expect(res.status).toBe(200);
+      expect(res.body.sendToOds).toBe(false);
+    });
+
     it('should reject requests for jobs that are not associated with the tenant', async () => {
       // user in Tenant B requests Job in Tenant A, user in Tenant A requests Job in Tenant B
       const resA = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieB]);
@@ -217,7 +249,7 @@ describe('POST /jobs', () => {
   describe('authenticated requests', () => {
     const sessionA = sessionCookie('jobs-spec');
     const jobTemplateA = makeJobTemplate(bundleA);
-    const postJobDto = makePostJobDto(jobTemplateA, odsConfigA2425);
+    const postJobDto = makePostJobDto(jobTemplateA, odsConfigA2425.schoolYearId);
     let getBundlesMock: jest.SpyInstance;
 
     beforeEach(async () => {
@@ -239,6 +271,10 @@ describe('POST /jobs', () => {
         .set('Cookie', [sessionA.cookie])
         .send(postJobDto);
       expect(res.status).toBe(201);
+
+      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+      expect(job?.odsId).toBe(odsConfigA2425.id);
+      expect(job?.sendToOds).toBe(true);
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
@@ -282,16 +318,119 @@ describe('POST /jobs', () => {
       expect(res.status).toBe(400);
     });
 
-    it('should reject requests with an ODS that is not owned by the tenant', async () => {
-      const jobInputWithNonOwnedOds: PostJobDto = {
-        ...postJobDto,
-        odsId: odsConfigX2425.id,
-      };
+    it('should create a job without an ODS when the year is configured not to send to ODS', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
       const res = await request(app.getHttpServer())
         .post(endpoint)
         .set('Cookie', [sessionA.cookie])
-        .send(jobInputWithNonOwnedOds);
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
+
+      expect(res.status).toBe(201);
+
+      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+      expect(job?.odsId).toBeNull();
+      expect(job?.sendToOds).toBe(false);
+    });
+
+    it('should reject no-ODS jobs when the roster file does not exist', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('No roster file found');
+      } finally {
+        doesFileExistMock.mockResolvedValue(true);
+      }
+    });
+
+    it('should propagate S3 errors from roster check instead of treating them as missing', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockRejectedValue(new Error('S3 operational failure'));
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(500);
+      } finally {
+        doesFileExistMock.mockResolvedValue(true);
+      }
+    });
+
+    it('should reject requests when the school year is not enabled', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
       expect(res.status).toBe(400);
+    });
+
+    it('should reject requests when an enabled send-to-ODS year has no ODS', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: true,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('No ODS found');
     });
 
     it('should reject requests if a file name is an empty string', async () => {

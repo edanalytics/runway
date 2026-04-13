@@ -221,6 +221,10 @@ describe('ExternalApiV1', () => {
           expect(res.body.uploadUrls).toHaveProperty('INPUT_FILE');
           expect(res.body.uploadUrls.INPUT_FILE).toContain(jobInput.files.INPUT_FILE); // FileService.getPresignedUploadUrl is mocked in init-app.ts
           expect(res.body.uploadUrls.INPUT_FILE).toContain('s3-test-upload-url://');
+
+          const job = await prisma.job.findUnique({ where: { uid: res.body.uid } });
+          expect(job?.odsId).toBe(odsConfigA2425.id);
+          expect(job?.sendToOds).toBe(true);
         });
 
         it('should trim whitespace from file names', async () => {
@@ -243,6 +247,31 @@ describe('ExternalApiV1', () => {
           const inputFile = job!.files.find((f) => f.templateKey === 'INPUT_FILE');
           expect(inputFile).toBeDefined();
           expect(inputFile!.nameFromUser).toBe('input-file.csv');
+        });
+
+        it('should create a no-ODS job when the year is configured not to send to ODS', async () => {
+          await prisma.schoolYearConfig.create({
+            data: {
+              partnerId: partnerA.id,
+              schoolYearId: '2324',
+              isEnabled: true,
+              sendToOds: false,
+            },
+          });
+
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+              ...jobInput,
+              schoolYear: '2024',
+            });
+
+          expect(res.status).toBe(201);
+
+          const job = await prisma.job.findUnique({ where: { uid: res.body.uid } });
+          expect(job?.odsId).toBeNull();
+          expect(job?.sendToOds).toBe(false);
         });
       });
 
@@ -450,7 +479,16 @@ describe('ExternalApiV1', () => {
           expect(res.status).toBe(500);
         });
 
-        it('should reject requests if an ODS is not found for the requested school year', async () => {
+        it('should reject requests if an enabled send-to-ODS year has no ODS', async () => {
+          await prisma.schoolYearConfig.create({
+            data: {
+              partnerId: partnerA.id,
+              schoolYearId: '2324',
+              isEnabled: true,
+              sendToOds: true,
+            },
+          });
+
           const res = await request(app.getHttpServer())
             .post(endpoint)
             .set('Authorization', `Bearer ${token}`)
@@ -460,6 +498,47 @@ describe('ExternalApiV1', () => {
             });
           expect(res.status).toBe(400);
           expect(res.body.message).toContain('No ODS found');
+        });
+
+        it('should reject requests when no school year config row exists', async () => {
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+              ...jobInput,
+              schoolYear: '2024', // 2324 school year has no config row
+            });
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('School year is not enabled');
+        });
+
+        it('should reject no-ODS years when the roster file is missing', async () => {
+          await prisma.schoolYearConfig.create({
+            data: {
+              partnerId: partnerA.id,
+              schoolYearId: '2324',
+              isEnabled: true,
+              sendToOds: false,
+            },
+          });
+
+          const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+          doesFileExistMock.mockResolvedValue(false);
+
+          try {
+            const res = await request(app.getHttpServer())
+              .post(endpoint)
+              .set('Authorization', `Bearer ${token}`)
+              .send({
+                ...jobInput,
+                schoolYear: '2024',
+              });
+
+            expect(res.status).toBe(400);
+            expect(res.body.message).toContain('No roster file found');
+          } finally {
+            doesFileExistMock.mockResolvedValue(true);
+          }
         });
 
         it('should reject requests with an invalid school year format', async () => {

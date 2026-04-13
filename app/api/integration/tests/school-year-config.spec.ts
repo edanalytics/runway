@@ -1,9 +1,10 @@
-import { userA, userX } from '../fixtures/user-fixtures';
-import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
-import { partnerX } from '../fixtures/context-fixtures/partner-fixtures';
+import { userA, userB, userX } from '../fixtures/user-fixtures';
+import { tenantA, tenantB, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
+import { partnerA, partnerX } from '../fixtures/context-fixtures/partner-fixtures';
 import request from 'supertest';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { idpA, idpX } from '../fixtures/context-fixtures/idp-fixtures';
+import { FileService } from 'api/src/files/file.service';
 
 const ETAG_HEADER = 'etag';
 const IF_MATCH_HEADER = 'if-match';
@@ -38,16 +39,16 @@ describe('GET /school-year-config', () => {
     it('should return correct config values — seeded rows enabled, others default', async () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
 
-      // Partner A has ODS configs for 2425 and 2526 (seeded as enabled)
+      // Partner A: 2425 (sendToOds=true), 2526 (sendToOds=false)
       const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
       expect(row2425.isEnabled).toBe(true);
       expect(row2425.sendToOds).toBe(true);
 
       const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
       expect(row2526.isEnabled).toBe(true);
-      expect(row2526.sendToOds).toBe(true);
+      expect(row2526.sendToOds).toBe(false);
 
-      // 2324 has no ODS config for partner A → defaults
+      // 2324 has no config row for partner A → defaults
       const row2324 = res.body.find((r: any) => r.schoolYearId === '2324');
       expect(row2324.isEnabled).toBe(false);
       expect(row2324.sendToOds).toBe(true);
@@ -252,6 +253,108 @@ describe('PUT /school-year-config', () => {
         ]);
         expect(res.status).toBe(400);
       });
+    });
+  });
+});
+
+describe('GET /school-year-config/tenant', () => {
+  const endpoint = '/school-year-config/tenant';
+  const userRoleA = 'runway.test.user';
+
+  it('should reject unauthenticated requests', async () => {
+    const res = await request(app.getHttpServer()).get(endpoint);
+    expect(res.status).toBe(401);
+  });
+
+  describe('authenticated requests', () => {
+    let cookieA: string;
+
+    beforeEach(async () => {
+      cookieA = (await authHelper.login(idpA, userA, tenantA, userRoleA)).cookies;
+    });
+
+    it('should return enabled years with config, ODS availability, and display fields', async () => {
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockClear();
+      doesFileExistMock.mockResolvedValue(true);
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+      expect(res.status).toBe(200);
+
+      // Only enabled years — partner A has 2425 and 2526 enabled; 2324 has no config row
+      expect(res.body).toHaveLength(2);
+      const yearIds = res.body.map((r: any) => r.schoolYearId);
+      expect(yearIds).toContain('2425');
+      expect(yearIds).toContain('2526');
+      expect(yearIds).not.toContain('2324');
+
+      // 2425: sendToOds=true → hasRoster is null (no S3 check), hasOds from tenant's ODS config
+      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+      expect(row2425).toMatchObject({
+        sendToOds: true,
+        hasOds: true,
+        hasRoster: null,
+        startYear: 2024,
+        endYear: 2025,
+      });
+
+      // 2526: sendToOds=false → hasRoster checked via S3, hasOds still reflects ODS config existence
+      const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
+      expect(row2526).toMatchObject({
+        sendToOds: false,
+        hasOds: true,
+        hasRoster: true,
+        startYear: 2025,
+        endYear: 2026,
+      });
+
+      // S3 check only for the no-ODS year
+      expect(doesFileExistMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return hasOds=false when tenant has no ODS for an enabled year', async () => {
+      // Enable 2324 for partner A but don't create an ODS for it
+      await global.prisma.schoolYearConfig.create({
+        data: { partnerId: partnerA.id, schoolYearId: '2324', isEnabled: true, sendToOds: true },
+      });
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+      const row2324 = res.body.find((r: any) => r.schoolYearId === '2324');
+      expect(row2324).toBeDefined();
+      expect(row2324.hasOds).toBe(false);
+    });
+
+    it('should scope ODS availability to the session tenant, not the whole partner', async () => {
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(true);
+
+      // Tenant B (same partner A) has ODS for 2526 but not 2425
+      const cookieB = (await authHelper.login(idpA, userB, tenantB, userRoleA)).cookies;
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieB]);
+
+      // The meaningful assertion: tenant B has no ODS for 2425 even though tenant A does
+      const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+      expect(row2425.hasOds).toBe(false);
+
+      // 2526 is sendToOds=false so hasOds is less interesting here, but still tenant-scoped
+      const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
+      expect(row2526.hasOds).toBe(true);
+    });
+
+    it('should return hasRoster=false when roster file does not exist', async () => {
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+        // 2526 is seeded as sendToOds=false, so hasRoster reflects the S3 check
+        const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
+        expect(row2526.hasRoster).toBe(false);
+      } finally {
+        doesFileExistMock.mockResolvedValue(true);
+      }
     });
   });
 });

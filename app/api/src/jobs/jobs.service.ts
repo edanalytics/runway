@@ -7,6 +7,7 @@ import {
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/client';
 import { FileService } from '../files/file.service';
+import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
 import { instanceToPlain } from 'class-transformer';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
@@ -43,12 +44,96 @@ export class JobsService {
     return lastRun?.runError;
   }
 
+  async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<
+    | {
+        status: 'success';
+        data: {
+          schoolYearId: string;
+          sendToOds: boolean;
+          odsId: number | null;
+        };
+      }
+    | {
+        status: 'error';
+        code:
+          | 'school_year_config_missing'
+          | 'school_year_disabled'
+          | 'ods_not_found'
+          | 'roster_file_missing';
+      }
+  > {
+    const config = await this.prisma.schoolYearConfig.findUnique({
+      where: {
+        partnerId_schoolYearId: {
+          partnerId: input.tenant.partnerId,
+          schoolYearId: input.schoolYearId,
+        },
+      },
+      include: {
+        schoolYear: {
+          include: {
+            odsConfig: {
+              where: {
+                partnerId: input.tenant.partnerId,
+                tenantCode: input.tenant.code,
+                retired: false,
+                activeConnectionId: { not: null },
+              },
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!config) {
+      return { status: 'error', code: 'school_year_config_missing' };
+    }
+
+    if (!config.isEnabled) {
+      return { status: 'error', code: 'school_year_disabled' };
+    }
+
+    if (!config.sendToOds) {
+      const rosterKey = rosterFileKey({ partnerId: input.tenant.partnerId, tenantCode: input.tenant.code }, config.schoolYear);
+      const rosterExists = await this.fileService.doesFileExist(rosterKey, this.appConfig.rosterBucket());
+      if (!rosterExists) {
+        return { status: 'error', code: 'roster_file_missing' };
+      }
+
+      return {
+        status: 'success',
+        data: {
+          schoolYearId: config.schoolYearId,
+          sendToOds: false,
+          odsId: null,
+        },
+      };
+    }
+
+    if (config.schoolYear.odsConfig.length === 0) {
+      return { status: 'error', code: 'ods_not_found' };
+    }
+
+    // Safe to take [0]: a DB uniqueness constraint enforces one non-retired ODS
+    // config per tenant per school year, and the query above filters to exactly
+    // that combination.
+    return {
+      status: 'success',
+      data: {
+        schoolYearId: config.schoolYearId,
+        sendToOds: true,
+        odsId: config.schoolYear.odsConfig[0].id,
+      },
+    };
+  }
+
   /**
    * Creates a new job with validated inputs.
    *
    * Controllers are responsible for:
    * - Auth/authorization
-   * - Tenant and ODS lookup/validation
+   * - Tenant and school year destination lookup/validation
    * - Verifying bundle is enabled for partner
    *
    * This method handles:
@@ -60,7 +145,8 @@ export class JobsService {
   async createJob(
     input: {
       bundlePath: string;
-      odsId: number;
+      odsId: number | null;
+      sendToOds: boolean;
       schoolYearId: string;
       files: Array<{ templateKey: string; nameFromUser: string; type: string }>;
       params: Record<string, string>;
@@ -183,6 +269,7 @@ export class JobsService {
       data: {
         name: bundle.display_name,
         odsId: input.odsId,
+        sendToOds: input.sendToOds,
         schoolYearId: input.schoolYearId,
         template: instanceToPlain(toGetJobTemplateDto(bundle)),
         inputParams: enrichedParams,
@@ -293,7 +380,7 @@ export class JobsService {
         jobId: job.id,
         status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
       },
-      include: { job: true },
+      include: { job: { include: { schoolYear: true } } },
     });
 
     try {

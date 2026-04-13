@@ -12,18 +12,89 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaClient, Tenant } from '@prisma/client';
-import { PutSchoolYearConfigRowDto, toGetSchoolYearConfigDto } from '@edanalytics/models';
+import {
+  PutSchoolYearConfigRowDto,
+  toGetSchoolYearConfigDto,
+  toGetTenantSchoolYearConfigDto,
+} from '@edanalytics/models';
 import { Response } from 'express';
 import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
+import { FileService } from '../files/file.service';
+import { rosterFileKey } from '../earthbeam/roster-path';
+import { AppConfigService } from '../config/app-config.service';
 
 const toEtag = (value: Date) => `"${value.toISOString()}"`;
 
 @ApiTags('SchoolYearConfig')
 @Controller()
 export class SchoolYearConfigController {
-  constructor(@Inject(PRISMA_APP_USER) private prisma: PrismaClient) {}
+  constructor(
+    @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
+    private fileService: FileService,
+    private appConfig: AppConfigService,
+  ) {}
+
+  @Authorize('school-year-config.read')
+  @Get('tenant')
+  async getTenantConfig(@TenantDecorator() tenant: Tenant) {
+    const schoolYears = await this.prisma.schoolYear.findMany({
+      where: {
+        schoolYearConfig: {
+          some: {
+            partnerId: tenant.partnerId,
+            isEnabled: true,
+          },
+        },
+      },
+      orderBy: { startYear: 'desc' },
+      include: {
+        schoolYearConfig: {
+          where: { partnerId: tenant.partnerId },
+        },
+        odsConfig: {
+          where: {
+            partnerId: tenant.partnerId,
+            tenantCode: tenant.code,
+            retired: false,
+            activeConnectionId: { not: null },
+          },
+          select: { id: true },
+        },
+      },
+    });
+
+    const rows = await Promise.all(
+      schoolYears.map(async (schoolYear) => {
+        // Should never be undefined — the where clause filters to years with an enabled config
+        const config = schoolYear.schoolYearConfig[0];
+        if (!config) {
+          throw new Error(
+            `Enabled school year missing config for ${tenant.partnerId}/${schoolYear.id}`,
+          );
+        }
+
+        const hasRoster = config.sendToOds
+          ? null
+          : await this.fileService.doesFileExist(
+              rosterFileKey({ partnerId: tenant.partnerId, tenantCode: tenant.code }, schoolYear),
+              this.appConfig.rosterBucket(),
+            );
+
+        return {
+          schoolYearId: schoolYear.id,
+          startYear: schoolYear.startYear,
+          endYear: schoolYear.endYear,
+          sendToOds: config.sendToOds,
+          hasOds: schoolYear.odsConfig.length > 0,
+          hasRoster,
+        };
+      })
+    );
+
+    return toGetTenantSchoolYearConfigDto(rows);
+  }
 
   @Authorize('school-year-config.read')
   @Get()
@@ -73,7 +144,8 @@ export class SchoolYearConfigController {
   async updateConfig(
     @TenantDecorator() tenant: Tenant,
     @Headers('if-match') ifMatchHeader: string | undefined,
-    @Body(new ParseArrayPipe({ items: PutSchoolYearConfigRowDto })) body: PutSchoolYearConfigRowDto[],
+    @Body(new ParseArrayPipe({ items: PutSchoolYearConfigRowDto }))
+    body: PutSchoolYearConfigRowDto[],
   ) {
     const partnerId = tenant.partnerId;
     const ifMatch = ifMatchHeader ?? null;

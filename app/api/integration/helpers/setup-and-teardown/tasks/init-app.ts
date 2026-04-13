@@ -36,6 +36,7 @@ export const initApp = async function () {
           { key: 'test-path/test-file-1', name: 'test-file-1' },
           { key: 'test-path/test-file-2', name: 'test-file-2' },
         ]),
+        doesFileExist: jest.fn().mockResolvedValue(true),
         doFilesExist: jest.fn().mockResolvedValue(true),
       })
       .compile();
