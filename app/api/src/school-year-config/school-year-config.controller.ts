@@ -51,10 +51,7 @@ export class SchoolYearConfigController {
       orderBy: { startYear: 'desc' },
       include: {
         schoolYearConfig: {
-          where: {
-            partnerId: tenant.partnerId,
-            isEnabled: true,
-          },
+          where: { partnerId: tenant.partnerId },
         },
         odsConfig: {
           where: {

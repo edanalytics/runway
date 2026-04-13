@@ -1,6 +1,6 @@
-import { OdsConfig, Run, RunError, RunOutputFile, RunStatus, Tenant } from '@prisma/client';
+import { OdsConfig, RunStatus, Tenant } from '@prisma/client';
 import { WithoutAudit } from '../fixtures/utils/created-modified';
-import { DtoableJob, IEarthmoverBundle, JsonArray } from '@edanalytics/models';
+import { IEarthmoverBundle, JsonArray } from '@edanalytics/models';
 import { makePostJobDto } from './job-input-factory';
 import { makeJobTemplate } from './job-template-factory';
 import { randomString } from '../fixtures/utils/random-string';
@@ -20,9 +20,7 @@ export const seedJob = async (
     | { sendToOds?: true; odsConfig: WithoutAudit<OdsConfig>; schoolYearId?: never }
     | { sendToOds: false; schoolYearId: string; odsConfig?: never }
   )
-): Promise<
-  DtoableJob & { runs: Array<Run & { runError: RunError[]; runOutputFile: RunOutputFile[] }> }
-> => {
+) => {
   const {
     bundle,
     tenant,
@@ -32,10 +30,11 @@ export const seedJob = async (
     outputFiles = false,
   } = params;
 
+  // sendToOds defaults to true (omitted in the ODS branch of the union)
   const { odsId, schoolYearId, sendToOds } =
-    params.sendToOds !== false
-      ? { odsId: params.odsConfig.id, schoolYearId: params.odsConfig.schoolYearId, sendToOds: true }
-      : { odsId: null, schoolYearId: params.schoolYearId, sendToOds: false };
+    params.sendToOds === false
+      ? { odsId: null, schoolYearId: params.schoolYearId, sendToOds: false }
+      : { odsId: params.odsConfig.id, schoolYearId: params.odsConfig.schoolYearId, sendToOds: true };
 
   const postJobDto = makePostJobDto(makeJobTemplate(bundle), schoolYearId);
 

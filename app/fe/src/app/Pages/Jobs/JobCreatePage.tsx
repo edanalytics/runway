@@ -217,7 +217,7 @@ export const JobCreatePage = () => {
                 }))}
                 isOptionDisabled={(option) => {
                   const year = selectableYears.find((row) => row.schoolYearId === option.value);
-                  if (!year) return true;
+                  if (!year) return true; // narrow .find() return type
                   if (year.sendToOds && !year.hasOds) return true;
                   if (!year.sendToOds && year.hasRoster !== true) return true;
                   return false;
