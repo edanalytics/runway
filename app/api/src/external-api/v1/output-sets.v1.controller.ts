@@ -71,7 +71,7 @@ export class ExternalApiV1OutputSetsController {
         where: { endYear: parseInt(schoolYear) },
       });
       if (!sy) {
-        return [];
+        throw new BadRequestException(`Unknown school year: ${schoolYear}`);
       }
       schoolYearId = sy.id;
     }

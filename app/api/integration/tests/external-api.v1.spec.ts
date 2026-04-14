@@ -877,6 +877,15 @@ describe('ExternalApiV1', () => {
           expect(res.body.message).toContain('schoolYear');
         });
 
+        it('should return 400 for unknown schoolYear', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id, schoolYear: '1999' })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('Unknown school year');
+        });
+
         it('should return 404 when partner does not match token scopes', async () => {
           const tokenWrongPartner = await signExternalApiToken({
             scope: 'read:jobs partner:partner-b',
