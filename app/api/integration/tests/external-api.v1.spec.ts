@@ -781,6 +781,31 @@ describe('ExternalApiV1', () => {
   });
 
   describe('Output Sets V1', () => {
+    const seedOutputSet = async (overrides: {
+      odsConfig?: typeof odsConfigA2425;
+      bundle?: typeof bundleA;
+      tenant?: typeof tenantA;
+      runStatus?: 'success' | 'error' | 'new' | 'running';
+      files?: string[];
+      sentToOds?: boolean;
+    } = {}) => {
+      const job = await seedJob({
+        odsConfig: overrides.odsConfig ?? odsConfigA2425,
+        bundle: overrides.bundle ?? bundleA,
+        tenant: overrides.tenant ?? tenantA,
+        runStatus: overrides.runStatus ?? 'success',
+      });
+      const set = await prisma.runOutputFileSet.create({
+        data: {
+          runId: job.runs[0].id,
+          files: overrides.files ?? ['output.jsonl'],
+          sentToOds: overrides.sentToOds ?? true,
+          path: `${job.fileBasePath}/output`,
+        },
+      });
+      return { job, set };
+    };
+
     describe('GET /output-sets', () => {
       const endpoint = '/v1/output-sets';
 
@@ -809,7 +834,7 @@ describe('ExternalApiV1', () => {
 
         beforeAll(async () => {
           token = await signExternalApiToken({
-            scope: 'read:jobs read:jobs:output-files partner:partner-a',
+            scope: 'read:jobs partner:partner-a',
           });
         });
 
@@ -859,31 +884,6 @@ describe('ExternalApiV1', () => {
         });
 
         describe('filters', () => {
-          const seedOutputSet = async (overrides: {
-            odsConfig?: typeof odsConfigA2425;
-            bundle?: typeof bundleA;
-            tenant?: typeof tenantA;
-            runStatus?: 'success' | 'error' | 'new' | 'running';
-            files?: string[];
-            sentToOds?: boolean;
-          } = {}) => {
-            const job = await seedJob({
-              odsConfig: overrides.odsConfig ?? odsConfigA2425,
-              bundle: overrides.bundle ?? bundleA,
-              tenant: overrides.tenant ?? tenantA,
-              runStatus: overrides.runStatus ?? 'success',
-            });
-            const set = await prisma.runOutputFileSet.create({
-              data: {
-                runId: job.runs[0].id,
-                files: overrides.files ?? ['output.jsonl'],
-                sentToOds: overrides.sentToOds ?? true,
-                path: `${job.fileBasePath}/output`,
-              },
-            });
-            return { job, set };
-          };
-
           const listOutputSets = (query: Record<string, string> = {}) =>
             request(app.getHttpServer())
               .get(endpoint)
@@ -918,14 +918,13 @@ describe('ExternalApiV1', () => {
           });
 
           it('should only include sets from successful runs', async () => {
-            const { job: failedJob } = await seedOutputSet({ runStatus: 'error' });
+            await seedOutputSet({ runStatus: 'error' });
 
             const res = await listOutputSets();
 
             expect(res.status).toBe(200);
-            const uids = res.body.map((s: any) => s.jobUid);
-            expect(uids).toContain(setA.job.uid);
-            expect(uids).not.toContain(failedJob.uid);
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].uid).toBe(setA.set.uid);
           });
 
           it('should exclude sets from other partners', async () => {
@@ -938,8 +937,8 @@ describe('ExternalApiV1', () => {
             const res = await listOutputSets();
 
             expect(res.status).toBe(200);
-            const partners = res.body.map((s: any) => s.partner);
-            expect(partners.every((p: string) => p === partnerA.id)).toBe(true);
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].uid).toBe(setA.set.uid);
           });
 
           it('should filter by tenant', async () => {
@@ -1012,16 +1011,23 @@ describe('ExternalApiV1', () => {
           });
 
           it('should return results ordered by createdAt ascending', async () => {
-            await seedOutputSet();
+            // Give setA an explicit later timestamp
+            await prisma.runOutputFileSet.update({
+              where: { uid: setA.set.uid },
+              data: { createdOn: new Date('2025-06-01T00:00:00Z') },
+            });
+
+            const { set: olderSet } = await seedOutputSet();
+            await prisma.runOutputFileSet.update({
+              where: { uid: olderSet.uid },
+              data: { createdOn: new Date('2025-01-01T00:00:00Z') },
+            });
 
             const res = await listOutputSets();
 
-            expect(res.status).toBe(200);
             expect(res.body).toHaveLength(2);
-            const dates = res.body.map((s: any) => new Date(s.createdAt).getTime());
-            for (let i = 1; i < dates.length; i++) {
-              expect(dates[i]).toBeGreaterThanOrEqual(dates[i - 1]);
-            }
+            expect(res.body[0].uid).toBe(olderSet.uid);
+            expect(res.body[1].uid).toBe(setA.set.uid);
           });
         });
       });
@@ -1049,32 +1055,9 @@ describe('ExternalApiV1', () => {
 
         beforeAll(async () => {
           token = await signExternalApiToken({
-            scope: 'read:jobs read:jobs:output-files partner:partner-a',
+            scope: 'read:jobs:output-files partner:partner-a',
           });
         });
-
-        const seedOutputSet = async (overrides: {
-          odsConfig?: typeof odsConfigA2425;
-          bundle?: typeof bundleA;
-          tenant?: typeof tenantA;
-          files?: string[];
-        } = {}) => {
-          const job = await seedJob({
-            odsConfig: overrides.odsConfig ?? odsConfigA2425,
-            bundle: overrides.bundle ?? bundleA,
-            tenant: overrides.tenant ?? tenantA,
-            runStatus: 'success',
-          });
-          const set = await prisma.runOutputFileSet.create({
-            data: {
-              runId: job.runs[0].id,
-              files: overrides.files ?? ['output.jsonl'],
-              sentToOds: true,
-              path: `${job.fileBasePath}/output`,
-            },
-          });
-          return { job, set };
-        };
 
         it('should return 404 when set UID does not exist', async () => {
           const res = await request(app.getHttpServer())
