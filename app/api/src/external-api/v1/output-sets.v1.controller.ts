@@ -21,6 +21,7 @@ import { PRISMA_READ_ONLY } from 'api/src/database/database.service';
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 import { FileService } from 'api/src/files/file.service';
 import { toOutputSetV1Dto } from '@edanalytics/models';
+import { isISO8601 } from 'class-validator';
 
 @Controller('output-sets')
 @ApiTags('External API - Output Sets')
@@ -56,11 +57,8 @@ export class ExternalApiV1OutputSetsController {
       throw new BadRequestException('sentToOds must be "true" or "false"');
     }
 
-    if (createdAfter !== undefined) {
-      const parsed = new Date(createdAfter);
-      if (isNaN(parsed.getTime())) {
-        throw new BadRequestException('createdAfter must be a valid ISO 8601 date');
-      }
+    if (createdAfter !== undefined && !isISO8601(createdAfter, { strict: true, strictSeparator: true })) {
+      throw new BadRequestException('createdAfter must be a valid ISO 8601 timestamp');
     }
 
     // Resolve schoolYear end year to school_year.id if provided

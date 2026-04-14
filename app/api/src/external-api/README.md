@@ -236,7 +236,7 @@ Use this endpoint to poll for processed output sets from successful runs.
 | `tenant`       | string  | No       | Filter to a tenant code                                                  |
 | `schoolYear`   | string  | No       | 4-digit school-year end year (for example `2026`)                        |
 | `sentToOds`    | boolean | No       | Filter to output sets that were or were not sent to an ODS               |
-| `createdAfter` | string  | No       | ISO 8601 timestamp. Only output sets created after this value are listed |
+| `createdAfter` | string  | No       | ISO 8601 date or timestamp (e.g. `2026-03-15T00:00:00Z`). Only output sets created after this value are listed |
 | `bundle`       | string  | No       | Filter to a bundle key such as `assessments/PSAT_SAT`                    |
 
 ### Example Request

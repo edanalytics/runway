@@ -854,13 +854,18 @@ describe('ExternalApiV1', () => {
           expect(res.body.message).toContain('sentToOds');
         });
 
-        it('should return 400 for invalid createdAfter value', async () => {
+        it.each([
+          'not-a-date',
+          '03/15/2024',
+          'March 15, 2024',
+          '2024-03-15 00:00:00Z',
+        ])('should return 400 for non-ISO createdAfter value: %s', async (value) => {
           const res = await request(app.getHttpServer())
             .get(endpoint)
-            .query({ partner: partnerA.id, createdAfter: 'not-a-date' })
+            .query({ partner: partnerA.id, createdAfter: value })
             .set('Authorization', `Bearer ${token}`);
           expect(res.status).toBe(400);
-          expect(res.body.message).toContain('createdAfter');
+          expect(res.body.message).toContain('ISO 8601 timestamp');
         });
 
         it('should return 400 for invalid schoolYear value', async () => {
