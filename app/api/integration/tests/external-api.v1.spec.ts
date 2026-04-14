@@ -795,7 +795,6 @@ describe('ExternalApiV1', () => {
         it('should return 403 with token missing read:jobs scope', async () => {
           const token = await signExternalApiToken({
             scope: 'create:jobs partner:partner-a',
-            client_id: 'test-client-id',
           });
           const res = await request(app.getHttpServer())
             .get(endpoint)
@@ -811,7 +810,6 @@ describe('ExternalApiV1', () => {
         beforeAll(async () => {
           token = await signExternalApiToken({
             scope: 'read:jobs read:jobs:output-files partner:partner-a',
-            client_id: 'test-client-id',
           });
         });
 
@@ -852,7 +850,6 @@ describe('ExternalApiV1', () => {
         it('should return 404 when partner does not match token scopes', async () => {
           const tokenWrongPartner = await signExternalApiToken({
             scope: 'read:jobs partner:partner-b',
-            client_id: 'test-client-id',
           });
           const res = await request(app.getHttpServer())
             .get(endpoint)
@@ -861,283 +858,181 @@ describe('ExternalApiV1', () => {
           expect(res.status).toBe(404);
         });
 
-        describe('with seeded output file sets', () => {
-          let jobA: Awaited<ReturnType<typeof seedJob>>;
-          let setA: { uid: string; createdOn: Date };
+        describe('filters', () => {
+          const seedOutputSet = async (overrides: {
+            odsConfig?: typeof odsConfigA2425;
+            bundle?: typeof bundleA;
+            tenant?: typeof tenantA;
+            runStatus?: 'success' | 'error' | 'new' | 'running';
+            files?: string[];
+            sentToOds?: boolean;
+          } = {}) => {
+            const job = await seedJob({
+              odsConfig: overrides.odsConfig ?? odsConfigA2425,
+              bundle: overrides.bundle ?? bundleA,
+              tenant: overrides.tenant ?? tenantA,
+              runStatus: overrides.runStatus ?? 'success',
+            });
+            const set = await prisma.runOutputFileSet.create({
+              data: {
+                runId: job.runs![0].id,
+                files: overrides.files ?? ['output.jsonl'],
+                sentToOds: overrides.sentToOds ?? true,
+                path: `${job.fileBasePath}/output`,
+              },
+            });
+            return { job, set };
+          };
+
+          let setA: Awaited<ReturnType<typeof seedOutputSet>>;
 
           beforeEach(async () => {
-          // Create a job with a successful run
-          jobA = await seedJob({
-            odsConfig: odsConfigA2425,
-            bundle: bundleA,
-            tenant: tenantA,
-            runStatus: 'success',
-          });
-
-          // Create an output file set for the successful run
-          setA = await prisma.runOutputFileSet.create({
-            data: {
-              runId: jobA.runs![0].id,
+            setA = await seedOutputSet({
               files: ['output1.jsonl', 'output2.jsonl'],
-              sentToOds: true,
-              path: `${jobA.fileBasePath}/output`,
-            },
+            });
+          });
+
+          const listOutputSets = (query: Record<string, string> = {}) =>
+            request(app.getHttpServer())
+              .get(endpoint)
+              .query({ partner: partnerA.id, ...query })
+              .set('Authorization', `Bearer ${token}`);
+
+          it('should return output sets with correct shape', async () => {
+            const res = await listOutputSets();
+
+            expect(res.status).toBe(200);
+            expect(res.body).toBeInstanceOf(Array);
+            expect(res.body).toHaveLength(1);
+
+            const set = res.body[0];
+            expect(set.uid).toBe(setA.set.uid);
+            expect(set.files).toEqual(['output1.jsonl', 'output2.jsonl']);
+            expect(set.sentToOds).toBe(true);
+            expect(set.createdAt).toBeDefined();
+            expect(set.jobUid).toBe(setA.job.uid);
+            expect(set.partner).toBe(partnerA.id);
+            expect(set.tenant).toBe(tenantA.code);
+            expect(set.schoolYear).toBe(String(schoolYear2425.endYear));
+            expect(set.bundle).toBe(bundleA.path);
+          });
+
+          it('should only include sets from successful runs', async () => {
+            const { job: failedJob } = await seedOutputSet({ runStatus: 'error' });
+
+            const res = await listOutputSets();
+
+            expect(res.status).toBe(200);
+            const uids = res.body.map((s: any) => s.jobUid);
+            expect(uids).toContain(setA.job.uid);
+            expect(uids).not.toContain(failedJob.uid);
+          });
+
+          it('should exclude sets from other partners', async () => {
+            await seedOutputSet({
+              odsConfig: odsConfigX2425,
+              bundle: bundleX,
+              tenant: tenantX,
+            });
+
+            const res = await listOutputSets();
+
+            expect(res.status).toBe(200);
+            const partners = res.body.map((s: any) => s.partner);
+            expect(partners.every((p: string) => p === partnerA.id)).toBe(true);
+          });
+
+          it('should filter by tenant', async () => {
+            const { job: jobB } = await seedOutputSet({
+              odsConfig: odsConfigB2526,
+              tenant: tenantB,
+            });
+
+            const res = await listOutputSets({ tenant: tenantA.code });
+
+            expect(res.status).toBe(200);
+            expect(res.body.length).toBeGreaterThanOrEqual(1);
+            const tenants = res.body.map((s: any) => s.tenant);
+            expect(tenants.every((t: string) => t === tenantA.code)).toBe(true);
+            const uids = res.body.map((s: any) => s.jobUid);
+            expect(uids).not.toContain(jobB.uid);
+          });
+
+          it('should filter by schoolYear (end year)', async () => {
+            const { job: jobOtherYear } = await seedOutputSet({
+              odsConfig: odsConfigA2526,
+            });
+
+            const res = await listOutputSets({ schoolYear: String(schoolYear2425.endYear) });
+
+            expect(res.status).toBe(200);
+            expect(res.body.length).toBeGreaterThanOrEqual(1);
+            const years = res.body.map((s: any) => s.schoolYear);
+            expect(years.every((y: string) => y === String(schoolYear2425.endYear))).toBe(true);
+            const uids = res.body.map((s: any) => s.jobUid);
+            expect(uids).not.toContain(jobOtherYear.uid);
+          });
+
+          it('should filter by sentToOds', async () => {
+            await seedOutputSet({ sentToOds: false });
+
+            const res = await listOutputSets({ sentToOds: 'false' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.length).toBeGreaterThanOrEqual(1);
+            expect(res.body.every((s: any) => s.sentToOds === false)).toBe(true);
+          });
+
+          it('should filter by createdAfter', async () => {
+            // Backdate setA to a known old timestamp so we can prove it gets excluded
+            await prisma.runOutputFileSet.update({
+              where: { uid: setA.set.uid },
+              data: { createdOn: new Date('2020-01-01T00:00:00Z') },
+            });
+
+            const { set: newerSet } = await seedOutputSet();
+
+            const cutoff = new Date('2024-01-01T00:00:00Z').toISOString();
+            const res = await listOutputSets({ createdAfter: cutoff });
+
+            expect(res.status).toBe(200);
+            expect(res.body.length).toBeGreaterThanOrEqual(1);
+            const uids = res.body.map((s: any) => s.uid);
+            expect(uids).not.toContain(setA.set.uid);
+            expect(uids).toContain(newerSet.uid);
+
+            for (const set of res.body) {
+              expect(new Date(set.createdAt).getTime()).toBeGreaterThan(
+                new Date(cutoff).getTime()
+              );
+            }
+          });
+
+          it('should filter by bundle', async () => {
+            await seedOutputSet({
+              odsConfig: odsConfigA2526,
+              bundle: bundleB,
+            });
+
+            const res = await listOutputSets({ bundle: bundleA.path });
+
+            expect(res.status).toBe(200);
+            expect(res.body.length).toBeGreaterThanOrEqual(1);
+            expect(res.body.every((s: any) => s.bundle === bundleA.path)).toBe(true);
+          });
+
+          it('should return results ordered by createdAt ascending', async () => {
+            await seedOutputSet();
+
+            const res = await listOutputSets();
+
+            expect(res.status).toBe(200);
+            const dates = res.body.map((s: any) => new Date(s.createdAt).getTime());
+            for (let i = 1; i < dates.length; i++) {
+              expect(dates[i]).toBeGreaterThanOrEqual(dates[i - 1]);
+            }
           });
         });
-
-        const listOutputSets = (query: Record<string, string> = {}) =>
-          request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id, ...query })
-            .set('Authorization', `Bearer ${token}`);
-
-        it('should return output sets with correct shape, ordered by createdAt ascending', async () => {
-          const res = await listOutputSets();
-
-          expect(res.status).toBe(200);
-          expect(res.body).toBeInstanceOf(Array);
-          expect(res.body.length).toBeGreaterThanOrEqual(1);
-
-          const set = res.body.find((s: any) => s.uid === setA.uid);
-          expect(set).toBeDefined();
-          expect(set.files).toEqual(['output1.jsonl', 'output2.jsonl']);
-          expect(set.sentToOds).toBe(true);
-          expect(set.createdAt).toBeDefined();
-          expect(set.jobUid).toBe(jobA.uid);
-          expect(set.partner).toBe(partnerA.id);
-          expect(set.tenant).toBe(tenantA.code);
-          expect(set.schoolYear).toBe(String(schoolYear2425.endYear));
-          expect(set.bundle).toBe(bundleA.path);
-        });
-
-        it('should only include sets from successful runs', async () => {
-          // Create a job with a failed run
-          const failedJob = await seedJob({
-            odsConfig: odsConfigA2425,
-            bundle: bundleA,
-            tenant: tenantA,
-            runStatus: 'error',
-          });
-          await prisma.runOutputFileSet.create({
-            data: {
-              runId: failedJob.runs![0].id,
-              files: ['failed-output.jsonl'],
-              sentToOds: true,
-              path: `${failedJob.fileBasePath}/output`,
-            },
-          });
-
-          const res = await listOutputSets();
-
-          expect(res.status).toBe(200);
-          const uids = res.body.map((s: any) => s.jobUid);
-          expect(uids).toContain(jobA.uid);
-          expect(uids).not.toContain(failedJob.uid);
-        });
-
-        it('should exclude sets from other partners', async () => {
-          const jobX = await seedJob({
-            odsConfig: odsConfigX2425,
-            bundle: bundleX,
-            tenant: tenantX,
-            runStatus: 'success',
-          });
-          await prisma.runOutputFileSet.create({
-            data: {
-              runId: jobX.runs![0].id,
-              files: ['x-output.jsonl'],
-              sentToOds: true,
-              path: `${jobX.fileBasePath}/output`,
-            },
-          });
-
-          const res = await listOutputSets();
-
-          expect(res.status).toBe(200);
-          const partners = res.body.map((s: any) => s.partner);
-          expect(partners.every((p: string) => p === partnerA.id)).toBe(true);
-        });
-
-        it('should filter by tenant', async () => {
-          // Seed a set for a different tenant (same partner) that should be excluded
-          const jobB = await seedJob({
-            odsConfig: odsConfigB2526,
-            bundle: bundleA,
-            tenant: tenantB,
-            runStatus: 'success',
-          });
-          await prisma.runOutputFileSet.create({
-            data: {
-              runId: jobB.runs![0].id,
-              files: ['tenant-b-output.jsonl'],
-              sentToOds: true,
-              path: `${jobB.fileBasePath}/output`,
-            },
-          });
-
-          const res = await listOutputSets({ tenant: tenantA.code });
-
-          expect(res.status).toBe(200);
-          expect(res.body.length).toBeGreaterThanOrEqual(1);
-          const tenants = res.body.map((s: any) => s.tenant);
-          expect(tenants.every((t: string) => t === tenantA.code)).toBe(true);
-          // Verify the tenant-b set was actually excluded
-          const uids = res.body.map((s: any) => s.jobUid);
-          expect(uids).not.toContain(jobB.uid);
-        });
-
-        it('should filter by schoolYear (end year)', async () => {
-          // Seed a set for a different school year that should be excluded
-          const jobOtherYear = await seedJob({
-            odsConfig: odsConfigA2526,
-            bundle: bundleA,
-            tenant: tenantA,
-            runStatus: 'success',
-          });
-          await prisma.runOutputFileSet.create({
-            data: {
-              runId: jobOtherYear.runs![0].id,
-              files: ['other-year-output.jsonl'],
-              sentToOds: true,
-              path: `${jobOtherYear.fileBasePath}/output`,
-            },
-          });
-
-          const res = await listOutputSets({ schoolYear: String(schoolYear2425.endYear) });
-
-          expect(res.status).toBe(200);
-          expect(res.body.length).toBeGreaterThanOrEqual(1);
-          const years = res.body.map((s: any) => s.schoolYear);
-          expect(years.every((y: string) => y === String(schoolYear2425.endYear))).toBe(true);
-          // Verify the other-year set was actually excluded
-          const uids = res.body.map((s: any) => s.jobUid);
-          expect(uids).not.toContain(jobOtherYear.uid);
-        });
-
-        it('should filter by sentToOds', async () => {
-          // Create a sideloaded output set
-          const sideloadedJob = await seedJob({
-            odsConfig: odsConfigA2425,
-            bundle: bundleA,
-            tenant: tenantA,
-            runStatus: 'success',
-          });
-          await prisma.job.update({
-            where: { id: sideloadedJob.id },
-            data: { sendToOds: false, odsId: null },
-          });
-          await prisma.runOutputFileSet.create({
-            data: {
-              runId: sideloadedJob.runs![0].id,
-              files: ['sideloaded.jsonl'],
-              sentToOds: false,
-              path: `${sideloadedJob.fileBasePath}/output`,
-            },
-          });
-
-          const res = await listOutputSets({ sentToOds: 'false' });
-
-          expect(res.status).toBe(200);
-          expect(res.body.length).toBeGreaterThanOrEqual(1);
-          expect(res.body.every((s: any) => s.sentToOds === false)).toBe(true);
-        });
-
-        it('should filter by createdAfter', async () => {
-          // Backdate setA to a known old timestamp so we can prove it gets excluded
-          const oldDate = new Date('2020-01-01T00:00:00Z');
-          await prisma.runOutputFileSet.update({
-            where: { uid: setA.uid },
-            data: { createdOn: oldDate },
-          });
-
-          // Create a newer set that should be included
-          const newerJob = await seedJob({
-            odsConfig: odsConfigA2425,
-            bundle: bundleA,
-            tenant: tenantA,
-            runStatus: 'success',
-          });
-          const newerSet = await prisma.runOutputFileSet.create({
-            data: {
-              runId: newerJob.runs![0].id,
-              files: ['newer-output.jsonl'],
-              sentToOds: true,
-              path: `${newerJob.fileBasePath}/output`,
-            },
-          });
-
-          // Filter with a cutoff that excludes the old set but includes the newer one
-          const cutoff = new Date('2024-01-01T00:00:00Z').toISOString();
-
-          const res = await listOutputSets({ createdAfter: cutoff });
-
-          expect(res.status).toBe(200);
-          expect(res.body.length).toBeGreaterThanOrEqual(1);
-
-          // The old set should be excluded
-          const uids = res.body.map((s: any) => s.uid);
-          expect(uids).not.toContain(setA.uid);
-          // The newer set should be included
-          expect(uids).toContain(newerSet.uid);
-
-          // All returned sets should have createdAt after the filter
-          for (const set of res.body) {
-            expect(new Date(set.createdAt).getTime()).toBeGreaterThan(
-              new Date(cutoff).getTime()
-            );
-          }
-        });
-
-        it('should filter by bundle', async () => {
-          // Create a job with a different bundle
-          const jobB = await seedJob({
-            odsConfig: odsConfigA2526,
-            bundle: bundleB,
-            tenant: tenantA,
-            runStatus: 'success',
-          });
-          await prisma.runOutputFileSet.create({
-            data: {
-              runId: jobB.runs![0].id,
-              files: ['bundle-b-output.jsonl'],
-              sentToOds: true,
-              path: `${jobB.fileBasePath}/output`,
-            },
-          });
-
-          const res = await listOutputSets({ bundle: bundleA.path });
-
-          expect(res.status).toBe(200);
-          expect(res.body.length).toBeGreaterThanOrEqual(1);
-          expect(res.body.every((s: any) => s.bundle === bundleA.path)).toBe(true);
-        });
-
-        it('should return results ordered by createdAt ascending', async () => {
-          // Create a second output set with a later timestamp
-          const jobA2 = await seedJob({
-            odsConfig: odsConfigA2425,
-            bundle: bundleA,
-            tenant: tenantA,
-            runStatus: 'success',
-          });
-          await prisma.runOutputFileSet.create({
-            data: {
-              runId: jobA2.runs![0].id,
-              files: ['later-output.jsonl'],
-              sentToOds: true,
-              path: `${jobA2.fileBasePath}/output`,
-            },
-          });
-
-          const res = await listOutputSets();
-
-          expect(res.status).toBe(200);
-          const dates = res.body.map((s: any) => new Date(s.createdAt).getTime());
-          for (let i = 1; i < dates.length; i++) {
-            expect(dates[i]).toBeGreaterThanOrEqual(dates[i - 1]);
-          }
-        });
-      });
       });
     });
 
@@ -1151,7 +1046,6 @@ describe('ExternalApiV1', () => {
       it('should return 403 with token missing read:jobs:output-files scope', async () => {
         const token = await signExternalApiToken({
           scope: 'read:jobs partner:partner-a',
-          client_id: 'test-client-id',
         });
         const res = await request(app.getHttpServer())
           .post('/v1/output-sets/00000000-0000-0000-0000-000000000000/download-links')
@@ -1159,33 +1053,37 @@ describe('ExternalApiV1', () => {
         expect(res.status).toBe(403);
       });
 
-      describe('with seeded output file sets', () => {
+      describe('with valid token', () => {
         let token: string;
-        let jobA: Awaited<ReturnType<typeof seedJob>>;
-        let setA: { uid: string; path: string; files: any };
 
-        beforeEach(async () => {
+        beforeAll(async () => {
           token = await signExternalApiToken({
             scope: 'read:jobs read:jobs:output-files partner:partner-a',
-            client_id: 'test-client-id',
-          });
-
-          jobA = await seedJob({
-            odsConfig: odsConfigA2425,
-            bundle: bundleA,
-            tenant: tenantA,
-            runStatus: 'success',
-          });
-
-          setA = await prisma.runOutputFileSet.create({
-            data: {
-              runId: jobA.runs![0].id,
-              files: ['output1.jsonl', 'output2.jsonl'],
-              sentToOds: true,
-              path: `${jobA.fileBasePath}/output`,
-            },
           });
         });
+
+        const seedOutputSet = async (overrides: {
+          odsConfig?: typeof odsConfigA2425;
+          bundle?: typeof bundleA;
+          tenant?: typeof tenantA;
+          files?: string[];
+        } = {}) => {
+          const job = await seedJob({
+            odsConfig: overrides.odsConfig ?? odsConfigA2425,
+            bundle: overrides.bundle ?? bundleA,
+            tenant: overrides.tenant ?? tenantA,
+            runStatus: 'success',
+          });
+          const set = await prisma.runOutputFileSet.create({
+            data: {
+              runId: job.runs![0].id,
+              files: overrides.files ?? ['output.jsonl'],
+              sentToOds: true,
+              path: `${job.fileBasePath}/output`,
+            },
+          });
+          return { job, set };
+        };
 
         it('should return 404 when set UID does not exist', async () => {
           const res = await request(app.getHttpServer())
@@ -1195,19 +1093,10 @@ describe('ExternalApiV1', () => {
         });
 
         it('should return 404 when set belongs to a different partner', async () => {
-          const jobX = await seedJob({
+          const { set: setX } = await seedOutputSet({
             odsConfig: odsConfigX2425,
             bundle: bundleX,
             tenant: tenantX,
-            runStatus: 'success',
-          });
-          const setX = await prisma.runOutputFileSet.create({
-            data: {
-              runId: jobX.runs![0].id,
-              files: ['x-output.jsonl'],
-              sentToOds: true,
-              path: `${jobX.fileBasePath}/output`,
-            },
           });
 
           const res = await request(app.getHttpServer())
@@ -1217,6 +1106,10 @@ describe('ExternalApiV1', () => {
         });
 
         it('should return presigned download links for all files in the set', async () => {
+          const { set: setA } = await seedOutputSet({
+            files: ['output1.jsonl', 'output2.jsonl'],
+          });
+
           const res = await request(app.getHttpServer())
             .post(`/v1/output-sets/${setA.uid}/download-links`)
             .set('Authorization', `Bearer ${token}`);
