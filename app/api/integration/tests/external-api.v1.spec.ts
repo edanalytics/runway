@@ -875,7 +875,7 @@ describe('ExternalApiV1', () => {
             });
             const set = await prisma.runOutputFileSet.create({
               data: {
-                runId: job.runs![0].id,
+                runId: job.runs[0].id,
                 files: overrides.files ?? ['output.jsonl'],
                 sentToOds: overrides.sentToOds ?? true,
                 path: `${job.fileBasePath}/output`,
@@ -884,6 +884,12 @@ describe('ExternalApiV1', () => {
             return { job, set };
           };
 
+          const listOutputSets = (query: Record<string, string> = {}) =>
+            request(app.getHttpServer())
+              .get(endpoint)
+              .query({ partner: partnerA.id, ...query })
+              .set('Authorization', `Bearer ${token}`);
+
           let setA: Awaited<ReturnType<typeof seedOutputSet>>;
 
           beforeEach(async () => {
@@ -891,12 +897,6 @@ describe('ExternalApiV1', () => {
               files: ['output1.jsonl', 'output2.jsonl'],
             });
           });
-
-          const listOutputSets = (query: Record<string, string> = {}) =>
-            request(app.getHttpServer())
-              .get(endpoint)
-              .query({ partner: partnerA.id, ...query })
-              .set('Authorization', `Bearer ${token}`);
 
           it('should return output sets with correct shape', async () => {
             const res = await listOutputSets();
@@ -943,48 +943,45 @@ describe('ExternalApiV1', () => {
           });
 
           it('should filter by tenant', async () => {
-            const { job: jobB } = await seedOutputSet({
+            await seedOutputSet({
               odsConfig: odsConfigB2526,
               tenant: tenantB,
             });
 
-            const res = await listOutputSets({ tenant: tenantA.code });
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
 
-            expect(res.status).toBe(200);
-            expect(res.body.length).toBeGreaterThanOrEqual(1);
-            const tenants = res.body.map((s: any) => s.tenant);
-            expect(tenants.every((t: string) => t === tenantA.code)).toBe(true);
-            const uids = res.body.map((s: any) => s.jobUid);
-            expect(uids).not.toContain(jobB.uid);
+            const res = await listOutputSets({ tenant: tenantA.code });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].tenant).toBe(tenantA.code);
           });
 
           it('should filter by schoolYear (end year)', async () => {
-            const { job: jobOtherYear } = await seedOutputSet({
+            await seedOutputSet({
               odsConfig: odsConfigA2526,
             });
 
-            const res = await listOutputSets({ schoolYear: String(schoolYear2425.endYear) });
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
 
-            expect(res.status).toBe(200);
-            expect(res.body.length).toBeGreaterThanOrEqual(1);
-            const years = res.body.map((s: any) => s.schoolYear);
-            expect(years.every((y: string) => y === String(schoolYear2425.endYear))).toBe(true);
-            const uids = res.body.map((s: any) => s.jobUid);
-            expect(uids).not.toContain(jobOtherYear.uid);
+            const res = await listOutputSets({ schoolYear: String(schoolYear2425.endYear) });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].schoolYear).toBe(String(schoolYear2425.endYear));
           });
 
           it('should filter by sentToOds', async () => {
             await seedOutputSet({ sentToOds: false });
 
-            const res = await listOutputSets({ sentToOds: 'false' });
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
 
-            expect(res.status).toBe(200);
-            expect(res.body.length).toBeGreaterThanOrEqual(1);
-            expect(res.body.every((s: any) => s.sentToOds === false)).toBe(true);
+            const res = await listOutputSets({ sentToOds: 'false' });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].sentToOds).toBe(false);
           });
 
           it('should filter by createdAfter', async () => {
-            // Backdate setA to a known old timestamp so we can prove it gets excluded
+            // Backdate setA to a known old timestamp
             await prisma.runOutputFileSet.update({
               where: { uid: setA.set.uid },
               data: { createdOn: new Date('2020-01-01T00:00:00Z') },
@@ -992,20 +989,12 @@ describe('ExternalApiV1', () => {
 
             const { set: newerSet } = await seedOutputSet();
 
-            const cutoff = new Date('2024-01-01T00:00:00Z').toISOString();
-            const res = await listOutputSets({ createdAfter: cutoff });
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
 
-            expect(res.status).toBe(200);
-            expect(res.body.length).toBeGreaterThanOrEqual(1);
-            const uids = res.body.map((s: any) => s.uid);
-            expect(uids).not.toContain(setA.set.uid);
-            expect(uids).toContain(newerSet.uid);
-
-            for (const set of res.body) {
-              expect(new Date(set.createdAt).getTime()).toBeGreaterThan(
-                new Date(cutoff).getTime()
-              );
-            }
+            const res = await listOutputSets({ createdAfter: '2024-01-01T00:00:00Z' });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].uid).toBe(newerSet.uid);
           });
 
           it('should filter by bundle', async () => {
@@ -1014,11 +1003,12 @@ describe('ExternalApiV1', () => {
               bundle: bundleB,
             });
 
-            const res = await listOutputSets({ bundle: bundleA.path });
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
 
-            expect(res.status).toBe(200);
-            expect(res.body.length).toBeGreaterThanOrEqual(1);
-            expect(res.body.every((s: any) => s.bundle === bundleA.path)).toBe(true);
+            const res = await listOutputSets({ bundle: bundleA.path });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].bundle).toBe(bundleA.path);
           });
 
           it('should return results ordered by createdAt ascending', async () => {
@@ -1027,6 +1017,7 @@ describe('ExternalApiV1', () => {
             const res = await listOutputSets();
 
             expect(res.status).toBe(200);
+            expect(res.body).toHaveLength(2);
             const dates = res.body.map((s: any) => new Date(s.createdAt).getTime());
             for (let i = 1; i < dates.length; i++) {
               expect(dates[i]).toBeGreaterThanOrEqual(dates[i - 1]);
@@ -1076,7 +1067,7 @@ describe('ExternalApiV1', () => {
           });
           const set = await prisma.runOutputFileSet.create({
             data: {
-              runId: job.runs![0].id,
+              runId: job.runs[0].id,
               files: overrides.files ?? ['output.jsonl'],
               sentToOds: true,
               path: `${job.fileBasePath}/output`,
