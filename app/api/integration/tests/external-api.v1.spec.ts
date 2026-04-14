@@ -784,98 +784,88 @@ describe('ExternalApiV1', () => {
     describe('GET /output-sets', () => {
       const endpoint = '/v1/output-sets';
 
-      it('should return 401 without a token', async () => {
-        const res = await request(app.getHttpServer())
-          .get(endpoint)
-          .query({ partner: partnerA.id });
-        expect(res.status).toBe(401);
-      });
-
-      it('should return 403 with token missing read:jobs scope', async () => {
-        const token = await signExternalApiToken({
-          scope: 'create:jobs partner:partner-a',
-          client_id: 'test-client-id',
+      describe('with invalid token', () => {
+        it('should return 401 without a token', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id });
+          expect(res.status).toBe(401);
         });
-        const res = await request(app.getHttpServer())
-          .get(endpoint)
-          .query({ partner: partnerA.id })
-          .set('Authorization', `Bearer ${token}`);
-        expect(res.status).toBe(403);
-      });
 
-      it('should return 400 without required partner parameter', async () => {
-        const token = await signExternalApiToken({
-          scope: 'read:jobs partner:partner-a',
-          client_id: 'test-client-id',
+        it('should return 403 with token missing read:jobs scope', async () => {
+          const token = await signExternalApiToken({
+            scope: 'create:jobs partner:partner-a',
+            client_id: 'test-client-id',
+          });
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(403);
         });
-        const res = await request(app.getHttpServer())
-          .get(endpoint)
-          .set('Authorization', `Bearer ${token}`);
-        expect(res.status).toBe(400);
       });
 
-      it('should return 400 for invalid sentToOds value', async () => {
-        const token = await signExternalApiToken({
-          scope: 'read:jobs partner:partner-a',
-          client_id: 'test-client-id',
-        });
-        const res = await request(app.getHttpServer())
-          .get(endpoint)
-          .query({ partner: partnerA.id, sentToOds: 'yes' })
-          .set('Authorization', `Bearer ${token}`);
-        expect(res.status).toBe(400);
-        expect(res.body.message).toContain('sentToOds');
-      });
-
-      it('should return 400 for invalid createdAfter value', async () => {
-        const token = await signExternalApiToken({
-          scope: 'read:jobs partner:partner-a',
-          client_id: 'test-client-id',
-        });
-        const res = await request(app.getHttpServer())
-          .get(endpoint)
-          .query({ partner: partnerA.id, createdAfter: 'not-a-date' })
-          .set('Authorization', `Bearer ${token}`);
-        expect(res.status).toBe(400);
-        expect(res.body.message).toContain('createdAfter');
-      });
-
-      it('should return 400 for invalid schoolYear value', async () => {
-        const token = await signExternalApiToken({
-          scope: 'read:jobs partner:partner-a',
-          client_id: 'test-client-id',
-        });
-        const res = await request(app.getHttpServer())
-          .get(endpoint)
-          .query({ partner: partnerA.id, schoolYear: '2024abc' })
-          .set('Authorization', `Bearer ${token}`);
-        expect(res.status).toBe(400);
-        expect(res.body.message).toContain('schoolYear');
-      });
-
-      it('should return 404 when partner does not match token scopes', async () => {
-        const token = await signExternalApiToken({
-          scope: 'read:jobs partner:partner-b',
-          client_id: 'test-client-id',
-        });
-        const res = await request(app.getHttpServer())
-          .get(endpoint)
-          .query({ partner: partnerA.id })
-          .set('Authorization', `Bearer ${token}`);
-        expect(res.status).toBe(404);
-      });
-
-      describe('with seeded output file sets', () => {
+      describe('with valid token', () => {
         let token: string;
-        let jobA: Awaited<ReturnType<typeof seedJob>>;
-        let setA: { uid: string; createdOn: Date };
 
-        beforeEach(async () => {
+        beforeAll(async () => {
           token = await signExternalApiToken({
             scope: 'read:jobs read:jobs:output-files partner:partner-a',
             client_id: 'test-client-id',
           });
+        });
 
+        it('should return 400 without required partner parameter', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+        });
+
+        it('should return 400 for invalid sentToOds value', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id, sentToOds: 'yes' })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('sentToOds');
+        });
+
+        it('should return 400 for invalid createdAfter value', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id, createdAfter: 'not-a-date' })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('createdAfter');
+        });
+
+        it('should return 400 for invalid schoolYear value', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id, schoolYear: '2024abc' })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('schoolYear');
+        });
+
+        it('should return 404 when partner does not match token scopes', async () => {
+          const tokenWrongPartner = await signExternalApiToken({
+            scope: 'read:jobs partner:partner-b',
+            client_id: 'test-client-id',
+          });
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id })
+            .set('Authorization', `Bearer ${tokenWrongPartner}`);
+          expect(res.status).toBe(404);
+        });
+
+        describe('with seeded output file sets', () => {
+          let jobA: Awaited<ReturnType<typeof seedJob>>;
+          let setA: { uid: string; createdOn: Date };
+
+          beforeEach(async () => {
           // Create a job with a successful run
           jobA = await seedJob({
             odsConfig: odsConfigA2425,
@@ -895,11 +885,14 @@ describe('ExternalApiV1', () => {
           });
         });
 
-        it('should return output sets with correct shape, ordered by createdAt ascending', async () => {
-          const res = await request(app.getHttpServer())
+        const listOutputSets = (query: Record<string, string> = {}) =>
+          request(app.getHttpServer())
             .get(endpoint)
-            .query({ partner: partnerA.id })
+            .query({ partner: partnerA.id, ...query })
             .set('Authorization', `Bearer ${token}`);
+
+        it('should return output sets with correct shape, ordered by createdAt ascending', async () => {
+          const res = await listOutputSets();
 
           expect(res.status).toBe(200);
           expect(res.body).toBeInstanceOf(Array);
@@ -934,10 +927,7 @@ describe('ExternalApiV1', () => {
             },
           });
 
-          const res = await request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id })
-            .set('Authorization', `Bearer ${token}`);
+          const res = await listOutputSets();
 
           expect(res.status).toBe(200);
           const uids = res.body.map((s: any) => s.jobUid);
@@ -961,10 +951,7 @@ describe('ExternalApiV1', () => {
             },
           });
 
-          const res = await request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id })
-            .set('Authorization', `Bearer ${token}`);
+          const res = await listOutputSets();
 
           expect(res.status).toBe(200);
           const partners = res.body.map((s: any) => s.partner);
@@ -988,10 +975,7 @@ describe('ExternalApiV1', () => {
             },
           });
 
-          const res = await request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id, tenant: tenantA.code })
-            .set('Authorization', `Bearer ${token}`);
+          const res = await listOutputSets({ tenant: tenantA.code });
 
           expect(res.status).toBe(200);
           expect(res.body.length).toBeGreaterThanOrEqual(1);
@@ -1019,10 +1003,7 @@ describe('ExternalApiV1', () => {
             },
           });
 
-          const res = await request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id, schoolYear: String(schoolYear2425.endYear) })
-            .set('Authorization', `Bearer ${token}`);
+          const res = await listOutputSets({ schoolYear: String(schoolYear2425.endYear) });
 
           expect(res.status).toBe(200);
           expect(res.body.length).toBeGreaterThanOrEqual(1);
@@ -1054,10 +1035,7 @@ describe('ExternalApiV1', () => {
             },
           });
 
-          const res = await request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id, sentToOds: 'false' })
-            .set('Authorization', `Bearer ${token}`);
+          const res = await listOutputSets({ sentToOds: 'false' });
 
           expect(res.status).toBe(200);
           expect(res.body.length).toBeGreaterThanOrEqual(1);
@@ -1091,10 +1069,7 @@ describe('ExternalApiV1', () => {
           // Filter with a cutoff that excludes the old set but includes the newer one
           const cutoff = new Date('2024-01-01T00:00:00Z').toISOString();
 
-          const res = await request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id, createdAfter: cutoff })
-            .set('Authorization', `Bearer ${token}`);
+          const res = await listOutputSets({ createdAfter: cutoff });
 
           expect(res.status).toBe(200);
           expect(res.body.length).toBeGreaterThanOrEqual(1);
@@ -1130,10 +1105,7 @@ describe('ExternalApiV1', () => {
             },
           });
 
-          const res = await request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id, bundle: bundleA.path })
-            .set('Authorization', `Bearer ${token}`);
+          const res = await listOutputSets({ bundle: bundleA.path });
 
           expect(res.status).toBe(200);
           expect(res.body.length).toBeGreaterThanOrEqual(1);
@@ -1157,10 +1129,7 @@ describe('ExternalApiV1', () => {
             },
           });
 
-          const res = await request(app.getHttpServer())
-            .get(endpoint)
-            .query({ partner: partnerA.id })
-            .set('Authorization', `Bearer ${token}`);
+          const res = await listOutputSets();
 
           expect(res.status).toBe(200);
           const dates = res.body.map((s: any) => new Date(s.createdAt).getTime());
@@ -1168,6 +1137,7 @@ describe('ExternalApiV1', () => {
             expect(dates[i]).toBeGreaterThanOrEqual(dates[i - 1]);
           }
         });
+      });
       });
     });
 

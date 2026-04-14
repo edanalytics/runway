@@ -113,7 +113,7 @@ curl --request POST \
 
 This endpoint verifies that the token is signed by the expected issuer, has the correct audience, and includes the `create:jobs` scope. The response indicates which partner(s) the token is authorized to operate on.
 
-This is slightly awkward for read-only clients: `/api/v1/token/verify` currently requires `create:jobs`, so a token intended only for output retrieval cannot use this endpoint for validation. Updating that behavior is cleanup outside the scope of this PR.
+**Limitation:** `/api/v1/token/verify` currently requires the `create:jobs` scope, so a token intended only for output retrieval cannot use this endpoint for validation.
 
 ---
 
@@ -302,7 +302,7 @@ curl -X POST \
 }
 ```
 
-The presigned URLs are valid for 1 hour. If a download fails because the URL has expired, request a fresh set of download links.
+Presigned URLs have a 1-hour TTL, but will also expire early if the API server's AWS session credentials rotate before the TTL elapses (whichever comes first). API consumers should treat download links as short-lived and request a fresh set if a download fails.
 
 ---
 
@@ -320,4 +320,5 @@ For detailed request/response schemas:
 | 401    | Missing or invalid token                                               |
 | 403    | Insufficient scopes or unauthorized partner                            |
 | 400    | Invalid request (missing required input, unexpected input files, etc.) |
+| 404    | Resource not found or not accessible to this token                     |
 | 503    | External API disabled (issuer not configured)                          |
