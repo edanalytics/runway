@@ -9,5 +9,5 @@ declare global {
     type RunOutputFileSetFiles = string[];
   }
 }
-    
+
 export {};

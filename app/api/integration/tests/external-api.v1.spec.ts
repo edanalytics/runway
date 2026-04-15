@@ -3,11 +3,12 @@ import { signExternalApiToken, TEST_ISSUER } from '../helpers/external-api/token
 import * as jose from 'jose';
 import { EXTERNAL_API_SCOPE_KEY } from '../../src/external-api/auth/external-api-scope.decorator';
 import { ExternalApiV1TokenController } from '../../src/external-api/v1/token.v1.controller';
-import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
-import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
-import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
+import { partnerA, partnerX } from '../fixtures/context-fixtures/partner-fixtures';
+import { tenantA, tenantB, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
+import { allBundles, bundleA, bundleB, bundleX } from '../fixtures/em-bundle-fixtures';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
-import { odsConfigA2425 } from '../fixtures/context-fixtures/ods-fixture';
+import { odsConfigA2425, odsConfigA2526, odsConfigB2526, odsConfigX2425 } from '../fixtures/context-fixtures/ods-fixture';
+import { schoolYear2425, schoolYear2526 } from '../fixtures/context-fixtures/school-year-fixtures';
 
 import { FileService } from 'api/src/files/file.service';
 import { ExternalApiAuthService } from '../../src/external-api/auth/external-api.auth.service';
@@ -17,6 +18,7 @@ import { userA } from '../fixtures/user-fixtures';
 import { GetJobDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
+import { seedJob } from '../factories/job-factory';
 
 describe('ExternalApiV1', () => {
   describe('Token Auth', () => {
@@ -773,6 +775,341 @@ describe('ExternalApiV1', () => {
           } finally {
             fileServiceMock.mockResolvedValue(true);
           }
+        });
+      });
+    });
+  });
+
+  describe('Output Sets V1', () => {
+    const seedOutputSet = async (overrides: {
+      odsConfig?: typeof odsConfigA2425;
+      bundle?: typeof bundleA;
+      tenant?: typeof tenantA;
+      runStatus?: 'success' | 'error' | 'new' | 'running';
+      files?: string[];
+      sentToOds?: boolean;
+    } = {}) => {
+      const job = await seedJob({
+        odsConfig: overrides.odsConfig ?? odsConfigA2425,
+        bundle: overrides.bundle ?? bundleA,
+        tenant: overrides.tenant ?? tenantA,
+        runStatus: overrides.runStatus ?? 'success',
+      });
+      const set = await prisma.runOutputFileSet.create({
+        data: {
+          runId: job.runs[0].id,
+          files: overrides.files ?? ['output.jsonl'],
+          sentToOds: overrides.sentToOds ?? true,
+          path: `${job.fileBasePath}/output`,
+        },
+      });
+      return { job, set };
+    };
+
+    describe('GET /output-sets', () => {
+      const endpoint = '/v1/output-sets';
+
+      describe('with invalid token', () => {
+        it('should return 401 without a token', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id });
+          expect(res.status).toBe(401);
+        });
+
+        it('should return 403 with token missing read:jobs scope', async () => {
+          const token = await signExternalApiToken({
+            scope: 'create:jobs partner:partner-a',
+          });
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(403);
+        });
+      });
+
+      describe('with valid token', () => {
+        let token: string;
+
+        beforeAll(async () => {
+          token = await signExternalApiToken({
+            scope: 'read:jobs partner:partner-a',
+          });
+        });
+
+        it('should return 400 without required partner parameter', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+        });
+
+        it('should return 400 for invalid sentToOds value', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id, sentToOds: 'yes' })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('sentToOds');
+        });
+
+        it.each([
+          'not-a-date',
+          '03/15/2024',
+          'March 15, 2024',
+          '2024-03-15 00:00:00Z',
+        ])('should return 400 for non-ISO createdAfter value: %s', async (value) => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id, createdAfter: value })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('ISO 8601 timestamp');
+        });
+
+        it('should return 400 for invalid schoolYear value', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id, schoolYear: '2024abc' })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('schoolYear');
+        });
+
+        it('should return 400 for unknown schoolYear', async () => {
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id, schoolYear: '1999' })
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(400);
+          expect(res.body.message).toContain('Unknown school year');
+        });
+
+        it('should return 404 when partner does not match token scopes', async () => {
+          const tokenWrongPartner = await signExternalApiToken({
+            scope: 'read:jobs partner:partner-b',
+          });
+          const res = await request(app.getHttpServer())
+            .get(endpoint)
+            .query({ partner: partnerA.id })
+            .set('Authorization', `Bearer ${tokenWrongPartner}`);
+          expect(res.status).toBe(404);
+        });
+
+        describe('filters', () => {
+          const listOutputSets = (query: Record<string, string> = {}) =>
+            request(app.getHttpServer())
+              .get(endpoint)
+              .query({ partner: partnerA.id, ...query })
+              .set('Authorization', `Bearer ${token}`);
+
+          let setA: Awaited<ReturnType<typeof seedOutputSet>>;
+
+          beforeEach(async () => {
+            setA = await seedOutputSet({
+              files: ['output1.jsonl', 'output2.jsonl'],
+            });
+          });
+
+          it('should return output sets with correct shape', async () => {
+            const res = await listOutputSets();
+
+            expect(res.status).toBe(200);
+            expect(res.body).toBeInstanceOf(Array);
+            expect(res.body).toHaveLength(1);
+
+            const set = res.body[0];
+            expect(set.uid).toBe(setA.set.uid);
+            expect(set.files).toEqual(['output1.jsonl', 'output2.jsonl']);
+            expect(set.sentToOds).toBe(true);
+            expect(set.createdAt).toBeDefined();
+            expect(set.jobUid).toBe(setA.job.uid);
+            expect(set.partner).toBe(partnerA.id);
+            expect(set.tenant).toBe(tenantA.code);
+            expect(set.schoolYear).toBe(String(schoolYear2425.endYear));
+            expect(set.bundle).toBe(bundleA.path);
+          });
+
+          it('should only include sets from successful runs', async () => {
+            await seedOutputSet({ runStatus: 'error' });
+
+            const res = await listOutputSets();
+
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].uid).toBe(setA.set.uid);
+          });
+
+          it('should exclude sets from other partners', async () => {
+            await seedOutputSet({
+              odsConfig: odsConfigX2425,
+              bundle: bundleX,
+              tenant: tenantX,
+            });
+
+            const res = await listOutputSets();
+
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].uid).toBe(setA.set.uid);
+          });
+
+          it('should filter by tenant', async () => {
+            await seedOutputSet({
+              odsConfig: odsConfigB2526,
+              tenant: tenantB,
+            });
+
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
+
+            const res = await listOutputSets({ tenant: tenantA.code });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].tenant).toBe(tenantA.code);
+          });
+
+          it('should filter by schoolYear (end year)', async () => {
+            await seedOutputSet({
+              odsConfig: odsConfigA2526,
+            });
+
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
+
+            const res = await listOutputSets({ schoolYear: String(schoolYear2425.endYear) });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].schoolYear).toBe(String(schoolYear2425.endYear));
+          });
+
+          it('should filter by sentToOds', async () => {
+            await seedOutputSet({ sentToOds: false });
+
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
+
+            const res = await listOutputSets({ sentToOds: 'false' });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].sentToOds).toBe(false);
+          });
+
+          it('should filter by createdAfter', async () => {
+            // Backdate setA to a known old timestamp
+            await prisma.runOutputFileSet.update({
+              where: { uid: setA.set.uid },
+              data: { createdOn: new Date('2020-01-01T00:00:00Z') },
+            });
+
+            const { set: newerSet } = await seedOutputSet();
+
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
+
+            const res = await listOutputSets({ createdAfter: '2024-01-01T00:00:00Z' });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].uid).toBe(newerSet.uid);
+          });
+
+          it('should filter by bundle', async () => {
+            await seedOutputSet({
+              odsConfig: odsConfigA2526,
+              bundle: bundleB,
+            });
+
+            const resAll = await listOutputSets();
+            expect(resAll.body).toHaveLength(2);
+
+            const res = await listOutputSets({ bundle: bundleA.path });
+            expect(res.body).toHaveLength(1);
+            expect(res.body[0].bundle).toBe(bundleA.path);
+          });
+
+          it('should return results ordered by createdAt ascending', async () => {
+            // Give setA an explicit later timestamp
+            await prisma.runOutputFileSet.update({
+              where: { uid: setA.set.uid },
+              data: { createdOn: new Date('2025-06-01T00:00:00Z') },
+            });
+
+            const { set: olderSet } = await seedOutputSet();
+            await prisma.runOutputFileSet.update({
+              where: { uid: olderSet.uid },
+              data: { createdOn: new Date('2025-01-01T00:00:00Z') },
+            });
+
+            const res = await listOutputSets();
+
+            expect(res.body).toHaveLength(2);
+            expect(res.body[0].uid).toBe(olderSet.uid);
+            expect(res.body[1].uid).toBe(setA.set.uid);
+          });
+        });
+      });
+    });
+
+    describe('POST /output-sets/:setUid/download-links', () => {
+      it('should return 401 without a token', async () => {
+        const res = await request(app.getHttpServer())
+          .post('/v1/output-sets/00000000-0000-0000-0000-000000000000/download-links');
+        expect(res.status).toBe(401);
+      });
+
+      it('should return 403 with token missing read:jobs:output-files scope', async () => {
+        const token = await signExternalApiToken({
+          scope: 'read:jobs partner:partner-a',
+        });
+        const res = await request(app.getHttpServer())
+          .post('/v1/output-sets/00000000-0000-0000-0000-000000000000/download-links')
+          .set('Authorization', `Bearer ${token}`);
+        expect(res.status).toBe(403);
+      });
+
+      describe('with valid token', () => {
+        let token: string;
+
+        beforeAll(async () => {
+          token = await signExternalApiToken({
+            scope: 'read:jobs:output-files partner:partner-a',
+          });
+        });
+
+        it('should return 404 when set UID does not exist', async () => {
+          const res = await request(app.getHttpServer())
+            .post('/v1/output-sets/00000000-0000-0000-0000-000000000000/download-links')
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(404);
+        });
+
+        it('should return 404 when set belongs to a different partner', async () => {
+          const { set: setX } = await seedOutputSet({
+            odsConfig: odsConfigX2425,
+            bundle: bundleX,
+            tenant: tenantX,
+          });
+
+          const res = await request(app.getHttpServer())
+            .post(`/v1/output-sets/${setX.uid}/download-links`)
+            .set('Authorization', `Bearer ${token}`);
+          expect(res.status).toBe(404);
+        });
+
+        it('should return presigned download links for all files in the set', async () => {
+          const { set: setA } = await seedOutputSet({
+            files: ['output1.jsonl', 'output2.jsonl'],
+          });
+
+          const res = await request(app.getHttpServer())
+            .post(`/v1/output-sets/${setA.uid}/download-links`)
+            .set('Authorization', `Bearer ${token}`);
+
+          expect(res.status).toBe(200);
+          expect(res.body.downloadLinks).toBeDefined();
+          expect(Object.keys(res.body.downloadLinks)).toEqual(['output1.jsonl', 'output2.jsonl']);
+
+          // FileService.getPresignedDownloadUrl is mocked to return `s3-test-download-url://{fullPath}`
+          expect(res.body.downloadLinks['output1.jsonl']).toContain('s3-test-download-url://');
+          expect(res.body.downloadLinks['output1.jsonl']).toContain(`${setA.path}/output1.jsonl`);
+          expect(res.body.downloadLinks['output2.jsonl']).toContain(`${setA.path}/output2.jsonl`);
         });
       });
     });

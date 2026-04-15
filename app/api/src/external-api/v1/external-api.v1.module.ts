@@ -4,12 +4,13 @@ import { ExternalApiV1JobsController } from './jobs.v1.controller';
 import { ExternalApiAuthService } from '../auth/external-api.auth.service';
 import { AppConfigModule } from '../../config/app-config.module';
 import { ExternalApiV1TokenController } from './token.v1.controller';
+import { ExternalApiV1OutputSetsController } from './output-sets.v1.controller';
 import { FileModule } from '../../files/file.module';
 
 @Module({
   imports: [JobsModule, AppConfigModule, FileModule],
   providers: [ExternalApiAuthService],
-  controllers: [ExternalApiV1JobsController, ExternalApiV1TokenController],
+  controllers: [ExternalApiV1JobsController, ExternalApiV1TokenController, ExternalApiV1OutputSetsController],
   exports: [],
 })
 export class ExternalApiV1Module {}
