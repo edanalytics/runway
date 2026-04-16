@@ -63,8 +63,6 @@ export class OdsConfigController {
   @Post()
   @SkipTenantOwnership()
   async create(@Body() createOdsDto: PostOdsConfigDto, @Tenant() tenant: TTenant) {
-    // TODO(PR 3): validate schoolYearId against school_year_config.
-    // For now, invalid school years will hit the FK constraint on ods_config.school_year_id.
     const connectionTest = await this.edfiService.testConnection(createOdsDto);
     if (connectionTest.status === 'ERROR') {
       throw new BadRequestException('Unable to authenticate to ODS with given credentials.');
