@@ -36,11 +36,6 @@ export const OdsConfigsPage = () => {
   const sortedYears = [...(yearConfigs ?? [])].sort((a, b) => b.startYear - a.startYear);
   const hasYearNeedingOds = sortedYears.some((y) => y.sendToOds && !y.hasOds);
 
-  const testConnectionQuery = odsConfigQueries.testConnection();
-  const testConnection = (odsConfig: GetOdsConfigDto) => {
-    testConnectionQuery.mutate({ entity: odsConfig, pathParams: undefined });
-  };
-
   const {
     isOpen: isDeleteModalOpen,
     onOpen: openDeleteModal,
@@ -106,8 +101,6 @@ export const OdsConfigsPage = () => {
                 {yearConfig.sendToOds ? (
                   <OdsYearContent
                     odsConfig={odsConfig}
-                    testConnection={testConnection}
-                    isTestPending={testConnectionQuery.isPending}
                     onDelete={() => confirmDelete(yearConfig)}
                   />
                 ) : (
@@ -159,15 +152,13 @@ export const OdsConfigsPage = () => {
 
 const OdsYearContent = ({
   odsConfig,
-  testConnection,
-  isTestPending,
   onDelete,
 }: {
   odsConfig: GetOdsConfigDto | undefined;
-  testConnection: (odsConfig: GetOdsConfigDto) => void;
-  isTestPending: boolean;
   onDelete: () => void;
 }) => {
+  const testConnectionQuery = odsConfigQueries.testConnection();
+
   if (!odsConfig) {
     return (
       <Box textStyle="h3" textColor="blue.300">
@@ -192,11 +183,13 @@ const OdsYearContent = ({
           {odsConfig.lastUseOn?.toLocaleDateString()}
         </Box>
         <Button
-          onClick={() => testConnection(odsConfig)}
+          onClick={() =>
+            testConnectionQuery.mutate({ entity: odsConfig, pathParams: undefined })
+          }
           textStyle="button"
           textColor="green.100"
           variant="unstyled"
-          isDisabled={isTestPending}
+          isDisabled={testConnectionQuery.isPending}
         >
           refresh
         </Button>
