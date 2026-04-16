@@ -184,7 +184,7 @@ const OdsYearContent = ({
         {odsConfig.host}
       </Box>
       <HStack marginBottom="300" gap="200">
-        <Box bg={verified ? 'green.400' : 'pink.400'} borderRadius="20px" padding="100">
+        <Box bg={verified ? 'green.300' : 'pink.400'} borderRadius="20px" padding="100">
           {verified ? <IconCheckmark /> : <IconExclamation />}
         </Box>
         <Box textStyle="h6" textColor="green.50">
@@ -235,7 +235,7 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
     return (
       <Box layerStyle="contentBox" padding="300" width="100%">
         <HStack gap="200">
-          <Box bg="green.400" borderRadius="20px" padding="100">
+          <Box bg="green.300" borderRadius="20px" padding="100">
             <IconCheckmark />
           </Box>
           <Box textStyle="h6" textColor="green.50">
