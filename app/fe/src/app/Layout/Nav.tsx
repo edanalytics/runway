@@ -4,6 +4,8 @@ import { INavButtonProps, NavButton } from './NavButton';
 import { AssessmentIcon } from '../../assets/AssessmentsIcon';
 import { ODSConfigIcon } from '../../assets/ODSConfigIcon';
 import { useMe } from '../api/queries/me.queries';
+import { useQuery } from '@tanstack/react-query';
+import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.queries';
 
 const AdminSettingsIcon = (props: React.ComponentProps<typeof LuSettings2>) => (
   <LuSettings2 {...props} strokeWidth={1} />
@@ -11,6 +13,9 @@ const AdminSettingsIcon = (props: React.ComponentProps<typeof LuSettings2>) => (
 
 export const Nav = () => {
   const { data: me } = useMe();
+  const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
+
+  const anyYearSendsToOds = yearConfigs?.some((y) => y.sendToOds) ?? false;
 
   const items: INavButtonProps[] = [
     {
@@ -18,12 +23,15 @@ export const Nav = () => {
       icon: AssessmentIcon,
       text: 'assessments',
     },
-    {
+  ];
+
+  if (anyYearSendsToOds) {
+    items.push({
       route: '/ods-configs',
       icon: ODSConfigIcon,
       text: 'ODS configuration',
-    },
-  ];
+    });
+  }
 
   const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
 
