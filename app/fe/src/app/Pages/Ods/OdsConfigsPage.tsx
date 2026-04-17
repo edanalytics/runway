@@ -224,33 +224,29 @@ const OdsYearContent = ({
 };
 
 const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
-  if (hasRoster) {
-    return (
-      <Box layerStyle="contentBox" padding="300" width="100%">
-        <HStack gap="200">
-          <Box bg="green.300" borderRadius="20px" padding="100">
-            <IconCheckmark />
-          </Box>
-          <Box textStyle="h6" textColor="green.50">
-            Roster file loaded
-          </Box>
-        </HStack>
-      </Box>
-    );
-  }
-
   return (
-    <Box layerStyle="contentBox" padding="300">
+    <Box layerStyle="contentBox" padding="300" width="100%">
+      <Box textStyle="body" marginBottom="300">
+        Data for this school year is not sent to an ODS. A roster file is required to match student
+        IDs.
+      </Box>
       <HStack gap="200" justifyContent="space-between">
         <HStack gap="200">
-          <Box bg="pink.400" borderRadius="20px" padding="100" flexShrink={0}>
-            <IconExclamation />
+          <Box
+            bg={hasRoster ? 'green.300' : 'pink.400'}
+            borderRadius="20px"
+            padding="100"
+            flexShrink={0}
+          >
+            {hasRoster ? <IconCheckmark /> : <IconExclamation />}
           </Box>
-          <Box textStyle="h6" textColor="pink.50">
-            Roster file must be loaded
+          <Box textStyle="h6" textColor={hasRoster ? 'green.50' : 'pink.50'}>
+            {hasRoster ? 'roster file loaded' : 'roster file not loaded'}
           </Box>
         </HStack>
-        <ContactSupport message="Roster file needs to be loaded for my account." />
+        {!hasRoster && (
+          <ContactSupport message="Roster file needs to be loaded for my account." />
+        )}
       </HStack>
     </Box>
   );
