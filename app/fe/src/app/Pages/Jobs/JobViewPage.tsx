@@ -7,7 +7,7 @@ import {
   useInvalidateJobQueries,
 } from '../../api/queries/job.queries';
 import { useParams } from '@tanstack/react-router';
-import { useSchoolYears } from '../../helpers/useSchoolYears';
+import { schoolYearQueries } from '../../api';
 import { JobStatus } from './SharedJobComponents/JobStatus';
 import { useEffect, useState } from 'react';
 import { GetRunUpdateDto } from '@edanalytics/models';
@@ -72,8 +72,8 @@ export const JobViewPage = () => {
     }
   }, [currentStage, newStage, invalidateJobQueries]);
 
-  const { yearForId } = useSchoolYears();
-  const schoolYear = yearForId(job.schoolYearId);
+  const { data: schoolYears } = useQuery(schoolYearQueries.getAll({}));
+  const schoolYear = schoolYears?.find((year) => year.id === job.schoolYearId);
 
   return (
     <VStack
