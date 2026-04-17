@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { odsConfigQueries } from '../api';
-import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.queries';
+import { odsConfigQueries } from '../../../api';
+import { tenantSchoolYearConfigQuery } from '../../../api/queries/school-year-config.queries';
 import { GetSchoolYearDto } from '@edanalytics/models';
 
 /**

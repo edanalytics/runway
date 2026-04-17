@@ -5,7 +5,7 @@ import { classValidatorResolver } from '@hookform/resolvers/class-validator';
 import { FormLayout } from '../../../components/Form/FormLayout';
 import { OdsConnectionForm } from './OdsConnectionForm';
 import { useForm } from 'react-hook-form';
-import { useOdsYearOptions } from '../../../helpers/useOdsYearOptions';
+import { useOdsYearOptions } from './useOdsYearOptions';
 
 const resolver = classValidatorResolver(PutOdsConfigDto);
 
