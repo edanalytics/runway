@@ -175,7 +175,11 @@ class JobExecutor:
                 # if bypassing the ODS, a roster file is required, for now
                 self.roster_file_path = job["rosterFilePath"]
             else:
-                # API_YEAR is delivered via the Earthmover runtime params
+                #     Note that we always need the API_YEAR env var set in order to run Earthmover.
+                # We also use it in cases when we are using an ODS - in such cases the value of the env
+                # var should be identical. So instead of providing API_YEAR explicitly as its own env
+                # var, the app passes it implicitly as part of the inputParams object. Below, we unpack 
+                # those values and assign them to env vars
                 os.environ["EDFI_API_BASE_URL"] = job["assessmentDatastore"]["url"]
                 os.environ["EDFI_API_CLIENT_ID"] = job["assessmentDatastore"]["clientId"]
                 os.environ["EDFI_API_CLIENT_SECRET"] = job["assessmentDatastore"]["clientSecret"]
@@ -195,6 +199,7 @@ class JobExecutor:
 
             self.descriptor_map = job["customDescriptorMappings"]
 
+            # note that API_YEAR is guaranteed to be included in this
             for env_name, value in job["inputParams"].items():
                 os.environ[env_name] = str(value)
         except KeyError as e:
