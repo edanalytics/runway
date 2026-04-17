@@ -176,8 +176,8 @@ class JobExecutor:
                 self.roster_file_path = job["rosterFilePath"]
             else:
                 #     Note that we always need the API_YEAR env var set in order to run Earthmover.
-                # We also use it in cases when we are using an ODS - in such cases the value of the env
-                # var should be identical. So instead of providing API_YEAR explicitly as its own env
+                # We also use it in cases when we are using an ODS - in such cases the year used by EM
+                # and LB should be identical. So instead of providing API_YEAR explicitly as its own env
                 # var, the app passes it implicitly as part of the inputParams object. Below, we unpack 
                 # those values and assign them to env vars
                 os.environ["EDFI_API_BASE_URL"] = job["assessmentDatastore"]["url"]
