@@ -63,7 +63,7 @@ export const OdsConfigsPage = () => {
       <VStack alignItems="flex-start" gap="500" paddingBottom="800">
         <HStack width="100%" justify="space-between">
           <Box as="h1" textStyle="h1">
-            ODS Connections
+            ODS configuration
           </Box>
           {hasYearNeedingOds && (
             <HStack
@@ -117,9 +117,8 @@ export const OdsConfigsPage = () => {
           <ModalHeader>Delete ODS Configuration?</ModalHeader>
           <ModalCloseButton />
           <ModalBody textStyle="body">
-            Are you sure you want to delete the ODS configuration for the{' '}
-            {yearToDelete?.startYear} - {yearToDelete?.endYear} school year? This action cannot be
-            undone.
+            Are you sure you want to delete the ODS configuration for the {yearToDelete?.startYear}{' '}
+            - {yearToDelete?.endYear} school year? This action cannot be undone.
           </ModalBody>
 
           <ModalFooter gap="200">
@@ -183,9 +182,7 @@ const OdsYearContent = ({
           {odsConfig.lastUseOn?.toLocaleDateString()}
         </Box>
         <Button
-          onClick={() =>
-            testConnectionQuery.mutate({ entity: odsConfig, pathParams: undefined })
-          }
+          onClick={() => testConnectionQuery.mutate({ entity: odsConfig, pathParams: undefined })}
           textStyle="button"
           textColor="green.100"
           variant="unstyled"
@@ -225,12 +222,17 @@ const OdsYearContent = ({
 
 const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
   return (
-    <Box layerStyle="contentBox" padding="300" width="100%">
-      <Box textStyle="body" marginBottom="300">
-        Data for this school year is not sent to an ODS. A roster file is required to match student
-        IDs.
+    <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
+      <Box textStyle="bodyLargeBold" textColor="blue.50">
+        Data for this school year is not sent to an ODS.
       </Box>
-      <HStack gap="200" justifyContent="space-between">
+      {!hasRoster && (
+        <Box textStyle="body">
+          A roster file is required to match student IDs. Contact support to have a roster file
+          loaded.
+        </Box>
+      )}
+      <HStack justifyContent="space-between">
         <HStack gap="200">
           <Box
             bg={hasRoster ? 'green.300' : 'pink.400'}
@@ -244,10 +246,8 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
             {hasRoster ? 'roster file loaded' : 'roster file not loaded'}
           </Box>
         </HStack>
-        {!hasRoster && (
-          <ContactSupport message="Roster file needs to be loaded for my account." />
-        )}
+        {!hasRoster && <ContactSupport message="Roster file needs to be loaded" />}
       </HStack>
-    </Box>
+    </VStack>
   );
 };
