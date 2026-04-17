@@ -6,7 +6,9 @@ export const Route = createFileRoute('/')({
   loader: async (opts) => {
     const yearConfigs = await opts.context.queryClient.fetchQuery(tenantSchoolYearConfigQuery);
 
-    const canProceed = yearConfigs.some((y) => y.hasOds || y.hasRoster === true);
+    const canProceed = yearConfigs.some((y) =>
+      y.sendToOds ? y.hasOds : y.hasRoster === true
+    );
     if (canProceed) {
       return redirect({ to: '/assessments' });
     }

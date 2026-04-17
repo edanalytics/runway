@@ -89,10 +89,26 @@ const NoRosterBody = () => (
 const MixedBody = () => (
   <>
     <Box textStyle="bodyLarge">
-      Before you can start uploading assessments, you will need to set up an ODS connection or
-      contact your administrator about loading roster files.
+      Before you can start uploading assessments, you will need to set up an ODS connection for
+      your ODS-enabled years, and contact support about loading roster files for your other years.
     </Box>
-    <ContactSupport message="I need help setting up my account to upload assessments." />
+    <HStack
+      as={Link}
+      to="/ods-configs/new/connection"
+      layerStyle="buttonPrimary"
+      textStyle="button"
+      padding="300"
+      gap="200"
+      width="100%"
+      maxW="17rem"
+      justifyContent="center"
+    >
+      <Box>setup your ODS</Box>
+      <Box padding="100">
+        <IconArrowRight />
+      </Box>
+    </HStack>
+    <ContactSupport message="Roster file needs to be loaded for my account." />
   </>
 );
 
