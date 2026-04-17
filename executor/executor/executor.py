@@ -606,6 +606,7 @@ class JobExecutor:
             # TODO: ostensibly should check for Ed-Fi warnings here but failed uploads still make it back via the summary report
         except subprocess.CalledProcessError:
             self.error = error.LightbeamSendError()
+            raise
 
         self.upload_artifact(artifact.LB_SEND_RESULTS)
 
