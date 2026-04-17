@@ -29,7 +29,7 @@ export const OdsConfigConnectionEditForm = ({
     );
   });
 
-  const { yearOptions, isYearAvailable } = useOdsYearOptions(odsConfig.id);
+  const { yearOptions, isYearAvailable } = useOdsYearOptions(odsConfig.schoolYearId);
 
   return (
     <FormLayout title="edit ODS" backLink="/ods-configs">
