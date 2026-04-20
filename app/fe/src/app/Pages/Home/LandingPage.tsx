@@ -7,6 +7,11 @@ import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-confi
 
 // Reachable only when the home route loader's canProceed check returned false
 // (see routes/index.tsx). Branches below assume at least one year cannot proceed.
+//
+// Messaging centers on ODS as the primary processing path. We only mention
+// roster files when sideloading is the only way data can be processed (i.e.
+// every enabled year is sendToOds=false). In any mixed case, point the user at
+// ODS setup — the sideloading years are handled out-of-band with support.
 export const LandingPage = () => {
   const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
 
@@ -16,23 +21,12 @@ export const LandingPage = () => {
     return <LandingMessage title="No School Years Enabled" body={<NoEnabledYearsBody />} />;
   }
 
-  const hasOdsYearWithoutOds = yearConfigs.some((y) => y.sendToOds && !y.hasOds);
-  const hasNoOdsYearWithoutRoster = yearConfigs.some(
-    (y) => !y.sendToOds && y.hasRoster !== true
-  );
-  const allSendToOds = yearConfigs.every((y) => y.sendToOds);
   const noneSendToOds = yearConfigs.every((y) => !y.sendToOds);
-
-  if (allSendToOds && hasOdsYearWithoutOds) {
-    return <LandingMessage title="No ODS Configured" body={<NoOdsBody />} />;
-  }
-
-  if (noneSendToOds && hasNoOdsYearWithoutRoster) {
+  if (noneSendToOds) {
     return <LandingMessage title="Roster File Required" body={<NoRosterBody />} />;
   }
 
-  // Mixed: some years send to ODS (but none configured), some don't (but no roster)
-  return <LandingMessage title="Setup Required" body={<MixedBody />} />;
+  return <LandingMessage title="No ODS Configured" body={<NoOdsBody />} />;
 };
 
 const LandingMessage = ({ title, body }: { title: string; body: React.ReactNode }) => (
@@ -81,44 +75,18 @@ const NoOdsBody = () => (
 const NoRosterBody = () => (
   <>
     <Box textStyle="bodyLarge">
-      Before you can start uploading assessments, a roster file must be loaded for your account.
+      Before you can start uploading assessments, a roster file must be loaded for your district.
       Please contact support for assistance.
     </Box>
-    <ContactSupport message="Roster file needs to be loaded for my account." />
-  </>
-);
-
-const MixedBody = () => (
-  <>
-    <Box textStyle="bodyLarge">
-      Before you can start uploading assessments, you will need to set up an ODS connection for
-      your ODS-enabled years, and contact support about loading roster files for your other years.
-    </Box>
-    <HStack
-      as={Link}
-      to="/ods-configs/new/connection"
-      layerStyle="buttonPrimary"
-      textStyle="button"
-      padding="300"
-      gap="200"
-      width="100%"
-      maxW="17rem"
-      justifyContent="center"
-    >
-      <Box>setup your ODS</Box>
-      <Box padding="100">
-        <IconArrowRight />
-      </Box>
-    </HStack>
-    <ContactSupport message="Roster file needs to be loaded for my account." />
+    <ContactSupport message="Roster file needs to be loaded for my district." />
   </>
 );
 
 const NoEnabledYearsBody = () => (
   <>
     <Box textStyle="bodyLarge">
-      No school years have been enabled for your account. Please contact your administrator.
+      No school years have been enabled for your district. Please contact your administrator.
     </Box>
-    <ContactSupport message="No school years are enabled for my account." />
+    <ContactSupport message="No school years are enabled for my district." />
   </>
 );

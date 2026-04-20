@@ -23,17 +23,17 @@ import { Link as RouterLink } from '@tanstack/react-router';
 import { odsConfigQueries } from '../../api';
 import { GetOdsConfigDto, GetTenantSchoolYearConfigDto } from '@edanalytics/models';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-config.queries';
 import { ContactSupport } from '../../components/SupportButton';
 import { keyBy } from 'lodash';
 
 export const OdsConfigsPage = () => {
-  const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
-  const { data: odsConfigs } = useQuery(odsConfigQueries.getAll({}));
+  const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
+  const { data: odsConfigs } = useSuspenseQuery(odsConfigQueries.getAll({}));
   const odsConfigByYear = keyBy(odsConfigs, 'schoolYearId');
 
-  const sortedYears = [...(yearConfigs ?? [])].sort((a, b) => b.startYear - a.startYear);
+  const sortedYears = [...yearConfigs].sort((a, b) => b.startYear - a.startYear);
   const hasYearNeedingOds = sortedYears.some((y) => y.sendToOds && !y.hasOds);
 
   const {
