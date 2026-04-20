@@ -1,6 +1,6 @@
 import { Box } from '@chakra-ui/react';
 import { LuSettings2 } from 'react-icons/lu';
-import { INavButtonProps, NavButton } from './NavButton';
+import { NavButton } from './NavButton';
 import { AssessmentIcon } from '../../assets/AssessmentsIcon';
 import { ODSConfigIcon } from '../../assets/ODSConfigIcon';
 import { useMe } from '../api/queries/me.queries';
@@ -16,31 +16,15 @@ export const Nav = () => {
   const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
 
   const anyYearSendsToOds = yearConfigs?.some((y) => y.sendToOds) ?? false;
-
-  const items: INavButtonProps[] = [
-    {
-      route: '/assessments',
-      icon: AssessmentIcon,
-      text: 'assessments',
-    },
-  ];
-
-  if (anyYearSendsToOds) {
-    items.push({
-      route: '/ods-configs',
-      icon: ODSConfigIcon,
-      text: 'ODS configuration',
-    });
-  }
-
   const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
 
   return (
     // TODO: figure out why this width isn't being respected
     <Box width="12rem" display="flex" flexDir="column" gap="300">
-      {items.map((item) => (
-        <NavButton key={item.text + item.route} {...item} />
-      ))}
+      <NavButton route="/assessments" icon={AssessmentIcon} text="assessments" />
+      {anyYearSendsToOds && (
+        <NavButton route="/ods-configs" icon={ODSConfigIcon} text="ODS configuration" />
+      )}
       {isPartnerAdmin && (
         <NavButton route="/admin" icon={AdminSettingsIcon} text="admin settings" />
       )}
