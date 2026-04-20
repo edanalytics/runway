@@ -28,8 +28,8 @@ export const OdsConnectionForm = ({
 
   return (
     <chakra.form width="100%" height="100%" onSubmit={submit}>
-      <VStack justifyContent="space-between" alignItems="flex-start" width="100%" height="100%">
-        <VStack width="100%" maxW="32rem" flexGrow="1" gap="300">
+      <VStack alignItems="flex-start" width="100%" height="100%" gap="500" maxW="32rem">
+        <VStack width="100%" gap="300">
           {yearField}
           <RunwayInput label="Edfi API base URL" error={errors.host} register={register('host')} />
           <RunwayInput label="key" error={errors.clientId} register={register('clientId')} />
