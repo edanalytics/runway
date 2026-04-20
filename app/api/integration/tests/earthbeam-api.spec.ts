@@ -8,6 +8,7 @@ import { Run } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
+import { FileService } from 'api/src/files/file.service';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -60,6 +61,16 @@ describe('Earthbeam API', () => {
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenX}`);
       expect(res.status).toBe(403);
+    });
+
+    it('should include appUrls.outputFiles in the job payload', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.appUrls.outputFiles).toBeDefined();
+      expect(res.body.appUrls.outputFiles).toContain(`/earthbeam/jobs/${runA.id}/output-files`);
     });
 
     // TODO: add tests for things other than descriptor mappings
@@ -187,6 +198,7 @@ describe('Earthbeam API', () => {
         expect(descriptorNamespaceX).toBeUndefined(); // not included in seed for partner X
       });
     });
+
   });
 
   describe('POST /:runId/status', () => {
@@ -222,13 +234,42 @@ describe('Earthbeam API', () => {
     describe('Complete Run', () => {
       // TODO: more tests re: run completion
       let eventEmitterMock: jest.SpyInstance;
+      let fileServiceMock: Record<string, jest.Mock>;
 
       beforeEach(async () => {
         eventEmitterMock = jest.spyOn(EventEmitterLogService.prototype, 'emit');
+        fileServiceMock = app.get(FileService) as unknown as Record<string, jest.Mock>;
       });
 
       afterEach(() => {
         eventEmitterMock.mockRestore();
+      });
+
+      it('should save output files from S3 listing', async () => {
+        fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+          { key: 'partner/tenant/2025/1/output/results.jsonl', name: 'results.jsonl' },
+          { key: 'partner/tenant/2025/1/output/summary.csv', name: 'summary.csv' },
+        ]);
+
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ action: 'done', status: 'success' });
+        expect(res.status).toBe(201);
+
+        const outputFiles = await prisma.runOutputFile.findMany({
+          where: { runId: runA.id },
+          orderBy: { name: 'asc' },
+        });
+        expect(outputFiles).toHaveLength(2);
+        expect(outputFiles[0]).toMatchObject({
+          name: 'results.jsonl',
+          path: 'partner/tenant/2025/1/output/results.jsonl',
+        });
+        expect(outputFiles[1]).toMatchObject({
+          name: 'summary.csv',
+          path: 'partner/tenant/2025/1/output/summary.csv',
+        });
       });
 
       describe('Slack Notifiction', () => {
@@ -311,4 +352,165 @@ describe('Earthbeam API', () => {
       });
     });
   });
+
+  describe('POST /:runId/output-files', () => {
+    let runA: Run;
+    let tokenA: string;
+    let endpointA: string;
+    let jobA: Awaited<ReturnType<typeof seedJob>>;
+    let fileBasePath: string;
+    let fileServiceMock: Record<string, jest.Mock>;
+
+    beforeEach(async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      fileServiceMock = app.get(FileService) as unknown as Record<string, jest.Mock>;
+
+      jobA = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      if (!jobA?.runs?.[0]) {
+        throw new Error('Failed to seed job and run');
+      }
+      runA = jobA.runs[0];
+      tokenA = await authService.createAccessToken({ runId: runA.id });
+      endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
+      fileBasePath = jobA.fileBasePath!;
+    });
+
+    it('should reject unauthenticated requests', async () => {
+      const res = await request(app.getHttpServer()).post(endpointA);
+      expect(res.status).toBe(401);
+    });
+
+    it('should reject requests if the token does not match the run id', async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      const jobX = await seedJob({
+        odsConfig: odsConfigX2425,
+        bundle: bundleX,
+        tenant: tenantX,
+      });
+      if (!jobX?.runs?.[0]) {
+        throw new Error('Failed to seed job and run');
+      }
+      const tokenX = await authService.createAccessToken({ runId: jobX.runs[0].id });
+
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenX}`)
+        .send({ path: `${fileBasePath}/output/sideloaded`, sentToOds: false });
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject paths outside the job data directory', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: 'other-partner/other-tenant/other-year/other-job/output/evil', sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject sibling paths that share the fileBasePath prefix', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}-evil`, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject the bare base path (must be a child)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: fileBasePath, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject the bare base path with trailing slash', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/`, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject when no files are found at the given path', async () => {
+      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([]);
+
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/output/empty`, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should canonicalize trailing slashes and store the path without them', async () => {
+      const subfolder = `${jobA.fileBasePath}/output/transformed/`;
+      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+        { key: `${subfolder}output1.jsonl`, name: 'output1.jsonl' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/output/transformed/`, sentToOds: true });
+
+      expect(res.status).toBe(201);
+
+      const saved = await prisma.runOutputFileSet.findUnique({
+        where: { uid: res.body.uid },
+      });
+      expect(saved!.path).toBe(`${fileBasePath}/output/transformed`);
+    });
+
+    it('should list S3 at the given path and save discovered files', async () => {
+      const subfolder = `${jobA.fileBasePath}/output/transformed/`;
+      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+        { key: `${subfolder}output1.jsonl`, name: 'output1.jsonl' },
+        { key: `${subfolder}output2.jsonl`, name: 'output2.jsonl' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/output/transformed`, sentToOds: true });
+
+      expect(res.status).toBe(201);
+      expect(res.body.uid).toBeDefined();
+      expect(typeof res.body.uid).toBe('string');
+
+      expect(fileServiceMock.listFilesAtPath).toHaveBeenCalledWith(subfolder);
+
+      const saved = await prisma.runOutputFileSet.findUnique({
+        where: { uid: res.body.uid },
+      });
+      expect(saved).not.toBeNull();
+      expect(saved!.runId).toBe(runA.id);
+      expect(saved!.path).toBe(`${fileBasePath}/output/transformed`);
+      expect(saved!.files).toEqual(['output1.jsonl', 'output2.jsonl']);
+      expect(saved!.sentToOds).toBe(true);
+    });
+
+    it('should return 409 on duplicate run_id + path', async () => {
+      const subfolder = `${jobA.fileBasePath}/output/sideloaded/`;
+      fileServiceMock.listFilesAtPath.mockResolvedValue([
+        { key: `${subfolder}output1.jsonl`, name: 'output1.jsonl' },
+      ]);
+
+      const first = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/output/sideloaded`, sentToOds: false });
+      expect(first.status).toBe(201);
+
+      const second = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/output/sideloaded`, sentToOds: false });
+      expect(second.status).toBe(409);
+    });
+  });
+
 });

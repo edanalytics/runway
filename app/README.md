@@ -70,7 +70,7 @@ npx nx run fe:serve
 
 Visit [http://localhost:4200](http://localhost:4200) to see the app
 
-_Warning: If you click the http://localhost:4200 link from the terminal output in VS Code, your browser might swap out localhost for 127.0.0.1 which will result in a CORS error. If this happens, replace 127.0.0.1 with locahost and you'll be fine._
+_Warning: If you click the http://localhost:4200 link from the terminal output in VS Code, your browser might swap out localhost for 127.0.0.1 which will result in a CORS error. If this happens, replace 127.0.0.1 with localhost and you'll be fine._
 
 #### 3. Log in
 
@@ -118,6 +118,16 @@ If using local Runway to test a bundle that is not on the main branch, you can f
 2. Add your bundle to the earthmover_bundle table, then the partner_earthmover_bundle table
 3. Make sure you have pushed an update to the bundle registry on your branch by running `python create-registry.py assessments`
 4. You should see the bundle as an option on the "load a new assessment" page
+
+## Package Supply Chain Safety
+
+The project `.npmrc` sets `min-release-age=14`, which prevents `npm install` from resolving any package version published less than 14 days ago. This reduces exposure to supply chain attacks via newly-published or compromised packages.
+
+- **`npm ci`** (used in CI) ignores this setting — it installs exactly what the lockfile specifies, so builds are unaffected.
+- **To override locally** when you need a package published within the last 14 days:
+  ```bash
+  npm install some-package --min-release-age=0
+  ```
 
 ## OSS required attributions
 

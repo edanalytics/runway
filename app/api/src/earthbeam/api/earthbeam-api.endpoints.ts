@@ -18,3 +18,6 @@ export const earthbeamSummaryEndpoint = (runId: number | ':runId') =>
 
 export const earthbeamUnmatchedIdsEndpoint = (runId: number | ':runId') =>
   `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/unmatched-ids`;
+
+export const earthbeamOutputFilesEndpoint = (runId: number | ':runId') =>
+  `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/output-files`;
