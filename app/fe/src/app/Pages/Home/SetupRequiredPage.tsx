@@ -12,7 +12,7 @@ import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-confi
 // roster files when sideloading is the only way data can be processed (i.e.
 // every enabled year is sendToOds=false). In any mixed case, point the user at
 // ODS setup — the sideloading years are handled out-of-band with support.
-export const LandingPage = () => {
+export const SetupRequiredPage = () => {
   const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
 
   if (!yearConfigs) return null;

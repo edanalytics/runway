@@ -1,19 +1,28 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.queries';
-import { LandingPage } from '../Pages/Home/LandingPage';
+import { meQuery } from '../api/queries/me.queries';
+import { SetupRequiredPage } from '../Pages/Home/SetupRequiredPage';
 
 export const Route = createFileRoute('/')({
   loader: async (opts) => {
-    const yearConfigs = await opts.context.queryClient.fetchQuery(tenantSchoolYearConfigQuery);
+    const [yearConfigs, me] = await Promise.all([
+      opts.context.queryClient.fetchQuery(tenantSchoolYearConfigQuery),
+      opts.context.queryClient.fetchQuery(meQuery),
+    ]);
 
-    const canProceed = yearConfigs.some((y) =>
+    // Redirect to /assessments if the tenant has a usable year, or if the
+    // viewer is a partner admin. The admin carve-out is there because it's
+    // the admin who needs to enable years in the first place and define
+    // whether jobs for those years are sent to an ODS.
+    const anyYearReadyForJobs = yearConfigs.some((y) =>
       y.sendToOds ? y.hasOds : y.hasRoster === true
     );
-    if (canProceed) {
+    const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
+    if (anyYearReadyForJobs || isPartnerAdmin) {
       return redirect({ to: '/assessments' });
     }
   },
-  component: LandingPage,
+  component: SetupRequiredPage,
   beforeLoad: () => ({ hideSideNav: true }),
   meta: () => [{ title: 'Home' }],
 });
