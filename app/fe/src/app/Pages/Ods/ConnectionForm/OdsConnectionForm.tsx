@@ -1,5 +1,5 @@
 import { chakra, HStack, VStack } from '@chakra-ui/react';
-import { UseFormReturn } from 'react-hook-form';
+import { FieldError, FieldValues, Path, UseFormReturn } from 'react-hook-form';
 import { RunwayInput } from '../../../components/Form/RunwayInput';
 import { RunwayErrorBox } from '../../../components/Form/RunwayFormErrorBox';
 import { GoBackLink } from '../../../components/links';
@@ -8,13 +8,16 @@ import { GetOdsConfigDto, Id, PostOdsConfigDto, PutOdsConfigDto } from '@edanaly
 import React from 'react';
 import { UseMutationResult } from '@tanstack/react-query';
 
-export const OdsConnectionForm = ({
+// Minimal shape shared by both create (POST) and edit (PUT) forms.
+type OdsConnectionFormFields = { host: string; clientId: string; clientSecret: string };
+
+export const OdsConnectionForm = <T extends FieldValues & OdsConnectionFormFields>({
   form,
   submit,
   mutation,
   yearField,
 }: {
-  form: UseFormReturn<PutOdsConfigDto | PostOdsConfigDto>;
+  form: UseFormReturn<T>;
   submit: React.FormEventHandler;
   yearField?: React.ReactNode;
   mutation:
@@ -25,18 +28,27 @@ export const OdsConnectionForm = ({
     register,
     formState: { errors, isLoading, isDirty },
   } = form;
+  const e = errors as Partial<Record<keyof OdsConnectionFormFields, FieldError>>;
 
   return (
     <chakra.form width="100%" height="100%" onSubmit={submit}>
       <VStack alignItems="flex-start" width="100%" height="100%" gap="500" maxW="32rem">
         <VStack width="100%" gap="300">
           {yearField}
-          <RunwayInput label="Edfi API base URL" error={errors.host} register={register('host')} />
-          <RunwayInput label="key" error={errors.clientId} register={register('clientId')} />
+          <RunwayInput
+            label="Edfi API base URL"
+            error={e.host}
+            register={register('host' as Path<T>)}
+          />
+          <RunwayInput
+            label="key"
+            error={e.clientId}
+            register={register('clientId' as Path<T>)}
+          />
           <RunwayInput
             label="secret"
-            error={errors.clientSecret}
-            register={register('clientSecret')}
+            error={e.clientSecret}
+            register={register('clientSecret' as Path<T>)}
             type="password"
           />
         </VStack>

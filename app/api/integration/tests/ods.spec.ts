@@ -9,7 +9,7 @@ import {
   odsConfigA2526,
   odsConfigB2526,
 } from '../fixtures/context-fixtures/ods-fixture';
-import { schoolYear2324, schoolYear2425, schoolYear2526 } from '../fixtures/context-fixtures/school-year-fixtures';
+import { schoolYear2324, schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixtures';
 import { EdfiService } from '../../src/edfi/edfi.service';
 
 describe('GET /ods-configs', () => {
@@ -193,7 +193,6 @@ describe('PUT /ods-configs/:id', () => {
     host: 'https://updated-ods.example.com',
     clientId: 'updated-client',
     clientSecret: 'updated-secret',
-    schoolYearId: schoolYear2425.id,
   };
 
   it('should reject unauthenticated requests', async () => {
@@ -228,31 +227,20 @@ describe('PUT /ods-configs/:id', () => {
         id: odsConfigA2425.id,
         host: updateInput.host,
         clientId: updateInput.clientId,
-        schoolYearId: updateInput.schoolYearId,
+        schoolYearId: schoolYear2425.id,
         lastUseResult: 'success',
       });
     });
 
-    it('should update the school year on the config when changed', async () => {
-      // schoolYear2324 is free for tenant A — change from 2425 to 2324
+    it('should not change the school year even if one is sent in the body', async () => {
+      // schoolYear2324 is free for tenant A — but the PUT should ignore it and keep 2425
       const res = await request(app.getHttpServer())
         .put(endpoint)
         .set('Cookie', [cookieA])
         .send({ ...updateInput, schoolYearId: schoolYear2324.id });
 
       expect(res.status).toBe(200);
-      expect(res.body.schoolYearId).toBe(schoolYear2324.id);
-    });
-
-    it('should reject updating to a school year that collides with another active config', async () => {
-      // odsConfigA2526 already occupies tenant A + schoolYear2526
-      const res = await request(app.getHttpServer())
-        .put(endpoint)
-        .set('Cookie', [cookieA])
-        .send({ ...updateInput, schoolYearId: schoolYear2526.id });
-
-      expect(res.status).toBe(409);
-      expect(res.body.message).toContain('already exists');
+      expect(res.body.schoolYearId).toBe(schoolYear2425.id);
     });
 
     it('should reject requests from a different tenant', async () => {
