@@ -41,20 +41,20 @@ export const OdsConfigsPage = () => {
     onOpen: openDeleteModal,
     onClose: closeDeleteModal,
   } = useDisclosure();
-  const [yearToDelete, setYearToDelete] = useState<GetTenantSchoolYearConfigDto | null>(null);
+  const [toDelete, setToDelete] = useState<{
+    yearConfig: GetTenantSchoolYearConfigDto;
+    odsConfig: GetOdsConfigDto;
+  } | null>(null);
   const deleteConnectionQuery = odsConfigQueries.delete();
-  const confirmDelete = (yearConfig: GetTenantSchoolYearConfigDto) => {
-    setYearToDelete(yearConfig);
+  const confirmDelete = (yearConfig: GetTenantSchoolYearConfigDto, odsConfig: GetOdsConfigDto) => {
+    setToDelete({ yearConfig, odsConfig });
     openDeleteModal();
   };
   const deleteConfigAndCloseModal = () => {
-    if (yearToDelete) {
-      const odsConfig = odsConfigByYear[yearToDelete.schoolYearId];
-      if (odsConfig) {
-        deleteConnectionQuery.mutate({ id: (odsConfig as GetOdsConfigDto).id });
-      }
+    if (toDelete) {
+      deleteConnectionQuery.mutate({ id: toDelete.odsConfig.id });
     }
-    setYearToDelete(null);
+    setToDelete(null);
     closeDeleteModal();
   };
 
@@ -101,7 +101,7 @@ export const OdsConfigsPage = () => {
                 {yearConfig.sendToOds ? (
                   <OdsYearContent
                     odsConfig={odsConfig}
-                    onDelete={() => confirmDelete(yearConfig)}
+                    onDelete={() => odsConfig && confirmDelete(yearConfig, odsConfig)}
                   />
                 ) : (
                   <RosterYearContent hasRoster={yearConfig.hasRoster === true} />
@@ -117,8 +117,9 @@ export const OdsConfigsPage = () => {
           <ModalHeader>Delete ODS Configuration?</ModalHeader>
           <ModalCloseButton />
           <ModalBody textStyle="body">
-            Are you sure you want to delete the ODS configuration for the {yearToDelete?.startYear}{' '}
-            - {yearToDelete?.endYear} school year? This action cannot be undone.
+            Are you sure you want to delete the ODS configuration for the{' '}
+            {toDelete?.yearConfig.startYear} - {toDelete?.yearConfig.endYear} school year? This
+            action cannot be undone.
           </ModalBody>
 
           <ModalFooter gap="200">

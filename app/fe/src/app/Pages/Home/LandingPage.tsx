@@ -5,6 +5,8 @@ import { ContactSupport } from '../../components/SupportButton';
 import { useQuery } from '@tanstack/react-query';
 import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-config.queries';
 
+// Reachable only when the home route loader's canProceed check returned false
+// (see routes/index.tsx). Branches below assume at least one year cannot proceed.
 export const LandingPage = () => {
   const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
 

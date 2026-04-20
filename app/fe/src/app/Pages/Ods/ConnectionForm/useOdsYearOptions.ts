@@ -7,6 +7,10 @@ import { GetSchoolYearDto } from '@edanalytics/models';
  * Year options for ODS create/edit forms. Only enabled years with sendToOds=true
  * are included. Years that already have an ODS are disabled (except for the
  * current config's year in the edit case).
+ *
+ * `currentYearId` is trusted to be a sendToOds=true year — enforced upstream
+ * by the edit route's loader guard. Don't call this hook from a surface that
+ * isn't route-guarded without revisiting.
  */
 export const useOdsYearOptions = (currentYearId?: GetSchoolYearDto['id']) => {
   const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
