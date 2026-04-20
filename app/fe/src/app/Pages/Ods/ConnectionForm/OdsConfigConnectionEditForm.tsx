@@ -5,7 +5,9 @@ import { classValidatorResolver } from '@hookform/resolvers/class-validator';
 import { FormLayout } from '../../../components/Form/FormLayout';
 import { OdsConnectionForm } from './OdsConnectionForm';
 import { useForm } from 'react-hook-form';
-import { useOdsYearOptions } from './useOdsYearOptions';
+import { useQuery } from '@tanstack/react-query';
+import { tenantSchoolYearConfigQuery } from '../../../api/queries/school-year-config.queries';
+import { Box } from '@chakra-ui/react';
 
 const resolver = classValidatorResolver(PutOdsConfigDto);
 
@@ -29,7 +31,8 @@ export const OdsConfigConnectionEditForm = ({
     );
   });
 
-  const { yearOptions, isYearAvailable } = useOdsYearOptions(odsConfig.schoolYearId);
+  const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
+  const yearConfig = yearConfigs?.find((y) => y.schoolYearId === odsConfig.schoolYearId);
 
   return (
     <FormLayout title="edit ODS" backLink="/ods-configs">
@@ -37,8 +40,13 @@ export const OdsConfigConnectionEditForm = ({
         form={form}
         submit={submit}
         mutation={putOdsConfig}
-        yearOptions={yearOptions}
-        isOptionDisabled={(option) => !isYearAvailable(option.value)}
+        yearField={
+          yearConfig && (
+            <Box textStyle="h5" alignSelf="flex-start">
+              {yearConfig.startYear} - {yearConfig.endYear} school year
+            </Box>
+          )
+        }
       />
     </FormLayout>
   );

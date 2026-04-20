@@ -5,7 +5,10 @@ import { PostOdsConfigDto } from '@edanalytics/models';
 import { classValidatorResolver } from '@hookform/resolvers/class-validator';
 import { FormLayout } from '../../../components/Form/FormLayout';
 import { OdsConnectionForm } from './OdsConnectionForm';
-import { useOdsYearOptions } from './useOdsYearOptions';
+import { RunwaySelect } from '../../../components/Form/RunwaySelect';
+import { useController } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
+import { tenantSchoolYearConfigQuery } from '../../../api/queries/school-year-config.queries';
 
 const resolver = classValidatorResolver(PostOdsConfigDto);
 
@@ -18,7 +21,14 @@ export const OdsConfigConnectionCreateForm = () => {
     successCallback: (result) => navigate({ to: '/ods-configs' }),
   });
 
-  const { yearOptions, isYearAvailable } = useOdsYearOptions();
+  const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
+  const { data: odsConfigs } = useQuery(odsConfigQueries.getAll({}));
+  const odsYears = yearConfigs?.filter((y) => y.sendToOds) ?? [];
+  const takenYearIds = new Set(odsConfigs?.map((c) => c.schoolYearId) ?? []);
+  const yearOptions = odsYears.map((y) => ({
+    label: `${y.startYear} - ${y.endYear} school year`,
+    value: y.schoolYearId,
+  }));
 
   return (
     <FormLayout title="setup ODS" backLink="/ods-configs">
@@ -26,8 +36,14 @@ export const OdsConfigConnectionCreateForm = () => {
         form={form}
         submit={submit}
         mutation={postOdsConfig}
-        yearOptions={yearOptions}
-        isOptionDisabled={(option) => !isYearAvailable(option.value)}
+        yearField={
+          <RunwaySelect
+            label="year"
+            controller={useController({ name: 'schoolYearId', control: form.control })}
+            options={yearOptions}
+            isOptionDisabled={(option) => takenYearIds.has(option.value)}
+          />
+        }
       />
     </FormLayout>
   );
