@@ -4,8 +4,8 @@ import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.q
 export const Route = createFileRoute('/ods-configs')({
   loader: async (opts) => {
     const yearConfigs = await opts.context.queryClient.fetchQuery(tenantSchoolYearConfigQuery);
-    const anyYearSendsToOds = yearConfigs.some((y) => y.sendToOds);
-    if (!anyYearSendsToOds) {
+    const doesAnyYearSendToOds = yearConfigs.some((y) => y.sendToOds);
+    if (!doesAnyYearSendToOds) {
       return redirect({ to: '/' });
     }
   },

@@ -14,11 +14,11 @@ export const Route = createFileRoute('/')({
     // viewer is a partner admin. The admin carve-out is there because it's
     // the admin who needs to enable years in the first place and define
     // whether jobs for those years are sent to an ODS.
-    const anyYearReadyForJobs = yearConfigs.some((y) =>
+    const isAnyYearReadyForJobs = yearConfigs.some((y) =>
       y.sendToOds ? y.hasOds : y.hasRoster === true
     );
     const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
-    if (anyYearReadyForJobs || isPartnerAdmin) {
+    if (isAnyYearReadyForJobs || isPartnerAdmin) {
       return redirect({ to: '/assessments' });
     }
   },

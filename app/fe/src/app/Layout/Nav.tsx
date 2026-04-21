@@ -15,14 +15,14 @@ export const Nav = () => {
   const { data: me } = useMe();
   const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
 
-  const anyYearSendsToOds = yearConfigs?.some((y) => y.sendToOds) ?? false;
+  const doesAnyYearSendToOds = yearConfigs?.some((y) => y.sendToOds) ?? false;
   const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
 
   return (
     // TODO: figure out why this width isn't being respected
     <Box width="12rem" display="flex" flexDir="column" gap="300">
       <NavButton route="/assessments" icon={AssessmentIcon} text="assessments" />
-      {anyYearSendsToOds && (
+      {doesAnyYearSendToOds && (
         <NavButton route="/ods-configs" icon={ODSConfigIcon} text="ODS configuration" />
       )}
       {isPartnerAdmin && (

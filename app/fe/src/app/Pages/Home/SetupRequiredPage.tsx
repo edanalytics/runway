@@ -26,8 +26,8 @@ export const SetupRequiredPage = () => {
     );
   }
 
-  const noneSendToOds = yearConfigs.every((y) => !y.sendToOds);
-  if (noneSendToOds) {
+  const doesAnyYearSendToOds = yearConfigs.some((y) => y.sendToOds);
+  if (!doesAnyYearSendToOds) {
     return (
       <SetupMessage title="Roster File Required">
         <Box textStyle="bodyLarge">
