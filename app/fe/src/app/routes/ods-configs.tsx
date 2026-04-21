@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.queries';
+import { tenantSchoolYearConfigQuery } from '../api';
 
 export const Route = createFileRoute('/ods-configs')({
   // Guard the ODS configuration section at the parent level: if no enabled

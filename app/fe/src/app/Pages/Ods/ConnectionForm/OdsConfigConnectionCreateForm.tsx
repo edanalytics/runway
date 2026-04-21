@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { odsConfigQueries } from '../../../api';
+import { odsConfigQueries, tenantSchoolYearConfigQuery } from '../../../api';
 import { useStandardForm } from '@edanalytics/common-ui';
 import { PostOdsConfigDto } from '@edanalytics/models';
 import { classValidatorResolver } from '@hookform/resolvers/class-validator';
@@ -7,8 +7,7 @@ import { FormLayout } from '../../../components/Form/FormLayout';
 import { OdsConnectionForm } from './OdsConnectionForm';
 import { RunwaySelect } from '../../../components/Form/RunwaySelect';
 import { useController } from 'react-hook-form';
-import { useQuery } from '@tanstack/react-query';
-import { tenantSchoolYearConfigQuery } from '../../../api/queries/school-year-config.queries';
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 
 const resolver = classValidatorResolver(PostOdsConfigDto);
 
@@ -21,9 +20,9 @@ export const OdsConfigConnectionCreateForm = () => {
     successCallback: (result) => navigate({ to: '/ods-configs' }),
   });
 
-  const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
+  const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
   const { data: odsConfigs } = useQuery(odsConfigQueries.getAll({}));
-  const odsYears = yearConfigs?.filter((y) => y.sendToOds) ?? [];
+  const odsYears = yearConfigs.filter((y) => y.sendToOds);
   const takenYearIds = new Set(odsConfigs?.map((c) => c.schoolYearId) ?? []);
   const yearOptions = odsYears.map((y) => ({
     label: `${y.startYear} - ${y.endYear} school year`,

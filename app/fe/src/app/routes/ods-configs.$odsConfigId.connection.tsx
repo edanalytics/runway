@@ -1,7 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { OdsConfigConnectionEditPage } from '../Pages/Ods/OdsConfigConnectionEditPage';
-import { odsConfigQueries } from '../api';
-import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.queries';
+import { odsConfigQueries, tenantSchoolYearConfigQuery } from '../api';
 
 export const Route = createFileRoute('/ods-configs/$odsConfigId/connection')({
   // Prevent editing an ODS config for a year that isn't configured to send to

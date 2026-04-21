@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext } from '@tanstack/react-router';
 import { StandardLayout } from '../Layout/StandardLayout';
-import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.queries';
+import { tenantSchoolYearConfigQuery } from '../api';
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;

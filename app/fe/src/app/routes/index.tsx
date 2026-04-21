@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.queries';
+import { tenantSchoolYearConfigQuery } from '../api';
 import { meQuery } from '../api/queries/me.queries';
 import { SetupRequiredPage } from '../Pages/Home/SetupRequiredPage';
 

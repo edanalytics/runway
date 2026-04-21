@@ -20,11 +20,10 @@ import {
   IconTrash,
 } from '../../../assets/icons';
 import { Link as RouterLink } from '@tanstack/react-router';
-import { odsConfigQueries } from '../../api';
+import { odsConfigQueries, tenantSchoolYearConfigQuery } from '../../api';
 import { GetOdsConfigDto, GetTenantSchoolYearConfigDto } from '@edanalytics/models';
 import { useState } from 'react';
 import { useSuspenseQuery } from '@tanstack/react-query';
-import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-config.queries';
 import { ContactSupport } from '../../components/SupportButton';
 import { keyBy } from 'lodash';
 

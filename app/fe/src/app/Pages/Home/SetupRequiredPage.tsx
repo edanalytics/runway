@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { IconArrowRight } from '../../../assets/icons';
 import { ContactSupport } from '../../components/SupportButton';
 import { useSuspenseQuery } from '@tanstack/react-query';
-import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-config.queries';
+import { tenantSchoolYearConfigQuery } from '../../api';
 
 // Reachable only when no enabled year is ready to receive jobs (see the home
 // route loader in routes/index.tsx). The goal of this page is to direct the

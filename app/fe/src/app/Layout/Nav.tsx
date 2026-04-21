@@ -4,8 +4,8 @@ import { NavButton } from './NavButton';
 import { AssessmentIcon } from '../../assets/AssessmentsIcon';
 import { ODSConfigIcon } from '../../assets/ODSConfigIcon';
 import { useMe } from '../api/queries/me.queries';
-import { useQuery } from '@tanstack/react-query';
-import { tenantSchoolYearConfigQuery } from '../api/queries/school-year-config.queries';
+import { useSuspenseQuery } from '@tanstack/react-query';
+import { tenantSchoolYearConfigQuery } from '../api';
 
 const AdminSettingsIcon = (props: React.ComponentProps<typeof LuSettings2>) => (
   <LuSettings2 {...props} strokeWidth={1} />
@@ -13,9 +13,9 @@ const AdminSettingsIcon = (props: React.ComponentProps<typeof LuSettings2>) => (
 
 export const Nav = () => {
   const { data: me } = useMe();
-  const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
+  const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
 
-  const doesAnyYearSendToOds = yearConfigs?.some((y) => y.sendToOds) ?? false;
+  const doesAnyYearSendToOds = yearConfigs.some((y) => y.sendToOds);
   const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
 
   return (
