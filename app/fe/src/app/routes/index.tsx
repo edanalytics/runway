@@ -6,8 +6,8 @@ import { SetupRequiredPage } from '../Pages/Home/SetupRequiredPage';
 export const Route = createFileRoute('/')({
   loader: async (opts) => {
     const [yearConfigs, me] = await Promise.all([
-      opts.context.queryClient.fetchQuery(tenantSchoolYearConfigQuery),
-      opts.context.queryClient.fetchQuery(meQuery),
+      opts.context.queryClient.ensureQueryData(tenantSchoolYearConfigQuery),
+      opts.context.queryClient.ensureQueryData(meQuery),
     ]);
 
     // Redirect to /assessments if the tenant has a usable year, or if the
