@@ -5,13 +5,13 @@ import { ContactSupport } from '../../components/SupportButton';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-config.queries';
 
-// Reachable only when the home route loader's canProceed check returned false
-// (see routes/index.tsx). Branches below assume at least one year cannot proceed.
-//
-// Messaging centers on ODS as the primary processing path. We only mention
-// roster files when sideloading is the only way data can be processed (i.e.
-// every enabled year is sendToOds=false). In any mixed case, point the user at
-// ODS setup — the sideloading years are handled out-of-band with support.
+// Reachable only when no enabled year is ready to receive jobs (see the home
+// route loader in routes/index.tsx). The goal of this page is to direct the
+// user at whatever will unblock them:
+//   - If any year is configured to send to an ODS, guide them to configure
+//     one — that's the only step they can take themselves.
+//   - Otherwise, they need an admin to either load a roster file or enable
+//     school years, so point them at support.
 export const SetupRequiredPage = () => {
   const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
 
@@ -19,7 +19,8 @@ export const SetupRequiredPage = () => {
     return (
       <SetupMessage title="No School Years Enabled">
         <Box textStyle="bodyLarge">
-          No school years have been enabled for your district. Please contact your administrator.
+          No school years have been enabled for your district. Please contact support for
+          assistance.
         </Box>
         <ContactSupport message="No school years are enabled for my district." />
       </SetupMessage>
