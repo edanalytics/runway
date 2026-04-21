@@ -1,11 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { OdsConfigsPage } from '../Pages/Ods/OdsConfigsPage';
-import { Suspense } from 'react';
+import { odsConfigQueries } from '../api';
 
 export const Route = createFileRoute('/ods-configs/')({
-  component: () => (
-    <Suspense>
-      <OdsConfigsPage />
-    </Suspense>
-  ),
+  loader: (opts) => opts.context.queryClient.ensureQueryData(odsConfigQueries.getAll({})),
+  component: OdsConfigsPage,
 });

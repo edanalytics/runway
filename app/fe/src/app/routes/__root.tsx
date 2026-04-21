@@ -7,9 +7,9 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
   hideSideNav: boolean;
 }>()({
-  // Prefetch so Nav can render its sendToOds-dependent links on first paint
-  // without flicker. Subsequent navigations hit the cache.
-  loader: (opts) => opts.context.queryClient.ensureQueryData(tenantSchoolYearConfigQuery),
+  // Warm Nav's tenant config read; prefetchQuery so an outage doesn't tank
+  // every route — ODS routes, /, and /assessments/new ensureQueryData it.
+  loader: (opts) => opts.context.queryClient.prefetchQuery(tenantSchoolYearConfigQuery),
   component: StandardLayout,
   // TODO NotFound and Error components
 });

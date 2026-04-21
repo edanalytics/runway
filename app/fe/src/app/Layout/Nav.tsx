@@ -4,7 +4,7 @@ import { NavButton } from './NavButton';
 import { AssessmentIcon } from '../../assets/AssessmentsIcon';
 import { ODSConfigIcon } from '../../assets/ODSConfigIcon';
 import { useMe } from '../api/queries/me.queries';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { tenantSchoolYearConfigQuery } from '../api';
 
 const AdminSettingsIcon = (props: React.ComponentProps<typeof LuSettings2>) => (
@@ -13,9 +13,10 @@ const AdminSettingsIcon = (props: React.ComponentProps<typeof LuSettings2>) => (
 
 export const Nav = () => {
   const { data: me } = useMe();
-  const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
+  // Soft read: nav still renders if tenant config fetch fails.
+  const { data: yearConfigs } = useQuery(tenantSchoolYearConfigQuery);
 
-  const doesAnyYearSendToOds = yearConfigs.some((y) => y.sendToOds);
+  const doesAnyYearSendToOds = yearConfigs?.some((y) => y.sendToOds) ?? false;
   const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
 
   return (

@@ -1,5 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
+import { Box } from '@chakra-ui/react';
 import { tenantSchoolYearConfigQuery } from '../api';
+import { ErrorFallback } from '../Layout/ErrorFallback';
 
 export const Route = createFileRoute('/ods-configs')({
   // Guard the ODS configuration section at the parent level: if no enabled
@@ -15,5 +17,7 @@ export const Route = createFileRoute('/ods-configs')({
       return redirect({ to: '/' });
     }
   },
+  pendingComponent: () => <Box textStyle="body">loading...</Box>,
+  errorComponent: ({ error }) => <ErrorFallback message={error.message} />,
   meta: () => [{ title: 'ODS Configuration' }], // title lives here so it's available for breadcrumb even on child routes.
 });
