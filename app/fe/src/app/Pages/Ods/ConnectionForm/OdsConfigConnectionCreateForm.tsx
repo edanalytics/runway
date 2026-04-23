@@ -7,7 +7,7 @@ import { FormLayout } from '../../../components/Form/FormLayout';
 import { OdsConnectionForm } from './OdsConnectionForm';
 import { RunwaySelect } from '../../../components/Form/RunwaySelect';
 import { useController } from 'react-hook-form';
-import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 
 const resolver = classValidatorResolver(PostOdsConfigDto);
 
@@ -21,9 +21,8 @@ export const OdsConfigConnectionCreateForm = () => {
   });
 
   const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
-  const { data: odsConfigs } = useQuery(odsConfigQueries.getAll({}));
   const odsYears = yearConfigs.filter((y) => y.sendToOds);
-  const takenYearIds = new Set(odsConfigs?.map((c) => c.schoolYearId) ?? []);
+  const takenYearIds = new Set(odsYears.filter((y) => y.hasOds).map((y) => y.schoolYearId));
   const yearOptions = odsYears.map((y) => ({
     label: `${y.startYear} - ${y.endYear} school year`,
     value: y.schoolYearId,
