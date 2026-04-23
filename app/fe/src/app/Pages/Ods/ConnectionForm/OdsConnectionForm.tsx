@@ -19,6 +19,9 @@ export const OdsConnectionForm = <T extends FieldValues & OdsConnectionFormField
 }: {
   form: UseFormReturn<T>;
   submit: React.FormEventHandler;
+  // TODO: drop yearField once the flow changes to "add ODS" per school year —
+  // the year will be implied by which row's button was clicked and won't be
+  // editable in the form.
   yearField?: React.ReactNode;
   mutation:
     | UseMutationResult<GetOdsConfigDto, Error, { entity: PutOdsConfigDto } & Id>
