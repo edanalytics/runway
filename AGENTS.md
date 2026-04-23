@@ -176,10 +176,10 @@ __rosters/{partnerId}/{tenantCode}/{schoolYearEndYear}/*
 - **FE**: Chakra UI v2 with custom design tokens; prefer inline readable code over extracted helpers for short logic
 - **Icons**: `app/fe/src/assets/icons/`
 - **Data fetching and suspense**:
-  - Use `useSuspenseQuery` when the page can't render meaningfully without the data — errors surface to the route's `errorComponent` automatically and you get non-nullable types for free.
-  - Use `useQuery` when the component can still render meaningfully if the data is missing or errored (e.g., background polls, optional panels, nav links that can hide gracefully).
-  - Rule: a component may `useSuspenseQuery` only on queries that an ancestor route loader prefetches with `ensureQueryData` (awaited or returned as the loader's promise — async functions wrap returns in a promise, so `loader: (opts) => opts.context.queryClient.ensureQueryData(q)` is fine). Otherwise the component will actually suspend and flash the nearest fallback.
-  - You can also prefetch data that a component reads via `useQuery` — but use `prefetchQuery` (not `ensureQueryData`) so fetch errors are swallowed and the loader doesn't fail. Await/return the prefetch so the loader waits for it. Pair with a soft fallback in the component (`data ?? defaultValue`), since errored prefetches leave the cache empty and `useQuery` will retry. Right pattern when you want a warm cache for speed but graceful degradation on failure (e.g., `Nav` reading tenant config in `__root`).
-  - Prefer scoping prefetches to the routes that actually need the data, not `__root`. Anything added to `__root`'s loader runs on every navigation; a failure there can blow up the whole app unless it's prefetched with `prefetchQuery`.
+  - Critical data → `useSuspenseQuery` in the component, `ensureQueryData` in an ancestor loader.
+  - Optional data → `useQuery` with a fallback value. Optionally `prefetchQuery` in a loader to warm the cache.
+  - Never `useSuspenseQuery` on a query only reached via `prefetchQuery` — a failed prefetch will re-suspend.
+  - Scope prefetches to the route that needs them, not `__root`.
+  - Always `await` or `return` a prefetch from the loader — fire-and-forget won't warm the cache in time. Pair `prefetchQuery` with a soft fallback (`data ?? default`) in the component, since errored prefetches leave the cache empty.
   - Per-major-route pending/error UI via TanStack Router's `pendingComponent` and `errorComponent` (set on the section's parent route, e.g., `/ods-configs`). Route-level pending covers all sub-routes; the top-level React `<Suspense>` in `app.tsx` is only a safety net for unexpected suspends.
 - **Documentation**: When changing behavior described in nearby docs (README.md, AGENTS.md, code comments), update the docs in the same commit. When creating a commit, review changed files for references to documentation and flag any that may need updating.

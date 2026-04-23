@@ -7,8 +7,7 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
   hideSideNav: boolean;
 }>()({
-  // Warm Nav's tenant config read; prefetchQuery so an outage doesn't tank
-  // every route — ODS routes, /, and /assessments/new ensureQueryData it.
+  // Warm the cache for Nav, which reads tenant config but degrades gracefully if it's missing.
   loader: (opts) => opts.context.queryClient.prefetchQuery(tenantSchoolYearConfigQuery),
   component: StandardLayout,
   // TODO NotFound and Error components
