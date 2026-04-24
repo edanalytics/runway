@@ -1,11 +1,13 @@
 import { useNavigate } from '@tanstack/react-router';
-import { odsConfigQueries } from '../../../api';
+import { odsConfigQueries, tenantSchoolYearConfigQuery } from '../../../api';
 import { useStandardForm } from '@edanalytics/common-ui';
 import { PostOdsConfigDto } from '@edanalytics/models';
 import { classValidatorResolver } from '@hookform/resolvers/class-validator';
 import { FormLayout } from '../../../components/Form/FormLayout';
 import { OdsConnectionForm } from './OdsConnectionForm';
-import { useSchoolYears } from '../../../helpers/useSchoolYears';
+import { RunwaySelect } from '../../../components/Form/RunwaySelect';
+import { useController } from 'react-hook-form';
+import { useSuspenseQuery } from '@tanstack/react-query';
 
 const resolver = classValidatorResolver(PostOdsConfigDto);
 
@@ -18,8 +20,13 @@ export const OdsConfigConnectionCreateForm = () => {
     successCallback: (result) => navigate({ to: '/ods-configs' }),
   });
 
-  const { allYears, isYearSelectableForConfig } = useSchoolYears();
-  const isYearAvailable = isYearSelectableForConfig();
+  const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
+  const odsYears = yearConfigs.filter((y) => y.sendToOds);
+  const takenYearIds = new Set(odsYears.filter((y) => y.hasOds).map((y) => y.schoolYearId));
+  const yearOptions = odsYears.map((y) => ({
+    label: `${y.startYear} - ${y.endYear} school year`,
+    value: y.schoolYearId,
+  }));
 
   return (
     <FormLayout title="setup ODS" backLink="/ods-configs">
@@ -27,13 +34,14 @@ export const OdsConfigConnectionCreateForm = () => {
         form={form}
         submit={submit}
         mutation={postOdsConfig}
-        yearOptions={
-          allYears?.map(({ year }) => ({
-            label: `${year.startYear} - ${year.endYear} school year`,
-            value: year.id,
-          })) ?? []
+        yearField={
+          <RunwaySelect
+            label="year"
+            controller={useController({ name: 'schoolYearId', control: form.control })}
+            options={yearOptions}
+            isOptionDisabled={(option) => takenYearIds.has(option.value)}
+          />
         }
-        isOptionDisabled={(option) => !isYearAvailable(option.value)}
       />
     </FormLayout>
   );

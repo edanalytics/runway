@@ -168,7 +168,6 @@ export class OdsConfigService {
         where: { id },
         data: {
           activeConnectionId: newConnection.id,
-          schoolYearId: data.schoolYearId,
         },
         include: { activeConnection: true },
       });

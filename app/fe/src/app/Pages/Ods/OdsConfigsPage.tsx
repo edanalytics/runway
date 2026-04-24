@@ -20,38 +20,40 @@ import {
   IconTrash,
 } from '../../../assets/icons';
 import { Link as RouterLink } from '@tanstack/react-router';
-import { odsConfigQueries } from '../../api';
-import { GetOdsConfigDto } from '@edanalytics/models';
+import { odsConfigQueries, tenantSchoolYearConfigQuery } from '../../api';
+import { GetOdsConfigDto, GetTenantSchoolYearConfigDto } from '@edanalytics/models';
 import { useState } from 'react';
-import { SchoolYearWithOds, useSchoolYears } from '../../helpers/useSchoolYears';
+import { useSuspenseQuery } from '@tanstack/react-query';
+import { ContactSupport } from '../../components/SupportButton';
+import { keyBy } from 'lodash';
 
 export const OdsConfigsPage = () => {
-  const { yearsSinceFirstOds } = useSchoolYears();
+  const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
+  const { data: odsConfigs } = useSuspenseQuery(odsConfigQueries.getAll({}));
+  const odsConfigByYear = keyBy(odsConfigs, 'schoolYearId');
 
-  const testConnectionQuery = odsConfigQueries.testConnection();
-  const testConnection = (odsConfig: GetOdsConfigDto) => {
-    testConnectionQuery.mutate({ entity: odsConfig, pathParams: undefined });
-  };
+  const sortedYears = [...yearConfigs].sort((a, b) => b.startYear - a.startYear);
+  const hasYearNeedingOds = sortedYears.some((y) => y.sendToOds && !y.hasOds);
 
   const {
     isOpen: isDeleteModalOpen,
     onOpen: openDeleteModal,
     onClose: closeDeleteModal,
   } = useDisclosure();
-  const [yearToDeleteConfig, setYeartoDeleteConfig] = useState<SchoolYearWithOds | null>(null);
+  const [toDelete, setToDelete] = useState<{
+    yearConfig: GetTenantSchoolYearConfigDto;
+    odsConfig: GetOdsConfigDto;
+  } | null>(null);
   const deleteConnectionQuery = odsConfigQueries.delete();
-  const confirmDelete = (yearWithOds: SchoolYearWithOds) => {
-    setYeartoDeleteConfig(yearWithOds);
+  const confirmDelete = (yearConfig: GetTenantSchoolYearConfigDto, odsConfig: GetOdsConfigDto) => {
+    setToDelete({ yearConfig, odsConfig });
     openDeleteModal();
   };
   const deleteConfigAndCloseModal = () => {
-    if (yearToDeleteConfig) {
-      const id = yearToDeleteConfig.odsConfig?.id;
-      if (id) {
-        deleteConnectionQuery.mutate({ id });
-      }
+    if (toDelete) {
+      deleteConnectionQuery.mutate({ id: toDelete.odsConfig.id });
     }
-    setYeartoDeleteConfig(null);
+    setToDelete(null);
     closeDeleteModal();
   };
 
@@ -60,95 +62,48 @@ export const OdsConfigsPage = () => {
       <VStack alignItems="flex-start" gap="500" paddingBottom="800">
         <HStack width="100%" justify="space-between">
           <Box as="h1" textStyle="h1">
-            ODS Connections
+            ODS configuration
           </Box>
-          <HStack
-            as={RouterLink}
-            to="/ods-configs/new/connection"
-            maxWidth="16.5rem"
-            width="100%"
-            h="min-content"
-            justify="center"
-            padding="300"
-            gap="200"
-            layerStyle="buttonPrimary"
-            textStyle="button"
-          >
-            <Box padding="100">
-              <IconPlus />
-            </Box>
-            <Box textStyle="button" as="span">
-              add ODS
-            </Box>
-          </HStack>
+          {hasYearNeedingOds && (
+            <HStack
+              as={RouterLink}
+              to="/ods-configs/new/connection"
+              maxWidth="16.5rem"
+              width="100%"
+              h="min-content"
+              justify="center"
+              padding="300"
+              gap="200"
+              layerStyle="buttonPrimary"
+              textStyle="button"
+            >
+              <Box padding="100">
+                <IconPlus />
+              </Box>
+              <Box textStyle="button" as="span">
+                add ODS
+              </Box>
+            </HStack>
+          )}
         </HStack>
 
         <VStack gap="700">
-          {yearsSinceFirstOds?.map(({ year, odsConfig }) => {
-            const verified = odsConfig?.lastUseResult === 'success';
+          {sortedYears.map((yearConfig) => {
+            const odsConfig = odsConfigByYear[yearConfig.schoolYearId] as
+              | GetOdsConfigDto
+              | undefined;
             return (
-              <Box key={year.id} maxWidth="31rem" width="100%">
+              <Box key={yearConfig.schoolYearId} maxWidth="31rem" width="100%">
                 <Box as="h2" textStyle="h2" marginBottom="300">
-                  {year.startYear} - {year.endYear} school year
+                  {yearConfig.startYear} - {yearConfig.endYear} school year
                 </Box>
-                {odsConfig ? (
-                  <Box borderWidth="4px" borderColor="blue.600" borderRadius="8px" padding="300">
-                    <Box textStyle="body">updated {odsConfig.modifiedOn.toLocaleDateString()}</Box>
-                    <Box textStyle="h5" marginBottom="300">
-                      {odsConfig.host}
-                    </Box>
-                    <HStack marginBottom="300" gap="200">
-                      <Box
-                        bg={verified ? 'green.400' : 'pink.400'}
-                        borderRadius="20px"
-                        padding="100"
-                      >
-                        {verified ? <IconCheckmark /> : <IconExclamation />}
-                      </Box>
-                      <Box textStyle="h6" textColor="green.50">
-                        {verified ? 'verified' : 'failed verification'}{' '}
-                        {odsConfig.lastUseOn?.toLocaleDateString()}
-                      </Box>
-                      <Button
-                        onClick={() => testConnection(odsConfig)}
-                        textStyle="button"
-                        textColor="green.100"
-                        variant="unstyled"
-                        isDisabled={testConnectionQuery.isPending}
-                      >
-                        refresh
-                      </Button>
-                    </HStack>
-                    <HStack justifyContent="space-between">
-                      <HStack
-                        as={Button}
-                        textStyle="button"
-                        textColor="pink.100"
-                        variant="unstyled"
-                        padding="200"
-                        gap="200"
-                        onClick={() => confirmDelete({ year, odsConfig })}
-                      >
-                        <IconTrash />
-                        <Box>delete</Box>
-                      </HStack>
-                      <HStack
-                        as={RouterLink}
-                        to={`/ods-configs/${odsConfig.id}/connection`}
-                        textStyle="button"
-                        textColor="green.100"
-                        padding="200"
-                        gap="200"
-                      >
-                        <IconPencil />
-                        <Box>view / edit</Box>
-                      </HStack>
-                    </HStack>
-                  </Box>
+                {yearConfig.sendToOds ? (
+                  <OdsYearContent
+                    odsConfig={odsConfig}
+                    onDelete={() => odsConfig && confirmDelete(yearConfig, odsConfig)}
+                  />
                 ) : (
-                  <Box textStyle="h3" textColor="blue.300">
-                    No ODS added.
-                  </Box>
+                  <RosterYearContent hasRoster={yearConfig.hasRoster === true} />
                 )}
               </Box>
             );
@@ -162,8 +117,8 @@ export const OdsConfigsPage = () => {
           <ModalCloseButton />
           <ModalBody textStyle="body">
             Are you sure you want to delete the ODS configuration for the{' '}
-            {yearToDeleteConfig?.year.startYear} - {yearToDeleteConfig?.year.endYear} school year?
-            This action cannot be undone.
+            {toDelete?.yearConfig.startYear} - {toDelete?.yearConfig.endYear} school year? This
+            action cannot be undone.
           </ModalBody>
 
           <ModalFooter gap="200">
@@ -191,5 +146,108 @@ export const OdsConfigsPage = () => {
         </ModalContent>
       </Modal>
     </>
+  );
+};
+
+const OdsYearContent = ({
+  odsConfig,
+  onDelete,
+}: {
+  odsConfig: GetOdsConfigDto | undefined;
+  onDelete: () => void;
+}) => {
+  const testConnectionQuery = odsConfigQueries.testConnection();
+
+  if (!odsConfig) {
+    return (
+      <Box textStyle="h3" textColor="blue.300">
+        No ODS added.
+      </Box>
+    );
+  }
+
+  const verified = odsConfig.lastUseResult === 'success';
+  return (
+    <Box layerStyle="contentBox" padding="300">
+      <Box textStyle="body">updated {odsConfig.modifiedOn.toLocaleDateString()}</Box>
+      <Box textStyle="h5" marginBottom="300">
+        {odsConfig.host}
+      </Box>
+      <HStack marginBottom="300" gap="200">
+        <Box bg={verified ? 'green.300' : 'pink.400'} borderRadius="20px" padding="100">
+          {verified ? <IconCheckmark /> : <IconExclamation />}
+        </Box>
+        <Box textStyle="h6" textColor="green.50">
+          {verified ? 'verified' : 'failed verification'}{' '}
+          {odsConfig.lastUseOn?.toLocaleDateString()}
+        </Box>
+        <Button
+          onClick={() => testConnectionQuery.mutate({ entity: odsConfig, pathParams: undefined })}
+          textStyle="button"
+          textColor="green.100"
+          variant="unstyled"
+          isDisabled={testConnectionQuery.isPending}
+        >
+          refresh
+        </Button>
+      </HStack>
+      <HStack justifyContent="space-between">
+        <HStack
+          as={Button}
+          textStyle="button"
+          textColor="pink.100"
+          variant="unstyled"
+          padding="200"
+          gap="200"
+          onClick={onDelete}
+        >
+          <IconTrash />
+          <Box>delete</Box>
+        </HStack>
+        <HStack
+          as={RouterLink}
+          to={`/ods-configs/${odsConfig.id}/connection`}
+          textStyle="button"
+          textColor="green.100"
+          padding="200"
+          gap="200"
+        >
+          <IconPencil />
+          <Box>view / edit</Box>
+        </HStack>
+      </HStack>
+    </Box>
+  );
+};
+
+const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
+  return (
+    <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
+      <Box textStyle="bodyLargeBold" textColor="blue.50">
+        Data for this school year is not sent to an ODS.
+      </Box>
+      {!hasRoster && (
+        <Box textStyle="body">
+          A roster file is required to match student IDs. Contact support to have a roster file
+          loaded.
+        </Box>
+      )}
+      <HStack justifyContent="space-between">
+        <HStack gap="200">
+          <Box
+            bg={hasRoster ? 'green.300' : 'pink.400'}
+            borderRadius="20px"
+            padding="100"
+            flexShrink={0}
+          >
+            {hasRoster ? <IconCheckmark /> : <IconExclamation />}
+          </Box>
+          <Box textStyle="h6" textColor={hasRoster ? 'green.50' : 'pink.50'}>
+            {hasRoster ? 'roster file loaded' : 'roster file not loaded'}
+          </Box>
+        </HStack>
+        {!hasRoster && <ContactSupport message="Roster file needs to be loaded" />}
+      </HStack>
+    </VStack>
   );
 };
