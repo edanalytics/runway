@@ -18,7 +18,7 @@ Metadata:
           default: Database (RDS Postgres) information
         Parameters:
           - DBInstanceClass
-          - EngineVersion
+          - PostgresVersion
           - DBName
           - DBAllocatedStorage
           - DBMultiAZ
@@ -151,11 +151,15 @@ Parameters:
     Description: The weekly time range (in UTC) during which system maintenance can occur.
     Type: String
     Default: 'sat:07:00-sat:07:30' 
-  EngineVersion:
+  PostgresVersion:
     Description: 'PostgreSQL version.'
     Type: String
-    Default: '16.6'
-    AllowedValues: ['13.18', '14.15', '15.12', '16.6']
+    Default: 'Fifteen'
+    AllowedValues: 
+      - 'Fourteen'
+      - 'Fifteen'
+      - 'Sixteen'
+      - 'Seventeen'
   EnableIAMDatabaseAuthentication:
     Description: 'Enable mapping of AWS Identity and Access Management (IAM) accounts to database accounts (https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/UsingWithRDS.IAMDBAuth.html).'
     Type: String
@@ -329,6 +333,14 @@ Parameters:
     Type: String
     Description: 'URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function.'
 
+Mappings:
+  PostgreSQLInformation:
+    EngineVersion:
+      'Fourteen': '14.22'
+      'Fifteen': '15.17'
+      'Sixteen': '16.13'
+      'Seventeen': '17.9'
+
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   EnableS3AccessLogging: !Not [!Equals [!Ref S3AccessLoggingBucket, '']]
@@ -356,7 +368,10 @@ Resources:
         DBMultiAZ: !Ref DBMultiAZ
         PreferredBackupWindow: !Ref PreferredBackupWindow
         PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
-        EngineVersion: !Ref EngineVersion
+        DBEngineVersion: !FindInMap
+          - PostgreSQLInformation
+          - EngineVersion
+          - !Ref PostgresVersion
         EnableIAMDatabaseAuthentication: !Ref EnableIAMDatabaseAuthentication
   BeanstalkStack:
     Type: AWS::CloudFormation::Stack
