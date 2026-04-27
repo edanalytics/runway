@@ -63,16 +63,7 @@ Conditions:
   HasAlertTopic: !Equals [!Ref DeployAlerts, 'Yes']
   HasDBSnapshotIdentifier: !Not [!Equals [!Ref DBSnapshotIdentifier, '']]
   NotDBSnapshotIdentifier: !Not [!Condition HasDBSnapshotIdentifier]
-Mappings: 
-  DBFamilyMap: 
-    '13.18':
-      'family': 'postgres13'
-    '14.15':
-      'family': 'postgres14'
-    '15.12':
-      'family': 'postgres15'
-    '16.6':
-      'family': 'postgres16'
+
 Resources:
   KmsKey:
     DeletionPolicy: Retain
