@@ -25,8 +25,6 @@ import { FileService } from '../files/file.service';
 import { rosterFileKey } from '../earthbeam/roster-path';
 import { AppConfigService } from '../config/app-config.service';
 
-const toEtag = (value: Date) => `"${value.toISOString()}"`;
-
 @ApiTags('SchoolYearConfig')
 @Controller()
 export class SchoolYearConfigController {
@@ -123,7 +121,7 @@ export class SchoolYearConfigController {
     }
 
     if (maxModifiedOn) {
-      res.setHeader('etag', toEtag(maxModifiedOn));
+      res.setHeader('x-config-modified-at', maxModifiedOn.toISOString());
     }
 
     return toGetSchoolYearConfigDto(schoolYears.map((sy) => {
@@ -143,12 +141,12 @@ export class SchoolYearConfigController {
   @Put()
   async updateConfig(
     @TenantDecorator() tenant: Tenant,
-    @Headers('if-match') ifMatchHeader: string | undefined,
+    @Headers('x-if-config-modified-at') ifModifiedAtHeader: string | undefined,
     @Body(new ParseArrayPipe({ items: PutSchoolYearConfigRowDto }))
     body: PutSchoolYearConfigRowDto[],
   ) {
     const partnerId = tenant.partnerId;
-    const ifMatch = ifMatchHeader ?? null;
+    const ifModifiedAt = ifModifiedAtHeader ?? null;
 
     // Validate all submitted schoolYearIds exist
     if (body.length > 0) {
@@ -172,16 +170,15 @@ export class SchoolYearConfigController {
     });
 
     const latestModifiedOn = latestConfig?.modifiedOn ?? null;
-    const currentEtag = latestModifiedOn ? toEtag(latestModifiedOn) : null;
+    const currentModifiedAt = latestModifiedOn ? latestModifiedOn.toISOString() : null;
 
     // Check-then-write: concurrent requests can both pass before either writes.
     // Acceptable for a low-frequency admin config surface.
-    if (ifMatch !== currentEtag) {
+    if (ifModifiedAt !== currentModifiedAt) {
       throw new ConflictException({
         statusCode: 409,
         message: 'Config has been modified since you loaded it.',
-        etag: currentEtag,
-        lastModifiedOn: latestModifiedOn ? latestModifiedOn.toISOString() : null,
+        lastModifiedOn: currentModifiedAt,
         lastModifiedBy: latestConfig?.user
           ? `${latestConfig.user.givenName} ${latestConfig.user.familyName}`
           : null,
