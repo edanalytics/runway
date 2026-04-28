@@ -13,11 +13,11 @@ export const schoolYearConfigQuery = {
   queryKey: QUERY_KEY,
   queryFn: async () => {
     const res = await apiClientRaw.get<GetSchoolYearConfigDto[]>('/school-year-config');
-    const headerValue = res.headers['etag'];
+    const headerValue = res.headers['x-config-modified-at'];
     return {
       rows: plainToInstance(GetSchoolYearConfigDto, res.data ?? []),
-      etag: Array.isArray(headerValue) ? headerValue[0] : (headerValue ?? null),
-    } satisfies { rows: GetSchoolYearConfigDto[]; etag: string | null };
+      modifiedAt: Array.isArray(headerValue) ? headerValue[0] : (headerValue ?? null),
+    } satisfies { rows: GetSchoolYearConfigDto[]; modifiedAt: string | null };
   },
 };
 
@@ -31,13 +31,13 @@ export const useUpdateSchoolYearConfig = () => {
   return useMutation({
     mutationFn: async ({
       rows,
-      etag,
+      modifiedAt,
     }: {
       rows: PutSchoolYearConfigRowDto[];
-      etag: string | null;
+      modifiedAt: string | null;
     }) => {
       return apiClient.put('/school-year-config', rows, {
-        headers: etag ? { 'if-match': etag } : undefined,
+        headers: modifiedAt ? { 'x-if-config-modified-at': modifiedAt } : undefined,
       });
     },
     onSuccess: () => {

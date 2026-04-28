@@ -6,8 +6,8 @@ import { authHelper } from '../helpers/oidc/auth-flow';
 import { idpA, idpX } from '../fixtures/context-fixtures/idp-fixtures';
 import { FileService } from 'api/src/files/file.service';
 
-const ETAG_HEADER = 'etag';
-const IF_MATCH_HEADER = 'if-match';
+const MODIFIED_AT_HEADER = 'x-config-modified-at';
+const IF_MODIFIED_AT_HEADER = 'x-if-config-modified-at';
 
 describe('GET /school-year-config', () => {
   const endpoint = '/school-year-config';
@@ -68,13 +68,13 @@ describe('GET /school-year-config', () => {
       expect(row2324.odsCount).toBe(0);
     });
 
-    it('should include ETag header when config rows exist', async () => {
+    it('should include modified-at header when config rows exist', async () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
 
-      expect(res.headers[ETAG_HEADER]).toBeDefined();
+      expect(res.headers[MODIFIED_AT_HEADER]).toBeDefined();
     });
 
-    it('should only return config for the session partner, not other partners', async () => {
+it('should only return config for the session partner, not other partners', async () => {
       const userRoleX = 'Runway.User';
       const cookieX = (await authHelper.login(idpX, userX, tenantX, userRoleX)).cookies;
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieX]);
@@ -127,19 +127,19 @@ describe('PUT /school-year-config', () => {
           .cookies;
       });
 
-      function getEtag(res: request.Response): string | null {
-        return res.headers[ETAG_HEADER] ?? null;
+      function getModifiedAt(res: request.Response): string | null {
+        return res.headers[MODIFIED_AT_HEADER] ?? null;
       }
 
       it('should update config for multiple years in one call', async () => {
-        // First get the current ETag
+        // First get the current version
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [partnerAdminCookieA]);
-        const etag = getEtag(getRes);
+        const modifiedAt = getModifiedAt(getRes);
 
         const req = request(app.getHttpServer()).put(endpoint).set('Cookie', [partnerAdminCookieA]);
-        if (etag) req.set(IF_MATCH_HEADER, etag);
+        if (modifiedAt) req.set(IF_MODIFIED_AT_HEADER, modifiedAt);
         const res = await req.send([
           { schoolYearId: '2425', isEnabled: false, sendToOds: false },
           { schoolYearId: '2526', isEnabled: true, sendToOds: false },
@@ -163,11 +163,11 @@ describe('PUT /school-year-config', () => {
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [partnerAdminCookieA]);
-        const etag = getEtag(getRes);
+        const modifiedAt = getModifiedAt(getRes);
 
         // 2324 has no existing config row for partner A
         const req = request(app.getHttpServer()).put(endpoint).set('Cookie', [partnerAdminCookieA]);
-        if (etag) req.set(IF_MATCH_HEADER, etag);
+        if (modifiedAt) req.set(IF_MODIFIED_AT_HEADER, modifiedAt);
         const res = await req.send([{ schoolYearId: '2324', isEnabled: true, sendToOds: true }]);
         expect(res.status).toBe(200);
 
@@ -178,29 +178,27 @@ describe('PUT /school-year-config', () => {
         expect(row2324.isEnabled).toBe(true);
       });
 
-      it('should return 409 with last modifier info when ETag does not match', async () => {
-        const staleEtag = '"2020-01-01T00:00:00.000Z"';
+      it('should return 409 with last modifier info when modified-at does not match', async () => {
+        const staleModifiedAt = '2020-01-01T00:00:00.000Z';
         const res = await request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [partnerAdminCookieA])
-          .set(IF_MATCH_HEADER, staleEtag)
+          .set(IF_MODIFIED_AT_HEADER, staleModifiedAt)
           .send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
         expect(res.status).toBe(409);
-        expect(res.body.etag).toBeDefined();
         expect(res.body.lastModifiedOn).toBeDefined();
       });
 
-      it('should return 409 when If-Match is missing and config rows already exist', async () => {
+      it('should return 409 when modified-at header is missing and config rows already exist', async () => {
         const res = await request(app.getHttpServer())
           .put(endpoint)
           .set('Cookie', [partnerAdminCookieA])
           .send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
         expect(res.status).toBe(409);
-        expect(res.body.etag).toBeDefined();
         expect(res.body.lastModifiedOn).toBeDefined();
       });
 
-      it('should succeed when ETag is absent and no config rows exist', async () => {
+      it('should succeed when modified-at header is absent and no config rows exist', async () => {
         const partnerAdminCookieX = (
           await authHelper.login(idpX, userX, tenantX, partnerAdminRoleX)
         ).cookies;
@@ -226,10 +224,10 @@ describe('PUT /school-year-config', () => {
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [partnerAdminCookieA]);
-        const etag = getEtag(getRes);
+        const modifiedAt = getModifiedAt(getRes);
 
         const req = request(app.getHttpServer()).put(endpoint).set('Cookie', [partnerAdminCookieA]);
-        if (etag) req.set(IF_MATCH_HEADER, etag);
+        if (modifiedAt) req.set(IF_MODIFIED_AT_HEADER, modifiedAt);
         await req.send([{ schoolYearId: '2425', isEnabled: false, sendToOds: false }]);
 
         // Partner X config should be unchanged
@@ -244,10 +242,10 @@ describe('PUT /school-year-config', () => {
         const getRes = await request(app.getHttpServer())
           .get(endpoint)
           .set('Cookie', [partnerAdminCookieA]);
-        const etag = getEtag(getRes);
+        const modifiedAt = getModifiedAt(getRes);
 
         const req = request(app.getHttpServer()).put(endpoint).set('Cookie', [partnerAdminCookieA]);
-        if (etag) req.set(IF_MATCH_HEADER, etag);
+        if (modifiedAt) req.set(IF_MODIFIED_AT_HEADER, modifiedAt);
         const res = await req.send([
           { schoolYearId: 'nonexistent', isEnabled: true, sendToOds: true },
         ]);

@@ -50,7 +50,7 @@ export const SchoolYearConfigSection = () => {
       {isEditing ? (
         <SchoolYearConfigEditForm
           data={config.rows}
-          etag={config.etag}
+          modifiedAt={config.modifiedAt}
           tableSx={runwayTableSx}
           onCancel={() => setIsEditing(false)}
           onSaved={() => setIsEditing(false)}
