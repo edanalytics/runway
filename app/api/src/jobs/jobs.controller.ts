@@ -163,26 +163,20 @@ export class JobsController {
         );
       });
 
-    // ─── Look up and validate ODS ─────────────────────────────────────────────
-    await this.prisma.odsConfig
-      .findUniqueOrThrow({
-        where: {
-          retired: false,
-          activeConnectionId: { not: null },
-          tenant: {
-            code: tenant.code,
-            partnerId: tenant.partnerId,
-          },
-          id: createJobDto.odsId,
-          schoolYearId: createJobDto.schoolYearId,
-        },
-      })
-      .catch(() => {
-        this.logger.error(
-          `Invalid ODS selected: ODS ID: ${createJobDto.odsId}, School Year: ${createJobDto.schoolYearId}, Tenant: ${tenant.code}, Partner: ${tenant.partnerId}`
-        );
-        throw new BadRequestException(`Invalid ODS selected: ${createJobDto.odsId}`);
-      });
+    const destination = await this.jobService.resolveJobDestination({
+      schoolYearId: createJobDto.schoolYearId,
+      tenant,
+    });
+    if (destination.status === 'error') {
+      const year = createJobDto.schoolYearId;
+      const messages: Record<typeof destination.code, string> = {
+        school_year_config_missing: `School year is not enabled: ${year}`,
+        school_year_disabled: `School year is not enabled: ${year}`,
+        ods_not_found: `No ODS found for school year: ${year}`,
+        roster_file_missing: `No roster file found for school year: ${year}`,
+      };
+      throw new BadRequestException(messages[destination.code]);
+    }
 
     // Flatten params to Record<string, string>
     // Service will add fresh metadata from the bundle. We shouldn't trust the metadata coming in here anyway.
@@ -196,8 +190,9 @@ export class JobsController {
     const result = await this.jobService.createJob(
       {
         bundlePath: createJobDto.template.path,
-        odsId: createJobDto.odsId,
-        schoolYearId: createJobDto.schoolYearId,
+        odsId: destination.data.odsId,
+        sendToOds: destination.data.sendToOds,
+        schoolYearId: destination.data.schoolYearId,
         files: createJobDto.files,
         params: flatParams,
       },

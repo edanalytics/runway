@@ -5,8 +5,21 @@ displayName: Example
 ssoSessionMaxLifespan: 7776000
 enabled: true
 
+roles:
+  realm:
+    - name: User
+    - name: PartnerAdmin
+
 clientScopes:
   - name: "create:jobs"
+    protocol: openid-connect
+    attributes:
+      "include.in.token.scope": "true"
+  - name: "read:jobs"
+    protocol: openid-connect
+    attributes:
+      "include.in.token.scope": "true"
+  - name: "read:jobs:output-files"
     protocol: openid-connect
     attributes:
       "include.in.token.scope": "true"
@@ -60,6 +73,17 @@ clients:
           access.token.claim: 'true'
           claim.name: tenant_code
           jsonType.label: String
+      - name: Roles
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-realm-role-mapper
+        consentRequired: false
+        config:
+          multivalued: 'true'
+          claim.name: roles
+          jsonType.label: String
+          id.token.claim: 'true'
+          access.token.claim: 'true'
+          userinfo.token.claim: 'true'
     attributes:
       post.logout.redirect.uris: http://localhost:4200* 
 
@@ -74,6 +98,8 @@ clients:
     directAccessGrantsEnabled: false
     defaultClientScopes:
       - "create:jobs"
+      - "read:jobs"
+      - "read:jobs:output-files"
       - "partner:ea"
     protocolMappers:
       # The app validates the aud claim, so we need to inject it.
@@ -97,6 +123,8 @@ users:
     firstName: Dev
     lastName: D'Evdeverson
     emailVerified: true
+    realmRoles:
+      - User
   - username: admin
     credentials:
       - type: password
@@ -106,3 +134,5 @@ users:
     firstName: Admin
     lastName: McAdminFace
     emailVerified: true
+    realmRoles:
+      - PartnerAdmin

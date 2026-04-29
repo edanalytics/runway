@@ -26,6 +26,30 @@ export class GetSchoolYearConfigDto {
 
 export const toGetSchoolYearConfigDto = makeSerializer<GetSchoolYearConfigDto>(GetSchoolYearConfigDto);
 
+export class GetTenantSchoolYearConfigDto {
+  @Expose()
+  schoolYearId: string;
+
+  @Expose()
+  startYear: number;
+
+  @Expose()
+  endYear: number;
+
+  @Expose()
+  sendToOds: boolean;
+
+  @Expose()
+  hasOds: boolean;
+
+  @Expose()
+  hasRoster: boolean | null;
+}
+
+export const toGetTenantSchoolYearConfigDto = makeSerializer<GetTenantSchoolYearConfigDto>(
+  GetTenantSchoolYearConfigDto
+);
+
 // --- PUT request ---
 
 export class PutSchoolYearConfigRowDto {

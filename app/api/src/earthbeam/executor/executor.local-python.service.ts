@@ -1,4 +1,4 @@
-import { Run } from '@prisma/client';
+import { Job, Run, SchoolYear } from '@prisma/client';
 import { ExecutorService } from './executor.service';
 import { rm, access } from 'fs/promises';
 import { exec } from 'child_process';
@@ -15,7 +15,7 @@ export class ExecutorLocalPythonService implements ExecutorService {
     private readonly apiAuth: EarthbeamApiAuthService
   ) {}
 
-  async start(run: Run) {
+  async start(run: Run & { job: Job & { schoolYear: SchoolYear } }) {
     const cwd = path.resolve(process.cwd(), '../executor/local-run');
     const pythonPath = path.join(cwd, 'venv/bin/python');
     const scriptPath = path.resolve(cwd, '../scripts/main.py');

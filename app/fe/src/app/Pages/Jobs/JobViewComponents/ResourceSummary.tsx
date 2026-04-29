@@ -41,7 +41,7 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
   const success = summariesToDisplay.filter(([_, summary]) => summary?.success > 0);
   const successSum = success.reduce((acc, [_, summary]) => acc + summary?.success, 0);
 
-  const supportMessage = `Resources failed to send: ${failed
+  const supportMessage = `Resources failed to ${job.sendToOds ? 'send' : 'process'}: ${failed
     .map(([resource, summary]) => `${resource} (${summary.failed})`) // add some info to help triaging
     .join(', ')}`;
 
@@ -54,7 +54,11 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
               <Box bg="green.300" padding="100" borderRadius="21px">
                 <IconCheckmark />
               </Box>
-              <Box textStyle="bodyLargeBold">Runway sent all resources to the ODS.</Box>
+              <Box textStyle="bodyLargeBold">
+                {job.sendToOds
+                  ? 'Runway sent all resources to the ODS.'
+                  : 'Runway processed all resources successfully.'}
+              </Box>
             </HStack>
             {!!job.unmatchedStudentsFile && (
               <Box marginTop="200" textStyle="body">
@@ -78,17 +82,27 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
                     <IconExclamation />
                   </Box>
                   <Box textStyle="bodyLargeBold">
-                    {successSum === 0
-                      ? 'All resources failed to send to the ODS'
+                    {job.sendToOds
+                      ? successSum === 0
+                        ? 'All resources failed to send to the ODS'
+                        : failedSum === 1
+                        ? 'Resource failed to send to the ODS'
+                        : 'Resources failed to send to the ODS'
+                      : successSum === 0
+                      ? 'All resources failed to process'
                       : failedSum === 1
-                      ? 'Resource failed to send to the ODS'
-                      : `Resources failed to send to the ODS`}
+                      ? 'Resource failed to process'
+                      : 'Resources failed to process'}
                   </Box>
                 </HStack>
                 <Box textStyle="body">
-                  {failed.length === 1
-                    ? `Runway was unable to send ${countOfString('failed', failed[0])}.`
-                    : 'Runway was unable to send the resources listed as "Failed" below to your ODS.'}{' '}
+                  {job.sendToOds
+                    ? failed.length === 1
+                      ? `Runway was unable to send ${countOfString('failed', failed[0])}.`
+                      : 'Runway was unable to send the resources listed as "Failed" below to your ODS.'
+                    : failed.length === 1
+                    ? `Runway was unable to process ${countOfString('failed', failed[0])}.`
+                    : 'Runway was unable to process the resources listed as "Failed" below.'}{' '}
                   Please contact{' '}
                   <Link
                     href={getSupportLink(supportMessage)}

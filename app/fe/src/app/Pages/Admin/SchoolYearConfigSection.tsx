@@ -14,12 +14,12 @@ import {
   Badge,
 } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
-import { schoolYearConfigQueries } from '../../api/queries/school-year-config.queries';
+import { schoolYearConfigQuery } from '../../api/queries/school-year-config.queries';
 import { SchoolYearConfigEditForm } from './SchoolYearConfigEditForm';
 import { runwayTableSx } from '../../components/Table/RunwayStdTable';
 
 export const SchoolYearConfigSection = () => {
-  const { data: config, isLoading } = useQuery(schoolYearConfigQueries);
+  const { data: config, isLoading } = useQuery(schoolYearConfigQuery);
   const [isEditing, setIsEditing] = useState(false);
 
   if (isLoading || !config) {
@@ -50,7 +50,7 @@ export const SchoolYearConfigSection = () => {
       {isEditing ? (
         <SchoolYearConfigEditForm
           data={config.rows}
-          etag={config.etag}
+          modifiedAt={config.modifiedAt}
           tableSx={runwayTableSx}
           onCancel={() => setIsEditing(false)}
           onSaved={() => setIsEditing(false)}

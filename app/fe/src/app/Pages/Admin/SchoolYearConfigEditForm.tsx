@@ -34,7 +34,7 @@ const switchSx = {
 
 interface Props {
   data: GetSchoolYearConfigDto[];
-  etag: string | null;
+  modifiedAt: string | null;
   tableSx?: SystemStyleObject;
   onCancel: () => void;
   onSaved: () => void;
@@ -56,7 +56,7 @@ function describeChanges(original: GetSchoolYearConfigDto[], edited: GetSchoolYe
   return changes;
 }
 
-export const SchoolYearConfigEditForm = ({ data, etag, tableSx, onCancel, onSaved }: Props) => {
+export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, onSaved }: Props) => {
   const [rows, setRows] = useState<GetSchoolYearConfigDto[]>(
     data.map((r) => ({ ...r }))
   );
@@ -127,7 +127,7 @@ export const SchoolYearConfigEditForm = ({ data, etag, tableSx, onCancel, onSave
   const handleSaveConfirm = () => {
     mutation.mutate(
       {
-        etag,
+        modifiedAt,
         rows: rows.map((r) => ({
           schoolYearId: r.schoolYearId,
           isEnabled: r.isEnabled,

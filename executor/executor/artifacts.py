@@ -16,7 +16,7 @@ class JobArtifact:
 
 ROSTER = JobArtifact(
     "edfi_roster",
-    os.path.abspath(os.path.join(config.LB_DOWNLOAD_DIR, "studentEducationOrganizationAssociations.jsonl"),)
+    os.path.abspath(os.path.join(config.ROSTER_DOWNLOAD_DIR, "studentEducationOrganizationAssociations.jsonl"),)
 )
 EM_RESULTS = JobArtifact(
     "earthmover_results",

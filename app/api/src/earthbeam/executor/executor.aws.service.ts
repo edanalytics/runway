@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ExecutorService } from './executor.service';
-import { Job, Run } from '@prisma/client';
+import { Job, Run, SchoolYear } from '@prisma/client';
 import { AssumeRoleCommandInput, STSClient } from '@aws-sdk/client-sts';
 import { AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { ECSClient, RunTaskCommandInput } from '@aws-sdk/client-ecs';
 import { RunTaskCommand } from '@aws-sdk/client-ecs';
 import { AppConfigService } from 'api/src/config/app-config.service';
+import { rosterFileKey } from 'api/src/earthbeam/roster-path';
 import { EarthbeamApiAuthService } from '../api/auth/earthbeam-api-auth.service';
 
 @Injectable()
@@ -24,11 +25,14 @@ export class ExecutorAwsService implements ExecutorService {
     this.ecsClient = new ECSClient({ region });
   }
 
-  async start(run: Run & { job: Job }) {
+  async start(run: Run & { job: Job & { schoolYear: SchoolYear } }) {
     const initToken = await this.apiAuth.createInitToken({ runId: run.id });
     const initJobUrl = this.apiAuth.initEndpoint({ runId: run.id });
     const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
     const ecsConfig = await this.appConfig.ecsConfig();
+    const rosterResource = !run.job.sendToOds
+      ? `arn:aws:s3:::${this.appConfig.rosterBucket()}/${rosterFileKey(run.job, run.job.schoolYear)}`
+      : null;
 
     const assumeRoleInput: AssumeRoleCommandInput = {
       RoleArn: ecsConfig.taskRole,
@@ -41,6 +45,15 @@ export class ExecutorAwsService implements ExecutorService {
             Action: ['s3:GetObject', 's3:PutObject'],
             Resource: [`arn:aws:s3:::${run.job.fileBucketOrHost}/${run.job.fileBasePath}/*`],
           },
+          ...(rosterResource
+            ? [
+                {
+                  Effect: 'Allow',
+                  Action: ['s3:GetObject'],
+                  Resource: [rosterResource],
+                },
+              ]
+            : []),
         ],
       }),
       DurationSeconds: parseInt(timeoutSeconds),

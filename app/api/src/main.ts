@@ -71,7 +71,7 @@ async function bootstrap() {
   app.enableCors({
     origin: idpRows.rows.map((row) => row.fe_home),
     credentials: true,
-    exposedHeaders: ['location', 'etag'],
+    exposedHeaders: ['location', 'x-config-modified-at'],
   });
   app.useGlobalInterceptors(
     new ClassSerializerInterceptor(app.get(Reflector), {
