@@ -44,7 +44,7 @@ class JobExecutor:
         self.action = ""
         self.error = None
         self.summary = {}
-        self.cross_year_pass_ran = False
+        self.cross_year_pass_ran = False # FIXME: not a fan of this construction
         self.timeout_seconds = int(os.environ.get("TIMEOUT_SECONDS"))
 
 
@@ -64,9 +64,10 @@ class JobExecutor:
         shutil.rmtree(".lightbeam", ignore_errors=True)
 
         self.output_dir = os.path.abspath(config.OUTPUT_DIR)
+        # TODO: only want to set this when relevant
         # Used only by the two-pass (ODS + cross-year) flow; the first run's output
         # gets stashed here so the cross-year run can reuse OUTPUT_DIR.
-        self.ods_output_dir = os.path.abspath(config.ODS_OUTPUT_DIR)
+        self.ods_output_dir = os.path.abspath(config.OUTPUT_DIR_FIRST_RUN)
         os.mkdir(self.output_dir)
         os.environ["DATA_DIR"] = self.output_dir
         os.environ["OUTPUT_DIR"] = self.output_dir
@@ -123,7 +124,7 @@ class JobExecutor:
             if self.should_run_cross_year_pass():
                 self.cross_year_pass()
 
-            self.upload_artifact(artifact.MATCH_RATES)
+            self.upload_artifact(artifact.MATCH_RATES) # FIXME: blegh
             self.report_unmatched_students()
 
             if self.send_to_ods:
@@ -186,6 +187,7 @@ class JobExecutor:
             if not self.send_to_ods:
                 self.logger.info("this job is not sending Earthmover output set to an ODS")
                 artifact.LB_SEND_RESULTS.needs_upload = False
+                # TODO:
                 # if bypassing the ODS without cross-year matching, a file roster is required.
                 # Cross-year jobs source the roster from the app instead.
                 if not self.cross_year_match_available:
@@ -274,21 +276,23 @@ class JobExecutor:
         """Download a list of students so they can be used to match IDs"""
         self.set_action(action.GET_ROSTER)
 
+        # TODO: better documentation
         if self.send_to_ods:
             self.get_roster_from_ods()
         elif self.cross_year_match_available:
             # Sideloaded year + cross-year matching: skip the file roster entirely and
             # use the streamed cross-year roster as the (single) roster for this run.
-            self.get_roster_from_cross_year_endpoint(artifact.ROSTER.path)
+            self.get_roster_from_cross_year_endpoint()
         else:
             self.get_roster_from_s3()
 
         self.upload_artifact(artifact.ROSTER)
 
-    def get_roster_from_cross_year_endpoint(self, dest_path):
-        """Stream the app's cross-year roster into a JSONL file at dest_path."""
+    def get_roster_from_cross_year_endpoint(self):
+        """Stream the app's cross-year roster into a JSONL file"""
         self.logger.info(f"streaming cross-year roster from {self.cross_year_roster_url}")
-        os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
+        dest_path = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
+        # FIXME: would be good to retry this a couple of times in case the stream is interrupted
         try:
             with self.conn.get(self.cross_year_roster_url, stream=True) as resp:
                 resp.raise_for_status()
@@ -301,7 +305,7 @@ class JobExecutor:
             raise
 
         if os.stat(dest_path).st_size == 0:
-            self.error = error.MissingOdsRosterError()
+            self.error = error.CrossYearRosterFetchError()
             raise ValueError("Cross-year roster is empty")
 
     def get_roster_from_ods(self):
@@ -428,6 +432,7 @@ class JobExecutor:
         self._run_earthmover(artifact.EM_RESULTS.path)
         self.upload_artifact(artifact.EM_RESULTS)
 
+    # TODO: results_path...
     def _run_earthmover(self, results_path, encoding_override=None):
         """Compile and run Earthmover into the given results file.
 
@@ -438,7 +443,6 @@ class JobExecutor:
         encoding-detection retry path is skipped entirely; we trust the caller.
         """
         fatal = False
-        em = None
 
         try:
             encoding_mod = []
@@ -452,7 +456,7 @@ class JobExecutor:
                 self.logger.info(f"setting input encoding to {encoding}")
                 encoding_mod.extend(["--set", "sources.input.encoding", encoding])
 
-            subprocess.run(
+            em = subprocess.run(
                 ["earthmover", "-c", self.wrapper_earthmover, "compile"]
             ).check_returncode()
 
@@ -471,6 +475,7 @@ class JobExecutor:
                 self.logger.info(f"earthmover stderr: {em.stderr}")
             em.check_returncode()
 
+            # FIXME: don't love this construction, although it has a nice effect downstream
             # remember whatever encoding (if any) we just used; a cross-year follow-on
             # run will reuse it rather than re-detecting
             if encoding_override:
@@ -514,8 +519,9 @@ class JobExecutor:
                 # shut it down
                 self.error = error.EarthmoverRunError()
                 # generic exception that will be caught, with em.stderr reported as the stacktrace
-                raise Exception(em.stderr if em else "earthmover failed before invocation")
+                raise Exception(em.stderr)
 
+    # TODO: dunno
     def should_run_cross_year_pass(self):
         """Should we follow up the primary ODS run with a cross-year matching pass?
 
