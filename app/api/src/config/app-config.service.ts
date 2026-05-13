@@ -8,6 +8,13 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
+export type EduConnectionInfo = {
+  username: string;
+  url: string;
+  publicKey: Buffer;
+  privateKey: Buffer;
+};
+
 /**
  * AppConfigService is a wrapper on the @nestjs/config package's
  * ConfigService. It allows us to define custom getters, including
@@ -94,6 +101,55 @@ export class AppConfigService {
       return this.getBufferFromAWSSecret(jwtKeySecret);
     }
     return this.get('JWT_ENCRYPTION_KEY');
+  }
+
+  /**
+   * EDU Snowflake connection info for cross-year ID matching. Looks for an
+   * AWS secret named `edu-connection-info-<partnerId>`; falls back to
+   * EDU_SNOWFLAKE_* env vars when the secret is unavailable (local dev).
+   * Returns null when no creds are available — caller decides how to handle.
+   */
+  async getEduConnectionInfo(partnerId: string): Promise<EduConnectionInfo | null> {
+    // Local-dev path first so tests / local runs never hit AWS.
+    const envUsername = process.env.EDU_SNOWFLAKE_USERNAME;
+    if (envUsername) {
+      const url = process.env.EDU_SNOWFLAKE_URL;
+      const publicKeyB64 = process.env.EDU_SNOWFLAKE_PUBLIC_KEY;
+      const privateKeyB64 = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
+      if (!url || !publicKeyB64 || !privateKeyB64) {
+        return null;
+      }
+      return {
+        username: envUsername,
+        url,
+        publicKey: Buffer.from(publicKeyB64, 'base64'),
+        privateKey: Buffer.from(privateKeyB64, 'base64'),
+      };
+    }
+
+    const secretName = `edu-connection-info-${partnerId}`;
+    try {
+      const secret = await this.getAWSSecret(secretName);
+      if (typeof secret !== 'object') {
+        return null;
+      }
+      const { username, url, publicKey, privateKey } = secret;
+      if (!username || !url || !publicKey || !privateKey) {
+        return null;
+      }
+      return {
+        username,
+        url,
+        publicKey: Buffer.from(publicKey, 'base64'),
+        privateKey: Buffer.from(privateKey, 'base64'),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async eduCredsExist(partnerId: string): Promise<boolean> {
+    return (await this.getEduConnectionInfo(partnerId)) !== null;
   }
 
   bundleBranch(): string {
