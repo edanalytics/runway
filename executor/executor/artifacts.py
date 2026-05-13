@@ -22,6 +22,13 @@ EM_RESULTS = JobArtifact(
     "earthmover_results",
     "em-results.json"
 )
+# Only uploaded when a cross-year matching pass runs. Defaults to no-upload
+# so the base case (single Earthmover run) doesn't try to upload it.
+EM_RESULTS_X_YEAR = JobArtifact(
+    "earthmover_results_x_year",
+    "em-results-x-year.json"
+)
+EM_RESULTS_X_YEAR.needs_upload = False
 MATCH_RATES = JobArtifact(
     "student_id_match_rates",
     os.path.join(config.OUTPUT_DIR, ("student_id_match_rates.csv")),
@@ -35,4 +42,4 @@ LB_SEND_RESULTS = JobArtifact(
     "lb-send-results.json"
 )
 
-ALL = [ROSTER, EM_RESULTS, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS]
+ALL = [ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS]
