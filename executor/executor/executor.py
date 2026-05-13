@@ -21,6 +21,7 @@ import executor.action_statuses as status
 import executor.artifacts as artifact
 import executor.config as config
 import executor.errors as error
+from executor.output_sets import OutputSet
 
 handler = logging.StreamHandler()
 _formatter = logging.Formatter(
@@ -44,7 +45,6 @@ class JobExecutor:
         self.action = ""
         self.error = None
         self.summary = {}
-        self.cross_year_pass_ran = False # FIXME: not a fan of this construction
         self.timeout_seconds = int(os.environ.get("TIMEOUT_SECONDS"))
 
 
@@ -64,10 +64,6 @@ class JobExecutor:
         shutil.rmtree(".lightbeam", ignore_errors=True)
 
         self.output_dir = os.path.abspath(config.OUTPUT_DIR)
-        # TODO: only want to set this when relevant
-        # Used only by the two-pass (ODS + cross-year) flow; the first run's output
-        # gets stashed here so the cross-year run can reuse OUTPUT_DIR.
-        self.ods_output_dir = os.path.abspath(config.OUTPUT_DIR_FIRST_RUN)
         os.mkdir(self.output_dir)
         os.environ["DATA_DIR"] = self.output_dir
         os.environ["OUTPUT_DIR"] = self.output_dir
@@ -118,17 +114,9 @@ class JobExecutor:
             self.get_input_files()
 
             self.map_descriptors()
-            self.earthmover_run()
-            self.enforce_match_threshold()
+            self.orchestrate_earthmover()
 
-            if self.should_run_cross_year_pass():
-                self.cross_year_pass()
-
-            self.upload_artifact(artifact.MATCH_RATES) # FIXME: blegh
-            self.report_unmatched_students()
-
-            if self.send_to_ods:
-                self.lightbeam_send()
+            self.lightbeam_send()
 
             self.upload_output()
             self.compile_summary()
@@ -172,7 +160,7 @@ class JobExecutor:
             self.send_to_ods = job.get("sendToOds", True)
             self.cross_year_match_available = job.get("crossYearMatchAvailable", False)
             if self.cross_year_match_available:
-                self.cross_year_roster_url = job["appUrls"]["crossYearRoster"]
+                self.cross_year_roster_url = job["appUrls"]["roster"]
 
             self.assessment_project = os.path.join(
                 self.wrapper_project, "packages", *job["bundle"]["path"].split("/")[1:]
@@ -187,10 +175,8 @@ class JobExecutor:
             if not self.send_to_ods:
                 self.logger.info("this job is not sending Earthmover output set to an ODS")
                 artifact.LB_SEND_RESULTS.needs_upload = False
-                # TODO:
-                # if bypassing the ODS without cross-year matching, a file roster is required.
-                # Cross-year jobs source the roster from the app instead.
                 if not self.cross_year_match_available:
+                    # If bypassing the ODS and not pulling from EDU, require that a roster file exists in S3
                     self.roster_file_path = job["rosterFilePath"]
             else:
                 #     Note that we always need the API_YEAR env var set in order to run Earthmover.
@@ -273,33 +259,30 @@ class JobExecutor:
         )
 
     def get_student_roster(self):
-        """Download a list of students so they can be used to match IDs"""
+        """Download a list of students so they can be used to match IDs in the initial Earthmover run"""
         self.set_action(action.GET_ROSTER)
 
-        # TODO: better documentation
         if self.send_to_ods:
+            # Case 1: initially attempt to match on current year;
+            #         leave open the cross-year option if we take another pass
             self.get_roster_from_ods()
         elif self.cross_year_match_available:
-            # Sideloaded year + cross-year matching: skip the file roster entirely and
-            # use the streamed cross-year roster as the (single) roster for this run.
-            self.get_roster_from_cross_year_endpoint()
+            # Case 2: not sending to this year's ODS but we have access to EDU;
+            #         only running Earthmover once with cross-year roster
+            self.get_roster_from_edu()
         else:
+            # Case 3: not sending to this year's ODS and EDU is unavailable;
+            #         only running Earthmover once with uploaded roster
             self.get_roster_from_s3()
 
         self.upload_artifact(artifact.ROSTER)
 
-    def get_roster_from_cross_year_endpoint(self):
-        """Stream the app's cross-year roster into a JSONL file"""
+    def get_roster_from_edu(self):
+        """Query EDU via the Runway app and load cross-year roster data into a JSONL file"""
         self.logger.info(f"streaming cross-year roster from {self.cross_year_roster_url}")
         dest_path = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
-        # FIXME: would be good to retry this a couple of times in case the stream is interrupted
         try:
-            with self.conn.get(self.cross_year_roster_url, stream=True) as resp:
-                resp.raise_for_status()
-                with open(dest_path, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=64 * 1024):
-                        if chunk:
-                            f.write(chunk)
+            stream_to_file(self.conn, self.cross_year_roster_url, dest_path)
         except requests.exceptions.RequestException:
             self.error = error.CrossYearRosterFetchError()
             raise
@@ -420,49 +403,67 @@ class JobExecutor:
 
                 self.logger.debug(f"Mapped {len(descriptors)} {name} values")
 
-    def earthmover_run(self):
-        """Run an Earthmover bundle to transform assessment data"""
+    def orchestrate_earthmover(self):
+        """Run an Earthmover bundle to transform assessment data.
+        
+        Conditionally run Earthmover a second time on input records that initially failed to match
+        """
         self.set_action(action.EARTHMOVER_RUN)
 
+        # first pass, possibly aborting if there are too few matches
         self.unpack_id_types()
         os.environ["EDFI_STUDENT_ID_TYPES"] = ",".join(self.distinct_id_types)
         self.logger.info(f"Student ID types in Ed-Fi roster: {os.environ['EDFI_STUDENT_ID_TYPES']}")
 
         self.check_input_encoding()
-        self._run_earthmover(artifact.EM_RESULTS.path)
+        self.earthmover_run(artifact.EM_RESULTS.path)
         self.upload_artifact(artifact.EM_RESULTS)
+        self.enforce_match_threshold()
 
-    # TODO: results_path...
-    def _run_earthmover(self, results_path, encoding_override=None):
-        """Compile and run Earthmover into the given results file.
+        self.output_sets = [OutputSet(
+            local_dir=self.output_dir,
+            s3_subdir="ods" if self.send_to_ods else "non-ods",
+            sent_to_ods=self.send_to_ods,
+            em_results_path=artifact.EM_RESULTS.path,
+            lb_send_results_path=artifact.LB_SEND_RESULTS.path if self.send_to_ods else None,
+        )]
+        if (self.send_to_ods                      # i.e. we've only tried matching this year's students so far
+            and self.cross_year_match_available   # and we have access to EDU
+            and bool(self.num_unmatched_students) # and there are unmatched students from the first run
+        ):
+            # then take a second pass with the cross-year roster from EDU
+            # and thus produce a second output set to be sideloaded
+            cross_year_output = self.cross_year_pass(self.output_sets[0])
+            self.output_sets.append(cross_year_output)
 
-        Records the encoding that ultimately succeeded as self.successful_encoding so
-        subsequent runs over the same input file can skip re-detection.
+        self.upload_artifact(artifact.MATCH_RATES)
+        self.report_unmatched_students()
 
-        When encoding_override is provided (e.g. for a follow-on cross-year run), the
-        encoding-detection retry path is skipped entirely; we trust the caller.
-        """
+    def earthmover_run(self, results_path, encoding_override=None):
+        """Compile and run Earthmover into the given results directory."""
+        if encoding_override:
+            # Case 1: second pass, so we know what encoding already worked
+            encoding = encoding_override
+            # Case 2: first pass and chardet identified an encoding we think is plausible, so use it
+        elif self.input_sources["INPUT_FILE"]["is_plausible_non_utf8"]:
+            encoding = str.lower(self.input_sources["INPUT_FILE"]["encoding"])
+        else:
+            # Case 3: first pass and we don't have a good guess so just use UTF-8
+            encoding = None
+        encoding_args = ["--set", "sources.input.encoding", encoding] if encoding else []
+        if encoding:
+            self.logger.info(f"using input encoding: {encoding}")
+
         fatal = False
-
         try:
-            encoding_mod = []
-            if encoding_override:
-                self.logger.info(f"using provided input encoding: {encoding_override}")
-                encoding_mod.extend(["--set", "sources.input.encoding", encoding_override])
-            elif self.input_sources["INPUT_FILE"]["is_plausible_non_utf8"]:
-                #    if chardet identified an encoding that we think is plausible, use it.
-                # Otherwise, do nothing and default to UTF-8 for the first attempt
-                encoding = str.lower(self.input_sources["INPUT_FILE"]["encoding"])
-                self.logger.info(f"setting input encoding to {encoding}")
-                encoding_mod.extend(["--set", "sources.input.encoding", encoding])
-
             em = subprocess.run(
                 ["earthmover", "-c", self.wrapper_earthmover, "compile"]
-            ).check_returncode()
+            )
+            em.check_returncode()
 
             # attempt no. 1
             cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path]
-            cmd.extend(encoding_mod)
+            cmd.extend(encoding_args)
             em = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -475,15 +476,7 @@ class JobExecutor:
                 self.logger.info(f"earthmover stderr: {em.stderr}")
             em.check_returncode()
 
-            # FIXME: don't love this construction, although it has a nice effect downstream
-            # remember whatever encoding (if any) we just used; a cross-year follow-on
-            # run will reuse it rather than re-detecting
-            if encoding_override:
-                self.successful_encoding = encoding_override
-            elif self.input_sources["INPUT_FILE"]["is_plausible_non_utf8"]:
-                self.successful_encoding = str.lower(self.input_sources["INPUT_FILE"]["encoding"])
-            else:
-                self.successful_encoding = None
+            self.successful_encoding = encoding
         except subprocess.CalledProcessError as err:
             self.logger.warning("earthmover encountered an error")
             fatal = True
@@ -491,11 +484,11 @@ class JobExecutor:
             #    yes it's brittle to check the error against a string like this, but this message hasn't
             # changed since 2007(!) -> https://github.com/python/cpython/blame/main/Objects/exceptions.c
             if (
-                not encoding_override
+                not encoding_override # i.e. only try again if this is the first pass and we're still uncertain about the encoding
                 and err.stderr and "codec can't decode" in err.stderr
-                and self.input_sources["INPUT_FILE"]["encoding"] != "ISO-8859-1"
+                and encoding != "iso-8859-1"
             ):
-                self.logger.error(f"Failed to read file with {self.input_sources['INPUT_FILE']['encoding']} encoding. Retrying with Latin1...")
+                self.logger.error(f"Failed to read file with {encoding} encoding. Retrying with Latin1...")
                 try:
                     # attempt no. 2 - need a new em object to overwrite the decoding error
                     em = subprocess.run(
@@ -521,34 +514,18 @@ class JobExecutor:
                 # generic exception that will be caught, with em.stderr reported as the stacktrace
                 raise Exception(em.stderr)
 
-    # TODO: dunno
-    def should_run_cross_year_pass(self):
-        """Should we follow up the primary ODS run with a cross-year matching pass?
-
-        Only relevant when sending to an ODS: sideloaded-year jobs that have cross-year
-        matching available already use the cross-year roster for their single run.
-        """
-        return (
-            self.send_to_ods
-            and self.cross_year_match_available
-            and bool(self.num_unmatched_students)
-        )
-
-    def cross_year_pass(self):
-        """Run a second Earthmover pass against a cross-year roster to pick up unmatched students.
-
-        Stashes the first run's output set under ODS_OUTPUT_DIR so the second run can write
-        fresh files into OUTPUT_DIR. The second run is constrained to the ID column/type that
-        won in the first run so the unmatched-students UI keeps presenting a single ID.
-        """
-        # Capture first-run match info before _run_earthmover overwrites it.
+    def cross_year_pass(self, primary):
+        """Run a second Earthmover pass against a cross-year roster in an attempt to match more students."""
+        # Capture first-run match info before earthmover_run overwrites it.
         first_run_id_name = self.highest_match_id_name
         first_run_id_type = self.highest_match_id_type
 
-        os.rename(self.output_dir, self.ods_output_dir)
+        first_run_output_dir = os.path.abspath(config.OUTPUT_DIR_FIRST_RUN)
+        os.rename(self.output_dir, first_run_output_dir)
+        primary.local_dir = first_run_output_dir
         os.mkdir(self.output_dir)
 
-        self.get_roster_from_cross_year_endpoint(config.CROSS_YEAR_ROSTER_PATH)
+        self.get_roster_from_edu()
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
         # Constrain to the ID column the first run matched on. The bundle always appends
@@ -561,13 +538,19 @@ class JobExecutor:
             f"cross-year pass: matching on {first_run_id_name} / {first_run_id_type}"
         )
 
-        self._run_earthmover(
+        self.earthmover_run(
             artifact.EM_RESULTS_X_YEAR.path,
             encoding_override=self.successful_encoding,
         )
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
-        self.cross_year_pass_ran = True
+
+        return OutputSet(
+            local_dir=self.output_dir,
+            s3_subdir="non-ods",
+            sent_to_ods=False,
+            em_results_path=artifact.EM_RESULTS_X_YEAR.path,
+        )
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""
@@ -749,14 +732,14 @@ class JobExecutor:
         # if we don't return the unmatched students file at all
         self.logger.debug("too many unmatched students. Skipping upload")
         artifact.UNMATCHED_STUDENTS.needs_upload = False
-        raise ValueError(
-            f"insufficient ID matches to continue "
-            f"(highest rate {self.highest_match_rate} < required {config.REQUIRED_ID_MATCH_RATE}; "
-            f"ID column name: {self.highest_match_id_name}; Ed-Fi ID type: {self.highest_match_id_type})"
-        )
+        raise ValueError("insufficient ID matches to continue (highest rate {self.highest_match_rate} < required {config.REQUIRED_ID_MATCH_RATE}; ID column name: {self.highest_match_id_name}; Ed-Fi ID type: {self.highest_match_id_type})")
 
     def report_unmatched_students(self):
-        """Alert the app to any unmatched students that remain after all Earthmover passes."""
+        """Alert the app to any unmatched students that remain after all Earthmover passes.
+        
+            This method is only run if enforce_match_threshold determines that enough students have matched that the
+        input file is basically trustworthy
+        """
         if not self.num_unmatched_students:
             return
 
@@ -773,12 +756,14 @@ class JobExecutor:
         self.upload_artifact(artifact.UNMATCHED_STUDENTS)
 
     def lightbeam_send(self):
-        """Upload Earthmover's outputs to the ODS"""
+        """Upload an Earthmover output set to the ODS via lightbeam."""
+
+        if not self.send_to_ods:
+            return
+
         self.set_action(action.LIGHTBEAM_SEND)
-        if self.cross_year_pass_ran:
-            # The records destined for the ODS came from the first Earthmover run and
-            # now live in the stashed output dir; point lightbeam there.
-            os.environ["DATA_DIR"] = self.ods_output_dir
+        # If we ran Earthmover twice, we're only ever sending the first output set
+        os.environ["DATA_DIR"] = self.output_sets[0].local_dir
         try:
             subprocess.run(
                 ["lightbeam", "-c", self.assessment_lightbeam, "send", "--set", "state_dir", ".lightbeam", "--results-file", artifact.LB_SEND_RESULTS.path]
@@ -792,84 +777,39 @@ class JobExecutor:
         self.upload_artifact(artifact.LB_SEND_RESULTS)
 
     def compile_summary(self):
-        """Post results from job to share with the user.
+        """Send per-resource records-processed/skipped/failed counts to the app."""
+        summary = {}
+        for set in self.output_sets:
+            for resource, counts in set.counts().items():
+                if resource not in summary:
+                    summary[resource] = {
+                        "records_processed": 0,
+                        "records_skipped": 0,
+                        "records_failed": 0,
+                    }
+                for k in summary[resource]:
+                    summary[resource][k] += counts.get(k, 0)
 
-        In a two-pass (ODS + cross-year) run, fold the cross-year records into the
-        same per-resource counts the lightbeam-send results produced — the user sees
-        a single combined picture.
-        """
-        if self.send_to_ods:
-            self._merge_into_summary(self._summary_from_lb_send(artifact.LB_SEND_RESULTS.path))
-            if self.cross_year_pass_ran:
-                self._merge_into_summary(self._summary_from_em_results(artifact.EM_RESULTS_X_YEAR.path))
-        else:
-            self._merge_into_summary(self._summary_from_em_results(artifact.EM_RESULTS.path))
-
-        if self.summary:
+        if summary:
+            self.summary = summary
             self.send_job_summary()
 
-    def _summary_from_lb_send(self, results_path):
-        """Per-resource processed/skipped/failed counts from a lightbeam-send results file."""
-        with open(results_path) as f:
-            lb_send_results = json.load(f)
-        required_counts = ["records_processed", "records_skipped", "records_failed"]
-        return {
-            resource: {k: v for k, v in counts.items() if k in required_counts}
-            for resource, counts in lb_send_results["resources"].items()
-        }
-
-    def _summary_from_em_results(self, results_path):
-        """Per-resource processed counts from an Earthmover results file.
-
-        Used when records are sideloaded rather than sent to an ODS — Earthmover row
-        counts are the best signal we have for those.
-        """
-        with open(results_path) as f:
-            em_results = json.load(f)
-        dest_prefix = "$destinations."
-        out = {}
-        for key, count in em_results.get("row_counts", {}).items():
-            if key.startswith(dest_prefix):
-                resource = key[len(dest_prefix):]
-                out[resource] = {
-                    "records_processed": count,
-                    "records_skipped": 0,
-                    "records_failed": 0,
-                }
-        return out
-
-    def _merge_into_summary(self, partial):
-        for resource, counts in partial.items():
-            target = self.summary.setdefault(resource, {})
-            for key, value in counts.items():
-                target[key] = target.get(key, 0) + value
-
     def upload_output(self):
-        """Upload Earthmover output set(s) to S3 and notify the app of their location(s).
-
-        In a two-pass run, the first run's output set (sent to the ODS) lives in the
-        stash dir and the cross-year run's set (sideloaded) lives in OUTPUT_DIR. We
-        upload them to separate S3 subdirs and send one alert per non-empty set.
-        """
+        """Upload each Earthmover output set to S3 and notify the app of its location."""
         self.set_action(action.UPLOAD_OUTPUT)
+        for set in self.output_sets:
+            self.upload_output_set(set)
 
-        if self.cross_year_pass_ran:
-            self._upload_output_set(self.ods_output_dir, "ods", sent_to_ods=True)
-            self._upload_output_set(self.output_dir, "non-ods", sent_to_ods=False)
-        else:
-            output_type = "ods" if self.send_to_ods else "non-ods"
-            self._upload_output_set(self.output_dir, output_type, sent_to_ods=self.send_to_ods)
-
-    def _upload_output_set(self, src_dir, output_type, sent_to_ods):
-        """Upload all non-empty files in src_dir to <s3_out_path>/<output_type>/ and alert the app."""
-        s3_subdir = f"{self.s3_out_path}/{output_type}"
+    def upload_output_set(self, output_set):
+        """Upload all non-empty files in one OutputSet's local_dir to its S3 subdir, then alert the app."""
+        s3_prefix = f"{self.s3_out_path}/{output_set.s3_subdir}"
         uploaded = False
-        for fname in os.listdir(src_dir):
-            fpath = os.path.join(src_dir, fname)
+        for fname in os.listdir(output_set.local_dir):
+            fpath = os.path.join(output_set.local_dir, fname)
             if not os.path.isfile(fpath) or os.stat(fpath).st_size == 0:
                 continue
 
-            dest_fname = f"{s3_subdir}/{fname}"
+            dest_fname = f"{s3_prefix}/{fname}"
             self.logger.info(f"uploading output: {fname} -> {dest_fname}")
             try:
                 self.s3.upload_file(fpath, self.app_bucket, dest_fname)
@@ -879,10 +819,10 @@ class JobExecutor:
             uploaded = True
 
         if not uploaded:
-            self.logger.warning(f"no output files found in {src_dir} to upload")
+            self.logger.warning(f"no Earthmover output files found in {output_set.local_dir} to upload")
             return
 
-        self.send_job_output_alert(s3_subdir, sent_to_ods)
+        self.send_job_output_alert(s3_prefix, output_set.sent_to_ods)
 
     def upload_remaining_artifacts(self):
         """Attempt to upload all artifacts that have not yet been uploaded"""
@@ -993,3 +933,23 @@ class JobExecutor:
 def localize_s3_path(path):
     """Convert an S3 'path' to a single filename"""
     return path.replace("/", "__")
+
+
+def stream_to_file(session, url, dest_path, max_attempts=3):
+    """GET url as a stream and write the body to dest_path"""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with session.get(url, stream=True) as resp:
+                resp.raise_for_status()
+                with open(dest_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=64 * 1024):
+                        if chunk:
+                            f.write(chunk)
+            return
+        except (requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.ConnectionError) as e:
+            if attempt == max_attempts:
+                raise
+            sleep_seconds = attempt * 5
+            print(f"stream_to_file: attempt {attempt}/{max_attempts} failed ({type(e).__name__}); retrying in {sleep_seconds}s")
+            time.sleep(sleep_seconds)

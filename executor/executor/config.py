@@ -1,6 +1,7 @@
 BUNDLE_DIR = 'bundles'
 OUTPUT_DIR = 'output'
-OUTPUT_DIR_FIRST_RUN = 'output-first-run' # TODO:
+# when performing a cross-year-matching second pass: location to move earthmover output set from the first pass
+OUTPUT_DIR_FIRST_RUN = 'output-first-run'
 ROSTER_DOWNLOAD_DIR = 'roster-download-dir'
 CROSS_YEAR_ROSTER_PATH = 'cross_year_roster.jsonl'
 
