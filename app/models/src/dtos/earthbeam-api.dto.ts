@@ -44,10 +44,14 @@ export class EarthbeamApiJobResponseDto {
     summary: string;
     unmatchedIds: string;
     outputFiles: string;
+    roster?: string;
   };
 
   @Expose()
   sendToOds: boolean;
+
+  @Expose()
+  crossYearMatchAvailable: boolean;
 
   @Expose()
   rosterFilePath?: string;

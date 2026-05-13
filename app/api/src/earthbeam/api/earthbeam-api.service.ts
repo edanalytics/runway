@@ -17,6 +17,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
   earthbeamOutputFilesEndpoint,
+  earthbeamRosterEndpoint,
   earthbeamStatusUpdateEndpoint,
   earthbeamSummaryEndpoint,
   earthbeamUnmatchedIdsEndpoint,
@@ -140,6 +141,11 @@ export class EarthbeamApiService {
 
     const executorBaseUrl = this.configService.executorCallbackBaseUrl();
 
+    const partnerId = job.tenant.partnerId;
+    const crossYearMatchAvailable =
+      job.tenant.partner.crossYearMatchingEnabled &&
+      (await this.configService.eduCredsExist(partnerId));
+
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
@@ -158,7 +164,11 @@ export class EarthbeamApiService {
         summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
+        ...(crossYearMatchAvailable
+          ? { roster: `${executorBaseUrl}/${earthbeamRosterEndpoint(runId)}` }
+          : {}),
       },
+      crossYearMatchAvailable,
       sendToOds: job.sendToOds,
       rosterFilePath: job.sendToOds
         ? undefined
