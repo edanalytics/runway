@@ -30,6 +30,7 @@ import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
+import type { Response } from 'express';
 
 @Injectable()
 export class EarthbeamApiService {
@@ -43,12 +44,106 @@ export class EarthbeamApiService {
     @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
   ) {}
 
-  async streamCrossYearRoster(_args: {
+  async getCrossYearRosterContext(runId: Run['id']) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      include: { job: { include: { tenant: { include: { partner: true } } } } },
+    });
+    if (!run) {
+      return { status: 'ERROR' as const, type: 'not_found' as const, message: `Run not found: ${runId}` };
+    }
+    const partner = run.job.tenant.partner;
+    if (!partner.crossYearMatchingEnabled) {
+      return {
+        status: 'ERROR' as const,
+        type: 'conflict' as const,
+        message: 'Cross-year matching is not enabled for this partner',
+      };
+    }
+    if (!(await this.configService.eduCredsExist(partner.id))) {
+      return {
+        status: 'ERROR' as const,
+        type: 'conflict' as const,
+        message: 'EDU connection info is not available for this partner',
+      };
+    }
+    return {
+      status: 'SUCCESS' as const,
+      data: { partnerId: partner.id, tenantCode: run.job.tenant.code },
+    };
+  }
+
+  /**
+   * Streams a cross-year roster from EDU/Snowflake to the response as NDJSON.
+   * Per-request connection, closed in `finally`. On stream error: abrupt close
+   * (no in-band sentinel) — the Executor detects truncation and fails the run.
+   */
+  async streamCrossYearRoster({
+    partnerId,
+    tenantCode,
+    response,
+  }: {
     partnerId: string;
     tenantCode: string;
-    response: import('express').Response;
+    response: Response;
   }): Promise<void> {
-    throw new Error('streamCrossYearRoster not implemented');
+    const conn = await this.configService.getEduConnectionInfo(partnerId);
+    if (!conn) {
+      throw new Error('EDU connection info missing — caller should have validated');
+    }
+
+    // Lazy import: snowflake-sdk has slow module-init side effects we don't want
+    // to pay on every app boot. Cross-year roster fetch is a rare hot path.
+    const snowflake = await import('snowflake-sdk');
+
+    // snowflake-sdk wants `account`, not a URL. URL is like
+    // https://<account>.<region>.snowflakecomputing.com — take the leading subdomain.
+    const account = new URL(conn.url).hostname.split('.')[0];
+    const connection = snowflake.createConnection({
+      account,
+      username: conn.username,
+      authenticator: 'SNOWFLAKE_JWT',
+      privateKey: conn.privateKey.toString('utf-8'),
+    });
+
+    const startedAt = Date.now();
+    let rowCount = 0;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        connection.connect((err) => (err ? reject(err) : resolve()));
+      });
+
+      // TODO: replace with data-engineer-supplied query. Must accept tenant_code
+      // as its single bind parameter and emit JSON-shaped rows.
+      const sqlText = 'SELECT :1 AS tenant_code /* TODO: real cross-year roster query */';
+
+      await new Promise<void>((resolve, reject) => {
+        const stmt = connection.execute({
+          sqlText,
+          binds: [tenantCode],
+          streamResult: true,
+        });
+        const rowStream = stmt.streamRows();
+        rowStream.on('data', (row) => {
+          response.write(JSON.stringify(row) + '\n');
+          rowCount += 1;
+        });
+        rowStream.on('end', () => {
+          response.end();
+          resolve();
+        });
+        rowStream.on('error', (err) => {
+          response.destroy(err);
+          reject(err);
+        });
+      });
+
+      this.logger.log(
+        `cross-year roster: partnerId=${partnerId} tenantCode=${tenantCode} rowCount=${rowCount} durationMs=${Date.now() - startedAt}`
+      );
+    } finally {
+      connection.destroy(() => undefined);
+    }
   }
 
   async earthbeamInputForRun(runId: Run['id']) {

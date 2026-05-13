@@ -13,6 +13,7 @@ export const makePartnerUserTenantContext = (tag: string) => {
     name: `Partner ${tag}`,
     idpId: idp.id,
     descriptorNamespace: null,
+    crossYearMatchingEnabled: false,
   };
 
   const tenant: WithoutAudit<Tenant> = {

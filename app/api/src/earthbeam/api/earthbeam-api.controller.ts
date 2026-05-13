@@ -13,8 +13,10 @@ import {
   ParseIntPipe,
   Post,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { makeEarthbeamJWTGuard } from './auth/earthbeam-api-auth.guard';
 import { Public } from 'api/src/auth/login/public.decorator';
@@ -70,6 +72,31 @@ export class EarthbeamApiController {
       )}`
     );
     return toEarthbeamApiJobResponseDto(result.data);
+  }
+
+  @Get(':runId/roster')
+  async streamRoster(@Param('runId', ParseIntPipe) runId: number, @Res() res: Response) {
+    const ctx = await this.earthbeamApiService.getCrossYearRosterContext(runId);
+    if (ctx.status === 'ERROR') {
+      if (ctx.type === 'not_found') throw new NotFoundException(ctx.message);
+      throw new ConflictException(ctx.message);
+    }
+
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    try {
+      await this.earthbeamApiService.streamCrossYearRoster({
+        partnerId: ctx.data.partnerId,
+        tenantCode: ctx.data.tenantCode,
+        response: res,
+      });
+    } catch (err) {
+      this.logger.error(
+        `cross-year roster fetch failed for run ${runId}: ${err instanceof Error ? err.message : String(err)}`
+      );
+      if (!res.destroyed) {
+        res.destroy(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
   }
 
   @Post(':runId/status')
