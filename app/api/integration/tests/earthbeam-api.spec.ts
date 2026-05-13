@@ -80,6 +80,86 @@ describe('Earthbeam API', () => {
       expect(res.body.rosterFilePath).toBeUndefined();
     });
 
+    describe('cross-year ID matching', () => {
+      const EDU_ENV_VARS = [
+        'EDU_SNOWFLAKE_USERNAME',
+        'EDU_SNOWFLAKE_URL',
+        'EDU_SNOWFLAKE_PUBLIC_KEY',
+        'EDU_SNOWFLAKE_PRIVATE_KEY',
+      ] as const;
+      const savedEnv: Record<string, string | undefined> = {};
+
+      const setEduEnvVars = () => {
+        process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
+        process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
+        process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
+        process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
+      };
+
+      beforeEach(() => {
+        for (const key of EDU_ENV_VARS) {
+          savedEnv[key] = process.env[key];
+          delete process.env[key];
+        }
+      });
+
+      afterEach(() => {
+        for (const key of EDU_ENV_VARS) {
+          if (savedEnv[key] === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = savedEnv[key];
+          }
+        }
+      });
+
+      it('sets crossYearMatchAvailable=true and emits appUrls.roster when toggle on and creds exist', async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+        setEduEnvVars();
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(true);
+        expect(res.body.appUrls.roster).toBeDefined();
+        expect(res.body.appUrls.roster).toContain(`/earthbeam/jobs/${runA.id}/roster`);
+      });
+
+      it('sets crossYearMatchAvailable=false and omits appUrls.roster when toggle is off', async () => {
+        // partnerA defaults to crossYearMatchingEnabled=false
+        setEduEnvVars();
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(false);
+        expect(res.body.appUrls.roster).toBeUndefined();
+      });
+
+      it('sets crossYearMatchAvailable=false and omits appUrls.roster when creds are missing', async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+        // env vars deliberately not set
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(false);
+        expect(res.body.appUrls.roster).toBeUndefined();
+      });
+    });
+
     it('should omit ODS credentials and include a roster path for no-ODS jobs', async () => {
       const authService = app.get(EarthbeamApiAuthService);
       const noOdsJob = await seedJob({
