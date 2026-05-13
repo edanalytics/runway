@@ -171,7 +171,7 @@ class JobExecutor:
             self.send_to_ods = job.get("sendToOds", True)
             self.cross_year_match_available = job.get("crossYearMatchAvailable", False)
             if self.cross_year_match_available:
-                self.cross_year_roster_url = job["appUrls"]["crossYearRoster"]
+                self.cross_year_roster_url = job["appUrls"]["roster"]
 
             self.assessment_project = os.path.join(
                 self.wrapper_project, "packages", *job["bundle"]["path"].split("/")[1:]
