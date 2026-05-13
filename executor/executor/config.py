@@ -1,12 +1,9 @@
-import os
-
 BUNDLE_DIR = 'bundles'
 OUTPUT_DIR = 'output'
-# Where the first (ODS) Earthmover run's output is stashed before the cross-year
-# run reuses OUTPUT_DIR for its own output set.
-ODS_OUTPUT_DIR = 'output-ods'
+# when performing a cross-year-matching second pass: location to move earthmover output set from the first pass
+OUTPUT_DIR_FIRST_RUN = 'output-first-run'
 ROSTER_DOWNLOAD_DIR = 'roster-download-dir'
-CROSS_YEAR_ROSTER_PATH = os.path.join(ROSTER_DOWNLOAD_DIR, 'cross_year_roster.jsonl')
+CROSS_YEAR_ROSTER_PATH = 'cross_year_roster.jsonl'
 
 REQUIRED_ID_MATCH_RATE = 0.5
 STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75
