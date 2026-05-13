@@ -3,14 +3,53 @@
 # for each repo, pull the latest changes, and then build the sql scripts to 
 # insert both bundle and custom descriptor mappings.
 
-partner_id="ea" 
+partner_id=""
+bundle_key=""
+force=false
+
+usage() {
+  echo "Usage: $0 -p|--partner-id <id> [-b|--bundle-key <key>] [--force]"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p|--partner-id)
+      partner_id="$2"
+      shift 2
+      ;;
+    -b|--bundle-key)
+      bundle_key="$2"
+      shift 2
+      ;;
+    --force)
+      force=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown argument: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+if [ -z "$partner_id" ]; then
+  echo "Error: --partner-id is required."
+  usage
+  exit 1
+fi
+
 bundle_mapping_file="output/bundle_descriptor_mappings.sql"
 custom_mapping_file="output/custom_descriptor_mappings.sql"
 
 if [ -f "$bundle_mapping_file" ] || [ -f "$custom_mapping_file" ]; then
-  if [ "$1" == '--force' ]; then
-    rm "$bundle_mapping_file"
-    rm "$custom_mapping_file"
+  if [ "$force" = true ]; then
+    rm -f "$bundle_mapping_file"
+    rm -f "$custom_mapping_file"
   else
     echo "Error: $bundle_mapping_file and/or $custom_mapping_file already exists. Please remove them before running this script OR run with --force."
     exit 1
@@ -25,7 +64,7 @@ git -C $bundle_repo checkout $bundle_branch
 git -C $bundle_repo pull --ff-only
 
 sc_repo="$repos_dir/stadium_south_carolina"
-sc_branch="runway_dev"
+sc_branch="feature/iowa_pta_refactor"
 git -C $sc_repo fetch
 git -C $sc_repo checkout $sc_branch
 git -C $sc_repo pull --ff-only
@@ -39,6 +78,9 @@ sc_bundle_path="$sc_repo/airflow/dags/earthmover"
 registry_path="$bundle_repo/registry.json"
 transform_script="node desc-mapping-insert.js"
 for path in $(cat "$registry_path" | jq -r '.assessments[].path'); do
+  if [ -n "$bundle_key" ] && [ "$path" != "$bundle_key" ]; then
+    continue
+  fi
   for desc_file in $(cat "$bundle_repo/$path/_metadata.yaml" | yq -r '.descriptor_mapping_files // [] | .[]'); do
     desc_type="${desc_file%.csv}"
     if [ -f "$bundle_repo/$path/seeds/$desc_file" ]; then
