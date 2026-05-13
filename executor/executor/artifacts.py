@@ -8,10 +8,9 @@ import os
 import executor.config as config
 
 class JobArtifact:
-    def __init__(self, name, path):
+    def __init__(self, name, path, needs_upload=True):
         self.name = name
         self.path = path
-        self.needs_upload = True
 
 
 ROSTER = JobArtifact(
@@ -22,13 +21,13 @@ EM_RESULTS = JobArtifact(
     "earthmover_results",
     "em-results.json"
 )
-# Only uploaded when a cross-year matching pass runs. Defaults to no-upload
-# so the base case (single Earthmover run) doesn't try to upload it.
+# Only generated when earthmover runs for a second time as part of cross-year ID matching.
+# If a cross-year match is performed as part of a sideload-only job, EM_RESULTS is used alone
 EM_RESULTS_X_YEAR = JobArtifact(
     "earthmover_results_x_year",
-    "em-results-x-year.json"
+    "em-results-x-year.json",
+    False
 )
-EM_RESULTS_X_YEAR.needs_upload = False
 MATCH_RATES = JobArtifact(
     "student_id_match_rates",
     os.path.join(config.OUTPUT_DIR, ("student_id_match_rates.csv")),
