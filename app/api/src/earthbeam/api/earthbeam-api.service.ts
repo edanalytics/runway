@@ -43,6 +43,14 @@ export class EarthbeamApiService {
     @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
   ) {}
 
+  async streamCrossYearRoster(_args: {
+    partnerId: string;
+    tenantCode: string;
+    response: import('express').Response;
+  }): Promise<void> {
+    throw new Error('streamCrossYearRoster not implemented');
+  }
+
   async earthbeamInputForRun(runId: Run['id']) {
     const run = await this.prisma.run.findUnique({
       where: { id: runId },
