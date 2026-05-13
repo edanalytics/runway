@@ -107,19 +107,23 @@ export class AppConfigService {
   /**
    * EDU Snowflake connection info for cross-year ID matching. Looks for an
    * AWS secret named `edu-connection-info-<partnerId>`; falls back to
-   * EDU_SNOWFLAKE_* env vars only outside production when the secret is unavailable.
+   * EDU_SNOWFLAKE_* env vars only in local development.
    * Returns null when no creds are available — caller decides how to handle.
    */
   async getEduConnectionInfo(partnerId: string): Promise<EduConnectionInfo | null> {
+    if (this.isDevEnvironment()) {
+      return this.getEduConnectionInfoFromEnv();
+    }
+
     const secretName = `edu-connection-info-${partnerId}`;
     try {
       const secret = await this.getAWSSecret(secretName);
       if (typeof secret !== 'object') {
-        return this.getEduConnectionInfoFromEnv();
+        return null;
       }
       const { username, url, schema, publicKey, privateKey } = secret;
       if (!username || !url || !schema || !publicKey || !privateKey) {
-        return this.getEduConnectionInfoFromEnv();
+        return null;
       }
       return {
         username,
@@ -129,7 +133,7 @@ export class AppConfigService {
         privateKey: Buffer.from(privateKey, 'base64'),
       };
     } catch {
-      return this.getEduConnectionInfoFromEnv();
+      return null;
     }
   }
 
@@ -241,10 +245,6 @@ export class AppConfigService {
   private readonly secretsCache: Map<string, string | Record<string, string>> = new Map();
 
   private getEduConnectionInfoFromEnv(): EduConnectionInfo | null {
-    if (this.get('NODE_ENV') === 'production') {
-      return null;
-    }
-
     const envUsername = process.env.EDU_SNOWFLAKE_USERNAME;
     const url = process.env.EDU_SNOWFLAKE_URL;
     const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
