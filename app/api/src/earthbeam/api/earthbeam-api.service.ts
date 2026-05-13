@@ -113,9 +113,36 @@ export class EarthbeamApiService {
         connection.connect((err) => (err ? reject(err) : resolve()));
       });
 
-      // TODO: replace with data-engineer-supplied query. Must accept tenant_code
-      // as its single bind parameter and emit JSON-shaped rows.
-      const sqlText = 'SELECT :1 AS tenant_code /* TODO: real cross-year roster query */';
+      const sqlText = `
+        WITH ids AS (
+          SELECT
+            seoa.tenant_code,
+            seoa.api_year,
+            seoa.k_student,
+            seoa.k_student_xyear,
+            seoa.student_unique_id,
+            seoa.ed_org_id,
+            seo_ids.id_system,
+            OBJECT_CONSTRUCT_KEEP_NULL(
+              'studentIdentificationSystemDescriptor', seo_ids.id_system,
+              'identificationCode', seo_ids.id_code
+            ) AS stu_id_code
+          FROM ${conn.schema}.stg_ef3__student_education_organization_associations seoa
+          LEFT JOIN ${conn.schema}.stg_ef3__stu_ed_org__identification_codes seo_ids
+            ON seoa.k_student = seo_ids.k_student
+          WHERE seoa.tenant_code = :1
+          QUALIFY MAX(seoa.api_year) OVER (PARTITION BY seoa.k_student_xyear) = seoa.api_year
+        )
+        SELECT
+          OBJECT_CONSTRUCT(
+            'educationOrganizationId', ed_org_id,
+            'link', OBJECT_CONSTRUCT('rel', 'LocalEducationAgency')
+          ) AS "educationOrganizationReference",
+          OBJECT_CONSTRUCT('studentUniqueId', student_unique_id) AS "studentReference",
+          ARRAY_AGG(DISTINCT stu_id_code) AS "studentIdentificationCodes"
+        FROM ids
+        GROUP BY ALL
+      `;
 
       await new Promise<void>((resolve, reject) => {
         const stmt = connection.execute({

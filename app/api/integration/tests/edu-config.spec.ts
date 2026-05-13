@@ -4,6 +4,7 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 const EDU_ENV_VARS = [
   'EDU_SNOWFLAKE_USERNAME',
   'EDU_SNOWFLAKE_URL',
+  'EDU_SNOWFLAKE_SCHEMA',
   'EDU_SNOWFLAKE_PUBLIC_KEY',
   'EDU_SNOWFLAKE_PRIVATE_KEY',
 ] as const;
@@ -42,6 +43,7 @@ describe('AppConfigService — EDU Snowflake config', () => {
     it('returns true when local env vars are set', async () => {
       process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
       process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
+      process.env.EDU_SNOWFLAKE_SCHEMA = 'edu_stg.public';
       process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('public-key').toString('base64');
       process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('private-key').toString('base64');
 
@@ -61,6 +63,7 @@ describe('AppConfigService — EDU Snowflake config', () => {
       const publicKey = Buffer.from('public-key-content').toString('base64');
       process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
       process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
+      process.env.EDU_SNOWFLAKE_SCHEMA = 'edu_stg.public';
       process.env.EDU_SNOWFLAKE_PUBLIC_KEY = publicKey;
       process.env.EDU_SNOWFLAKE_PRIVATE_KEY = privateKey;
 
@@ -68,6 +71,7 @@ describe('AppConfigService — EDU Snowflake config', () => {
       expect(info).toEqual({
         username: 'snowflake-user',
         url: 'https://example.snowflakecomputing.com',
+        schema: 'edu_stg.public',
         publicKey: Buffer.from('public-key-content'),
         privateKey: Buffer.from('private-key-content'),
       });

@@ -85,6 +85,7 @@ describe('Earthbeam API', () => {
       const EDU_ENV_VARS = [
         'EDU_SNOWFLAKE_USERNAME',
         'EDU_SNOWFLAKE_URL',
+        'EDU_SNOWFLAKE_SCHEMA',
         'EDU_SNOWFLAKE_PUBLIC_KEY',
         'EDU_SNOWFLAKE_PRIVATE_KEY',
       ] as const;
@@ -93,6 +94,7 @@ describe('Earthbeam API', () => {
       const setEduEnvVars = () => {
         process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
         process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
+        process.env.EDU_SNOWFLAKE_SCHEMA = 'edu_stg.public';
         process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
         process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
       };
@@ -321,6 +323,7 @@ describe('Earthbeam API', () => {
     const EDU_ENV_VARS = [
       'EDU_SNOWFLAKE_USERNAME',
       'EDU_SNOWFLAKE_URL',
+      'EDU_SNOWFLAKE_SCHEMA',
       'EDU_SNOWFLAKE_PUBLIC_KEY',
       'EDU_SNOWFLAKE_PRIVATE_KEY',
     ] as const;
@@ -329,6 +332,7 @@ describe('Earthbeam API', () => {
     const setEduEnvVars = () => {
       process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
       process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
+      process.env.EDU_SNOWFLAKE_SCHEMA = 'edu_stg.public';
       process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
       process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
     };

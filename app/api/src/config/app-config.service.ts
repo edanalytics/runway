@@ -11,6 +11,7 @@ type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 export type EduConnectionInfo = {
   username: string;
   url: string;
+  schema: string;
   publicKey: Buffer;
   privateKey: Buffer;
 };
@@ -106,45 +107,29 @@ export class AppConfigService {
   /**
    * EDU Snowflake connection info for cross-year ID matching. Looks for an
    * AWS secret named `edu-connection-info-<partnerId>`; falls back to
-   * EDU_SNOWFLAKE_* env vars when the secret is unavailable (local dev).
+   * EDU_SNOWFLAKE_* env vars only outside production when the secret is unavailable.
    * Returns null when no creds are available — caller decides how to handle.
    */
   async getEduConnectionInfo(partnerId: string): Promise<EduConnectionInfo | null> {
-    // Local-dev path first so tests / local runs never hit AWS.
-    const envUsername = process.env.EDU_SNOWFLAKE_USERNAME;
-    if (envUsername) {
-      const url = process.env.EDU_SNOWFLAKE_URL;
-      const publicKeyB64 = process.env.EDU_SNOWFLAKE_PUBLIC_KEY;
-      const privateKeyB64 = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
-      if (!url || !publicKeyB64 || !privateKeyB64) {
-        return null;
-      }
-      return {
-        username: envUsername,
-        url,
-        publicKey: Buffer.from(publicKeyB64, 'base64'),
-        privateKey: Buffer.from(privateKeyB64, 'base64'),
-      };
-    }
-
     const secretName = `edu-connection-info-${partnerId}`;
     try {
       const secret = await this.getAWSSecret(secretName);
       if (typeof secret !== 'object') {
-        return null;
+        return this.getEduConnectionInfoFromEnv();
       }
-      const { username, url, publicKey, privateKey } = secret;
-      if (!username || !url || !publicKey || !privateKey) {
-        return null;
+      const { username, url, schema, publicKey, privateKey } = secret;
+      if (!username || !url || !schema || !publicKey || !privateKey) {
+        return this.getEduConnectionInfoFromEnv();
       }
       return {
         username,
         url,
+        schema: this.validateSnowflakeIdentifier(schema, `edu-connection-info-${partnerId}.schema`),
         publicKey: Buffer.from(publicKey, 'base64'),
         privateKey: Buffer.from(privateKey, 'base64'),
       };
     } catch {
-      return null;
+      return this.getEduConnectionInfoFromEnv();
     }
   }
 
@@ -254,6 +239,37 @@ export class AppConfigService {
   });
 
   private readonly secretsCache: Map<string, string | Record<string, string>> = new Map();
+
+  private getEduConnectionInfoFromEnv(): EduConnectionInfo | null {
+    if (this.get('NODE_ENV') === 'production') {
+      return null;
+    }
+
+    const envUsername = process.env.EDU_SNOWFLAKE_USERNAME;
+    const url = process.env.EDU_SNOWFLAKE_URL;
+    const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
+    const publicKeyB64 = process.env.EDU_SNOWFLAKE_PUBLIC_KEY;
+    const privateKeyB64 = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
+    if (!envUsername || !url || !schema || !publicKeyB64 || !privateKeyB64) {
+      return null;
+    }
+
+    return {
+      username: envUsername,
+      url,
+      schema: this.validateSnowflakeIdentifier(schema, 'EDU_SNOWFLAKE_SCHEMA'),
+      publicKey: Buffer.from(publicKeyB64, 'base64'),
+      privateKey: Buffer.from(privateKeyB64, 'base64'),
+    };
+  }
+
+  private validateSnowflakeIdentifier(identifier: string, sourceName: string): string {
+    if (!/^[A-Za-z0-9_$]+(\.[A-Za-z0-9_$]+)*$/.test(identifier)) {
+      throw new Error(`Invalid ${sourceName}: ${identifier}`);
+    }
+
+    return identifier;
+  }
 
   private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
     const cachedValue = this.secretsCache.get(secretName);
