@@ -431,7 +431,6 @@ class JobExecutor:
         os.environ["EDFI_STUDENT_ID_TYPES"] = ",".join(self.distinct_id_types)
         self.logger.info(f"Student ID types in Ed-Fi roster: {os.environ['EDFI_STUDENT_ID_TYPES']}")
 
-        self.check_input_encoding()
         self.earthmover_run(artifact.EM_RESULTS.path)
         self.upload_artifact(artifact.EM_RESULTS)
         self.enforce_match_threshold()
@@ -455,16 +454,12 @@ class JobExecutor:
         self.upload_artifact(artifact.MATCH_RATES)
         self.report_unmatched_students()
 
-    def earthmover_run(self, results_path, encoding_override=None):
+    def earthmover_run(self, results_path):
         """Compile and run Earthmover into the given results directory."""
-        if encoding_override:
-            # Case 1: second pass, so we know what encoding already worked
-            encoding = encoding_override
-            # Case 2: first pass and chardet identified an encoding we think is plausible, so use it
-        elif self.input_sources["INPUT_FILE"]["is_plausible_non_utf8"]:
+        self.check_input_encoding()
+        if self.input_sources["INPUT_FILE"]["is_plausible_non_utf8"]:
             encoding = str.lower(self.input_sources["INPUT_FILE"]["encoding"])
         else:
-            # Case 3: first pass and we don't have a good guess so just use UTF-8
             encoding = None
         encoding_args = ["--set", "sources.input.encoding", encoding] if encoding else []
         if encoding:
@@ -491,19 +486,13 @@ class JobExecutor:
             if em.stderr:
                 self.logger.info(f"earthmover stderr: {em.stderr}")
             em.check_returncode()
-
-            self.successful_encoding = encoding
         except subprocess.CalledProcessError as err:
             self.logger.warning("earthmover encountered an error")
             fatal = True
 
             #    yes it's brittle to check the error against a string like this, but this message hasn't
             # changed since 2007(!) -> https://github.com/python/cpython/blame/main/Objects/exceptions.c
-            if (
-                not encoding_override # i.e. only try again if this is the first pass and we're still uncertain about the encoding
-                and err.stderr and "codec can't decode" in err.stderr
-                and encoding != "iso-8859-1"
-            ):
+            if err.stderr and "codec can't decode" in err.stderr and encoding != "iso-8859-1":
                 self.logger.error(f"Failed to read file with {encoding} encoding. Retrying with Latin1...")
                 try:
                     # attempt no. 2 - need a new em object to overwrite the decoding error
@@ -513,7 +502,6 @@ class JobExecutor:
                     em.check_returncode()
 
                     fatal = False # if we made it this far, we can abort the shutdown
-                    self.successful_encoding = "iso-8859-1"
                 except subprocess.CalledProcessError:
                     # failed again, move on to shutdown procedure
                     pass
@@ -546,6 +534,10 @@ class JobExecutor:
         primary.local_dir = first_run_output_dir
         os.mkdir(self.output_dir)
 
+        unmatched_path = os.path.join(first_run_output_dir, os.path.basename(artifact.UNMATCHED_STUDENTS.path))
+        os.environ["INPUT_FILE"] = unmatched_path
+        self.input_sources["INPUT_FILE"]["path"] = unmatched_path
+
         self.get_roster_from_edu()
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
@@ -561,10 +553,7 @@ class JobExecutor:
             f"cross-year pass: matching on {first_run_id_name} / {first_run_id_type}"
         )
 
-        self.earthmover_run(
-            artifact.EM_RESULTS_X_YEAR.path,
-            encoding_override=self.successful_encoding,
-        )
+        self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
 
