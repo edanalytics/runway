@@ -442,7 +442,13 @@ class JobExecutor:
             # user there are unmatched students when there are none
             self.record_highest_match_rate()
             if fatal:
-                # shut it down
+                # When Earthmover crashes we deliberately suppress upload of both the
+                # match-rates and unmatched-students files, even if EM got far enough to
+                # produce them. Their contents reflect a partial / interrupted run and
+                # we'd rather surface the error than risk showing the user misleading
+                # match results.
+                artifact.MATCH_RATES.needs_upload = False
+                artifact.UNMATCHED_STUDENTS.needs_upload = False
                 self.error = error.EarthmoverRunError()
                 # generic exception that will be caught, with em.stderr reported as the stacktrace
                 raise Exception(em.stderr)
