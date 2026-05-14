@@ -131,16 +131,16 @@ class JobExecutor:
             if not self.error.stacktrace:
                 self.error.stacktrace = traceback.format_exc()
 
-            # best-effort cleanup
+            # generic exception catching to be super-defensive while we cleanup and make a best effort to get the error object out the door
             try:
                 self.upload_remaining_artifacts()
-            except Exception:
-                self.logger.exception("upload_remaining_artifacts raised during shutdown; continuing")
+            except Exception as e:
+                self.logger.error(f"upload_remaining_artifacts raised during shutdown ({repr(e)}); continuing", exc_info=True)
 
             try:
                 self.update_failure()
-            except Exception:
-                self.logger.exception("update_failure raised during shutdown; continuing")
+            except Exception as e:
+                self.logger.error(f"update_failure raised during shutdown ({repr(e)}); continuing", exc_info=True)
 
             self.send_error()
         else:
