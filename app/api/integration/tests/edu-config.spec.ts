@@ -2,6 +2,7 @@ import { AppConfigService } from 'api/src/config/app-config.service';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 
 const EDU_ENV_VARS = [
+  'NODE_ENV',
   'EDU_SNOWFLAKE_USERNAME',
   'EDU_SNOWFLAKE_ACCOUNT',
   'EDU_SNOWFLAKE_DATABASE',
@@ -23,6 +24,8 @@ describe('AppConfigService — EDU Snowflake config', () => {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
+    // The env-var fallback in AppConfigService is gated on NODE_ENV=development.
+    process.env.NODE_ENV = 'development';
   });
 
   afterEach(() => {

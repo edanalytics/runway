@@ -83,6 +83,7 @@ describe('Earthbeam API', () => {
 
     describe('cross-year ID matching', () => {
       const EDU_ENV_VARS = [
+        'NODE_ENV',
         'EDU_SNOWFLAKE_USERNAME',
         'EDU_SNOWFLAKE_ACCOUNT',
         'EDU_SNOWFLAKE_DATABASE',
@@ -106,6 +107,8 @@ describe('Earthbeam API', () => {
           savedEnv[key] = process.env[key];
           delete process.env[key];
         }
+        // The env-var fallback in AppConfigService is gated on NODE_ENV=development.
+        process.env.NODE_ENV = 'development';
       });
 
       afterEach(() => {
@@ -323,6 +326,7 @@ describe('Earthbeam API', () => {
     let streamSpy: jest.SpyInstance | undefined;
 
     const EDU_ENV_VARS = [
+      'NODE_ENV',
       'EDU_SNOWFLAKE_USERNAME',
       'EDU_SNOWFLAKE_ACCOUNT',
       'EDU_SNOWFLAKE_DATABASE',
@@ -346,6 +350,8 @@ describe('Earthbeam API', () => {
         savedEnv[key] = process.env[key];
         delete process.env[key];
       }
+      // The env-var fallback in AppConfigService is gated on NODE_ENV=development.
+      process.env.NODE_ENV = 'development';
       streamSpy = undefined;
 
       const authService = app.get(EarthbeamApiAuthService);
