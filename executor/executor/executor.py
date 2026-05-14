@@ -445,7 +445,7 @@ class JobExecutor:
         )]
         if (self.send_to_ods                      # i.e. we've only tried matching this year's students so far
             and self.cross_year_match_available   # and we have access to EDU
-            and bool(self.num_unmatched_students) # and there are unmatched students from the first run
+            and bool(self.num_unmatched_students) # and there are unmatched students from the first pass
         ):
             # then take a second pass with the cross-year roster from EDU
             # and thus produce a second output set to be sideloaded
@@ -517,18 +517,23 @@ class JobExecutor:
                 except subprocess.CalledProcessError:
                     # failed again, move on to shutdown procedure
                     pass
-        finally:
-            #    the app relies on the presence of the unmatched students file but does not check
-            # whether it is populated. It is possible that Earthmover successfully matches students
-            # (so the file is empty) but then fails during data transformation. We need to check the
-            # match rates whether or not Earthmover succeeds, so that we don't accidentally tell the
-            # user there are unmatched students when there are none
-            self.record_highest_match_rate()
-            if fatal:
-                # shut it down
-                self.error = error.EarthmoverRunError()
-                # generic exception that will be caught, with em.stderr reported as the stacktrace
-                raise Exception(em.stderr)
+
+        if fatal:
+            #    It is possible that Earthmover successfully matches students but then
+            # fails during data transformation. This is most likely to happen when the user
+            # uploads a file that is recognizable as the correct assessment but has some
+            # other flaw - for example, the file is from the wrong year.
+            # In this case. we end up with a match rates file and unmatched students file,
+            # but we don't want to send either of them to the app. All the user needs to know
+            # is that the run failed.
+            artifact.MATCH_RATES.needs_upload = False
+            artifact.UNMATCHED_STUDENTS.needs_upload = False
+            # Anyway, yeah, the run failed. Shut it down.
+            self.error = error.EarthmoverRunError()
+            # generic exception that will be caught, with em.stderr reported as the stacktrace
+            raise Exception(em.stderr)
+
+        self.record_highest_match_rate()
 
     def cross_year_pass(self, primary):
         """Run a second Earthmover pass against a cross-year roster in an attempt to match more students."""
@@ -544,7 +549,7 @@ class JobExecutor:
         self.get_roster_from_edu()
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
-        # Constrain to the ID column the first run matched on. The bundle always appends
+        # Constrain to the ID column the first pass matched on. The bundle always appends
         # studentUniqueId internally, so we pass an empty list when that's what won.
         os.environ["POSSIBLE_STUDENT_ID_COLUMNS"] = first_run_id_name
         os.environ["EDFI_STUDENT_ID_TYPES"] = (
