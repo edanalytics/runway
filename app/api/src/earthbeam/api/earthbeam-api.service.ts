@@ -97,8 +97,9 @@ export class EarthbeamApiService {
     const snowflake = await import('snowflake-sdk');
 
     // snowflake-sdk wants `account`, not a URL. URL is like
-    // https://<account>.<region>.snowflakecomputing.com — take the leading subdomain.
-    const account = new URL(conn.url).hostname.split('.')[0];
+    // https://<account>.snowflakecomputing.com, where <account> may itself
+    // contain dots (e.g. myorg.us-east-1). Strip the suffix and keep the rest.
+    const account = new URL(conn.url).hostname.replace(/\.snowflakecomputing\.com$/, '');
     const connection = snowflake.createConnection({
       account,
       username: conn.username,
