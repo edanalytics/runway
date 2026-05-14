@@ -125,14 +125,28 @@ class JobExecutor:
         except:
             # failure cases
             traceback.print_exc()
-            self.upload_remaining_artifacts()
 
-            self.update_failure()
-
+            # Lock in the error payload immediately so any failure below this point
+            # still has something to report to the app.
             if not self.error:
                 self.error = error.UnknownError(traceback.format_exc())
             if not self.error.stacktrace:
                 self.error.stacktrace = traceback.format_exc()
+
+            # Best-effort cleanup. Failures here must not prevent us from reporting
+            # the error to the app, which is the most important thing this branch does.
+            try:
+                self.upload_remaining_artifacts()
+            except Exception:
+                self.logger.exception("upload_remaining_artifacts raised during shutdown; continuing")
+
+            # update_failure runs before send_error so the FAILURE status update
+            # arrives at the app before the error payload (avoiding the race the
+            # method's own docstring describes).
+            try:
+                self.update_failure()
+            except Exception:
+                self.logger.exception("update_failure raised during shutdown; continuing")
 
             self.send_error()
         else:
@@ -738,7 +752,7 @@ class JobExecutor:
             if fail_ok:
                 self.logger.debug(f"file empty during shutdown. continuing...")
                 return
-            self.error_obj = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
+            self.error = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
             raise FileNotFoundError(fpath)
 
         try:
@@ -750,7 +764,7 @@ class JobExecutor:
                 self.logger.debug(f"upload failed during shutdown. continuing...")
                 return
             self.error = error.ArtifactS3UploadError(
-                artifact_to_upload, f"{self.bucket_out_path}/{os.path.basename(fpath)}"
+                artifact_to_upload.name, f"{self.s3_out_path}/{os.path.basename(fpath)}"
             )
             raise
 
