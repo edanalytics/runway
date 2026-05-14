@@ -128,23 +128,12 @@ class JobExecutor:
             # failure cases
             traceback.print_exc()
 
-            # Lock in the error payload immediately so any failure below this point
-            # still has something to report to the app.
-            if not self.error:
-                self.error = error.UnknownError(traceback.format_exc())
-            if not self.error.stacktrace:
-                self.error.stacktrace = traceback.format_exc()
-
-            # Best-effort cleanup. Failures here must not prevent us from reporting
-            # the error to the app, which is the most important thing this branch does.
+            # generic exception catching to be super-defensive while we cleanup and make a best effort to get the error object out the door
             try:
                 self.upload_remaining_artifacts()
             except Exception as e:
                 self.logger.error(f"upload_remaining_artifacts raised during shutdown ({repr(e)}); continuing", exc_info=True)
 
-            # update_failure runs before send_error so the FAILURE status update
-            # arrives at the app before the error payload (avoiding the race the
-            # method's own docstring describes).
             try:
                 self.update_failure()
             except Exception as e:
@@ -426,7 +415,7 @@ class JobExecutor:
         """
         self.set_action(action.EARTHMOVER_RUN)
 
-        # first pass, possibly aborting if there are too few matches
+        # first pass
         self.unpack_id_types()
         os.environ["EDFI_STUDENT_ID_TYPES"] = ",".join(self.distinct_id_types)
         self.logger.info(f"Student ID types in Ed-Fi roster: {os.environ['EDFI_STUDENT_ID_TYPES']}")
@@ -442,6 +431,8 @@ class JobExecutor:
             em_results_path=artifact.EM_RESULTS.path,
             lb_send_results_path=artifact.LB_SEND_RESULTS.path if self.send_to_ods else None,
         )]
+
+        # if we're here, the first pass of Earthmover was successful
         if (self.send_to_ods                      # i.e. we've only tried matching this year's students so far
             and self.cross_year_match_available   # and we have access to EDU
             and bool(self.num_unmatched_students) # and there are unmatched students from the first pass
@@ -524,7 +515,7 @@ class JobExecutor:
         self.record_highest_match_rate()
 
     def cross_year_pass(self, primary):
-        """Run a second Earthmover pass against a cross-year roster in an attempt to match more students."""
+        """Run a second Earthmover pass on unmatched students using a cross-year roster in an attempt to match more students."""
         # Capture first-run match info before earthmover_run overwrites it.
         first_run_id_name = self.highest_match_id_name
         first_run_id_type = self.highest_match_id_type
@@ -534,6 +525,7 @@ class JobExecutor:
         primary.local_dir = first_run_output_dir
         os.mkdir(self.output_dir)
 
+        # use only the students who failed to match the primary ID from the first run
         unmatched_path = os.path.join(first_run_output_dir, os.path.basename(artifact.UNMATCHED_STUDENTS.path))
         os.environ["INPUT_FILE"] = unmatched_path
         self.input_sources["INPUT_FILE"]["path"] = unmatched_path
