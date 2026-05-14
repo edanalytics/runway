@@ -126,23 +126,17 @@ class JobExecutor:
             # failure cases
             traceback.print_exc()
 
-            # Lock in the error payload immediately so any failure below this point
-            # still has something to report to the app.
             if not self.error:
                 self.error = error.UnknownError(traceback.format_exc())
             if not self.error.stacktrace:
                 self.error.stacktrace = traceback.format_exc()
 
-            # Best-effort cleanup. Failures here must not prevent us from reporting
-            # the error to the app, which is the most important thing this branch does.
+            # best-effort cleanup
             try:
                 self.upload_remaining_artifacts()
             except Exception:
                 self.logger.exception("upload_remaining_artifacts raised during shutdown; continuing")
 
-            # update_failure runs before send_error so the FAILURE status update
-            # arrives at the app before the error payload (avoiding the race the
-            # method's own docstring describes).
             try:
                 self.update_failure()
             except Exception:
