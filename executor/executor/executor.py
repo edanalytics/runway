@@ -434,25 +434,23 @@ class JobExecutor:
                 except subprocess.CalledProcessError:
                     # failed again, move on to shutdown procedure
                     pass
-        finally:
-            #    the app relies on the presence of the unmatched students file but does not check
-            # whether it is populated. It is possible that Earthmover successfully matches students
-            # (so the file is empty) but then fails during data transformation. We need to check the
-            # match rates whether or not Earthmover succeeds, so that we don't accidentally tell the
-            # user there are unmatched students when there are none
-            self.record_highest_match_rate()
-            if fatal:
-                # When Earthmover crashes we deliberately suppress upload of both the
-                # match-rates and unmatched-students files, even if EM got far enough to
-                # produce them. Their contents reflect a partial / interrupted run and
-                # we'd rather surface the error than risk showing the user misleading
-                # match results.
-                artifact.MATCH_RATES.needs_upload = False
-                artifact.UNMATCHED_STUDENTS.needs_upload = False
-                self.error = error.EarthmoverRunError()
-                # generic exception that will be caught, with em.stderr reported as the stacktrace
-                raise Exception(em.stderr)
 
+        if fatal:
+            #    It is possible that Earthmover successfully matches students but then 
+            # fails during data transformation. This is most likely to happen when the user
+            # uploads a file that is recognizable as the correct assessment but has some
+            # other flaw - for example, the file is from the wrong year.
+            # In this case. we end up with a match rates file and unmatched students file,
+            # but we don't want to send either of them to the app. All the user needs to know
+            # is that the run failed.
+            artifact.MATCH_RATES.needs_upload = False
+            artifact.UNMATCHED_STUDENTS.needs_upload = False
+            # Anyway, yeah, the run failed. Shut it down.
+            self.error = error.EarthmoverRunError()
+            # generic exception that will be caught, with em.stderr reported as the stacktrace
+            raise Exception(em.stderr)
+
+        self.record_highest_match_rate()
         self.upload_artifact(artifact.EM_RESULTS)
         self.upload_artifact(artifact.MATCH_RATES)
 
