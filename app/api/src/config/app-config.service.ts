@@ -8,6 +8,14 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
+export type EduConnectionInfo = {
+  username: string;
+  url: string;
+  schema: string;
+  publicKey: Buffer;
+  privateKey: Buffer;
+};
+
 /**
  * AppConfigService is a wrapper on the @nestjs/config package's
  * ConfigService. It allows us to define custom getters, including
@@ -94,6 +102,43 @@ export class AppConfigService {
       return this.getBufferFromAWSSecret(jwtKeySecret);
     }
     return this.get('JWT_ENCRYPTION_KEY');
+  }
+
+  /**
+   * EDU Snowflake connection info for cross-year ID matching. Looks for an
+   * AWS secret named `edu-connection-info-<partnerId>`; falls back to
+   * EDU_SNOWFLAKE_* env vars only in local development.
+   * Returns null when no creds are available — caller decides how to handle.
+   */
+  async getEduConnectionInfo(partnerId: string): Promise<EduConnectionInfo | null> {
+    if (this.isDevEnvironment()) {
+      return this.getEduConnectionInfoFromEnv();
+    }
+
+    const secretName = `edu-connection-info-${partnerId}`;
+    try {
+      const secret = await this.getAWSSecret(secretName);
+      if (typeof secret !== 'object') {
+        return null;
+      }
+      const { username, url, schema, publicKey, privateKey } = secret;
+      if (!username || !url || !schema || !publicKey || !privateKey) {
+        return null;
+      }
+      return {
+        username,
+        url,
+        schema: this.validateSnowflakeIdentifier(schema, `edu-connection-info-${partnerId}.schema`),
+        publicKey: Buffer.from(publicKey, 'base64'),
+        privateKey: Buffer.from(privateKey, 'base64'),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async eduCredsExist(partnerId: string): Promise<boolean> {
+    return (await this.getEduConnectionInfo(partnerId)) !== null;
   }
 
   bundleBranch(): string {
@@ -198,6 +243,33 @@ export class AppConfigService {
   });
 
   private readonly secretsCache: Map<string, string | Record<string, string>> = new Map();
+
+  private getEduConnectionInfoFromEnv(): EduConnectionInfo | null {
+    const envUsername = process.env.EDU_SNOWFLAKE_USERNAME;
+    const url = process.env.EDU_SNOWFLAKE_URL;
+    const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
+    const publicKeyB64 = process.env.EDU_SNOWFLAKE_PUBLIC_KEY;
+    const privateKeyB64 = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
+    if (!envUsername || !url || !schema || !publicKeyB64 || !privateKeyB64) {
+      return null;
+    }
+
+    return {
+      username: envUsername,
+      url,
+      schema: this.validateSnowflakeIdentifier(schema, 'EDU_SNOWFLAKE_SCHEMA'),
+      publicKey: Buffer.from(publicKeyB64, 'base64'),
+      privateKey: Buffer.from(privateKeyB64, 'base64'),
+    };
+  }
+
+  private validateSnowflakeIdentifier(identifier: string, sourceName: string): string {
+    if (!/^[A-Za-z0-9_$]+(\.[A-Za-z0-9_$]+)*$/.test(identifier)) {
+      throw new Error(`Invalid ${sourceName}: ${identifier}`);
+    }
+
+    return identifier;
+  }
 
   private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
     const cachedValue = this.secretsCache.get(secretName);

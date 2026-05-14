@@ -1,4 +1,5 @@
 import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-api-auth.service';
+import { EarthbeamApiService } from 'api/src/earthbeam/api/earthbeam-api.service';
 import request from 'supertest';
 import { seedJob } from '../factories/job-factory';
 import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
@@ -78,6 +79,88 @@ describe('Earthbeam API', () => {
       expect(res.body.sendToOds).toBe(true);
       expect(res.body.assessmentDatastore).toBeDefined();
       expect(res.body.rosterFilePath).toBeUndefined();
+    });
+
+    describe('cross-year ID matching', () => {
+      const EDU_ENV_VARS = [
+        'EDU_SNOWFLAKE_USERNAME',
+        'EDU_SNOWFLAKE_URL',
+        'EDU_SNOWFLAKE_SCHEMA',
+        'EDU_SNOWFLAKE_PUBLIC_KEY',
+        'EDU_SNOWFLAKE_PRIVATE_KEY',
+      ] as const;
+      const savedEnv: Record<string, string | undefined> = {};
+
+      const setEduEnvVars = () => {
+        process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
+        process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
+        process.env.EDU_SNOWFLAKE_SCHEMA = 'edu_stg.public';
+        process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
+        process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
+      };
+
+      beforeEach(() => {
+        for (const key of EDU_ENV_VARS) {
+          savedEnv[key] = process.env[key];
+          delete process.env[key];
+        }
+      });
+
+      afterEach(() => {
+        for (const key of EDU_ENV_VARS) {
+          if (savedEnv[key] === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = savedEnv[key];
+          }
+        }
+      });
+
+      it('sets crossYearMatchAvailable=true and emits appUrls.roster when toggle on and creds exist', async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+        setEduEnvVars();
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(true);
+        expect(res.body.appUrls.roster).toBeDefined();
+        expect(res.body.appUrls.roster).toContain(`/earthbeam/jobs/${runA.id}/roster`);
+      });
+
+      it('sets crossYearMatchAvailable=false and omits appUrls.roster when toggle is off', async () => {
+        // partnerA defaults to crossYearMatchingEnabled=false
+        setEduEnvVars();
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(false);
+        expect(res.body.appUrls.roster).toBeUndefined();
+      });
+
+      it('sets crossYearMatchAvailable=false and omits appUrls.roster when creds are missing', async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+        // env vars deliberately not set
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(false);
+        expect(res.body.appUrls.roster).toBeUndefined();
+      });
     });
 
     it('should omit ODS credentials and include a roster path for no-ODS jobs', async () => {
@@ -229,6 +312,149 @@ describe('Earthbeam API', () => {
       });
     });
 
+  });
+
+  describe('GET /:runId/roster', () => {
+    let runA: Run;
+    let endpointA: string;
+    let tokenA: string;
+    let streamSpy: jest.SpyInstance | undefined;
+
+    const EDU_ENV_VARS = [
+      'EDU_SNOWFLAKE_USERNAME',
+      'EDU_SNOWFLAKE_URL',
+      'EDU_SNOWFLAKE_SCHEMA',
+      'EDU_SNOWFLAKE_PUBLIC_KEY',
+      'EDU_SNOWFLAKE_PRIVATE_KEY',
+    ] as const;
+    const savedEnv: Record<string, string | undefined> = {};
+
+    const setEduEnvVars = () => {
+      process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
+      process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
+      process.env.EDU_SNOWFLAKE_SCHEMA = 'edu_stg.public';
+      process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
+      process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
+    };
+
+    beforeEach(async () => {
+      for (const key of EDU_ENV_VARS) {
+        savedEnv[key] = process.env[key];
+        delete process.env[key];
+      }
+      streamSpy = undefined;
+
+      const authService = app.get(EarthbeamApiAuthService);
+      const jobA = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+      runA = jobA.runs[0];
+      endpointA = `/earthbeam/jobs/${runA.id}/roster`;
+      tokenA = await authService.createAccessToken({ runId: runA.id });
+    });
+
+    afterEach(() => {
+      for (const key of EDU_ENV_VARS) {
+        if (savedEnv[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = savedEnv[key];
+        }
+      }
+      streamSpy?.mockRestore();
+    });
+
+    it('rejects unauthenticated requests', async () => {
+      const res = await request(app.getHttpServer()).get(endpointA);
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 409 when the partner has cross-year matching disabled', async () => {
+      // partnerA defaults to crossYearMatchingEnabled=false
+      setEduEnvVars();
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+      expect(res.status).toBe(409);
+    });
+
+    it('returns 409 when EDU creds are missing', async () => {
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+      // env vars deliberately not set
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+      expect(res.status).toBe(409);
+    });
+
+    it('streams NDJSON rows when toggle on and creds present', async () => {
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+      setEduEnvVars();
+
+      const earthbeamApiService = app.get(EarthbeamApiService);
+      const rows = [
+        { studentUniqueId: '1', priorYear: 2024 },
+        { studentUniqueId: '2', priorYear: 2024 },
+        { studentUniqueId: '3', priorYear: 2024 },
+      ];
+      streamSpy = jest
+        .spyOn(earthbeamApiService, 'streamCrossYearRoster')
+        .mockImplementation(async ({ response }) => {
+          for (const row of rows) {
+            response.write(JSON.stringify(row) + '\n');
+          }
+          response.end();
+        });
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('application/x-ndjson');
+      const lines = res.text.split('\n').filter((l) => l.length > 0);
+      expect(lines).toHaveLength(3);
+      expect(JSON.parse(lines[0])).toEqual(rows[0]);
+      expect(JSON.parse(lines[2])).toEqual(rows[2]);
+
+      expect(streamSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partnerId: partnerA.id,
+          tenantCode: tenantA.code,
+        })
+      );
+    });
+
+    it('closes the response abruptly when streaming errors mid-flight', async () => {
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+      setEduEnvVars();
+
+      const earthbeamApiService = app.get(EarthbeamApiService);
+      streamSpy = jest
+        .spyOn(earthbeamApiService, 'streamCrossYearRoster')
+        .mockImplementation(async ({ response }) => {
+          response.write(JSON.stringify({ studentUniqueId: '1' }) + '\n');
+          response.destroy(new Error('snowflake exploded'));
+        });
+
+      // supertest surfaces a destroyed socket as an error; the response should
+      // not contain a sentinel error line — we just abort.
+      await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .catch((err) => err); // socket close raises; we don't care about the shape
+    });
   });
 
   describe('POST /:runId/status', () => {

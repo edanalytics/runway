@@ -17,6 +17,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
   earthbeamOutputFilesEndpoint,
+  earthbeamRosterEndpoint,
   earthbeamStatusUpdateEndpoint,
   earthbeamSummaryEndpoint,
   earthbeamUnmatchedIdsEndpoint,
@@ -29,6 +30,7 @@ import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
+import type { Response } from 'express';
 
 @Injectable()
 export class EarthbeamApiService {
@@ -41,6 +43,135 @@ export class EarthbeamApiService {
     private readonly configService: AppConfigService,
     @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
   ) {}
+
+  async getCrossYearRosterContext(runId: Run['id']) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      include: { job: { include: { tenant: { include: { partner: true } } } } },
+    });
+    if (!run) {
+      return { status: 'ERROR' as const, type: 'not_found' as const, message: `Run not found: ${runId}` };
+    }
+    const partner = run.job.tenant.partner;
+    if (!partner.crossYearMatchingEnabled) {
+      return {
+        status: 'ERROR' as const,
+        type: 'conflict' as const,
+        message: 'Cross-year matching is not enabled for this partner',
+      };
+    }
+    if (!(await this.configService.eduCredsExist(partner.id))) {
+      return {
+        status: 'ERROR' as const,
+        type: 'conflict' as const,
+        message: 'EDU connection info is not available for this partner',
+      };
+    }
+    return {
+      status: 'SUCCESS' as const,
+      data: { partnerId: partner.id, tenantCode: run.job.tenant.code },
+    };
+  }
+
+  /**
+   * Streams a cross-year roster from EDU/Snowflake to the response as NDJSON.
+   * Per-request connection, closed in `finally`. On stream error: abrupt close
+   * (no in-band sentinel) — the Executor detects truncation and fails the run.
+   */
+  async streamCrossYearRoster({
+    partnerId,
+    tenantCode,
+    response,
+  }: {
+    partnerId: string;
+    tenantCode: string;
+    response: Response;
+  }): Promise<void> {
+    const conn = await this.configService.getEduConnectionInfo(partnerId);
+    if (!conn) {
+      throw new Error('EDU connection info missing — caller should have validated');
+    }
+
+    // Lazy import: snowflake-sdk has slow module-init side effects we don't want
+    // to pay on every app boot. Cross-year roster fetch is a rare hot path.
+    const snowflake = await import('snowflake-sdk');
+
+    // snowflake-sdk wants `account`, not a URL. URL is like
+    // https://<account>.<region>.snowflakecomputing.com — take the leading subdomain.
+    const account = new URL(conn.url).hostname.split('.')[0];
+    const connection = snowflake.createConnection({
+      account,
+      username: conn.username,
+      authenticator: 'SNOWFLAKE_JWT',
+      privateKey: conn.privateKey.toString('utf-8'),
+    });
+
+    const startedAt = Date.now();
+    let rowCount = 0;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        connection.connect((err) => (err ? reject(err) : resolve()));
+      });
+
+      const sqlText = `
+        WITH ids AS (
+          SELECT
+            seoa.tenant_code,
+            seoa.api_year,
+            seoa.k_student,
+            seoa.k_student_xyear,
+            seoa.student_unique_id,
+            seoa.ed_org_id,
+            seo_ids.id_system,
+            OBJECT_CONSTRUCT_KEEP_NULL(
+              'studentIdentificationSystemDescriptor', seo_ids.id_system,
+              'identificationCode', seo_ids.id_code
+            ) AS stu_id_code
+          FROM ${conn.schema}.stg_ef3__student_education_organization_associations seoa
+          LEFT JOIN ${conn.schema}.stg_ef3__stu_ed_org__identification_codes seo_ids
+            ON seoa.k_student = seo_ids.k_student
+          WHERE seoa.tenant_code = :1
+          QUALIFY MAX(seoa.api_year) OVER (PARTITION BY seoa.k_student_xyear) = seoa.api_year
+        )
+        SELECT
+          OBJECT_CONSTRUCT(
+            'educationOrganizationId', ed_org_id,
+            'link', OBJECT_CONSTRUCT('rel', 'LocalEducationAgency')
+          ) AS "educationOrganizationReference",
+          OBJECT_CONSTRUCT('studentUniqueId', student_unique_id) AS "studentReference",
+          ARRAY_AGG(DISTINCT stu_id_code) AS "studentIdentificationCodes"
+        FROM ids
+        GROUP BY ALL
+      `;
+
+      await new Promise<void>((resolve, reject) => {
+        const stmt = connection.execute({
+          sqlText,
+          binds: [tenantCode],
+          streamResult: true,
+        });
+        const rowStream = stmt.streamRows();
+        rowStream.on('data', (row) => {
+          response.write(JSON.stringify(row) + '\n');
+          rowCount += 1;
+        });
+        rowStream.on('end', () => {
+          response.end();
+          resolve();
+        });
+        rowStream.on('error', (err) => {
+          response.destroy(err);
+          reject(err);
+        });
+      });
+
+      this.logger.log(
+        `cross-year roster: partnerId=${partnerId} tenantCode=${tenantCode} rowCount=${rowCount} durationMs=${Date.now() - startedAt}`
+      );
+    } finally {
+      connection.destroy(() => undefined);
+    }
+  }
 
   async earthbeamInputForRun(runId: Run['id']) {
     const run = await this.prisma.run.findUnique({
@@ -140,6 +271,11 @@ export class EarthbeamApiService {
 
     const executorBaseUrl = this.configService.executorCallbackBaseUrl();
 
+    const partnerId = job.tenant.partnerId;
+    const crossYearMatchAvailable =
+      job.tenant.partner.crossYearMatchingEnabled &&
+      (await this.configService.eduCredsExist(partnerId));
+
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
@@ -158,7 +294,11 @@ export class EarthbeamApiService {
         summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
+        ...(crossYearMatchAvailable
+          ? { roster: `${executorBaseUrl}/${earthbeamRosterEndpoint(runId)}` }
+          : {}),
       },
+      crossYearMatchAvailable,
       sendToOds: job.sendToOds,
       rosterFilePath: job.sendToOds
         ? undefined
