@@ -534,6 +534,8 @@ class JobExecutor:
         os.environ["EDFI_STUDENT_ID_TYPES"] = (
             "" if first_run_id_type == "studentUniqueId" else first_run_id_type
         )
+        # we already know which ID to use so we should succeed no matter how many failed matches remain
+        os.environ["REQUIRED_ID_MATCH_RATE"] = "0.0"
         self.logger.info(
             f"cross-year pass: matching on {first_run_id_name} / {first_run_id_type}"
         )
