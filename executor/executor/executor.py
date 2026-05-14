@@ -445,7 +445,7 @@ class JobExecutor:
         )]
         if (self.send_to_ods                      # i.e. we've only tried matching this year's students so far
             and self.cross_year_match_available   # and we have access to EDU
-            and bool(self.num_unmatched_students) # and there are unmatched students from the first run
+            and bool(self.num_unmatched_students) # and there are unmatched students from the first pass
         ):
             # then take a second pass with the cross-year roster from EDU
             # and thus produce a second output set to be sideloaded
@@ -549,7 +549,7 @@ class JobExecutor:
         self.get_roster_from_edu()
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
-        # Constrain to the ID column the first run matched on. The bundle always appends
+        # Constrain to the ID column the first pass matched on. The bundle always appends
         # studentUniqueId internally, so we pass an empty list when that's what won.
         os.environ["POSSIBLE_STUDENT_ID_COLUMNS"] = first_run_id_name
         os.environ["EDFI_STUDENT_ID_TYPES"] = (
