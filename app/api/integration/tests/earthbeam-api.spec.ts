@@ -83,8 +83,10 @@ describe('Earthbeam API', () => {
 
     describe('cross-year ID matching', () => {
       const EDU_ENV_VARS = [
+        'NODE_ENV',
         'EDU_SNOWFLAKE_USERNAME',
-        'EDU_SNOWFLAKE_URL',
+        'EDU_SNOWFLAKE_ACCOUNT',
+        'EDU_SNOWFLAKE_DATABASE',
         'EDU_SNOWFLAKE_SCHEMA',
         'EDU_SNOWFLAKE_PUBLIC_KEY',
         'EDU_SNOWFLAKE_PRIVATE_KEY',
@@ -93,8 +95,9 @@ describe('Earthbeam API', () => {
 
       const setEduEnvVars = () => {
         process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
-        process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
-        process.env.EDU_SNOWFLAKE_SCHEMA = 'edu_stg.public';
+        process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
+        process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
+        process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
         process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
         process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
       };
@@ -104,6 +107,8 @@ describe('Earthbeam API', () => {
           savedEnv[key] = process.env[key];
           delete process.env[key];
         }
+        // The env-var fallback in AppConfigService is gated on NODE_ENV=development.
+        process.env.NODE_ENV = 'development';
       });
 
       afterEach(() => {
@@ -321,8 +326,10 @@ describe('Earthbeam API', () => {
     let streamSpy: jest.SpyInstance | undefined;
 
     const EDU_ENV_VARS = [
+      'NODE_ENV',
       'EDU_SNOWFLAKE_USERNAME',
-      'EDU_SNOWFLAKE_URL',
+      'EDU_SNOWFLAKE_ACCOUNT',
+      'EDU_SNOWFLAKE_DATABASE',
       'EDU_SNOWFLAKE_SCHEMA',
       'EDU_SNOWFLAKE_PUBLIC_KEY',
       'EDU_SNOWFLAKE_PRIVATE_KEY',
@@ -331,8 +338,9 @@ describe('Earthbeam API', () => {
 
     const setEduEnvVars = () => {
       process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
-      process.env.EDU_SNOWFLAKE_URL = 'https://example.snowflakecomputing.com';
-      process.env.EDU_SNOWFLAKE_SCHEMA = 'edu_stg.public';
+      process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
+      process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
+      process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
       process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
       process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
     };
@@ -342,6 +350,8 @@ describe('Earthbeam API', () => {
         savedEnv[key] = process.env[key];
         delete process.env[key];
       }
+      // The env-var fallback in AppConfigService is gated on NODE_ENV=development.
+      process.env.NODE_ENV = 'development';
       streamSpy = undefined;
 
       const authService = app.get(EarthbeamApiAuthService);

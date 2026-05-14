@@ -31,6 +31,7 @@ import {
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
 import type { Response } from 'express';
+import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 
 @Injectable()
 export class EarthbeamApiService {
@@ -41,7 +42,8 @@ export class EarthbeamApiService {
     private readonly encryptionService: EncryptionService,
     private readonly fileService: FileService,
     private readonly configService: AppConfigService,
-    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
+    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService,
+    private readonly eduPool: EduSnowflakePoolService
   ) {}
 
   async getCrossYearRosterContext(runId: Run['id']) {
@@ -75,8 +77,9 @@ export class EarthbeamApiService {
 
   /**
    * Streams a cross-year roster from EDU/Snowflake to the response as NDJSON.
-   * Per-request connection, closed in `finally`. On stream error: abrupt close
-   * (no in-band sentinel) — the Executor detects truncation and fails the run.
+   * Uses a partner-scoped connection pool; on stream error the response is
+   * destroyed (no in-band sentinel) — the Executor detects truncation and
+   * fails the run.
    */
   async streamCrossYearRoster({
     partnerId,
@@ -87,33 +90,9 @@ export class EarthbeamApiService {
     tenantCode: string;
     response: Response;
   }): Promise<void> {
-    const conn = await this.configService.getEduConnectionInfo(partnerId);
-    if (!conn) {
-      throw new Error('EDU connection info missing — caller should have validated');
-    }
-
-    // Lazy import: snowflake-sdk has slow module-init side effects we don't want
-    // to pay on every app boot. Cross-year roster fetch is a rare hot path.
-    const snowflake = await import('snowflake-sdk');
-
-    // snowflake-sdk wants `account`, not a URL. URL is like
-    // https://<account>.snowflakecomputing.com, where <account> may itself
-    // contain dots (e.g. myorg.us-east-1). Strip the suffix and keep the rest.
-    const account = new URL(conn.url).hostname.replace(/\.snowflakecomputing\.com$/, '');
-    const connection = snowflake.createConnection({
-      account,
-      username: conn.username,
-      authenticator: 'SNOWFLAKE_JWT',
-      privateKey: conn.privateKey.toString('utf-8'),
-    });
-
     const startedAt = Date.now();
     let rowCount = 0;
-    try {
-      await new Promise<void>((resolve, reject) => {
-        connection.connect((err) => (err ? reject(err) : resolve()));
-      });
-
+    await this.eduPool.use(partnerId, async (connection) => {
       const sqlText = `
         WITH ids AS (
           SELECT
@@ -128,8 +107,8 @@ export class EarthbeamApiService {
               'studentIdentificationSystemDescriptor', seo_ids.id_system,
               'identificationCode', seo_ids.id_code
             ) AS stu_id_code
-          FROM ${conn.schema}.stg_ef3__student_education_organization_associations seoa
-          LEFT JOIN ${conn.schema}.stg_ef3__stu_ed_org__identification_codes seo_ids
+          FROM stg_ef3__student_education_organization_associations seoa
+          LEFT JOIN stg_ef3__stu_ed_org__identification_codes seo_ids
             ON seoa.k_student = seo_ids.k_student
           WHERE seoa.tenant_code = :1
           QUALIFY MAX(seoa.api_year) OVER (PARTITION BY seoa.k_student_xyear) = seoa.api_year
@@ -165,13 +144,10 @@ export class EarthbeamApiService {
           reject(err);
         });
       });
-
-      this.logger.log(
-        `cross-year roster: partnerId=${partnerId} tenantCode=${tenantCode} rowCount=${rowCount} durationMs=${Date.now() - startedAt}`
-      );
-    } finally {
-      connection.destroy(() => undefined);
-    }
+    });
+    this.logger.log(
+      `cross-year roster: partnerId=${partnerId} tenantCode=${tenantCode} rowCount=${rowCount} durationMs=${Date.now() - startedAt}`
+    );
   }
 
   async earthbeamInputForRun(runId: Run['id']) {
