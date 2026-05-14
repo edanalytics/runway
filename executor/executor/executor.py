@@ -139,16 +139,16 @@ class JobExecutor:
             # the error to the app, which is the most important thing this branch does.
             try:
                 self.upload_remaining_artifacts()
-            except Exception:
-                self.logger.exception("upload_remaining_artifacts raised during shutdown; continuing")
+            except Exception as e:
+                self.logger.error(f"upload_remaining_artifacts raised during shutdown ({repr(e)}); continuing", exc_info=True)
 
             # update_failure runs before send_error so the FAILURE status update
             # arrives at the app before the error payload (avoiding the race the
             # method's own docstring describes).
             try:
                 self.update_failure()
-            except Exception:
-                self.logger.exception("update_failure raised during shutdown; continuing")
+            except Exception as e:
+                self.logger.error(f"update_failure raised during shutdown ({repr(e)}); continuing", exc_info=True)
 
             self.send_error()
         else:
