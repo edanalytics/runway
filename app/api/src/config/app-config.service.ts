@@ -10,7 +10,8 @@ type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
 export type EduConnectionInfo = {
   username: string;
-  url: string;
+  account: string;
+  database: string;
   schema: string;
   publicKey: Buffer;
   privateKey: Buffer;
@@ -121,14 +122,15 @@ export class AppConfigService {
       if (typeof secret !== 'object') {
         return null;
       }
-      const { username, url, schema, publicKey, privateKey } = secret;
-      if (!username || !url || !schema || !publicKey || !privateKey) {
+      const { username, account, database, schema, publicKey, privateKey } = secret;
+      if (!username || !account || !database || !schema || !publicKey || !privateKey) {
         return null;
       }
       return {
         username,
-        url,
-        schema: this.validateSnowflakeIdentifier(schema, `edu-connection-info-${partnerId}.schema`),
+        account,
+        database,
+        schema,
         publicKey: Buffer.from(publicKey, 'base64'),
         privateKey: Buffer.from(privateKey, 'base64'),
       };
@@ -246,32 +248,26 @@ export class AppConfigService {
 
   private getEduConnectionInfoFromEnv(): EduConnectionInfo | null {
     const envUsername = process.env.EDU_SNOWFLAKE_USERNAME;
-    const url = process.env.EDU_SNOWFLAKE_URL;
+    const account = process.env.EDU_SNOWFLAKE_ACCOUNT;
+    const database = process.env.EDU_SNOWFLAKE_DATABASE;
     const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
     const publicKeyB64 = process.env.EDU_SNOWFLAKE_PUBLIC_KEY;
     const privateKeyB64 = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
-    if (!envUsername || !url || !schema || !publicKeyB64 || !privateKeyB64) {
+    if (!envUsername || !account || !database || !schema || !publicKeyB64 || !privateKeyB64) {
       return null;
     }
 
     return {
       username: envUsername,
-      url,
-      schema: this.validateSnowflakeIdentifier(schema, 'EDU_SNOWFLAKE_SCHEMA'),
+      account,
+      database,
+      schema,
       publicKey: Buffer.from(publicKeyB64, 'base64'),
       privateKey: Buffer.from(privateKeyB64, 'base64'),
     };
   }
 
-  private validateSnowflakeIdentifier(identifier: string, sourceName: string): string {
-    if (!/^[A-Za-z0-9_$]+(\.[A-Za-z0-9_$]+)*$/.test(identifier)) {
-      throw new Error(`Invalid ${sourceName}: ${identifier}`);
-    }
-
-    return identifier;
-  }
-
-  private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
+private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
     const cachedValue = this.secretsCache.get(secretName);
     if (cachedValue) {
       return cachedValue;

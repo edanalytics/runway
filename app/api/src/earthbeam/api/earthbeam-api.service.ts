@@ -96,13 +96,11 @@ export class EarthbeamApiService {
     // to pay on every app boot. Cross-year roster fetch is a rare hot path.
     const snowflake = await import('snowflake-sdk');
 
-    // snowflake-sdk wants `account`, not a URL. URL is like
-    // https://<account>.snowflakecomputing.com, where <account> may itself
-    // contain dots (e.g. myorg.us-east-1). Strip the suffix and keep the rest.
-    const account = new URL(conn.url).hostname.replace(/\.snowflakecomputing\.com$/, '');
     const connection = snowflake.createConnection({
-      account,
+      account: conn.account,
       username: conn.username,
+      database: conn.database,
+      schema: conn.schema,
       authenticator: 'SNOWFLAKE_JWT',
       privateKey: conn.privateKey.toString('utf-8'),
     });
@@ -128,8 +126,8 @@ export class EarthbeamApiService {
               'studentIdentificationSystemDescriptor', seo_ids.id_system,
               'identificationCode', seo_ids.id_code
             ) AS stu_id_code
-          FROM ${conn.schema}.stg_ef3__student_education_organization_associations seoa
-          LEFT JOIN ${conn.schema}.stg_ef3__stu_ed_org__identification_codes seo_ids
+          FROM stg_ef3__student_education_organization_associations seoa
+          LEFT JOIN stg_ef3__stu_ed_org__identification_codes seo_ids
             ON seoa.k_student = seo_ids.k_student
           WHERE seoa.tenant_code = :1
           QUALIFY MAX(seoa.api_year) OVER (PARTITION BY seoa.k_student_xyear) = seoa.api_year
