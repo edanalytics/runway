@@ -31,6 +31,8 @@ import {
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
 import type { Response } from 'express';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 
 @Injectable()
@@ -52,7 +54,11 @@ export class EarthbeamApiService {
       include: { job: { include: { tenant: { include: { partner: true } } } } },
     });
     if (!run) {
-      return { status: 'ERROR' as const, type: 'not_found' as const, message: `Run not found: ${runId}` };
+      return {
+        status: 'ERROR' as const,
+        type: 'not_found' as const,
+        message: `Run not found: ${runId}`,
+      };
     }
     const partner = run.job.tenant.partner;
     if (!partner.crossYearMatchingEnabled) {
@@ -124,29 +130,23 @@ export class EarthbeamApiService {
         GROUP BY ALL
       `;
 
-      await new Promise<void>((resolve, reject) => {
-        const stmt = connection.execute({
-          sqlText,
-          binds: [tenantCode],
-          streamResult: true,
-        });
-        const rowStream = stmt.streamRows();
-        rowStream.on('data', (row) => {
-          response.write(JSON.stringify(row) + '\n');
-          rowCount += 1;
-        });
-        rowStream.on('end', () => {
-          response.end();
-          resolve();
-        });
-        rowStream.on('error', (err) => {
-          response.destroy(err);
-          reject(err);
-        });
-      });
+      // pipeline manages backpressure and destroys downstream streams on error
+      await pipeline(
+        connection.execute({ sqlText, binds: [tenantCode], streamResult: true }).streamRows(),
+        new Transform({
+          writableObjectMode: true,
+          transform(row, _enc, cb) {
+            rowCount += 1;
+            cb(null, JSON.stringify(row) + '\n');
+          },
+        }),
+        response
+      );
     });
     this.logger.log(
-      `cross-year roster: partnerId=${partnerId} tenantCode=${tenantCode} rowCount=${rowCount} durationMs=${Date.now() - startedAt}`
+      `cross-year roster: partnerId=${partnerId} tenantCode=${tenantCode} rowCount=${rowCount} durationMs=${
+        Date.now() - startedAt
+      }`
     );
   }
 
@@ -281,14 +281,15 @@ export class EarthbeamApiService {
         ? undefined
         : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
       // odsConnection check narrows the type — the early guard ensures it's present when sendToOds
-      assessmentDatastore: odsConnection && job.sendToOds
-        ? {
-            apiYear: job.schoolYear.endYear.toString(),
-            url: odsConnection.host,
-            clientId: odsConnection.clientId,
-            clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
-          }
-        : undefined,
+      assessmentDatastore:
+        odsConnection && job.sendToOds
+          ? {
+              apiYear: job.schoolYear.endYear.toString(),
+              url: odsConnection.host,
+              clientId: odsConnection.clientId,
+              clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
+            }
+          : undefined,
     };
     return {
       status: 'SUCCESS',
