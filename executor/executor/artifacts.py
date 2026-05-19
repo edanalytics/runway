@@ -11,6 +11,7 @@ class JobArtifact:
     def __init__(self, name, path, needs_upload=True):
         self.name = name
         self.path = path
+        self.needs_upload = needs_upload
 
 
 ROSTER = JobArtifact(
