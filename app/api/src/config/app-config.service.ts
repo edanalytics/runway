@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PoolConfig } from 'pg';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
@@ -35,6 +35,7 @@ export type EduConnectionInfo = {
 
 @Injectable()
 export class AppConfigService {
+  private readonly logger = new Logger(AppConfigService.name);
   constructor(private readonly configService: ConfigService<IEnvironmentVariables>) {}
 
   get<K extends keyof IEnvironmentVariables>(key: K): IEnvironmentVariables[K] | undefined {
@@ -117,30 +118,58 @@ export class AppConfigService {
     }
 
     const secretName = `edu-connection-info-${partnerId}`;
+    let secret: string | Record<string, string>;
     try {
-      const secret = await this.getAWSSecret(secretName);
-      if (typeof secret !== 'object') {
+      secret = await this.getAWSSecret(secretName);
+    } catch (err) {
+      // Missing secret → feature off for this partner; any other AWS failure
+      // (IAM denied, throttled, network, malformed JSON) is operationally
+      // distinct and must propagate so the roster endpoint can surface a 5xx
+      // rather than masquerading as 409 "creds missing".
+      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
         return null;
       }
-      const { username, account, database, schema, publicKey, privateKey } = secret;
-      if (!username || !account || !database || !schema || !publicKey || !privateKey) {
-        return null;
-      }
-      return {
-        username,
-        account,
-        database,
-        schema,
-        publicKey: Buffer.from(publicKey, 'base64'),
-        privateKey: Buffer.from(privateKey, 'base64'),
-      };
-    } catch {
+      this.logger.warn(
+        `failed to load EDU connection info for partner ${partnerId}: ${
+          err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+        }`
+      );
+      throw err;
+    }
+    if (typeof secret !== 'object') {
       return null;
     }
+    const { username, account, database, schema, publicKey, privateKey } = secret;
+    if (!username || !account || !database || !schema || !publicKey || !privateKey) {
+      return null;
+    }
+    return {
+      username,
+      account,
+      database,
+      schema,
+      publicKey: Buffer.from(publicKey, 'base64'),
+      privateKey: Buffer.from(privateKey, 'base64'),
+    };
   }
 
+  /**
+   * Cheap existence check used at payload-assembly time. Degrades gracefully
+   * on AWS failure (logs + returns false) so a transient Secrets Manager
+   * issue doesn't break unrelated run creation. The roster endpoint calls
+   * `getEduConnectionInfo` directly and lets errors propagate.
+   */
   async eduCredsExist(partnerId: string): Promise<boolean> {
-    return (await this.getEduConnectionInfo(partnerId)) !== null;
+    try {
+      return (await this.getEduConnectionInfo(partnerId)) !== null;
+    } catch (err) {
+      this.logger.warn(
+        `eduCredsExist degrading to false for partner ${partnerId}: ${
+          err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+        }`
+      );
+      return false;
+    }
   }
 
   bundleBranch(): string {

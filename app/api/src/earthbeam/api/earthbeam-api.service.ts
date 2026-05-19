@@ -68,7 +68,9 @@ export class EarthbeamApiService {
         message: 'Cross-year matching is not enabled for this partner',
       };
     }
-    if (!(await this.configService.eduCredsExist(partner.id))) {
+    // Call getEduConnectionInfo directly (rather than eduCredsExist) so a real
+    // AWS failure surfaces as a 5xx; only a missing secret should produce 409.
+    if ((await this.configService.getEduConnectionInfo(partner.id)) === null) {
       return {
         status: 'ERROR' as const,
         type: 'conflict' as const,
