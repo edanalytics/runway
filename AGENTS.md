@@ -145,6 +145,7 @@ sequenceDiagram
 
 - `app/api/src/earthbeam/api/earthbeam-api.controller.ts` — HTTP callback endpoints the executor calls
 - `app/api/src/earthbeam/api/earthbeam-api.service.ts` — Job payload assembly, run completion
+- `app/models/src/dtos/earthbeam-api.dto.ts` — Job payload shape
 - `executor/executor/executor.py` — Main executor: S3 operations, HTTP callbacks, earthmover/lightbeam invocation
 
 ### Executor Lifecycle
@@ -152,7 +153,7 @@ sequenceDiagram
 1. **Init**: GET `INIT_JOB_URL` with `INIT_TOKEN` → receives auth token + job URL
 2. **Job fetch**: GET job URL → full job definition (files, ODS creds, bundle, callback URLs)
 3. **Bundle refresh**: git fetch/checkout/pull the earthmover bundle
-4. **Roster fetch**: `lightbeam fetch` student roster from ODS, upload artifact to S3
+4. **Roster fetch**: `lightbeam fetch` student roster from ODS, upload artifact to S3. When the job payload's `crossYearMatchAvailable` flag is true, the executor (in a follow-up repo PR) also calls `appUrls.roster` and writes the streamed NDJSON roster to a `.jsonl` file for the earthmover transform to consume.
 5. **File download**: Download user-uploaded input files from S3
 6. **Transform**: `earthmover run` (with encoding detection + retry)
 7. **Load**: `lightbeam send` to Ed-Fi ODS
