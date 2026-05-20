@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database';
 import { AppConfigService } from 'api/src/config/app-config.service';
@@ -13,7 +13,7 @@ type PoolEntry = { pool: Pool<Connection> };
  * and await its readiness.
  */
 @Injectable()
-export class EduSnowflakePoolService implements OnModuleInit {
+export class EduSnowflakePoolService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EduSnowflakePoolService.name);
   private readonly pools = new Map<string, Promise<PoolEntry>>();
 
@@ -25,6 +25,38 @@ export class EduSnowflakePoolService implements OnModuleInit {
 
   onModuleInit() {
     void this.warmPools();
+  }
+
+  /**
+   * Drain and clear every pool on shutdown so Snowflake sockets don't outlive
+   * the process during deploys (Beanstalk/ECS SIGTERM). Bounded per-pool to
+   * stay well under the platform grace period.
+   */
+  async onModuleDestroy(): Promise<void> {
+    const entries = Array.from(this.pools.entries());
+    this.pools.clear();
+    if (entries.length === 0) return;
+
+    this.logger.log(`shutting down ${entries.length} EDU snowflake pool(s)`);
+    const shutdownTimeoutMs = 10_000;
+    await Promise.allSettled(
+      entries.map(async ([partnerId, entryPromise]) => {
+        try {
+          const { pool } = await entryPromise;
+          await Promise.race([
+            pool.drain().then(() => pool.clear()),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`drain timed out after ${shutdownTimeoutMs}ms`)),
+                shutdownTimeoutMs
+              )
+            ),
+          ]);
+        } catch (err) {
+          this.logger.warn(`pool shutdown failed for partner ${partnerId}: ${err}`);
+        }
+      })
+    );
   }
 
   /**
