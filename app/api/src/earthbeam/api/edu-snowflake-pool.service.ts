@@ -61,25 +61,11 @@ export class EduSnowflakePoolService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Acquires a connection from the partner's pool, runs the callback, and
-   * releases the connection on success. On error the connection is destroyed
-   * rather than released — a callback failure (e.g. a row-stream error) can
-   * leave the underlying connection in an indeterminate state, and
-   * generic-pool's own `use()` helper unconditionally releases, handing the
-   * suspect resource to the next acquirer.
+   * releases the connection. Creates the pool on demand if none exists.
    */
   async use<T>(partnerId: string, callback: (connection: Connection) => Promise<T>): Promise<T> {
-    const { pool } = await this.getOrCreatePool(partnerId);
-    const connection = await pool.acquire();
-    try {
-      const result = await callback(connection);
-      await pool.release(connection);
-      return result;
-    } catch (err) {
-      await pool.destroy(connection).catch((destroyErr) => {
-        this.logger.warn(`pool.destroy failed for partner ${partnerId}: ${destroyErr}`);
-      });
-      throw err;
-    }
+    const entry = await this.getOrCreatePool(partnerId);
+    return entry.pool.use(callback);
   }
 
   private getOrCreatePool(partnerId: string): Promise<PoolEntry> {
