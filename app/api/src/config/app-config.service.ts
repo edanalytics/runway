@@ -292,7 +292,7 @@ export class AppConfigService {
     };
   }
 
-private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
+  private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
     const cachedValue = this.secretsCache.get(secretName);
     if (cachedValue) {
       return cachedValue;
