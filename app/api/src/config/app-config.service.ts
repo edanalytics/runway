@@ -13,7 +13,6 @@ export type EduConnectionInfo = {
   account: string;
   database: string;
   schema: string;
-  publicKey: Buffer;
   privateKey: Buffer;
 };
 
@@ -139,8 +138,8 @@ export class AppConfigService {
     if (typeof secret !== 'object') {
       return null;
     }
-    const { username, account, database, schema, publicKey, privateKey } = secret;
-    if (!username || !account || !database || !schema || !publicKey || !privateKey) {
+    const { username, account, database, schema, privateKey } = secret;
+    if (!username || !account || !database || !schema || !privateKey) {
       return null;
     }
     return {
@@ -148,7 +147,6 @@ export class AppConfigService {
       account,
       database,
       schema,
-      publicKey: Buffer.from(publicKey, 'base64'),
       privateKey: Buffer.from(privateKey, 'base64'),
     };
   }
@@ -280,9 +278,8 @@ export class AppConfigService {
     const account = process.env.EDU_SNOWFLAKE_ACCOUNT;
     const database = process.env.EDU_SNOWFLAKE_DATABASE;
     const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
-    const publicKeyB64 = process.env.EDU_SNOWFLAKE_PUBLIC_KEY;
     const privateKeyB64 = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
-    if (!envUsername || !account || !database || !schema || !publicKeyB64 || !privateKeyB64) {
+    if (!envUsername || !account || !database || !schema || !privateKeyB64) {
       return null;
     }
 
@@ -291,7 +288,6 @@ export class AppConfigService {
       account,
       database,
       schema,
-      publicKey: Buffer.from(publicKeyB64, 'base64'),
       privateKey: Buffer.from(privateKeyB64, 'base64'),
     };
   }
