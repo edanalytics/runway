@@ -37,24 +37,6 @@ describe('AppConfigService — EDU Snowflake config', () => {
     }
   });
 
-  describe('eduCredsExist', () => {
-    it('returns false when no env vars are set and no AWS secret exists', async () => {
-      const exists = await configService.eduCredsExist(partnerA.id);
-      expect(exists).toBe(false);
-    });
-
-    it('returns true when local env vars are set', async () => {
-      process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
-      process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
-      process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
-      process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
-      process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('private-key').toString('base64');
-
-      const exists = await configService.eduCredsExist(partnerA.id);
-      expect(exists).toBe(true);
-    });
-  });
-
   describe('getEduConnectionInfo', () => {
     it('returns null when no env vars are set and no AWS secret exists', async () => {
       const info = await configService.getEduConnectionInfo(partnerA.id);

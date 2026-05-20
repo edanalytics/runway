@@ -151,25 +151,6 @@ export class AppConfigService {
     };
   }
 
-  /**
-   * Cheap existence check used at payload-assembly time. Degrades gracefully
-   * on AWS failure (logs + returns false) so a transient Secrets Manager
-   * issue doesn't break unrelated run creation. The roster endpoint calls
-   * `getEduConnectionInfo` directly and lets errors propagate.
-   */
-  async eduCredsExist(partnerId: string): Promise<boolean> {
-    try {
-      return (await this.getEduConnectionInfo(partnerId)) !== null;
-    } catch (err) {
-      this.logger.warn(
-        `eduCredsExist degrading to false for partner ${partnerId}: ${
-          err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-        }`
-      );
-      return false;
-    }
-  }
-
   bundleBranch(): string {
     return this.get('BUNDLE_BRANCH') ?? 'main';
   }

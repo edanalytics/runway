@@ -251,9 +251,23 @@ export class EarthbeamApiService {
     const executorBaseUrl = this.configService.executorCallbackBaseUrl();
 
     const partnerId = job.tenant.partnerId;
-    const crossYearMatchAvailable =
-      job.tenant.partner.crossYearMatchingEnabled &&
-      (await this.configService.eduCredsExist(partnerId));
+    const crossYearEnabled = job.tenant.partner.crossYearMatchingEnabled;
+    let eduCredsAvailable = false;
+    if (crossYearEnabled) {
+      try {
+        eduCredsAvailable = (await this.configService.getEduConnectionInfo(partnerId)) !== null;
+      } catch (err) {
+        // Degrade gracefully so a transient Secrets Manager failure doesn't
+        // break unrelated run creation. The roster endpoint calls
+        // getEduConnectionInfo directly and lets real failures propagate.
+        this.logger.warn(
+          `EDU creds lookup failed for partner ${partnerId}: ${
+            err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+          }`
+        );
+      }
+    }
+    const crossYearMatchAvailable = crossYearEnabled && eduCredsAvailable;
 
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
