@@ -77,7 +77,11 @@ export class EduSnowflakePoolService implements OnModuleInit {
         authenticator: 'SNOWFLAKE_JWT',
         privateKey: conn.privateKey.toString('utf-8'),
       },
-      { min: 1, max: 4 }
+      // Cap acquire waits so a saturated pool surfaces a clear timeout error
+      // instead of hanging the request forever (generic-pool's default). 60s
+      // is intentionally generous — JWT connect alone is ~20s, so this needs
+      // headroom for cold-start + queue wait in a bursty 5+ concurrent run.
+      { min: 1, max: 4, acquireTimeoutMillis: 60_000 }
     );
 
     this.logger.log(`created EDU snowflake pool for partner ${partnerId}`);
