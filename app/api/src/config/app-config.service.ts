@@ -8,14 +8,6 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
-export type EduConnectionInfo = {
-  username: string;
-  account: string;
-  database: string;
-  schema: string;
-  privateKey: Buffer;
-};
-
 /**
  * AppConfigService is a wrapper on the @nestjs/config package's
  * ConfigService. It allows us to define custom getters, including
@@ -108,12 +100,29 @@ export class AppConfigService {
   /**
    * EDU Snowflake connection info for cross-year ID matching. Looks for an
    * AWS secret named `edu-connection-info-<partnerId>`; falls back to
-   * EDU_SNOWFLAKE_* env vars only in local development.
-   * Returns null when no creds are available — caller decides how to handle.
+   * EDU_SNOWFLAKE_* env vars only in local development. Returns null when no
+   * creds are available — caller decides how to handle. Throws on real AWS
+   * failures (IAM, throttling, network, malformed JSON) so the roster
+   * endpoint can surface a 5xx rather than masquerading as 409 "creds
+   * missing"; only ResourceNotFoundException collapses to null.
    */
-  async getEduConnectionInfo(partnerId: string): Promise<EduConnectionInfo | null> {
+  async getEduConnectionInfo(partnerId: string) {
     if (this.isDevEnvironment()) {
-      return this.getEduConnectionInfoFromEnv();
+      const username = process.env.EDU_SNOWFLAKE_USERNAME;
+      const account = process.env.EDU_SNOWFLAKE_ACCOUNT;
+      const database = process.env.EDU_SNOWFLAKE_DATABASE;
+      const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
+      const privateKey = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
+      if (!username || !account || !database || !schema || !privateKey) {
+        return null;
+      }
+      return {
+        username,
+        account,
+        database,
+        schema,
+        privateKey: Buffer.from(privateKey, 'base64'),
+      };
     }
 
     const secretName = `edu-connection-info-${partnerId}`;
@@ -121,10 +130,6 @@ export class AppConfigService {
     try {
       secret = await this.getAWSSecret(secretName);
     } catch (err) {
-      // Missing secret → feature off for this partner; any other AWS failure
-      // (IAM denied, throttled, network, malformed JSON) is operationally
-      // distinct and must propagate so the roster endpoint can surface a 5xx
-      // rather than masquerading as 409 "creds missing".
       if (err instanceof Error && err.name === 'ResourceNotFoundException') {
         return null;
       }
@@ -253,25 +258,6 @@ export class AppConfigService {
   });
 
   private readonly secretsCache: Map<string, string | Record<string, string>> = new Map();
-
-  private getEduConnectionInfoFromEnv(): EduConnectionInfo | null {
-    const envUsername = process.env.EDU_SNOWFLAKE_USERNAME;
-    const account = process.env.EDU_SNOWFLAKE_ACCOUNT;
-    const database = process.env.EDU_SNOWFLAKE_DATABASE;
-    const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
-    const privateKeyB64 = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
-    if (!envUsername || !account || !database || !schema || !privateKeyB64) {
-      return null;
-    }
-
-    return {
-      username: envUsername,
-      account,
-      database,
-      schema,
-      privateKey: Buffer.from(privateKeyB64, 'base64'),
-    };
-  }
 
   private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
     const cachedValue = this.secretsCache.get(secretName);
