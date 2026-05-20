@@ -41,8 +41,15 @@ export class EduSnowflakePoolService implements OnModuleInit {
     if (!entry) {
       entry = this.createPool(partnerId);
       this.pools.set(partnerId, entry);
-      // Evict failed creations so subsequent requests can retry.
-      entry.catch(() => this.pools.delete(partnerId));
+      // Evict failed creations so subsequent requests can retry. Guard against
+      // racing with a concurrent insertion under the same key — only delete if
+      // the map still points at this failed entry.
+      const failedEntry = entry;
+      entry.catch(() => {
+        if (this.pools.get(partnerId) === failedEntry) {
+          this.pools.delete(partnerId);
+        }
+      });
     }
     return entry;
   }
@@ -56,6 +63,10 @@ export class EduSnowflakePoolService implements OnModuleInit {
     // Lazy import: snowflake-sdk has slow module-init side effects we don't
     // want to pay on every app boot.
     const snowflake = await import('snowflake-sdk');
+
+    // The SDK writes a `snowflake.log` file to CWD by default. Silence it;
+    // we surface failures through Nest's logger instead.
+    snowflake.configure({ logLevel: 'OFF' });
 
     const pool = snowflake.createPool(
       {
