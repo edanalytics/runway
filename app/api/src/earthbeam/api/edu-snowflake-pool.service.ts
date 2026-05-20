@@ -16,6 +16,9 @@ type PoolEntry = { pool: Pool<Connection> };
 export class EduSnowflakePoolService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EduSnowflakePoolService.name);
   private readonly pools = new Map<string, Promise<PoolEntry>>();
+  // Partners for which createPool has already resolved successfully. Lets
+  // canConnect answer instantly for warm partners without a fresh AWS fetch.
+  private readonly resolvedPools = new Set<string>();
 
   constructor(
     @Inject(PRISMA_READ_ONLY)
@@ -35,6 +38,7 @@ export class EduSnowflakePoolService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     const entries = Array.from(this.pools.entries());
     this.pools.clear();
+    this.resolvedPools.clear();
     if (entries.length === 0) return;
 
     this.logger.log(`shutting down ${entries.length} EDU snowflake pool(s)`);
@@ -68,6 +72,27 @@ export class EduSnowflakePoolService implements OnModuleInit, OnModuleDestroy {
     return entry.pool.use(callback);
   }
 
+  /**
+   * Answers "could we open an EDU connection for this partner if asked?"
+   * - Already-established pool → instant true (no AWS call).
+   * - Otherwise → fresh cred check via AppConfigService.
+   * Errors are swallowed and logged so callers (e.g. job-payload assembly)
+   * can degrade gracefully without breaking unrelated work.
+   */
+  async canConnect(partnerId: string): Promise<boolean> {
+    if (this.resolvedPools.has(partnerId)) return true;
+    try {
+      return (await this.configService.getEduConnectionInfo(partnerId)) !== null;
+    } catch (err) {
+      this.logger.warn(
+        `canConnect: cred check failed for partner ${partnerId}: ${
+          err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+        }`
+      );
+      return false;
+    }
+  }
+
   private getOrCreatePool(partnerId: string): Promise<PoolEntry> {
     let entry = this.pools.get(partnerId);
     if (!entry) {
@@ -80,6 +105,7 @@ export class EduSnowflakePoolService implements OnModuleInit, OnModuleDestroy {
       entry.catch(() => {
         if (this.pools.get(partnerId) === failedEntry) {
           this.pools.delete(partnerId);
+          this.resolvedPools.delete(partnerId);
         }
       });
     }
@@ -117,6 +143,7 @@ export class EduSnowflakePoolService implements OnModuleInit, OnModuleDestroy {
     );
 
     this.logger.log(`created EDU snowflake pool for partner ${partnerId}`);
+    this.resolvedPools.add(partnerId);
     return { pool };
   }
 

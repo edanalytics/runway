@@ -68,9 +68,7 @@ export class EarthbeamApiService {
         message: 'Cross-year matching is not enabled for this partner',
       };
     }
-    // Call getEduConnectionInfo directly (rather than eduCredsExist) so a real
-    // AWS failure surfaces as a 5xx; only a missing secret should produce 409.
-    if ((await this.configService.getEduConnectionInfo(partner.id)) === null) {
+    if (!(await this.eduPool.canConnect(partner.id))) {
       return {
         status: 'ERROR' as const,
         type: 'conflict' as const,
@@ -252,22 +250,7 @@ export class EarthbeamApiService {
 
     const partnerId = job.tenant.partnerId;
     const crossYearEnabled = job.tenant.partner.crossYearMatchingEnabled;
-    let eduCredsAvailable = false;
-    if (crossYearEnabled) {
-      try {
-        eduCredsAvailable = (await this.configService.getEduConnectionInfo(partnerId)) !== null;
-      } catch (err) {
-        // Degrade gracefully so a transient Secrets Manager failure doesn't
-        // break unrelated run creation. The roster endpoint calls
-        // getEduConnectionInfo directly and lets real failures propagate.
-        this.logger.warn(
-          `EDU creds lookup failed for partner ${partnerId}: ${
-            err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-          }`
-        );
-      }
-    }
-    const crossYearMatchAvailable = crossYearEnabled && eduCredsAvailable;
+    const crossYearMatchAvailable = crossYearEnabled && (await this.eduPool.canConnect(partnerId));
 
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,

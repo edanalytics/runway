@@ -128,7 +128,10 @@ export class AppConfigService {
     const secretName = `edu-connection-info-${partnerId}`;
     let secret: string | Record<string, string>;
     try {
-      secret = await this.getAWSSecret(secretName);
+      // Uncached: cred-rotation handling lives in EduSnowflakePoolService,
+      // and the existence check there does a fresh fetch each time so a
+      // process restart isn't required to pick up new values.
+      secret = await this.fetchAWSSecret(secretName);
     } catch (err) {
       if (err instanceof Error && err.name === 'ResourceNotFoundException') {
         return null;
@@ -264,7 +267,12 @@ export class AppConfigService {
     if (cachedValue) {
       return cachedValue;
     }
+    const secretValue = await this.fetchAWSSecret(secretName);
+    this.secretsCache.set(secretName, secretValue);
+    return secretValue;
+  }
 
+  private async fetchAWSSecret(secretName: string): Promise<string | Record<string, string>> {
     const secretValueRaw = await this.secretsClient.send(
       new GetSecretValueCommand({ SecretId: secretName })
     );
@@ -284,7 +292,6 @@ export class AppConfigService {
       throw new Error(`Unable to parse value for secret ${secretName}`);
     }
 
-    this.secretsCache.set(secretName, secretValue);
     return secretValue;
   }
 
