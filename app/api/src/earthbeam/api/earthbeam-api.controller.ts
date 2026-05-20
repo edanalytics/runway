@@ -93,8 +93,18 @@ export class EarthbeamApiController {
       this.logger.error(
         `cross-year roster fetch failed for run ${runId}: ${err instanceof Error ? err.message : String(err)}`
       );
-      if (!res.destroyed) {
-        res.destroy(err instanceof Error ? err : new Error(String(err)));
+      // Abrupt close was a deliberate choice for *mid-stream* failures. If
+      // headers haven't been sent yet (pool acquire / execute failed before
+      // any rows), emit a clean 500 instead — easier for the executor to
+      // diagnose than a torn TCP connection.
+      if (res.headersSent) {
+        if (!res.destroyed) {
+          res.destroy(err instanceof Error ? err : new Error(String(err)));
+        }
+      } else {
+        throw new InternalServerErrorException(
+          err instanceof Error ? err.message : String(err)
+        );
       }
     }
   }

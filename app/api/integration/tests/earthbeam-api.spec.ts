@@ -494,6 +494,27 @@ describe('Earthbeam API', () => {
         expect(sockErr).toBeDefined();
       }
     });
+
+    it('returns 500 when pool acquisition fails before any bytes are streamed', async () => {
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+      setEduEnvVars();
+
+      const eduPool = app.get(EduSnowflakePoolService);
+      poolUseSpy = jest
+        .spyOn(eduPool, 'use')
+        .mockRejectedValue(new Error('pool acquisition failed'));
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(500);
+      // A clean JSON 500 — easier for the executor to diagnose than a torn socket.
+      expect(res.headers['content-type']).toContain('application/json');
+    });
   });
 
   describe('POST /:runId/status', () => {
