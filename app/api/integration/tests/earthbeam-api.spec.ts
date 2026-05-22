@@ -1,5 +1,6 @@
 import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-api-auth.service';
 import { EduSnowflakePoolService } from 'api/src/earthbeam/api/edu-snowflake-pool.service';
+import { AppConfigService } from 'api/src/config/app-config.service';
 import { Readable } from 'node:stream';
 import request from 'supertest';
 import { seedJob } from '../factories/job-factory';
@@ -83,41 +84,15 @@ describe('Earthbeam API', () => {
     });
 
     describe('cross-year ID matching', () => {
-      const EDU_ENV_VARS = [
-        'NODE_ENV',
-        'EDU_SNOWFLAKE_USERNAME',
-        'EDU_SNOWFLAKE_ACCOUNT',
-        'EDU_SNOWFLAKE_DATABASE',
-        'EDU_SNOWFLAKE_SCHEMA',
-        'EDU_SNOWFLAKE_PRIVATE_KEY',
-      ] as const;
-      const savedEnv: Record<string, string | undefined> = {};
-
-      const setEduEnvVars = () => {
-        process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
-        process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
-        process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
-        process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
-        process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
-      };
+      let getInfoSpy: jest.SpyInstance;
 
       beforeEach(() => {
-        for (const key of EDU_ENV_VARS) {
-          savedEnv[key] = process.env[key];
-          delete process.env[key];
-        }
-        // The env-var fallback in AppConfigService is gated on NODE_ENV=development.
-        process.env.NODE_ENV = 'development';
+        const configService = app.get(AppConfigService);
+        getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue(null);
       });
 
       afterEach(() => {
-        for (const key of EDU_ENV_VARS) {
-          if (savedEnv[key] === undefined) {
-            delete process.env[key];
-          } else {
-            process.env[key] = savedEnv[key];
-          }
-        }
+        getInfoSpy.mockRestore();
       });
 
       it('sets crossYearMatchAvailable=true and emits appUrls.roster when toggle on and creds exist', async () => {
@@ -125,7 +100,13 @@ describe('Earthbeam API', () => {
           where: { id: partnerA.id },
           data: { crossYearMatchingEnabled: true },
         });
-        setEduEnvVars();
+        getInfoSpy.mockResolvedValue({
+          username: 'snowflake-user',
+          account: 'example',
+          database: 'edu_stg',
+          schema: 'public',
+          privateKey: Buffer.from('priv'),
+        });
 
         const res = await request(app.getHttpServer())
           .get(endpointA)
@@ -138,9 +119,8 @@ describe('Earthbeam API', () => {
       });
 
       it('sets crossYearMatchAvailable=false and omits appUrls.roster when toggle is off', async () => {
-        // partnerA defaults to crossYearMatchingEnabled=false
-        setEduEnvVars();
-
+        // partnerA defaults to crossYearMatchingEnabled=false — canConnect is
+        // short-circuited before the config is consulted.
         const res = await request(app.getHttpServer())
           .get(endpointA)
           .set('Authorization', `Bearer ${tokenA}`);
@@ -155,7 +135,7 @@ describe('Earthbeam API', () => {
           where: { id: partnerA.id },
           data: { crossYearMatchingEnabled: true },
         });
-        // env vars deliberately not set
+        // default spy returns null — simulates "no creds available"
 
         const res = await request(app.getHttpServer())
           .get(endpointA)
@@ -323,33 +303,15 @@ describe('Earthbeam API', () => {
     let endpointA: string;
     let tokenA: string;
     let poolUseSpy: jest.SpyInstance | undefined;
-
-    const EDU_ENV_VARS = [
-      'NODE_ENV',
-      'EDU_SNOWFLAKE_USERNAME',
-      'EDU_SNOWFLAKE_ACCOUNT',
-      'EDU_SNOWFLAKE_DATABASE',
-      'EDU_SNOWFLAKE_SCHEMA',
-      'EDU_SNOWFLAKE_PRIVATE_KEY',
-    ] as const;
-    const savedEnv: Record<string, string | undefined> = {};
-
-    const setEduEnvVars = () => {
-      process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
-      process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
-      process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
-      process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
-      process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
-    };
+    let getInfoSpy: jest.SpyInstance;
 
     beforeEach(async () => {
-      for (const key of EDU_ENV_VARS) {
-        savedEnv[key] = process.env[key];
-        delete process.env[key];
-      }
-      // The env-var fallback in AppConfigService is gated on NODE_ENV=development.
-      process.env.NODE_ENV = 'development';
       poolUseSpy = undefined;
+      const configService = app.get(AppConfigService);
+      // Default to "no creds" — tests that exercise the creds-present path
+      // either override this with mockResolvedValue, or short-circuit the
+      // config lookup entirely by spying on eduPool.use.
+      getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue(null);
 
       const authService = app.get(EarthbeamApiAuthService);
       const jobA = await seedJob({
@@ -363,14 +325,8 @@ describe('Earthbeam API', () => {
     });
 
     afterEach(() => {
-      for (const key of EDU_ENV_VARS) {
-        if (savedEnv[key] === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = savedEnv[key];
-        }
-      }
       poolUseSpy?.mockRestore();
+      getInfoSpy.mockRestore();
     });
 
     it('rejects unauthenticated requests', async () => {
@@ -380,7 +336,6 @@ describe('Earthbeam API', () => {
 
     it('returns 409 when the partner has cross-year matching disabled', async () => {
       // partnerA defaults to crossYearMatchingEnabled=false
-      setEduEnvVars();
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenA}`);
@@ -392,9 +347,9 @@ describe('Earthbeam API', () => {
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
-      // env vars deliberately not set — pool creation will fail before any
-      // rows are written; controller's headersSent check should convert that
-      // to a clean 500 rather than tearing the socket.
+      // default spy returns null — pool creation will fail before any rows
+      // are written; controller's headersSent check should convert that to a
+      // clean 500 rather than tearing the socket.
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenA}`);
@@ -406,7 +361,6 @@ describe('Earthbeam API', () => {
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
-      setEduEnvVars();
 
       const rows = [
         { studentUniqueId: '1', priorYear: 2024 },
@@ -454,7 +408,6 @@ describe('Earthbeam API', () => {
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
-      setEduEnvVars();
 
       const eduPool = app.get(EduSnowflakePoolService);
       poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
@@ -502,7 +455,6 @@ describe('Earthbeam API', () => {
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
-      setEduEnvVars();
 
       const eduPool = app.get(EduSnowflakePoolService);
       poolUseSpy = jest
