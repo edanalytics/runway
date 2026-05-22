@@ -2,8 +2,6 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import type { Connection, Pool } from 'snowflake-sdk';
 
-type PoolEntry = { pool: Pool<Connection> };
-
 /**
  * Maintains one Snowflake connection pool per partner, created on demand.
  * The first request for a partner pays the ~20s JWT connect cost; subsequent
@@ -12,10 +10,7 @@ type PoolEntry = { pool: Pool<Connection> };
 @Injectable()
 export class EduSnowflakePoolService implements OnModuleDestroy {
   private readonly logger = new Logger(EduSnowflakePoolService.name);
-  private readonly pools = new Map<string, Promise<PoolEntry>>();
-  // Partners for which createPool has already resolved successfully. Lets
-  // canConnect answer instantly for warm partners without a fresh AWS fetch.
-  private readonly resolvedPools = new Set<string>();
+  private readonly pools = new Map<string, Promise<Pool<Connection>>>();
 
   constructor(private readonly configService: AppConfigService) {}
 
@@ -27,15 +22,14 @@ export class EduSnowflakePoolService implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     const entries = Array.from(this.pools.entries());
     this.pools.clear();
-    this.resolvedPools.clear();
     if (entries.length === 0) return;
 
     this.logger.log(`shutting down ${entries.length} EDU snowflake pool(s)`);
     const shutdownTimeoutMs = 10_000;
     await Promise.allSettled(
-      entries.map(async ([partnerId, entryPromise]) => {
+      entries.map(async ([partnerId, poolPromise]) => {
         try {
-          const { pool } = await entryPromise;
+          const pool = await poolPromise;
           await Promise.race([
             pool.drain().then(() => pool.clear()),
             new Promise((_, reject) =>
@@ -57,19 +51,23 @@ export class EduSnowflakePoolService implements OnModuleDestroy {
    * releases the connection. Creates the pool on demand if none exists.
    */
   async use<T>(partnerId: string, callback: (connection: Connection) => Promise<T>): Promise<T> {
-    const entry = await this.getOrCreatePool(partnerId);
-    return entry.pool.use(callback);
+    const pool = await this.getOrCreatePool(partnerId);
+    return pool.use(callback);
   }
 
   /**
    * Answers "could we open an EDU connection for this partner if asked?"
-   * - Already-established pool → instant true (no AWS call).
-   * - Otherwise → fresh cred check via AppConfigService.
-   * Errors are swallowed and logged so callers (e.g. job-payload assembly)
-   * can degrade gracefully without breaking unrelated work.
+   * Fast path: an entry in `pools` means we've already started building a
+   * pool, so creds existed at least once — return true without an AWS call.
+   * (A racy in-flight failure is harmless: payload assembly would set
+   * crossYearMatchAvailable=true, the executor's roster fetch would 500,
+   * and the executor falls back to first-pass results.)
+   * Otherwise: fresh cred check via AppConfigService. Errors are swallowed
+   * and logged so callers (e.g. job-payload assembly) can degrade gracefully
+   * without breaking unrelated work.
    */
   async canConnect(partnerId: string): Promise<boolean> {
-    if (this.resolvedPools.has(partnerId)) return true;
+    if (this.pools.has(partnerId)) return true;
     try {
       return (await this.configService.getEduConnectionInfo(partnerId)) !== null;
     } catch (err) {
@@ -82,26 +80,24 @@ export class EduSnowflakePoolService implements OnModuleDestroy {
     }
   }
 
-  private getOrCreatePool(partnerId: string): Promise<PoolEntry> {
-    let entry = this.pools.get(partnerId);
-    if (!entry) {
-      entry = this.createPool(partnerId);
-      this.pools.set(partnerId, entry);
-      // Evict failed creations so subsequent requests can retry. Guard against
-      // racing with a concurrent insertion under the same key — only delete if
-      // the map still points at this failed entry.
-      const failedEntry = entry;
-      entry.catch(() => {
-        if (this.pools.get(partnerId) === failedEntry) {
-          this.pools.delete(partnerId);
-          this.resolvedPools.delete(partnerId);
-        }
-      });
-    }
-    return entry;
+  private getOrCreatePool(partnerId: string): Promise<Pool<Connection>> {
+    const existing = this.pools.get(partnerId);
+    if (existing) return existing;
+
+    const pool = this.createPool(partnerId);
+    this.pools.set(partnerId, pool);
+    // Evict failed creations so subsequent requests can retry. Guard against
+    // racing with a concurrent insertion under the same key — only delete if
+    // the map still points at this entry.
+    pool.catch(() => {
+      if (this.pools.get(partnerId) === pool) {
+        this.pools.delete(partnerId);
+      }
+    });
+    return pool;
   }
 
-  private async createPool(partnerId: string): Promise<PoolEntry> {
+  private async createPool(partnerId: string): Promise<Pool<Connection>> {
     const conn = await this.configService.getEduConnectionInfo(partnerId);
     if (!conn) {
       throw new Error(`No EDU connection info available for partner ${partnerId}`);
@@ -144,7 +140,6 @@ export class EduSnowflakePoolService implements OnModuleDestroy {
     );
 
     this.logger.log(`created EDU snowflake pool for partner ${partnerId}`);
-    this.resolvedPools.add(partnerId);
-    return { pool };
+    return pool;
   }
 }
