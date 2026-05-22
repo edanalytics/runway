@@ -140,7 +140,13 @@ export class EarthbeamApiController {
             writableObjectMode: true,
             transform(row, _enc, cb) {
               rowCount += 1;
-              cb(null, JSON.stringify(row) + '\n');
+              // A sync throw here escapes pipeline and crashes the process;
+              // route stringify failures (e.g. BigInt) through cb(err) instead.
+              try {
+                cb(null, JSON.stringify(row) + '\n');
+              } catch (err) {
+                cb(err as Error);
+              }
             },
           }),
           res
@@ -153,7 +159,9 @@ export class EarthbeamApiController {
       );
     } catch (err) {
       this.logger.error(
-        `cross-year roster fetch failed for run ${runId}: ${err instanceof Error ? err.message : String(err)}`
+        `cross-year roster fetch failed for run ${runId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`
       );
       // Abrupt close was a deliberate choice for *mid-stream* failures. If
       // headers haven't been sent yet (pool acquire / execute failed before
@@ -164,9 +172,7 @@ export class EarthbeamApiController {
           res.destroy(err instanceof Error ? err : new Error(String(err)));
         }
       } else {
-        throw new InternalServerErrorException(
-          err instanceof Error ? err.message : String(err)
-        );
+        throw new InternalServerErrorException(err instanceof Error ? err.message : String(err));
       }
     }
   }
