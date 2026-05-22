@@ -48,36 +48,6 @@ export class EarthbeamApiService {
     private readonly eduPool: EduSnowflakePoolService
   ) {}
 
-  async getCrossYearRosterContext(runId: Run['id']) {
-    const run = await this.prisma.run.findUnique({
-      where: { id: runId },
-      include: { job: { include: { tenant: { include: { partner: true } } } } },
-    });
-    if (!run) {
-      return {
-        status: 'ERROR' as const,
-        type: 'not_found' as const,
-        message: `Run not found: ${runId}`,
-      };
-    }
-    const partner = run.job.tenant.partner;
-    if (!partner.crossYearMatchingEnabled) {
-      return {
-        status: 'ERROR' as const,
-        type: 'conflict' as const,
-        message: 'Cross-year matching is not enabled for this partner',
-      };
-    }
-    // Don't re-check creds here — the stream attempt will fail loudly if the
-    // pool can't be built, and the controller's headersSent-aware catch
-    // converts that to a clean 500. Re-checking would mean two AWS round-trips
-    // per cold roster request (this check + pool creation).
-    return {
-      status: 'SUCCESS' as const,
-      data: { partnerId: partner.id, tenantCode: run.job.tenant.code },
-    };
-  }
-
   /**
    * Streams a cross-year roster from EDU/Snowflake to the response as NDJSON.
    * Uses a partner-scoped connection pool; on stream error the response is

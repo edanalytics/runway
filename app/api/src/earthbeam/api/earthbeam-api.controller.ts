@@ -76,17 +76,27 @@ export class EarthbeamApiController {
 
   @Get(':runId/roster')
   async streamRoster(@Param('runId', ParseIntPipe) runId: number, @Res() res: Response) {
-    const ctx = await this.earthbeamApiService.getCrossYearRosterContext(runId);
-    if (ctx.status === 'ERROR') {
-      if (ctx.type === 'not_found') throw new NotFoundException(ctx.message);
-      throw new ConflictException(ctx.message);
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      include: { job: { include: { tenant: { include: { partner: true } } } } },
+    });
+    if (!run) {
+      throw new NotFoundException(`Run not found: ${runId}`);
     }
+    const { partner } = run.job.tenant;
+    if (!partner.crossYearMatchingEnabled) {
+      throw new ConflictException('Cross-year matching is not enabled for this partner');
+    }
+    // Don't pre-check creds here — the stream attempt will fail loudly if the
+    // pool can't be built, and the headersSent-aware catch below converts that
+    // to a clean 500. Re-checking would mean two AWS round-trips per cold
+    // roster request (this check + pool creation).
 
     res.setHeader('Content-Type', 'application/x-ndjson');
     try {
       await this.earthbeamApiService.streamCrossYearRoster({
-        partnerId: ctx.data.partnerId,
-        tenantCode: ctx.data.tenantCode,
+        partnerId: run.job.partnerId,
+        tenantCode: run.job.tenantCode,
         response: res,
       });
     } catch (err) {
