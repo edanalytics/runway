@@ -28,9 +28,12 @@ import {
   toEarthbeamApiJobResponseDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
+import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { FileService } from 'api/src/files/file.service';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 @Controller()
 @Public()
@@ -41,7 +44,8 @@ export class EarthbeamApiController {
   constructor(
     private readonly earthbeamApiService: EarthbeamApiService,
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
-    private readonly fileService: FileService
+    private readonly fileService: FileService,
+    private readonly eduPool: EduSnowflakePoolService
   ) {}
 
   @Get(':runId')
@@ -76,25 +80,93 @@ export class EarthbeamApiController {
 
   @Get(':runId/roster')
   async streamRoster(@Param('runId', ParseIntPipe) runId: number, @Res() res: Response) {
-    const ctx = await this.earthbeamApiService.getCrossYearRosterContext(runId);
-    if (ctx.status === 'ERROR') {
-      if (ctx.type === 'not_found') throw new NotFoundException(ctx.message);
-      throw new ConflictException(ctx.message);
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      include: { job: { include: { tenant: { include: { partner: true } } } } },
+    });
+    if (!run) {
+      throw new NotFoundException(`Run not found: ${runId}`);
     }
+    const { partner } = run.job.tenant;
+    if (!partner.crossYearMatchingEnabled) {
+      throw new ConflictException('Cross-year matching is not enabled for this partner');
+    }
+    // Don't pre-check creds here — the stream attempt will fail loudly if the
+    // pool can't be built, and the headersSent-aware catch below converts that
+    // to a clean 500. Re-checking would mean two AWS round-trips per cold
+    // roster request (this check + pool creation).
 
     res.setHeader('Content-Type', 'application/x-ndjson');
+    const { partnerId, tenantCode } = run.job;
+    const startedAt = Date.now();
+    let rowCount = 0;
     try {
-      await this.earthbeamApiService.streamCrossYearRoster({
-        partnerId: ctx.data.partnerId,
-        tenantCode: ctx.data.tenantCode,
-        response: res,
+      await this.eduPool.use(partnerId, async (connection) => {
+        const sqlText = `
+          WITH ids AS (
+            SELECT
+              seoa.tenant_code,
+              seoa.api_year,
+              seoa.k_student,
+              seoa.k_student_xyear,
+              seoa.student_unique_id,
+              seoa.ed_org_id,
+              seo_ids.id_system,
+              OBJECT_CONSTRUCT_KEEP_NULL(
+                'studentIdentificationSystemDescriptor', seo_ids.id_system,
+                'identificationCode', seo_ids.id_code
+              ) AS stu_id_code
+            FROM stg_ef3__student_education_organization_associations seoa
+            LEFT JOIN stg_ef3__stu_ed_org__identification_codes seo_ids
+              ON seoa.k_student = seo_ids.k_student
+            WHERE seoa.tenant_code = :1
+            QUALIFY MAX(seoa.api_year) OVER (PARTITION BY seoa.k_student_xyear) = seoa.api_year
+          )
+          SELECT
+            OBJECT_CONSTRUCT(
+              'educationOrganizationId', ed_org_id,
+              'link', OBJECT_CONSTRUCT('rel', 'LocalEducationAgency')
+            ) AS "educationOrganizationReference",
+            OBJECT_CONSTRUCT('studentUniqueId', student_unique_id) AS "studentReference",
+            ARRAY_AGG(DISTINCT stu_id_code) AS "studentIdentificationCodes"
+          FROM ids
+          GROUP BY ALL
+        `;
+
+        // pipeline manages backpressure and destroys downstream streams on error
+        await pipeline(
+          connection.execute({ sqlText, binds: [tenantCode], streamResult: true }).streamRows(),
+          new Transform({
+            writableObjectMode: true,
+            transform(row, _enc, cb) {
+              rowCount += 1;
+              cb(null, JSON.stringify(row) + '\n');
+            },
+          }),
+          res
+        );
       });
+      this.logger.log(
+        `cross-year roster: partnerId=${partnerId} tenantCode=${tenantCode} rowCount=${rowCount} durationMs=${
+          Date.now() - startedAt
+        }`
+      );
     } catch (err) {
       this.logger.error(
         `cross-year roster fetch failed for run ${runId}: ${err instanceof Error ? err.message : String(err)}`
       );
-      if (!res.destroyed) {
-        res.destroy(err instanceof Error ? err : new Error(String(err)));
+      // Abrupt close was a deliberate choice for *mid-stream* failures. If
+      // headers haven't been sent yet (pool acquire / execute failed before
+      // any rows), emit a clean 500 instead — easier for the executor to
+      // diagnose than a torn TCP connection.
+      if (res.headersSent) {
+        if (!res.destroyed) {
+          res.destroy(err instanceof Error ? err : new Error(String(err)));
+        }
+      } else {
+        throw new InternalServerErrorException(
+          err instanceof Error ? err.message : String(err)
+        );
       }
     }
   }

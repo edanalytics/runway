@@ -145,6 +145,7 @@ sequenceDiagram
 
 - `app/api/src/earthbeam/api/earthbeam-api.controller.ts` — HTTP callback endpoints the executor calls
 - `app/api/src/earthbeam/api/earthbeam-api.service.ts` — Job payload assembly, run completion
+- `app/models/src/dtos/earthbeam-api.dto.ts` — Job payload shape
 - `executor/executor/executor.py` — Main executor: S3 operations, HTTP callbacks, earthmover/lightbeam invocation
 
 ### Executor Lifecycle
@@ -154,11 +155,12 @@ sequenceDiagram
 3. **Bundle refresh**: git fetch/checkout/pull the earthmover bundle
 4. **Roster fetch**: `lightbeam fetch` student roster from ODS, upload artifact to S3
 5. **File download**: Download user-uploaded input files from S3
-6. **Transform**: `earthmover run` (with encoding detection + retry)
-7. **Load**: `lightbeam send` to Ed-Fi ODS
-8. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
-9. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
-10. **Done**: POST status `{action: DONE, status: success|failure}`
+6. **Transform**: `earthmover run` against the ODS roster (with encoding detection + retry)
+7. **Cross-year retry** (when `crossYearMatchAvailable` and the first pass produced unmatched students): GET `appUrls.roster` for the cross-year NDJSON roster, write to a `.jsonl` file, and re-run `earthmover` against it using the same ID type. Recovers students whose identifiers changed between school years.
+8. **Load**: `lightbeam send` to Ed-Fi ODS
+9. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
+10. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
+11. **Done**: POST status `{action: DONE, status: success|failure}`
 
 ### S3 Path Structure
 

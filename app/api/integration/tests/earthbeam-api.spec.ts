@@ -1,5 +1,6 @@
 import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-api-auth.service';
-import { EarthbeamApiService } from 'api/src/earthbeam/api/earthbeam-api.service';
+import { EduSnowflakePoolService } from 'api/src/earthbeam/api/edu-snowflake-pool.service';
+import { Readable } from 'node:stream';
 import request from 'supertest';
 import { seedJob } from '../factories/job-factory';
 import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
@@ -88,7 +89,6 @@ describe('Earthbeam API', () => {
         'EDU_SNOWFLAKE_ACCOUNT',
         'EDU_SNOWFLAKE_DATABASE',
         'EDU_SNOWFLAKE_SCHEMA',
-        'EDU_SNOWFLAKE_PUBLIC_KEY',
         'EDU_SNOWFLAKE_PRIVATE_KEY',
       ] as const;
       const savedEnv: Record<string, string | undefined> = {};
@@ -98,7 +98,6 @@ describe('Earthbeam API', () => {
         process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
         process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
         process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
-        process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
         process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
       };
 
@@ -323,7 +322,7 @@ describe('Earthbeam API', () => {
     let runA: Run;
     let endpointA: string;
     let tokenA: string;
-    let streamSpy: jest.SpyInstance | undefined;
+    let poolUseSpy: jest.SpyInstance | undefined;
 
     const EDU_ENV_VARS = [
       'NODE_ENV',
@@ -331,7 +330,6 @@ describe('Earthbeam API', () => {
       'EDU_SNOWFLAKE_ACCOUNT',
       'EDU_SNOWFLAKE_DATABASE',
       'EDU_SNOWFLAKE_SCHEMA',
-      'EDU_SNOWFLAKE_PUBLIC_KEY',
       'EDU_SNOWFLAKE_PRIVATE_KEY',
     ] as const;
     const savedEnv: Record<string, string | undefined> = {};
@@ -341,7 +339,6 @@ describe('Earthbeam API', () => {
       process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
       process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
       process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
-      process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('pub').toString('base64');
       process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('priv').toString('base64');
     };
 
@@ -352,7 +349,7 @@ describe('Earthbeam API', () => {
       }
       // The env-var fallback in AppConfigService is gated on NODE_ENV=development.
       process.env.NODE_ENV = 'development';
-      streamSpy = undefined;
+      poolUseSpy = undefined;
 
       const authService = app.get(EarthbeamApiAuthService);
       const jobA = await seedJob({
@@ -373,7 +370,7 @@ describe('Earthbeam API', () => {
           process.env[key] = savedEnv[key];
         }
       }
-      streamSpy?.mockRestore();
+      poolUseSpy?.mockRestore();
     });
 
     it('rejects unauthenticated requests', async () => {
@@ -390,39 +387,45 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(409);
     });
 
-    it('returns 409 when EDU creds are missing', async () => {
+    it('returns 500 when EDU creds are missing for an otherwise-enabled partner', async () => {
       await global.prisma.partner.update({
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
-      // env vars deliberately not set
+      // env vars deliberately not set — pool creation will fail before any
+      // rows are written; controller's headersSent check should convert that
+      // to a clean 500 rather than tearing the socket.
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenA}`);
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(500);
     });
 
-    it('streams NDJSON rows when toggle on and creds present', async () => {
+    it('streams NDJSON rows from the real streamCrossYearRoster, binding tenant.code', async () => {
       await global.prisma.partner.update({
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
       setEduEnvVars();
 
-      const earthbeamApiService = app.get(EarthbeamApiService);
       const rows = [
         { studentUniqueId: '1', priorYear: 2024 },
         { studentUniqueId: '2', priorYear: 2024 },
         { studentUniqueId: '3', priorYear: 2024 },
       ];
-      streamSpy = jest
-        .spyOn(earthbeamApiService, 'streamCrossYearRoster')
-        .mockImplementation(async ({ response }) => {
-          for (const row of rows) {
-            response.write(JSON.stringify(row) + '\n');
-          }
-          response.end();
-        });
+      let capturedExecute: { sqlText: string; binds: unknown[]; streamResult: boolean } | undefined;
+      const eduPool = app.get(EduSnowflakePoolService);
+      // Mock at the pool boundary so the real streamCrossYearRoster body runs
+      // (pipeline + Transform + the real SQL + binds).
+      poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
+        const fakeConnection = {
+          execute: (args: { sqlText: string; binds: unknown[]; streamResult: boolean }) => {
+            capturedExecute = args;
+            return { streamRows: () => Readable.from(rows) };
+          },
+        };
+        return cb(fakeConnection as never);
+      });
 
       const res = await request(app.getHttpServer())
         .get(endpointA)
@@ -435,35 +438,84 @@ describe('Earthbeam API', () => {
       expect(JSON.parse(lines[0])).toEqual(rows[0]);
       expect(JSON.parse(lines[2])).toEqual(rows[2]);
 
-      expect(streamSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          partnerId: partnerA.id,
-          tenantCode: tenantA.code,
-        })
+      expect(poolUseSpy).toHaveBeenCalledWith(partnerA.id, expect.any(Function));
+      expect(capturedExecute).toBeDefined();
+      expect(capturedExecute!.binds).toEqual([tenantA.code]);
+      expect(capturedExecute!.streamResult).toBe(true);
+      // Sanity-check that the query targets the EDU staging tables and uses the :1 bind.
+      expect(capturedExecute!.sqlText).toMatch(
+        /stg_ef3__student_education_organization_associations/
       );
+      expect(capturedExecute!.sqlText).toMatch(/seoa\.tenant_code\s*=\s*:1/);
     });
 
-    it('closes the response abruptly when streaming errors mid-flight', async () => {
+    it('closes the response abruptly when the Snowflake row stream errors mid-flight', async () => {
       await global.prisma.partner.update({
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
       setEduEnvVars();
 
-      const earthbeamApiService = app.get(EarthbeamApiService);
-      streamSpy = jest
-        .spyOn(earthbeamApiService, 'streamCrossYearRoster')
-        .mockImplementation(async ({ response }) => {
-          response.write(JSON.stringify({ studentUniqueId: '1' }) + '\n');
-          response.destroy(new Error('snowflake exploded'));
-        });
+      const eduPool = app.get(EduSnowflakePoolService);
+      poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
+        const errorStream = Readable.from(
+          (async function* () {
+            yield { studentUniqueId: '1' };
+            throw new Error('snowflake exploded mid-stream');
+          })()
+        );
+        const fakeConnection = {
+          execute: () => ({ streamRows: () => errorStream }),
+        };
+        return cb(fakeConnection as never);
+      });
 
-      // supertest surfaces a destroyed socket as an error; the response should
-      // not contain a sentinel error line — we just abort.
-      await request(app.getHttpServer())
+      // Abrupt close: pipeline destroys the response on stream error. Headers
+      // (status + content-type) were already sent, so supertest receives a
+      // truncated body containing the rows written before the error.
+      let res: request.Response | undefined;
+      let sockErr: Error | undefined;
+      try {
+        res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+      } catch (err) {
+        sockErr = err as Error;
+      }
+
+      if (res) {
+        expect(res.status).toBe(200);
+        const lines = res.text.split('\n').filter((l) => l.length > 0);
+        expect(lines).toEqual([JSON.stringify({ studentUniqueId: '1' })]);
+        // No in-band sentinel / error marker — abrupt close, body simply truncates.
+        expect(res.text).not.toMatch(/error|exception/i);
+      } else {
+        // Some Node/supertest combinations surface the destroyed socket as a
+        // client-side error instead of a partial body. Either is consistent
+        // with "abrupt close, no sentinel."
+        expect(sockErr).toBeDefined();
+      }
+    });
+
+    it('returns 500 when pool acquisition fails before any bytes are streamed', async () => {
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+      setEduEnvVars();
+
+      const eduPool = app.get(EduSnowflakePoolService);
+      poolUseSpy = jest
+        .spyOn(eduPool, 'use')
+        .mockRejectedValue(new Error('pool acquisition failed'));
+
+      const res = await request(app.getHttpServer())
         .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`)
-        .catch((err) => err); // socket close raises; we don't care about the shape
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(500);
+      // A clean JSON 500 — easier for the executor to diagnose than a torn socket.
+      expect(res.headers['content-type']).toContain('application/json');
     });
   });
 

@@ -7,7 +7,6 @@ const EDU_ENV_VARS = [
   'EDU_SNOWFLAKE_ACCOUNT',
   'EDU_SNOWFLAKE_DATABASE',
   'EDU_SNOWFLAKE_SCHEMA',
-  'EDU_SNOWFLAKE_PUBLIC_KEY',
   'EDU_SNOWFLAKE_PRIVATE_KEY',
 ] as const;
 
@@ -38,25 +37,6 @@ describe('AppConfigService — EDU Snowflake config', () => {
     }
   });
 
-  describe('eduCredsExist', () => {
-    it('returns false when no env vars are set and no AWS secret exists', async () => {
-      const exists = await configService.eduCredsExist(partnerA.id);
-      expect(exists).toBe(false);
-    });
-
-    it('returns true when local env vars are set', async () => {
-      process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
-      process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
-      process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
-      process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
-      process.env.EDU_SNOWFLAKE_PUBLIC_KEY = Buffer.from('public-key').toString('base64');
-      process.env.EDU_SNOWFLAKE_PRIVATE_KEY = Buffer.from('private-key').toString('base64');
-
-      const exists = await configService.eduCredsExist(partnerA.id);
-      expect(exists).toBe(true);
-    });
-  });
-
   describe('getEduConnectionInfo', () => {
     it('returns null when no env vars are set and no AWS secret exists', async () => {
       const info = await configService.getEduConnectionInfo(partnerA.id);
@@ -65,12 +45,10 @@ describe('AppConfigService — EDU Snowflake config', () => {
 
     it('returns a connection info object built from env vars when set', async () => {
       const privateKey = Buffer.from('private-key-content').toString('base64');
-      const publicKey = Buffer.from('public-key-content').toString('base64');
       process.env.EDU_SNOWFLAKE_USERNAME = 'snowflake-user';
       process.env.EDU_SNOWFLAKE_ACCOUNT = 'example';
       process.env.EDU_SNOWFLAKE_DATABASE = 'edu_stg';
       process.env.EDU_SNOWFLAKE_SCHEMA = 'public';
-      process.env.EDU_SNOWFLAKE_PUBLIC_KEY = publicKey;
       process.env.EDU_SNOWFLAKE_PRIVATE_KEY = privateKey;
 
       const info = await configService.getEduConnectionInfo(partnerA.id);
@@ -79,7 +57,6 @@ describe('AppConfigService — EDU Snowflake config', () => {
         account: 'example',
         database: 'edu_stg',
         schema: 'public',
-        publicKey: Buffer.from('public-key-content'),
         privateKey: Buffer.from('private-key-content'),
       });
     });

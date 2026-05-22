@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PoolConfig } from 'pg';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
@@ -7,15 +7,6 @@ import { keyBy } from 'lodash';
 import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm';
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
-
-export type EduConnectionInfo = {
-  username: string;
-  account: string;
-  database: string;
-  schema: string;
-  publicKey: Buffer;
-  privateKey: Buffer;
-};
 
 /**
  * AppConfigService is a wrapper on the @nestjs/config package's
@@ -35,6 +26,7 @@ export type EduConnectionInfo = {
 
 @Injectable()
 export class AppConfigService {
+  private readonly logger = new Logger(AppConfigService.name);
   constructor(private readonly configService: ConfigService<IEnvironmentVariables>) {}
 
   get<K extends keyof IEnvironmentVariables>(key: K): IEnvironmentVariables[K] | undefined {
@@ -107,23 +99,21 @@ export class AppConfigService {
 
   /**
    * EDU Snowflake connection info for cross-year ID matching. Looks for an
-   * AWS secret named `edu-connection-info-<partnerId>`; falls back to
-   * EDU_SNOWFLAKE_* env vars only in local development.
-   * Returns null when no creds are available — caller decides how to handle.
+   * AWS secret named `<ENVLABEL>-edu-connection-info-<partnerId>`; falls back
+   * to EDU_SNOWFLAKE_* env vars only in local development. Returns null when no
+   * creds are available — caller decides how to handle. Throws on real AWS
+   * failures (IAM, throttling, network, malformed JSON) so the roster
+   * endpoint can surface a 5xx rather than masquerading as 409 "creds
+   * missing"; only ResourceNotFoundException collapses to null.
    */
-  async getEduConnectionInfo(partnerId: string): Promise<EduConnectionInfo | null> {
+  async getEduConnectionInfo(partnerId: string) {
     if (this.isDevEnvironment()) {
-      return this.getEduConnectionInfoFromEnv();
-    }
-
-    const secretName = `edu-connection-info-${partnerId}`;
-    try {
-      const secret = await this.getAWSSecret(secretName);
-      if (typeof secret !== 'object') {
-        return null;
-      }
-      const { username, account, database, schema, publicKey, privateKey } = secret;
-      if (!username || !account || !database || !schema || !publicKey || !privateKey) {
+      const username = process.env.EDU_SNOWFLAKE_USERNAME;
+      const account = process.env.EDU_SNOWFLAKE_ACCOUNT;
+      const database = process.env.EDU_SNOWFLAKE_DATABASE;
+      const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
+      const privateKey = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
+      if (!username || !account || !database || !schema || !privateKey) {
         return null;
       }
       return {
@@ -131,16 +121,48 @@ export class AppConfigService {
         account,
         database,
         schema,
-        publicKey: Buffer.from(publicKey, 'base64'),
         privateKey: Buffer.from(privateKey, 'base64'),
       };
-    } catch {
+    }
+
+    const envLabel = this.get('ENVLABEL');
+    if (!envLabel) {
+      throw new Error(
+        'ENVLABEL must be set in order to retrieve EDU connection info'
+      );
+    }
+    const secretName = `${envLabel}-edu-connection-info-${partnerId}`;
+    let secret: string | Record<string, string>;
+    try {
+      // Uncached: cred-rotation handling lives in EduSnowflakePoolService,
+      // and the existence check there does a fresh fetch each time so a
+      // process restart isn't required to pick up new values.
+      secret = await this.fetchAWSSecret(secretName);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
+        return null;
+      }
+      this.logger.warn(
+        `failed to load EDU connection info for partner ${partnerId}: ${
+          err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+        }`
+      );
+      throw err;
+    }
+    if (typeof secret !== 'object') {
       return null;
     }
-  }
-
-  async eduCredsExist(partnerId: string): Promise<boolean> {
-    return (await this.getEduConnectionInfo(partnerId)) !== null;
+    const { username, account, database, schema, privateKey } = secret;
+    if (!username || !account || !database || !schema || !privateKey) {
+      return null;
+    }
+    return {
+      username,
+      account,
+      database,
+      schema,
+      privateKey: Buffer.from(privateKey, 'base64'),
+    };
   }
 
   bundleBranch(): string {
@@ -246,33 +268,17 @@ export class AppConfigService {
 
   private readonly secretsCache: Map<string, string | Record<string, string>> = new Map();
 
-  private getEduConnectionInfoFromEnv(): EduConnectionInfo | null {
-    const envUsername = process.env.EDU_SNOWFLAKE_USERNAME;
-    const account = process.env.EDU_SNOWFLAKE_ACCOUNT;
-    const database = process.env.EDU_SNOWFLAKE_DATABASE;
-    const schema = process.env.EDU_SNOWFLAKE_SCHEMA;
-    const publicKeyB64 = process.env.EDU_SNOWFLAKE_PUBLIC_KEY;
-    const privateKeyB64 = process.env.EDU_SNOWFLAKE_PRIVATE_KEY;
-    if (!envUsername || !account || !database || !schema || !publicKeyB64 || !privateKeyB64) {
-      return null;
-    }
-
-    return {
-      username: envUsername,
-      account,
-      database,
-      schema,
-      publicKey: Buffer.from(publicKeyB64, 'base64'),
-      privateKey: Buffer.from(privateKeyB64, 'base64'),
-    };
-  }
-
-private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
+  private async getAWSSecret(secretName: string): Promise<string | Record<string, string>> {
     const cachedValue = this.secretsCache.get(secretName);
     if (cachedValue) {
       return cachedValue;
     }
+    const secretValue = await this.fetchAWSSecret(secretName);
+    this.secretsCache.set(secretName, secretValue);
+    return secretValue;
+  }
 
+  private async fetchAWSSecret(secretName: string): Promise<string | Record<string, string>> {
     const secretValueRaw = await this.secretsClient.send(
       new GetSecretValueCommand({ SecretId: secretName })
     );
@@ -292,7 +298,6 @@ private async getAWSSecret(secretName: string): Promise<string | Record<string, 
       throw new Error(`Unable to parse value for secret ${secretName}`);
     }
 
-    this.secretsCache.set(secretName, secretValue);
     return secretValue;
   }
 
