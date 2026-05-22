@@ -387,16 +387,18 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(409);
     });
 
-    it('returns 409 when EDU creds are missing', async () => {
+    it('returns 500 when EDU creds are missing for an otherwise-enabled partner', async () => {
       await global.prisma.partner.update({
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
-      // env vars deliberately not set
+      // env vars deliberately not set — pool creation will fail before any
+      // rows are written; controller's headersSent check should convert that
+      // to a clean 500 rather than tearing the socket.
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenA}`);
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(500);
     });
 
     it('streams NDJSON rows from the real streamCrossYearRoster, binding tenant.code', async () => {

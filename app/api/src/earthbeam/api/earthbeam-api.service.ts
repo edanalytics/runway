@@ -68,13 +68,10 @@ export class EarthbeamApiService {
         message: 'Cross-year matching is not enabled for this partner',
       };
     }
-    if (!(await this.eduPool.canConnect(partner.id))) {
-      return {
-        status: 'ERROR' as const,
-        type: 'conflict' as const,
-        message: 'EDU connection info is not available for this partner',
-      };
-    }
+    // Don't re-check creds here — the stream attempt will fail loudly if the
+    // pool can't be built, and the controller's headersSent-aware catch
+    // converts that to a clean 500. Re-checking would mean two AWS round-trips
+    // per cold roster request (this check + pool creation).
     return {
       status: 'SUCCESS' as const,
       data: { partnerId: partner.id, tenantCode: run.job.tenant.code },
