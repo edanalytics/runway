@@ -30,9 +30,6 @@ import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
-import type { Response } from 'express';
-import { Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 
 @Injectable()
@@ -47,75 +44,6 @@ export class EarthbeamApiService {
     @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService,
     private readonly eduPool: EduSnowflakePoolService
   ) {}
-
-  /**
-   * Streams a cross-year roster from EDU/Snowflake to the response as NDJSON.
-   * Uses a partner-scoped connection pool; on stream error the response is
-   * destroyed (no in-band sentinel) — the Executor detects truncation and
-   * fails the run.
-   */
-  async streamCrossYearRoster({
-    partnerId,
-    tenantCode,
-    response,
-  }: {
-    partnerId: string;
-    tenantCode: string;
-    response: Response;
-  }): Promise<void> {
-    const startedAt = Date.now();
-    let rowCount = 0;
-    await this.eduPool.use(partnerId, async (connection) => {
-      const sqlText = `
-        WITH ids AS (
-          SELECT
-            seoa.tenant_code,
-            seoa.api_year,
-            seoa.k_student,
-            seoa.k_student_xyear,
-            seoa.student_unique_id,
-            seoa.ed_org_id,
-            seo_ids.id_system,
-            OBJECT_CONSTRUCT_KEEP_NULL(
-              'studentIdentificationSystemDescriptor', seo_ids.id_system,
-              'identificationCode', seo_ids.id_code
-            ) AS stu_id_code
-          FROM stg_ef3__student_education_organization_associations seoa
-          LEFT JOIN stg_ef3__stu_ed_org__identification_codes seo_ids
-            ON seoa.k_student = seo_ids.k_student
-          WHERE seoa.tenant_code = :1
-          QUALIFY MAX(seoa.api_year) OVER (PARTITION BY seoa.k_student_xyear) = seoa.api_year
-        )
-        SELECT
-          OBJECT_CONSTRUCT(
-            'educationOrganizationId', ed_org_id,
-            'link', OBJECT_CONSTRUCT('rel', 'LocalEducationAgency')
-          ) AS "educationOrganizationReference",
-          OBJECT_CONSTRUCT('studentUniqueId', student_unique_id) AS "studentReference",
-          ARRAY_AGG(DISTINCT stu_id_code) AS "studentIdentificationCodes"
-        FROM ids
-        GROUP BY ALL
-      `;
-
-      // pipeline manages backpressure and destroys downstream streams on error
-      await pipeline(
-        connection.execute({ sqlText, binds: [tenantCode], streamResult: true }).streamRows(),
-        new Transform({
-          writableObjectMode: true,
-          transform(row, _enc, cb) {
-            rowCount += 1;
-            cb(null, JSON.stringify(row) + '\n');
-          },
-        }),
-        response
-      );
-    });
-    this.logger.log(
-      `cross-year roster: partnerId=${partnerId} tenantCode=${tenantCode} rowCount=${rowCount} durationMs=${
-        Date.now() - startedAt
-      }`
-    );
-  }
 
   async earthbeamInputForRun(runId: Run['id']) {
     const run = await this.prisma.run.findUnique({
