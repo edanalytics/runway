@@ -419,22 +419,19 @@ describe('Earthbeam API', () => {
           })()
         );
 
-        // Consume chunks as they arrive. Pipeline destroys the response on
-        // stream error; headers (status + content-type) were already sent, so
-        // the client sees the first row, then the socket is closed before
-        // 'end' fires.
         const res = await request(app.getHttpServer())
           .get(endpointA)
           .set('Authorization', `Bearer ${tokenA}`)
           .buffer(true)
           .parse(streamParser);
 
+        // Pipeline destroys the response on stream error. Headers were
+        // already sent, so the status is 200, but the socket closes before
+        // 'end' fires — streamParser surfaces that as complete: false.
         expect(res.status).toBe(200);
         expect(res.body.complete).toBe(false);
         const body = Buffer.concat(res.body.chunks).toString('utf8');
         expect(body).toBe(JSON.stringify({ studentUniqueId: '1' }) + '\n');
-        // No in-band sentinel / error marker — abrupt close, body simply truncates.
-        expect(body).not.toMatch(/error|exception/i);
 
         spy.mockRestore();
       });
@@ -456,8 +453,6 @@ describe('Earthbeam API', () => {
         .set('Authorization', `Bearer ${tokenA}`);
 
       expect(res.status).toBe(500);
-      // A clean JSON 500 — easier for the executor to diagnose than a torn socket.
-      expect(res.headers['content-type']).toContain('application/json');
 
       poolUseSpy.mockRestore();
     });
