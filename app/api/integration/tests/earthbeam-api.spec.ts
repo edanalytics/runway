@@ -302,11 +302,29 @@ describe('Earthbeam API', () => {
     let runA: Run;
     let endpointA: string;
     let tokenA: string;
-    let poolUseSpy: jest.SpyInstance | undefined;
     let getInfoSpy: jest.SpyInstance;
 
+    // Streaming parser for supertest: collects chunks as they arrive and
+    // signals whether the response ended cleanly ('end' fired) or was closed
+    // early ('close'/'error' fired first). Use .buffer(true).parse(streamParser).
+    const streamParser = (
+      response: request.Response,
+      cb: (err: Error | null, body: { chunks: Buffer[]; complete: boolean }) => void
+    ) => {
+      const chunks: Buffer[] = [];
+      let settled = false;
+      const settle = (complete: boolean) => {
+        if (settled) return;
+        settled = true;
+        cb(null, { chunks, complete });
+      };
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => settle(true));
+      response.on('close', () => settle(false));
+      response.on('error', () => settle(false));
+    };
+
     beforeEach(async () => {
-      poolUseSpy = undefined;
       const configService = app.get(AppConfigService);
       // Default to "no creds" — tests that exercise the creds-present path
       // either override this with mockResolvedValue, or short-circuit the
@@ -325,7 +343,6 @@ describe('Earthbeam API', () => {
     });
 
     afterEach(() => {
-      poolUseSpy?.mockRestore();
       getInfoSpy.mockRestore();
     });
 
@@ -371,7 +388,7 @@ describe('Earthbeam API', () => {
       const eduPool = app.get(EduSnowflakePoolService);
       // Mock at the pool boundary so the real streamCrossYearRoster body runs
       // (pipeline + Transform + the real SQL + binds).
-      poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
+      const poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
         const fakeConnection = {
           execute: (args: { sqlText: string; binds: unknown[]; streamResult: boolean }) => {
             capturedExecute = args;
@@ -381,13 +398,21 @@ describe('Earthbeam API', () => {
         return cb(fakeConnection as never);
       });
 
+      // Consume the response as a stream: collect chunks, signal whether
+      // it ended cleanly or was closed early. This mirrors how the executor
+      // consumes the response and lets the mid-stream-error test below assert
+      // truncation deterministically.
       const res = await request(app.getHttpServer())
         .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`);
+        .set('Authorization', `Bearer ${tokenA}`)
+        .buffer(true)
+        .parse(streamParser);
 
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('application/x-ndjson');
-      const lines = res.text.split('\n').filter((l) => l.length > 0);
+      expect(res.body.complete).toBe(true);
+      const body = Buffer.concat(res.body.chunks).toString('utf8');
+      const lines = body.split('\n').filter((l) => l.length > 0);
       expect(lines).toHaveLength(3);
       expect(JSON.parse(lines[0])).toEqual(rows[0]);
       expect(JSON.parse(lines[2])).toEqual(rows[2]);
@@ -401,6 +426,8 @@ describe('Earthbeam API', () => {
         /stg_ef3__student_education_organization_associations/
       );
       expect(capturedExecute!.sqlText).toMatch(/seoa\.tenant_code\s*=\s*:1/);
+
+      poolUseSpy.mockRestore();
     });
 
     it('closes the response abruptly when the Snowflake row stream errors mid-flight', async () => {
@@ -410,7 +437,7 @@ describe('Earthbeam API', () => {
       });
 
       const eduPool = app.get(EduSnowflakePoolService);
-      poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
+      const poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
         const errorStream = Readable.from(
           (async function* () {
             yield { studentUniqueId: '1' };
@@ -423,31 +450,24 @@ describe('Earthbeam API', () => {
         return cb(fakeConnection as never);
       });
 
-      // Abrupt close: pipeline destroys the response on stream error. Headers
-      // (status + content-type) were already sent, so supertest receives a
-      // truncated body containing the rows written before the error.
-      let res: request.Response | undefined;
-      let sockErr: Error | undefined;
-      try {
-        res = await request(app.getHttpServer())
-          .get(endpointA)
-          .set('Authorization', `Bearer ${tokenA}`);
-      } catch (err) {
-        sockErr = err as Error;
-      }
+      // Consume chunks as they arrive. Pipeline destroys the response on
+      // stream error; headers (status + content-type) were already sent, so
+      // the client sees the first row, then the socket is closed before
+      // 'end' fires.
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .buffer(true)
+        .parse(streamParser);
 
-      if (res) {
-        expect(res.status).toBe(200);
-        const lines = res.text.split('\n').filter((l) => l.length > 0);
-        expect(lines).toEqual([JSON.stringify({ studentUniqueId: '1' })]);
-        // No in-band sentinel / error marker — abrupt close, body simply truncates.
-        expect(res.text).not.toMatch(/error|exception/i);
-      } else {
-        // Some Node/supertest combinations surface the destroyed socket as a
-        // client-side error instead of a partial body. Either is consistent
-        // with "abrupt close, no sentinel."
-        expect(sockErr).toBeDefined();
-      }
+      expect(res.status).toBe(200);
+      expect(res.body.complete).toBe(false);
+      const body = Buffer.concat(res.body.chunks).toString('utf8');
+      expect(body).toBe(JSON.stringify({ studentUniqueId: '1' }) + '\n');
+      // No in-band sentinel / error marker — abrupt close, body simply truncates.
+      expect(body).not.toMatch(/error|exception/i);
+
+      poolUseSpy.mockRestore();
     });
 
     it('returns 500 when pool acquisition fails before any bytes are streamed', async () => {
@@ -457,7 +477,7 @@ describe('Earthbeam API', () => {
       });
 
       const eduPool = app.get(EduSnowflakePoolService);
-      poolUseSpy = jest
+      const poolUseSpy = jest
         .spyOn(eduPool, 'use')
         .mockRejectedValue(new Error('pool acquisition failed'));
 
@@ -468,6 +488,8 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(500);
       // A clean JSON 500 — easier for the executor to diagnose than a torn socket.
       expect(res.headers['content-type']).toContain('application/json');
+
+      poolUseSpy.mockRestore();
     });
   });
 
