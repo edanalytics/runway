@@ -83,70 +83,6 @@ describe('Earthbeam API', () => {
       expect(res.body.rosterFilePath).toBeUndefined();
     });
 
-    describe('cross-year ID matching', () => {
-      let getInfoSpy: jest.SpyInstance;
-
-      beforeEach(() => {
-        const configService = app.get(AppConfigService);
-        getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue(null);
-      });
-
-      afterEach(() => {
-        getInfoSpy.mockRestore();
-      });
-
-      it('sets crossYearMatchAvailable=true and emits appUrls.roster when toggle on and creds exist', async () => {
-        await global.prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { crossYearMatchingEnabled: true },
-        });
-        getInfoSpy.mockResolvedValue({
-          username: 'snowflake-user',
-          account: 'example',
-          database: 'edu_stg',
-          schema: 'public',
-          privateKey: Buffer.from('priv'),
-        });
-
-        const res = await request(app.getHttpServer())
-          .get(endpointA)
-          .set('Authorization', `Bearer ${tokenA}`);
-
-        expect(res.status).toBe(200);
-        expect(res.body.crossYearMatchAvailable).toBe(true);
-        expect(res.body.appUrls.roster).toBeDefined();
-        expect(res.body.appUrls.roster).toContain(`/earthbeam/jobs/${runA.id}/roster`);
-      });
-
-      it('sets crossYearMatchAvailable=false and omits appUrls.roster when toggle is off', async () => {
-        // partnerA defaults to crossYearMatchingEnabled=false — canConnect is
-        // short-circuited before the config is consulted.
-        const res = await request(app.getHttpServer())
-          .get(endpointA)
-          .set('Authorization', `Bearer ${tokenA}`);
-
-        expect(res.status).toBe(200);
-        expect(res.body.crossYearMatchAvailable).toBe(false);
-        expect(res.body.appUrls.roster).toBeUndefined();
-      });
-
-      it('sets crossYearMatchAvailable=false and omits appUrls.roster when creds are missing', async () => {
-        await global.prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { crossYearMatchingEnabled: true },
-        });
-        // default spy returns null — simulates "no creds available"
-
-        const res = await request(app.getHttpServer())
-          .get(endpointA)
-          .set('Authorization', `Bearer ${tokenA}`);
-
-        expect(res.status).toBe(200);
-        expect(res.body.crossYearMatchAvailable).toBe(false);
-        expect(res.body.appUrls.roster).toBeUndefined();
-      });
-    });
-
     it('should omit ODS credentials and include a roster path for no-ODS jobs', async () => {
       const authService = app.get(EarthbeamApiAuthService);
       const noOdsJob = await seedJob({
@@ -168,6 +104,70 @@ describe('Earthbeam API', () => {
       expect(res.body.rosterFilePath).toBe(
         's3://test-file-bucket/__rosters/partner-a/tenant-a/2024/studentEducationOrganizationAssociations.jsonl'
       );
+    });
+
+    describe('cross-year ID matching', () => {
+      // Default state per test: both gates ON (toggle enabled + creds present)
+      // so the happy path requires no overrides and each negative test reads
+      // as "remove one condition, expect the flag to flip false."
+      let getInfoSpy: jest.SpyInstance;
+
+      beforeEach(async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+        const configService = app.get(AppConfigService);
+        getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue({
+          username: 'snowflake-user',
+          account: 'example',
+          database: 'edu_stg',
+          schema: 'public',
+          privateKey: Buffer.from('priv'),
+        });
+      });
+
+      afterEach(() => {
+        getInfoSpy.mockRestore();
+      });
+
+      it('sets crossYearMatchAvailable=true and emits appUrls.roster when toggle on and creds exist', async () => {
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(true);
+        expect(res.body.appUrls.roster).toBeDefined();
+        expect(res.body.appUrls.roster).toContain(`/earthbeam/jobs/${runA.id}/roster`);
+      });
+
+      it('sets crossYearMatchAvailable=false and omits appUrls.roster when toggle is off', async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: false },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(false);
+        expect(res.body.appUrls.roster).toBeUndefined();
+      });
+
+      it('sets crossYearMatchAvailable=false and omits appUrls.roster when creds are missing', async () => {
+        getInfoSpy.mockResolvedValue(null);
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(false);
+        expect(res.body.appUrls.roster).toBeUndefined();
+      });
     });
 
     // TODO: add tests for things other than descriptor mappings
