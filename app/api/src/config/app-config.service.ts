@@ -99,8 +99,8 @@ export class AppConfigService {
 
   /**
    * EDU Snowflake connection info for cross-year ID matching. Looks for an
-   * AWS secret named `edu-connection-info-<partnerId>`; falls back to
-   * EDU_SNOWFLAKE_* env vars only in local development. Returns null when no
+   * AWS secret named `<ENVLABEL>-edu-connection-info-<partnerId>`; falls back
+   * to EDU_SNOWFLAKE_* env vars only in local development. Returns null when no
    * creds are available — caller decides how to handle. Throws on real AWS
    * failures (IAM, throttling, network, malformed JSON) so the roster
    * endpoint can surface a 5xx rather than masquerading as 409 "creds
@@ -125,7 +125,13 @@ export class AppConfigService {
       };
     }
 
-    const secretName = `edu-connection-info-${partnerId}`;
+    const envLabel = this.get('ENVLABEL');
+    if (!envLabel) {
+      throw new Error(
+        'ENVLABEL must be set in order to retrieve EDU connection info'
+      );
+    }
+    const secretName = `${envLabel}-edu-connection-info-${partnerId}`;
     let secret: string | Record<string, string>;
     try {
       // Uncached: cred-rotation handling lives in EduSnowflakePoolService,
