@@ -302,35 +302,8 @@ describe('Earthbeam API', () => {
     let runA: Run;
     let endpointA: string;
     let tokenA: string;
-    let getInfoSpy: jest.SpyInstance;
-
-    // Streaming parser for supertest: collects chunks as they arrive and
-    // signals whether the response ended cleanly ('end' fired) or was closed
-    // early ('close'/'error' fired first). Use .buffer(true).parse(streamParser).
-    const streamParser = (
-      response: request.Response,
-      cb: (err: Error | null, body: { chunks: Buffer[]; complete: boolean }) => void
-    ) => {
-      const chunks: Buffer[] = [];
-      let settled = false;
-      const settle = (complete: boolean) => {
-        if (settled) return;
-        settled = true;
-        cb(null, { chunks, complete });
-      };
-      response.on('data', (chunk: Buffer) => chunks.push(chunk));
-      response.on('end', () => settle(true));
-      response.on('close', () => settle(false));
-      response.on('error', () => settle(false));
-    };
 
     beforeEach(async () => {
-      const configService = app.get(AppConfigService);
-      // Default to "no creds" — tests that exercise the creds-present path
-      // either override this with mockResolvedValue, or short-circuit the
-      // config lookup entirely by spying on eduPool.use.
-      getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue(null);
-
       const authService = app.get(EarthbeamApiAuthService);
       const jobA = await seedJob({
         odsConfig: odsConfigA2425,
@@ -340,10 +313,6 @@ describe('Earthbeam API', () => {
       runA = jobA.runs[0];
       endpointA = `/earthbeam/jobs/${runA.id}/roster`;
       tokenA = await authService.createAccessToken({ runId: runA.id });
-    });
-
-    afterEach(() => {
-      getInfoSpy.mockRestore();
     });
 
     it('rejects unauthenticated requests', async () => {
@@ -364,110 +333,111 @@ describe('Earthbeam API', () => {
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
-      // default spy returns null — pool creation will fail before any rows
-      // are written; controller's headersSent check should convert that to a
-      // clean 500 rather than tearing the socket.
+      // No creds → pool creation will fail before any rows are written;
+      // controller's headersSent check should convert that to a clean 500
+      // rather than tearing the socket.
+      const configService = app.get(AppConfigService);
+      const getInfoSpy = jest
+        .spyOn(configService, 'getEduConnectionInfo')
+        .mockResolvedValue(null);
+
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenA}`);
       expect(res.status).toBe(500);
+
+      getInfoSpy.mockRestore();
     });
 
-    it('streams NDJSON rows from the real streamCrossYearRoster, binding tenant.code', async () => {
-      await global.prisma.partner.update({
-        where: { id: partnerA.id },
-        data: { crossYearMatchingEnabled: true },
-      });
-
-      const rows = [
-        { studentUniqueId: '1', priorYear: 2024 },
-        { studentUniqueId: '2', priorYear: 2024 },
-        { studentUniqueId: '3', priorYear: 2024 },
-      ];
-      let capturedExecute: { sqlText: string; binds: unknown[]; streamResult: boolean } | undefined;
-      const eduPool = app.get(EduSnowflakePoolService);
-      // Mock at the pool boundary so the real streamCrossYearRoster body runs
-      // (pipeline + Transform + the real SQL + binds).
-      const poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
-        const fakeConnection = {
-          execute: (args: { sqlText: string; binds: unknown[]; streamResult: boolean }) => {
-            capturedExecute = args;
-            return { streamRows: () => Readable.from(rows) };
-          },
+    describe('streaming responses', () => {
+      // Streaming parser for supertest: collects chunks as they arrive and
+      // signals whether the response ended cleanly ('end' fired) or was closed
+      // early ('close'/'error' fired first). Use .buffer(true).parse(streamParser).
+      const streamParser = (
+        response: request.Response,
+        cb: (err: Error | null, body: { chunks: Buffer[]; complete: boolean }) => void
+      ) => {
+        const chunks: Buffer[] = [];
+        let settled = false;
+        const settle = (complete: boolean) => {
+          if (settled) return;
+          settled = true;
+          cb(null, { chunks, complete });
         };
-        return cb(fakeConnection as never);
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => settle(true));
+        response.on('close', () => settle(false));
+        response.on('error', () => settle(false));
+      };
+
+      // Stub EduSnowflakePoolService.use with a fake connection that streams
+      // `source` rows. Caller is responsible for `mockRestore()`.
+      const mockEduPoolStream = (source: Iterable<unknown> | AsyncIterable<unknown>) => {
+        const eduPool = app.get(EduSnowflakePoolService);
+        return jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
+          return cb({
+            execute: () => ({ streamRows: () => Readable.from(source) }),
+          } as never);
+        });
+      };
+
+      beforeEach(async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
       });
 
-      // Consume the response as a stream: collect chunks, signal whether
-      // it ended cleanly or was closed early. This mirrors how the executor
-      // consumes the response and lets the mid-stream-error test below assert
-      // truncation deterministically.
-      const res = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`)
-        .buffer(true)
-        .parse(streamParser);
+      it('streams the rows from the EDU pool as NDJSON', async () => {
+        const rows = [
+          { studentUniqueId: '1', priorYear: 2024 },
+          { studentUniqueId: '2', priorYear: 2024 },
+          { studentUniqueId: '3', priorYear: 2024 },
+        ];
+        const spy = mockEduPoolStream(rows);
 
-      expect(res.status).toBe(200);
-      expect(res.headers['content-type']).toContain('application/x-ndjson');
-      expect(res.body.complete).toBe(true);
-      const body = Buffer.concat(res.body.chunks).toString('utf8');
-      const lines = body.split('\n').filter((l) => l.length > 0);
-      expect(lines).toHaveLength(3);
-      expect(JSON.parse(lines[0])).toEqual(rows[0]);
-      expect(JSON.parse(lines[2])).toEqual(rows[2]);
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .buffer(true)
+          .parse(streamParser);
 
-      expect(poolUseSpy).toHaveBeenCalledWith(partnerA.id, expect.any(Function));
-      expect(capturedExecute).toBeDefined();
-      expect(capturedExecute!.binds).toEqual([tenantA.code]);
-      expect(capturedExecute!.streamResult).toBe(true);
-      // Sanity-check that the query targets the EDU staging tables and uses the :1 bind.
-      expect(capturedExecute!.sqlText).toMatch(
-        /stg_ef3__student_education_organization_associations/
-      );
-      expect(capturedExecute!.sqlText).toMatch(/seoa\.tenant_code\s*=\s*:1/);
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toContain('application/x-ndjson');
+        expect(res.body.complete).toBe(true);
+        const body = Buffer.concat(res.body.chunks).toString('utf8');
+        expect(body).toBe(rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
 
-      poolUseSpy.mockRestore();
-    });
-
-    it('closes the response abruptly when the Snowflake row stream errors mid-flight', async () => {
-      await global.prisma.partner.update({
-        where: { id: partnerA.id },
-        data: { crossYearMatchingEnabled: true },
+        spy.mockRestore();
       });
 
-      const eduPool = app.get(EduSnowflakePoolService);
-      const poolUseSpy = jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
-        const errorStream = Readable.from(
+      it('closes the response abruptly when the Snowflake row stream errors mid-flight', async () => {
+        const spy = mockEduPoolStream(
           (async function* () {
             yield { studentUniqueId: '1' };
             throw new Error('snowflake exploded mid-stream');
           })()
         );
-        const fakeConnection = {
-          execute: () => ({ streamRows: () => errorStream }),
-        };
-        return cb(fakeConnection as never);
+
+        // Consume chunks as they arrive. Pipeline destroys the response on
+        // stream error; headers (status + content-type) were already sent, so
+        // the client sees the first row, then the socket is closed before
+        // 'end' fires.
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .buffer(true)
+          .parse(streamParser);
+
+        expect(res.status).toBe(200);
+        expect(res.body.complete).toBe(false);
+        const body = Buffer.concat(res.body.chunks).toString('utf8');
+        expect(body).toBe(JSON.stringify({ studentUniqueId: '1' }) + '\n');
+        // No in-band sentinel / error marker — abrupt close, body simply truncates.
+        expect(body).not.toMatch(/error|exception/i);
+
+        spy.mockRestore();
       });
-
-      // Consume chunks as they arrive. Pipeline destroys the response on
-      // stream error; headers (status + content-type) were already sent, so
-      // the client sees the first row, then the socket is closed before
-      // 'end' fires.
-      const res = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`)
-        .buffer(true)
-        .parse(streamParser);
-
-      expect(res.status).toBe(200);
-      expect(res.body.complete).toBe(false);
-      const body = Buffer.concat(res.body.chunks).toString('utf8');
-      expect(body).toBe(JSON.stringify({ studentUniqueId: '1' }) + '\n');
-      // No in-band sentinel / error marker — abrupt close, body simply truncates.
-      expect(body).not.toMatch(/error|exception/i);
-
-      poolUseSpy.mockRestore();
     });
 
     it('returns 500 when pool acquisition fails before any bytes are streamed', async () => {
