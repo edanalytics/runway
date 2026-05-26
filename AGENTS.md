@@ -156,11 +156,27 @@ sequenceDiagram
 4. **Roster fetch**: `lightbeam fetch` student roster from ODS, upload artifact to S3
 5. **File download**: Download user-uploaded input files from S3
 6. **Transform**: `earthmover run` against the ODS roster (with encoding detection + retry)
-7. **Cross-year retry** (when `crossYearMatchAvailable` and the first pass produced unmatched students): GET `appUrls.roster` for the cross-year NDJSON roster, write to a `.jsonl` file, and re-run `earthmover` against it using the same ID type. Recovers students whose identifiers changed between school years.
+7. **Cross-year retry** (when `crossYearMatchAvailable` and the first pass produced unmatched students): GET `appUrls.roster` for the cross-year NDJSON roster, write to a `.jsonl` file, and re-run `earthmover` against it using the same ID type.
 8. **Load**: `lightbeam send` to Ed-Fi ODS
 9. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
 10. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
 11. **Done**: POST status `{action: DONE, status: success|failure}`
+
+### Cross-Year Matching Flow
+
+When cross-year matching runs, the executor progresses through each stage of processing for both rosters before moving on, to avoid mixed-status jobs (e.g., a file failing "insufficient matches" against the ODS roster but succeeding against the cross-year roster, when those matches really belonged in the ODS).
+
+```mermaid
+flowchart TD
+    Input[Uploaded input rows] --> T1[earthmover: match + transform<br/>against ODS roster]
+    T1 -->|on success, if crossYearMatchAvailable<br/>and step 7 triggered| T2[earthmover: match + transform<br/>against cross-year EDU roster]
+    T1 -->|on success, otherwise| Load
+    T2 -->|both transforms succeeded| Load[lightbeam send<br/>ODS-matched rows → ODS]
+    Load -->|ODS load succeeded| App[POST results to Runway app<br/>ODS-matched + cross-year-matched rows<br/>exposed via API]
+    App -.fetched by.-> EDU[EDU / external API consumers]
+```
+
+Cross-year-matched rows are never sent to the ODS — they're only made available through the Runway app's API, which EDU and other external consumers query.
 
 ### S3 Path Structure
 
