@@ -86,14 +86,8 @@ export class EduSnowflakePoolService implements OnModuleDestroy {
 
     const pool = this.createPool(partnerId);
     this.pools.set(partnerId, pool);
-    // Evict failed creations so subsequent requests can retry. Guard against
-    // racing with a concurrent insertion under the same key — only delete if
-    // the map still points at this entry.
-    pool.catch(() => {
-      if (this.pools.get(partnerId) === pool) {
-        this.pools.delete(partnerId);
-      }
-    });
+    // Evict failed creations so subsequent requests can retry.
+    pool.catch(() => this.pools.delete(partnerId));
     return pool;
   }
 
@@ -125,17 +119,18 @@ export class EduSnowflakePoolService implements OnModuleDestroy {
       // is intentionally generous — JWT connect alone is ~20s, so this needs
       // headroom for cold-start + queue wait in a bursty 5+ concurrent run.
       //
-      // Evictor runs every 60s and closes connections idle for 60s. Combined
-      // with min: 0, this means a pool that hasn't served traffic for a minute
-      // drops to zero connections, avoiding stale-session failures on the next
-      // request (Snowflake server-side session timeout would otherwise kill
-      // the idle connection silently).
+      // Evictor runs every 60s and closes connections idle for 30 min.
+      // Combined with min: 0, an idle pool drops to zero connections, so
+      // bursty traffic within a half hour reuses warm connections while
+      // longer gaps release sockets. 30 min is well under Snowflake's 4h
+      // default programmatic-session timeout, so we won't hand out a
+      // server-side-expired connection.
       {
         min: 0,
         max: 4,
         acquireTimeoutMillis: 60_000,
         evictionRunIntervalMillis: 60_000,
-        idleTimeoutMillis: 60_000,
+        idleTimeoutMillis: 30 * 60_000,
       }
     );
 
