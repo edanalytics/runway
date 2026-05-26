@@ -422,6 +422,7 @@ class JobExecutor:
 
         self.earthmover_run(artifact.EM_RESULTS.path)
         self.upload_artifact(artifact.EM_RESULTS)
+        self.record_highest_match_rate()
         self.enforce_match_threshold()
 
         self.output_sets = [OutputSet(
@@ -433,9 +434,9 @@ class JobExecutor:
         )]
 
         # if we're here, the first pass of Earthmover was successful
-        if (self.send_to_ods                      # i.e. we've only tried matching this year's students so far
-            and self.cross_year_match_available   # and we have access to EDU
-            and bool(self.num_unmatched_students) # and there are unmatched students from the first pass
+        if (self.send_to_ods                          # i.e. we've only tried matching this year's students so far
+            and self.cross_year_match_available       # and we have access to EDU
+            and self.num_unmatched_students > 0       # and there are unmatched students from the first pass
         ):
             # then take a second pass with the cross-year roster from EDU
             # and thus produce a second output set to be sideloaded
@@ -512,11 +513,11 @@ class JobExecutor:
             # generic exception that will be caught, with em.stderr reported as the stacktrace
             raise Exception(em.stderr)
 
-        self.record_highest_match_rate()
-
     def cross_year_pass(self, primary):
         """Run a second Earthmover pass on unmatched students using a cross-year roster in an attempt to match more students."""
-        # Capture first-run match info before earthmover_run overwrites it.
+        # The first pass established which ID column matched best; the second pass is
+        # constrained to that same column. The count is the fallback for the "zero
+        # matches" case below.
         first_run_id_name = self.highest_match_id_name
         first_run_id_type = self.highest_match_id_type
 
@@ -548,6 +549,20 @@ class JobExecutor:
         self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
+
+        count = count_unmatched_students()
+        if count is None:
+            #    Edge case alert! It may be that in the second pass, there are no matches even with the
+            # expanded universe of students. Of course we need to return these rows to the user and tell
+            # them how many records failed to match. However, with no matches, our usual method of counting
+            # via the match rates file breaks down, because that file is now empty. So here we are saying
+            # "if there were no matches on the second pass, use the number of unmatched from the first pass"
+            count =  self.num_unmatched_students
+    
+        # then, in either case, we do the usual thing: upload the unmatched students file if and only if 
+        # there are unmatched students
+        self.num_unmatched_students = count
+        artifact.UNMATCHED_STUDENTS.needs_upload = count > 0
 
         return OutputSet(
             local_dir=self.output_dir,
@@ -672,58 +687,41 @@ class JobExecutor:
         # local ID, then the 4/10 without matching state IDs go in the unmatched students file, but both types
         # of match are recorded in the match rates file. Both are used for different purposes by the app and
         # within the exeuctor
-        #
-        #    There are three circumstances under which we don't upload the unmatched students file and thus don't
-        # show the "some students failed to match" message to the user. These are:
-        #    1. Earthmover failed, so we don't know how many students matched
-        #    2. The match rates file tells us that there is a perfect match, so there is nothing to upload
-        #    3. The match rates file is empty, so there were no matches and the unmatched students file is the same as the original input
+        #    Why do we use the match rates file to count unmatched students? Because the unmatched students file
+        # may have multiple header rows, so it's hard to use it for counting:
+        # ref: https://github.com/edanalytics/runway/pull/6
 
         # in the case of literally zero matches (or a failed run), the file is empty and these defaults remain
         self.highest_match_rate = 0.0
         self.highest_match_id_name = "N/A"
         self.highest_match_id_type = "N/A"
-        # but if the file is empty, we don't learn this number. We need to distinguish between 0 and "don't know"
         self.num_unmatched_students = None
 
-        try:
-            with open(artifact.MATCH_RATES.path) as f:
-                match_rates = [
-                    {k: v for k, v in row.items()}
-                    for row in csv.DictReader(f, skipinitialspace=True)
-                ]
-        except FileNotFoundError:
-            # case 1
-            self.logger.debug("failed Earthmover run. Skipping upload of unmatched students file")
+        match_rates = load_match_rates()
+        if len(match_rates) == 0:
+            # either
+            #   - Earthmover failed and so we don't report unmatched students
+            #   - OR no students matched, which in the first pass means we've hit a more fundamental error
+            # in both cases we usually have already exited out of the run prior to now, but we retain
+            # this as a guardrail
+            self.logger.debug("no match rates available. Skipping upload of unmatched students file")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
             return
 
-        if len(match_rates) > 0:
-            self.logger.info(f"at least some records matched - match rates by ID: {match_rates}")
+        self.logger.info(f"at least some records matched - match rates by ID: {match_rates}")
+        highest_match = sorted(match_rates, reverse=True, key=lambda mr: float(mr['match_rate']))[0]
+        self.highest_match_rate = float(highest_match["match_rate"])
+        self.highest_match_id_name = highest_match["source_column_name"]
+        self.highest_match_id_type = highest_match["edfi_column_name"]
+        self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
 
-            highest_match = sorted(match_rates, reverse=True, key=lambda mr: float(mr['match_rate']))[0]
-            self.highest_match_rate = float(highest_match["match_rate"])
-            self.highest_match_id_name = highest_match["source_column_name"]
-            self.highest_match_id_type = highest_match["edfi_column_name"]
-            self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
-
-            if self.num_unmatched_students == 0:
-                # case 2
-                self.logger.debug("all records matched. Skipping upload of unmatched students file")
-                artifact.UNMATCHED_STUDENTS.needs_upload = False
-        else:
-            # case 3
-            self.logger.debug("no students matched any ID. Skipping upload of unmatched students file")
+        if self.num_unmatched_students == 0:
+            self.logger.debug("all records matched. Skipping upload of unmatched students file")
             artifact.UNMATCHED_STUDENTS.needs_upload = False
 
     def enforce_match_threshold(self):
-        """Halt if the primary Earthmover run's best match rate is below the configured threshold.
-
-        Sub-threshold matches almost always indicate the wrong file was uploaded; in that case
-        we want to abort before doing any further work (including a cross-year second pass)
-        and surface a clear error to the user.
-        """
-        if not self.num_unmatched_students:
+        """Halt if the primary Earthmover run's best match rate is below the configured threshold"""
+        if self.num_unmatched_students == 0:
             return
         if self.highest_match_rate >= config.REQUIRED_ID_MATCH_RATE:
             return
@@ -736,7 +734,7 @@ class JobExecutor:
         # if we don't return the unmatched students file at all
         self.logger.debug("too many unmatched students. Skipping upload")
         artifact.UNMATCHED_STUDENTS.needs_upload = False
-        raise ValueError("insufficient ID matches to continue (highest rate {self.highest_match_rate} < required {config.REQUIRED_ID_MATCH_RATE}; ID column name: {self.highest_match_id_name}; Ed-Fi ID type: {self.highest_match_id_type})")
+        raise ValueError(f"insufficient ID matches to continue (highest rate {self.highest_match_rate} < required {config.REQUIRED_ID_MATCH_RATE}; ID column name: {self.highest_match_id_name}; Ed-Fi ID type: {self.highest_match_id_type})")
 
     def report_unmatched_students(self):
         """Alert the app to any unmatched students that remain after all Earthmover passes.
@@ -744,7 +742,7 @@ class JobExecutor:
             This method is only run if enforce_match_threshold determines that enough students have matched that the
         input file is basically trustworthy
         """
-        if not self.num_unmatched_students:
+        if self.num_unmatched_students == 0:
             return
 
         self.logger.warning('earthmover run failed to match some student IDs')
@@ -805,10 +803,12 @@ class JobExecutor:
             self.upload_output_set(set)
 
     def upload_output_set(self, output_set):
-        """Upload all non-empty files in one OutputSet's local_dir to its S3 subdir, then alert the app."""
+        """Upload all non-empty JSONL files in one OutputSet's local_dir to its S3 subdir, then alert the app."""
         s3_prefix = f"{self.s3_out_path}/{output_set.s3_subdir}"
         uploaded = False
         for fname in os.listdir(output_set.local_dir):
+            if not fname.endswith(".jsonl"):
+                continue
             fpath = os.path.join(output_set.local_dir, fname)
             if not os.path.isfile(fpath) or os.stat(fpath).st_size == 0:
                 continue
@@ -937,6 +937,26 @@ class JobExecutor:
 def localize_s3_path(path):
     """Convert an S3 'path' to a single filename"""
     return path.replace("/", "__")
+
+
+def load_match_rates():
+    """Read the latest Earthmover run's match_rates.csv. Returns an empty list when the file is missing or has no data rows."""
+    try:
+        with open(artifact.MATCH_RATES.path) as f:
+            return list(csv.DictReader(f, skipinitialspace=True))
+    except FileNotFoundError:
+        return []
+
+
+def count_unmatched_students():
+    """Number of unmatched students reported by the latest Earthmover run's match rates file
+
+    Returns None when the match rates file is empty, signifying no matches or a failed run
+    """
+    rows = load_match_rates()
+    if len(rows) == 0:
+        return None
+    return int(rows[0]["num_rows"]) - int(rows[0]["num_matches"])
 
 
 def stream_to_file(session, url, dest_path, max_attempts=3):
