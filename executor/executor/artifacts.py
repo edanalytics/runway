@@ -33,9 +33,12 @@ MATCH_RATES = JobArtifact(
     "student_id_match_rates",
     os.path.join(config.OUTPUT_DIR, ("student_id_match_rates.csv")),
 )
+# Uploading the unmatched students file impacts the UX; we must be careful to only do so
+# in the event of an otherwise successful run that has a tolerable number of unmatched input records
 UNMATCHED_STUDENTS = JobArtifact(
     "unmatched_students",
     os.path.join(config.OUTPUT_DIR, "input_no_student_id_match.csv"),
+    False
 )
 LB_SEND_RESULTS = JobArtifact(
     "lightbeam_send_results",
