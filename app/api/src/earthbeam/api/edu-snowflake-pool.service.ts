@@ -113,6 +113,9 @@ export class EduSnowflakePoolService implements OnModuleDestroy {
         schema: conn.schema,
         authenticator: 'SNOWFLAKE_JWT',
         privateKey: conn.privateKey.toString('utf-8'),
+        // Optional: omitted keys let Snowflake apply the user's defaults.
+        ...(conn.warehouse ? { warehouse: conn.warehouse } : {}),
+        ...(conn.role ? { role: conn.role } : {}),
       },
       // Cap acquire waits so a saturated pool surfaces a clear timeout error
       // instead of hanging the request forever (generic-pool's default). 60s
@@ -127,7 +130,7 @@ export class EduSnowflakePoolService implements OnModuleDestroy {
       // server-side-expired connection.
       {
         min: 0,
-        max: 4,
+        max: 20,
         acquireTimeoutMillis: 60_000,
         evictionRunIntervalMillis: 60_000,
         idleTimeoutMillis: 30 * 60_000,

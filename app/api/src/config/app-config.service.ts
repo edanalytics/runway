@@ -106,7 +106,16 @@ export class AppConfigService {
    * endpoint can surface a 5xx rather than masquerading as 409 "creds
    * missing"; only ResourceNotFoundException collapses to null.
    */
-  async getEduConnectionInfo(partnerId: string) {
+  async getEduConnectionInfo(partnerId: string): Promise<{
+    username: string;
+    account: string;
+    database: string;
+    schema: string;
+    privateKey: Buffer;
+    // Optional: when unset, Snowflake falls back to the user's defaults.
+    warehouse?: string;
+    role?: string;
+  } | null> {
     if (this.isDevEnvironment()) {
       const username = process.env.EDU_SNOWFLAKE_USERNAME;
       const account = process.env.EDU_SNOWFLAKE_ACCOUNT;
@@ -122,6 +131,9 @@ export class AppConfigService {
         database,
         schema,
         privateKey: Buffer.from(privateKey, 'base64'),
+        // Optional: when unset, Snowflake falls back to the user's defaults.
+        warehouse: process.env.EDU_SNOWFLAKE_WAREHOUSE,
+        role: process.env.EDU_SNOWFLAKE_ROLE,
       };
     }
 
@@ -152,7 +164,8 @@ export class AppConfigService {
     if (typeof secret !== 'object') {
       return null;
     }
-    const { username, account, database, schema, privateKey } = secret;
+    const { username, account, database, schema, privateKey, warehouse, role } =
+      secret;
     if (!username || !account || !database || !schema || !privateKey) {
       return null;
     }
@@ -162,6 +175,9 @@ export class AppConfigService {
       database,
       schema,
       privateKey: Buffer.from(privateKey, 'base64'),
+      // Optional: when unset, Snowflake falls back to the user's defaults.
+      warehouse,
+      role,
     };
   }
 
