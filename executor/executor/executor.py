@@ -126,6 +126,8 @@ class JobExecutor:
             # failure cases
             traceback.print_exc()
 
+            # Lock in the error payload immediately so any failure below this point
+            # still has something to report to the app.
             if not self.error:
                 self.error = error.UnknownError(traceback.format_exc())
             if not self.error.stacktrace:
