@@ -515,9 +515,7 @@ class JobExecutor:
 
     def cross_year_pass(self, primary):
         """Run a second Earthmover pass on unmatched students using a cross-year roster in an attempt to match more students."""
-        # The first pass established which ID column matched best; the second pass is
-        # constrained to that same column. The count is the fallback for the "zero
-        # matches" case below.
+        # constrain this pass to use the IDs that matched best in the first pass
         first_run_id_name = self.highest_match_id_name
         first_run_id_type = self.highest_match_id_type
 
@@ -543,7 +541,7 @@ class JobExecutor:
         # we already know which ID to use so we should succeed no matter how many failed matches remain
         os.environ["REQUIRED_ID_MATCH_RATE"] = "0.0"
         self.logger.info(
-            f"cross-year pass: matching on {first_run_id_name} / {first_run_id_type}"
+            f"cross-year pass: matching on {first_run_id_name} ({first_run_id_type} ID)"
         )
 
         self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
