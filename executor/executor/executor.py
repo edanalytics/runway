@@ -128,6 +128,13 @@ class JobExecutor:
             # failure cases
             traceback.print_exc()
 
+            # Lock in the error payload immediately so any failure below this point
+            # still has something to report to the app.
+            if not self.error:
+                self.error = error.UnknownError(traceback.format_exc())
+            if not self.error.stacktrace:
+                self.error.stacktrace = traceback.format_exc()
+
             # generic exception catching to be super-defensive while we cleanup and make a best effort to get the error object out the door
             try:
                 self.upload_remaining_artifacts()
@@ -284,7 +291,7 @@ class JobExecutor:
 
     def get_roster_from_edu(self):
         """Query EDU via the Runway app and load cross-year roster data into a JSONL file"""
-        self.logger.info(f"streaming cross-year roster from {self.cross_year_roster_url}")
+        self.logger.info(f"cross-year pass: streaming cross-year roster")
         dest_path = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
         try:
             stream_to_file(self.conn, self.cross_year_roster_url, dest_path)
@@ -460,7 +467,9 @@ class JobExecutor:
         fatal = False
         try:
             em = subprocess.run(
-                ["earthmover", "-c", self.wrapper_earthmover, "compile"]
+                ["earthmover", "-c", self.wrapper_earthmover, "compile"],
+                capture_output=True, 
+                text=True
             )
             em.check_returncode()
 
@@ -479,7 +488,7 @@ class JobExecutor:
                 self.logger.info(f"earthmover stderr: {em.stderr}")
             em.check_returncode()
         except subprocess.CalledProcessError as err:
-            self.logger.warning("earthmover encountered an error")
+            self.logger.error("earthmover encountered an error")
             fatal = True
 
             #    yes it's brittle to check the error against a string like this, but this message hasn't
@@ -540,9 +549,7 @@ class JobExecutor:
         )
         # we already know which ID to use so we should succeed no matter how many failed matches remain
         os.environ["REQUIRED_ID_MATCH_RATE"] = "0.0"
-        self.logger.info(
-            f"cross-year pass: matching on {first_run_id_name} ({first_run_id_type} ID)"
-        )
+        self.logger.info(f"cross-year pass: matching on {first_run_id_name} ({first_run_id_type} ID)")
 
         self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
@@ -555,7 +562,10 @@ class JobExecutor:
             # them how many records failed to match. However, with no matches, our usual method of counting
             # via the match rates file breaks down, because that file is now empty. So here we are saying
             # "if there were no matches on the second pass, use the number of unmatched from the first pass"
+            self.logger.warning("cross-year pass: no additional matches. Falling back to original unmatched students file")
             count =  self.num_unmatched_students
+        else:
+            self.logger.warning(f"cross-year pass: {count} unmatched students remain")
     
         # then, in either case, we do the usual thing: upload the unmatched students file if and only if 
         # there are unmatched students
