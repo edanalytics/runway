@@ -512,11 +512,9 @@ class JobExecutor:
             # fails during data transformation. This is most likely to happen when the user
             # uploads a file that is recognizable as the correct assessment but has some
             # other flaw - for example, the file is from the wrong year.
-            # In this case. we end up with a match rates file and unmatched students file,
-            # but we don't want to send either of them to the app. All the user needs to know
-            # is that the run failed.
+            # In this case. we end up with a match rates file, but we don't want to send it
+            #  to the app. All the user needs to know is that the run failed.
             artifact.MATCH_RATES.needs_upload = False
-            artifact.UNMATCHED_STUDENTS.needs_upload = False
             # Anyway, yeah, the run failed. Shut it down.
             self.error = error.EarthmoverRunError()
             # generic exception that will be caught, with em.stderr reported as the stacktrace
@@ -570,7 +568,6 @@ class JobExecutor:
         # then, in either case, we do the usual thing: upload the unmatched students file if and only if 
         # there are unmatched students
         self.num_unmatched_students = count
-        artifact.UNMATCHED_STUDENTS.needs_upload = count > 0
 
         return OutputSet(
             local_dir=self.output_dir,
@@ -703,6 +700,8 @@ class JobExecutor:
         self.highest_match_rate = 0.0
         self.highest_match_id_name = "N/A"
         self.highest_match_id_type = "N/A"
+        # we set this to distinguish from the case where the run succeeded and num_unmatched_students is 0.
+        # If this value is not properly set then enforce_match_threshold fails, as intended
         self.num_unmatched_students = None
 
         match_rates = load_match_rates()
@@ -712,8 +711,6 @@ class JobExecutor:
             #   - OR no students matched, which in the first pass means we've hit a more fundamental error
             # in both cases we usually have already exited out of the run prior to now, but we retain
             # this as a guardrail
-            self.logger.debug("no match rates available. Skipping upload of unmatched students file")
-            artifact.UNMATCHED_STUDENTS.needs_upload = False
             return
 
         self.logger.info(f"at least some records matched - match rates by ID: {match_rates}")
@@ -724,8 +721,7 @@ class JobExecutor:
         self.num_unmatched_students = int(highest_match["num_rows"]) - int(highest_match["num_matches"])
 
         if self.num_unmatched_students == 0:
-            self.logger.debug("all records matched. Skipping upload of unmatched students file")
-            artifact.UNMATCHED_STUDENTS.needs_upload = False
+            self.logger.debug("all input records matched")
 
     def enforce_match_threshold(self):
         """Halt if the primary Earthmover run's best match rate is below the configured threshold"""
@@ -740,17 +736,11 @@ class JobExecutor:
         )
         # For now, since we're asking the user to revisit their entire file, it's simpler
         # if we don't return the unmatched students file at all
-        self.logger.debug("too many unmatched students. Skipping upload")
-        artifact.UNMATCHED_STUDENTS.needs_upload = False
+        self.logger.debug("too many unmatched students. Halting run")
         raise ValueError(f"insufficient ID matches to continue (highest rate {self.highest_match_rate} < required {config.REQUIRED_ID_MATCH_RATE}; ID column name: {self.highest_match_id_name}; Ed-Fi ID type: {self.highest_match_id_type})")
 
     def report_unmatched_students(self):
-        """Alert the app to any unmatched students that remain after all Earthmover passes.
-        
-            This method is only run if 
-                - enforce_match_threshold determines that enough students have matched that the
-        input file is basically trustworthy
-                - lightbeam_send does not fail
+        """At the end of a successful run, alert the app to any unmatched students that remain after all Earthmover passes.
         """
         if self.num_unmatched_students == 0:
             return
@@ -765,6 +755,7 @@ class JobExecutor:
         # additional context so the app can help the user fix their file
         # in this case, num_unmatched_students is guaranteed to be an int instead of None
         self.send_id_matches(self.highest_match_id_name, id_type_to_report, self.num_unmatched_students)
+        artifact.UNMATCHED_STUDENTS.needs_upload = True
         self.upload_artifact(artifact.UNMATCHED_STUDENTS)
 
     def lightbeam_send(self):
