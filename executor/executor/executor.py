@@ -120,9 +120,9 @@ class JobExecutor:
 
             self.lightbeam_send()
 
+            self.report_unmatched_students()
             self.upload_output()
             self.compile_summary()
-            self.upload_remaining_artifacts()
 
         # NOTE: all specific exceptions are handled in sub-methods
         except:
@@ -288,6 +288,8 @@ class JobExecutor:
             #         only running Earthmover once with uploaded roster
             self.get_roster_from_s3()
 
+        self.upload_artifact(artifact.ROSTER)
+
     def get_roster_from_edu(self):
         """Query EDU via the Runway app and load cross-year roster data into a JSONL file"""
         self.logger.info(f"cross-year pass: streaming cross-year roster")
@@ -427,6 +429,7 @@ class JobExecutor:
         self.logger.info(f"Student ID types in Ed-Fi roster: {os.environ['EDFI_STUDENT_ID_TYPES']}")
 
         self.earthmover_run(artifact.EM_RESULTS.path)
+        self.upload_artifact(artifact.EM_RESULTS)
         self.record_highest_match_rate()
         self.enforce_match_threshold()
 
@@ -448,7 +451,7 @@ class JobExecutor:
             cross_year_output = self.cross_year_pass(self.output_sets[0])
             self.output_sets.append(cross_year_output)
 
-        self.report_unmatched_students()
+        self.upload_artifact(artifact.MATCH_RATES)
 
     def earthmover_run(self, results_path):
         """Compile and run Earthmover into the given results directory."""
@@ -550,6 +553,7 @@ class JobExecutor:
 
         self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
+        self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
 
         count = count_unmatched_students()
         if count is None:
@@ -743,8 +747,10 @@ class JobExecutor:
     def report_unmatched_students(self):
         """Alert the app to any unmatched students that remain after all Earthmover passes.
         
-            This method is only run if enforce_match_threshold determines that enough students have matched that the
+            This method is only run if 
+                - enforce_match_threshold determines that enough students have matched that the
         input file is basically trustworthy
+                - lightbeam_send does not fail
         """
         if self.num_unmatched_students == 0:
             return
@@ -759,6 +765,7 @@ class JobExecutor:
         # additional context so the app can help the user fix their file
         # in this case, num_unmatched_students is guaranteed to be an int instead of None
         self.send_id_matches(self.highest_match_id_name, id_type_to_report, self.num_unmatched_students)
+        self.upload_artifact(artifact.UNMATCHED_STUDENTS)
 
     def lightbeam_send(self):
         """Upload an Earthmover output set to the ODS via lightbeam."""
@@ -781,6 +788,8 @@ class JobExecutor:
 
         except subprocess.CalledProcessError:
             self.error = error.LightbeamSendError(lb.stderr)
+
+        self.upload_artifact(artifact.LB_SEND_RESULTS)
 
         # place an additional guardrail around the case when everything fails to send,
         # likely due to a descriptor or namespace issue. We don't want to continue forward in that case
