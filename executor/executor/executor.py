@@ -775,16 +775,32 @@ class JobExecutor:
         # If we ran Earthmover twice, we're only ever sending the first output set
         os.environ["DATA_DIR"] = self.output_sets[0].local_dir
         try:
-            subprocess.run(
-                ["lightbeam", "-c", self.assessment_lightbeam, "send", "--set", "state_dir", ".lightbeam", "--results-file", artifact.LB_SEND_RESULTS.path]
-            ).check_returncode()
+            lb = subprocess.run(
+                ["lightbeam", "-c", self.assessment_lightbeam, "send", "--results-file", artifact.LB_SEND_RESULTS.path]
+            )
+            if lb.stdout:
+                self.logger.info(f"lightbeam stdout: {lb.stdout}")
+            if lb.stderr:
+                self.logger.info(f"lightbeam stderr: {lb.stderr}")
+            lb.check_returncode()
 
-            # TODO: ostensibly should check for Ed-Fi warnings here but failed uploads still make it back via the summary report
         except subprocess.CalledProcessError:
-            self.error = error.LightbeamSendError()
-            raise
+            self.error = error.LightbeamSendError(lb.stderr)
 
         self.upload_artifact(artifact.LB_SEND_RESULTS)
+
+        # place an additional guardrail around the case when everything fails to send,
+        # likely due to a descriptor or namespace issue. We don't want to continue forward in that case
+        with open(artifact.LB_SEND_RESULTS.path) as f:
+            send_results = json.load(f)["resources"]
+
+        all_failed = all(
+            counts.get("records_processed", 0) == counts.get("records_failed", 0)
+            for counts in send_results.values()
+        )
+        if all_failed:
+            self.error = error.LightbeamSendError()
+            raise ValueError("all output data failed to send")
 
     def compile_summary(self):
         """Send per-resource records-processed/skipped/failed counts to the app."""
