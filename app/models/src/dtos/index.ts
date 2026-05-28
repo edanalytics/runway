@@ -8,6 +8,7 @@ export * from './user.dto';
 export * from './ods-config.dto';
 export * from './school-year.dto';
 export * from './school-year-config.dto';
+export * from './partner-config.dto';
 export * from './job.dto';
 export * from './job-template.dto';
 export * from './file.dto';
