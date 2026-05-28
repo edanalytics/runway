@@ -100,7 +100,7 @@ describe('PUT /partners/config', () => {
       adminCookieA = (await authHelper.login(idpA, userA, tenantA, partnerAdminRoleA)).cookies;
       canConnectSpy = jest
         .spyOn(app.get(EduSnowflakePoolService), 'canConnect')
-        .mockResolvedValue(false);
+        .mockResolvedValue(true);
       await global.prisma.partner.update({
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: false },
@@ -133,16 +133,33 @@ describe('PUT /partners/config', () => {
       expect(res.body.crossYearMatchingEnabled).toBe(true);
     });
 
-    it('succeeds when enabling without creds (backend does not gate)', async () => {
+    it('rejects enabling when EDU creds are missing', async () => {
       canConnectSpy.mockResolvedValue(false);
       const res = await request(app.getHttpServer())
         .put(endpoint)
         .set('Cookie', [adminCookieA])
         .send({ crossYearMatchingEnabled: true });
+      expect(res.status).toBe(400);
+
+      const row = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
+      expect(row.crossYearMatchingEnabled).toBe(false);
+    });
+
+    it('allows disabling even when EDU creds are missing', async () => {
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+      canConnectSpy.mockResolvedValue(false);
+
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieA])
+        .send({ crossYearMatchingEnabled: false });
       expect(res.status).toBe(200);
 
       const row = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
-      expect(row.crossYearMatchingEnabled).toBe(true);
+      expect(row.crossYearMatchingEnabled).toBe(false);
     });
 
     it('only modifies the session partner', async () => {

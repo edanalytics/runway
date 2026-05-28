@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Inject, Post, Put } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaClient, Tenant } from '@prisma/client';
 import {
@@ -42,6 +50,9 @@ export class PartnersController {
     @TenantDecorator() tenant: Tenant,
     @Body() body: PutPartnerConfigDto,
   ) {
+    if (body.crossYearMatchingEnabled && !(await this.eduPool.canConnect(tenant.partnerId))) {
+      throw new BadRequestException('EDU credentials are not configured for this partner.');
+    }
     await this.prisma.partner.update({
       where: { id: tenant.partnerId },
       data: { crossYearMatchingEnabled: body.crossYearMatchingEnabled },
