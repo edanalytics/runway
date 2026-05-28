@@ -10,6 +10,8 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
       'partner-earthmover-bundle.delete',
       'school-year-config.read',
       'school-year-config.update',
+      'partner-config.read',
+      'partner-config.update',
     ])
   ),
   User: Object.freeze(new Set<PrivilegeKey>(['school-year-config.read'])),
