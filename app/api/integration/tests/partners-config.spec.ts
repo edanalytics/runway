@@ -1,8 +1,8 @@
 import request from 'supertest';
-import { userA } from '../fixtures/user-fixtures';
-import { tenantA } from '../fixtures/context-fixtures/tenant-fixtures';
+import { userA, userX } from '../fixtures/user-fixtures';
+import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
-import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
+import { idpA, idpX } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { EduSnowflakePoolService } from 'api/src/earthbeam/api/edu-snowflake-pool.service';
 
@@ -66,6 +66,110 @@ describe('GET /partners/config', () => {
       canConnectSpy.mockResolvedValue(false);
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
       expect(res.body.eduCredsExist).toBe(false);
+    });
+  });
+});
+
+describe('PUT /partners/config', () => {
+  const endpoint = '/partners/config';
+  const userRoleA = 'runway.test.user';
+  const partnerAdminRoleA = 'runway.test.partneradmin';
+  const partnerAdminRoleX = 'Runway.PartnerAdmin';
+
+  it('should reject unauthenticated requests', async () => {
+    const res = await request(app.getHttpServer())
+      .put(endpoint)
+      .send({ crossYearMatchingEnabled: true });
+    expect(res.status).toBe(401);
+  });
+
+  it('should reject non-PartnerAdmin users', async () => {
+    const cookieA = (await authHelper.login(idpA, userA, tenantA, userRoleA)).cookies;
+    const res = await request(app.getHttpServer())
+      .put(endpoint)
+      .set('Cookie', [cookieA])
+      .send({ crossYearMatchingEnabled: true });
+    expect(res.status).toBe(403);
+  });
+
+  describe('as PartnerAdmin', () => {
+    let adminCookieA: string;
+    let canConnectSpy: jest.SpyInstance;
+
+    beforeEach(async () => {
+      adminCookieA = (await authHelper.login(idpA, userA, tenantA, partnerAdminRoleA)).cookies;
+      canConnectSpy = jest
+        .spyOn(app.get(EduSnowflakePoolService), 'canConnect')
+        .mockResolvedValue(false);
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: false },
+      });
+    });
+
+    afterEach(() => {
+      canConnectSpy.mockRestore();
+    });
+
+    it('updates cross_year_matching_enabled on the partner row', async () => {
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieA])
+        .send({ crossYearMatchingEnabled: true });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ status: 'ok' });
+
+      const row = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
+      expect(row.crossYearMatchingEnabled).toBe(true);
+    });
+
+    it('subsequent GET reflects the new value', async () => {
+      await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieA])
+        .send({ crossYearMatchingEnabled: true });
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
+      expect(res.body.crossYearMatchingEnabled).toBe(true);
+    });
+
+    it('succeeds when enabling without creds (backend does not gate)', async () => {
+      canConnectSpy.mockResolvedValue(false);
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieA])
+        .send({ crossYearMatchingEnabled: true });
+      expect(res.status).toBe(200);
+
+      const row = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
+      expect(row.crossYearMatchingEnabled).toBe(true);
+    });
+
+    it('only modifies the session partner', async () => {
+      const adminCookieX = (await authHelper.login(idpX, userX, tenantX, partnerAdminRoleX)).cookies;
+      await global.prisma.partner.update({
+        where: { id: 'partner-x' },
+        data: { crossYearMatchingEnabled: false },
+      });
+
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieX])
+        .send({ crossYearMatchingEnabled: true });
+      expect(res.status).toBe(200);
+
+      const partnerARow = await global.prisma.partner.findUniqueOrThrow({
+        where: { id: partnerA.id },
+      });
+      expect(partnerARow.crossYearMatchingEnabled).toBe(false);
+    });
+
+    it('rejects invalid body', async () => {
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieA])
+        .send({ crossYearMatchingEnabled: 'nope' });
+      expect(res.status).toBe(400);
     });
   });
 });
