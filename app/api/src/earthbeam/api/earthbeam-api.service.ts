@@ -17,6 +17,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
   earthbeamOutputFilesEndpoint,
+  earthbeamRosterEndpoint,
   earthbeamStatusUpdateEndpoint,
   earthbeamSummaryEndpoint,
   earthbeamUnmatchedIdsEndpoint,
@@ -29,6 +30,7 @@ import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
+import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 
 @Injectable()
 export class EarthbeamApiService {
@@ -39,7 +41,8 @@ export class EarthbeamApiService {
     private readonly encryptionService: EncryptionService,
     private readonly fileService: FileService,
     private readonly configService: AppConfigService,
-    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
+    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService,
+    private readonly eduPool: EduSnowflakePoolService
   ) {}
 
   async earthbeamInputForRun(runId: Run['id']) {
@@ -140,6 +143,10 @@ export class EarthbeamApiService {
 
     const executorBaseUrl = this.configService.executorCallbackBaseUrl();
 
+    const partnerId = job.tenant.partnerId;
+    const crossYearEnabled = job.tenant.partner.crossYearMatchingEnabled;
+    const crossYearMatchAvailable = crossYearEnabled && (await this.eduPool.canConnect(partnerId));
+
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
@@ -158,20 +165,25 @@ export class EarthbeamApiService {
         summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
+        ...(crossYearMatchAvailable
+          ? { roster: `${executorBaseUrl}/${earthbeamRosterEndpoint(runId)}` }
+          : {}),
       },
+      crossYearMatchAvailable,
       sendToOds: job.sendToOds,
       rosterFilePath: job.sendToOds
         ? undefined
         : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
       // odsConnection check narrows the type — the early guard ensures it's present when sendToOds
-      assessmentDatastore: odsConnection && job.sendToOds
-        ? {
-            apiYear: job.schoolYear.endYear.toString(),
-            url: odsConnection.host,
-            clientId: odsConnection.clientId,
-            clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
-          }
-        : undefined,
+      assessmentDatastore:
+        odsConnection && job.sendToOds
+          ? {
+              apiYear: job.schoolYear.endYear.toString(),
+              url: odsConnection.host,
+              clientId: odsConnection.clientId,
+              clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
+            }
+          : undefined,
     };
     return {
       status: 'SUCCESS',

@@ -1,4 +1,7 @@
 import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-api-auth.service';
+import { EduSnowflakePoolService } from 'api/src/earthbeam/api/edu-snowflake-pool.service';
+import { AppConfigService } from 'api/src/config/app-config.service';
+import { Readable } from 'node:stream';
 import request from 'supertest';
 import { seedJob } from '../factories/job-factory';
 import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
@@ -101,6 +104,70 @@ describe('Earthbeam API', () => {
       expect(res.body.rosterFilePath).toBe(
         's3://test-file-bucket/__rosters/partner-a/tenant-a/2024/studentEducationOrganizationAssociations.jsonl'
       );
+    });
+
+    describe('cross-year ID matching', () => {
+      // Default state per test: both gates ON (toggle enabled + creds present)
+      // so the happy path requires no overrides and each negative test reads
+      // as "remove one condition, expect the flag to flip false."
+      let getInfoSpy: jest.SpyInstance;
+
+      beforeEach(async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+        const configService = app.get(AppConfigService);
+        getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue({
+          username: 'snowflake-user',
+          account: 'example',
+          database: 'edu_stg',
+          schema: 'public',
+          privateKey: Buffer.from('priv'),
+        });
+      });
+
+      afterEach(() => {
+        getInfoSpy.mockRestore();
+      });
+
+      it('sets crossYearMatchAvailable=true and emits appUrls.roster when toggle on and creds exist', async () => {
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(true);
+        expect(res.body.appUrls.roster).toBeDefined();
+        expect(res.body.appUrls.roster).toContain(`/earthbeam/jobs/${runA.id}/roster`);
+      });
+
+      it('sets crossYearMatchAvailable=false and omits appUrls.roster when toggle is off', async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: false },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(false);
+        expect(res.body.appUrls.roster).toBeUndefined();
+      });
+
+      it('sets crossYearMatchAvailable=false and omits appUrls.roster when creds are missing', async () => {
+        getInfoSpy.mockResolvedValue(null);
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(false);
+        expect(res.body.appUrls.roster).toBeUndefined();
+      });
     });
 
     // TODO: add tests for things other than descriptor mappings
@@ -229,6 +296,166 @@ describe('Earthbeam API', () => {
       });
     });
 
+  });
+
+  describe('GET /:runId/roster', () => {
+    let runA: Run;
+    let endpointA: string;
+    let tokenA: string;
+
+    beforeEach(async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      const jobA = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+      runA = jobA.runs[0];
+      endpointA = `/earthbeam/jobs/${runA.id}/roster`;
+      tokenA = await authService.createAccessToken({ runId: runA.id });
+    });
+
+    it('rejects unauthenticated requests', async () => {
+      const res = await request(app.getHttpServer()).get(endpointA);
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 409 when the partner has cross-year matching disabled', async () => {
+      // partnerA defaults to crossYearMatchingEnabled=false
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+      expect(res.status).toBe(409);
+    });
+
+    it('returns 500 when EDU creds are missing for an otherwise-enabled partner', async () => {
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+      // No creds → pool creation will fail before any rows are written;
+      // controller's headersSent check should convert that to a clean 500
+      // rather than tearing the socket.
+      const configService = app.get(AppConfigService);
+      const getInfoSpy = jest
+        .spyOn(configService, 'getEduConnectionInfo')
+        .mockResolvedValue(null);
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+      expect(res.status).toBe(500);
+
+      getInfoSpy.mockRestore();
+    });
+
+    describe('streaming responses', () => {
+      // Streaming parser for supertest: collects chunks as they arrive and
+      // signals whether the response ended cleanly ('end' fired) or was closed
+      // early ('close'/'error' fired first). Use .buffer(true).parse(streamParser).
+      const streamParser = (
+        response: request.Response,
+        cb: (err: Error | null, body: { chunks: Buffer[]; complete: boolean }) => void
+      ) => {
+        const chunks: Buffer[] = [];
+        let settled = false;
+        const settle = (complete: boolean) => {
+          if (settled) return;
+          settled = true;
+          cb(null, { chunks, complete });
+        };
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => settle(true));
+        response.on('close', () => settle(false));
+        response.on('error', () => settle(false));
+      };
+
+      // Stub EduSnowflakePoolService.use with a fake connection that streams
+      // `source` rows. Caller is responsible for `mockRestore()`.
+      const mockEduPoolStream = (source: Iterable<unknown> | AsyncIterable<unknown>) => {
+        const eduPool = app.get(EduSnowflakePoolService);
+        return jest.spyOn(eduPool, 'use').mockImplementation(async (_partnerId, cb) => {
+          return cb({
+            execute: () => ({ streamRows: () => Readable.from(source) }),
+          } as never);
+        });
+      };
+
+      beforeEach(async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+      });
+
+      it('streams the rows from the EDU pool as NDJSON', async () => {
+        const rows = [
+          { studentUniqueId: '1', priorYear: 2024 },
+          { studentUniqueId: '2', priorYear: 2024 },
+          { studentUniqueId: '3', priorYear: 2024 },
+        ];
+        const spy = mockEduPoolStream(rows);
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .buffer(true)
+          .parse(streamParser);
+
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toContain('application/x-ndjson');
+        expect(res.body.complete).toBe(true);
+        const body = Buffer.concat(res.body.chunks).toString('utf8');
+        expect(body).toBe(rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+        spy.mockRestore();
+      });
+
+      it('closes the response abruptly when the Snowflake row stream errors mid-flight', async () => {
+        const spy = mockEduPoolStream(
+          (async function* () {
+            yield { studentUniqueId: '1' };
+            throw new Error('snowflake exploded mid-stream');
+          })()
+        );
+
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .buffer(true)
+          .parse(streamParser);
+
+        // Pipeline destroys the response on stream error. Headers were
+        // already sent, so the status is 200, but the socket closes before
+        // 'end' fires — streamParser surfaces that as complete: false.
+        expect(res.status).toBe(200);
+        expect(res.body.complete).toBe(false);
+        const body = Buffer.concat(res.body.chunks).toString('utf8');
+        expect(body).toBe(JSON.stringify({ studentUniqueId: '1' }) + '\n');
+
+        spy.mockRestore();
+      });
+    });
+
+    it('returns 500 when pool acquisition fails before any bytes are streamed', async () => {
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+
+      const eduPool = app.get(EduSnowflakePoolService);
+      const poolUseSpy = jest
+        .spyOn(eduPool, 'use')
+        .mockRejectedValue(new Error('pool acquisition failed'));
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(500);
+
+      poolUseSpy.mockRestore();
+    });
   });
 
   describe('POST /:runId/status', () => {

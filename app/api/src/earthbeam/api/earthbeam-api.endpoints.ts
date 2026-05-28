@@ -21,3 +21,6 @@ export const earthbeamUnmatchedIdsEndpoint = (runId: number | ':runId') =>
 
 export const earthbeamOutputFilesEndpoint = (runId: number | ':runId') =>
   `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/output-files`;
+
+export const earthbeamRosterEndpoint = (runId: number | ':runId') =>
+  `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/roster`;
