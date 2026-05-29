@@ -125,14 +125,24 @@ class JobExecutor:
         except:
             # failure cases
             traceback.print_exc()
-            self.upload_remaining_artifacts()
 
-            self.update_failure()
-
+            # Lock in the error payload immediately so any failure below this point
+            # still has something to report to the app.
             if not self.error:
                 self.error = error.UnknownError(traceback.format_exc())
             if not self.error.stacktrace:
                 self.error.stacktrace = traceback.format_exc()
+
+            # generic exception catching to be super-defensive while we cleanup and make a best effort to get the error object out the door
+            try:
+                self.upload_remaining_artifacts()
+            except Exception as e:
+                self.logger.error(f"upload_remaining_artifacts raised during shutdown ({repr(e)}); continuing", exc_info=True)
+
+            try:
+                self.update_failure()
+            except Exception as e:
+                self.logger.error(f"update_failure raised during shutdown ({repr(e)}); continuing", exc_info=True)
 
             self.send_error()
         else:
@@ -758,7 +768,7 @@ class JobExecutor:
             if fail_ok:
                 self.logger.debug(f"file empty during shutdown. continuing...")
                 return
-            self.error_obj = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
+            self.error = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
             raise FileNotFoundError(fpath)
 
         try:
@@ -770,7 +780,7 @@ class JobExecutor:
                 self.logger.debug(f"upload failed during shutdown. continuing...")
                 return
             self.error = error.ArtifactS3UploadError(
-                artifact_to_upload, f"{self.bucket_out_path}/{os.path.basename(fpath)}"
+                artifact_to_upload.name, f"{self.s3_out_path}/{os.path.basename(fpath)}"
             )
             raise
 
