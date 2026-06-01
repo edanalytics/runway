@@ -282,7 +282,7 @@ class JobExecutor:
         elif self.cross_year_match_available:
             # Case 2: not sending to this year's ODS but we have access to EDU;
             #         only running Earthmover once with cross-year roster
-            self.get_roster_from_edu()
+            self.get_roster_from_edu(artifact.ROSTER.path)
         else:
             # Case 3: not sending to this year's ODS and EDU is unavailable;
             #         only running Earthmover once with uploaded roster
@@ -290,10 +290,11 @@ class JobExecutor:
 
         self.upload_artifact(artifact.ROSTER)
 
-    def get_roster_from_edu(self):
-        """Query EDU via the Runway app and load cross-year roster data into a JSONL file"""
+    def get_roster_from_edu(self, dest_path):
+        """Query EDU via the Runway app and stream cross-year roster data into the given JSONL file"""
         self.logger.info(f"cross-year pass: streaming cross-year roster")
-        dest_path = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
+        dest_path = os.path.abspath(dest_path)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         try:
             stream_to_file(self.conn, self.cross_year_roster_url, dest_path)
         except requests.exceptions.RequestException:
@@ -536,7 +537,7 @@ class JobExecutor:
         os.environ["INPUT_FILE"] = unmatched_path
         self.input_sources["INPUT_FILE"]["path"] = unmatched_path
 
-        self.get_roster_from_edu()
+        self.get_roster_from_edu(config.CROSS_YEAR_ROSTER_PATH)
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
         # Constrain to the ID column the first pass matched on. The bundle always appends
