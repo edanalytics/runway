@@ -3,6 +3,10 @@ import {
   Badge,
   Box,
   Button,
+  Collapse,
+  FormControl,
+  FormHelperText,
+  FormLabel,
   HStack,
   Switch,
   Text,
@@ -35,6 +39,7 @@ export const CrossYearMatchingSection = () => {
   const [draftEnabled, setDraftEnabled] = useState(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const { isOpen: isHelpOpen, onToggle: onToggleHelp } = useDisclosure();
   const [modalMode, setModalMode] = useState<'save' | 'leave'>('save');
   const [pendingLeaveAction, setPendingLeaveAction] = useState<null | 'cancel'>(null);
 
@@ -108,7 +113,7 @@ export const CrossYearMatchingSection = () => {
           onClose();
           setGeneralError('Something went wrong saving your changes. Please try again.');
         },
-      },
+      }
     );
   };
 
@@ -163,54 +168,110 @@ export const CrossYearMatchingSection = () => {
       {generalError && <RunwayErrorBox message={generalError} showButton={false} mb="300" />}
 
       <Box layerStyle="contentBox" padding="300" maxWidth="100%">
-        <HStack align="center" gap="400">
-          <Text textStyle="body" fontWeight="semibold" color="blue.50" whiteSpace="nowrap">
-            source roster from EDU
-          </Text>
-          {isEditing ? (
-            <Switch
-              sx={switchSx}
-              isChecked={draftEnabled}
-              isDisabled={switchDisabled || update.isPending}
-              onChange={(e) => setDraftEnabled(e.target.checked)}
-            />
-          ) : (
-            <Badge
-              borderRadius="999px"
-              bg={config.crossYearMatchingEnabled ? 'green.100' : 'blue.800'}
-              color={config.crossYearMatchingEnabled ? 'green.600' : 'green.50'}
-              px="200"
-              py="100"
-              textTransform="none"
-            >
-              {config.crossYearMatchingEnabled ? 'enabled' : 'disabled'}
-            </Badge>
-          )}
-          <HStack gap="200" flexShrink={0}>
-            <Box
-              bg={config.eduCredsExist ? 'green.300' : 'pink.400'}
-              borderRadius="20px"
-              padding="100"
-              flexShrink={0}
-            >
-              {config.eduCredsExist ? <IconCheckmark /> : <IconExclamation />}
-            </Box>
-            <Box
-              textStyle="h6"
-              textColor={config.eduCredsExist ? 'green.50' : 'pink.50'}
+        <FormControl id="cross-year-toggle" variant="plain">
+          <HStack align="center" gap="500">
+            <FormLabel
+              mb="0"
+              textStyle="body"
+              fontWeight="semibold"
+              color="blue.50"
               whiteSpace="nowrap"
             >
-              {config.eduCredsExist ? 'EDU connected' : 'EDU not connected'}
-            </Box>
-          </HStack>
-          <Text textStyle="caption" fontSize="xs" fontWeight="normal" color="blue.50">
-            when on, IDs that fail to match the ODS roster can match against an
-            EDU cross-year roster and be made available for side-loading.
-            {!config.eduCredsExist && (
-              <> An EDU connection must be configured to enable this setting.</>
+              Cross-year roster for ID matching
+            </FormLabel>
+            {isEditing ? (
+              <Switch
+                sx={switchSx}
+                aria-describedby="cross-year-edu-status"
+                isChecked={draftEnabled}
+                isDisabled={switchDisabled || update.isPending}
+                onChange={(e) => setDraftEnabled(e.target.checked)}
+              />
+            ) : (
+              <Badge
+                borderRadius="999px"
+                bg={config.crossYearMatchingEnabled ? 'green.100' : 'blue.800'}
+                color={config.crossYearMatchingEnabled ? 'green.600' : 'green.50'}
+                px="200"
+                py="100"
+                textTransform="none"
+              >
+                {config.crossYearMatchingEnabled ? 'enabled' : 'disabled'}
+              </Badge>
             )}
-          </Text>
-        </HStack>
+            <VStack id="cross-year-edu-status" align="start" gap="100" flexShrink={0}>
+              <HStack gap="200">
+                <Box
+                  bg={config.eduCredsExist ? 'green.300' : 'pink.400'}
+                  borderRadius="20px"
+                  padding="100"
+                  flexShrink={0}
+                >
+                  {config.eduCredsExist ? <IconCheckmark /> : <IconExclamation />}
+                </Box>
+                <Box
+                  textStyle="h6"
+                  textColor={config.eduCredsExist ? 'green.50' : 'pink.50'}
+                  whiteSpace="nowrap"
+                >
+                  {config.eduCredsExist ? 'EDU connected' : 'EDU not connected'}
+                </Box>
+              </HStack>
+              {!config.eduCredsExist && (
+                <Text textStyle="caption" fontSize="xs" color="pink.50" maxW="14rem">
+                  An EDU connection must be configured to enable this setting.
+                </Text>
+              )}
+            </VStack>
+            <VStack align="stretch" gap="100">
+              <FormHelperText
+                mt="0"
+                textStyle="caption"
+                fontSize="xs"
+                fontWeight="normal"
+                color="blue.50"
+              >
+                <VStack align="stretch" gap="100">
+                  <Text>
+                    Allow Runway to process records for students who were rostered in any year
+                    available in EDU, even if the student is not rostered in the ODS year.
+                  </Text>
+                  <Collapse in={isHelpOpen} animateOpacity>
+                    <VStack id="cross-year-help-details" align="stretch" gap="100">
+                      <Text>
+                        For jobs sent to an ODS, Runway will continue to match IDs against the ODS
+                        roster first. If an ID does not match against the ODS roster, Runway will
+                        attempt to match against the cross-year roster from EDU. If the ID matches
+                        the cross-year roster, the student will be made available for side-loading
+                        to EDU. IDs that do not match against either roster will follow the normal
+                        unmatched ID review flow.
+                      </Text>
+                      <Text>
+                        For jobs NOT sent to an ODS, Runway will use the cross-year roster from EDU,
+                        if this setting is enabled. Otherwise, non-ODS jobs will expect a roster
+                        file in S3.
+                      </Text>
+                    </VStack>
+                  </Collapse>
+                </VStack>
+              </FormHelperText>
+              <Button
+                variant="link"
+                alignSelf="flex-start"
+                textStyle="caption"
+                fontSize="xs"
+                fontWeight="normal"
+                color="green.100"
+                _hover={{ color: 'green.50' }}
+                onClick={onToggleHelp}
+                aria-expanded={isHelpOpen}
+                aria-controls="cross-year-help-details"
+              >
+                {isHelpOpen ? 'show less' : 'show more'}
+              </Button>
+            </VStack>
+          </HStack>
+        </FormControl>
       </Box>
 
       {isEditing && (
