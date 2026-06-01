@@ -73,6 +73,7 @@ export const CrossYearMatchingSection = () => {
   const switchDisabled = !isEditing || (cannotEnable && !draftEnabled);
 
   const startEdit = () => {
+    setGeneralError(null);
     setDraftEnabled(config.crossYearMatchingEnabled);
     setIsEditing(true);
   };
@@ -95,6 +96,7 @@ export const CrossYearMatchingSection = () => {
   };
 
   const handleSaveConfirm = () => {
+    setGeneralError(null);
     update.mutate(
       { crossYearMatchingEnabled: draftEnabled },
       {
