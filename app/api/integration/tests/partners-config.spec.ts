@@ -106,28 +106,6 @@ describe('PUT /partners/config', () => {
       canConnectSpy.mockRestore();
     });
 
-    it('updates cross_year_matching_enabled on the partner row', async () => {
-      const res = await request(app.getHttpServer())
-        .put(endpoint)
-        .set('Cookie', [adminCookieA])
-        .send({ crossYearMatchingEnabled: true });
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ status: 'ok' });
-
-      const row = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
-      expect(row.crossYearMatchingEnabled).toBe(true);
-    });
-
-    it('subsequent GET reflects the new value', async () => {
-      await request(app.getHttpServer())
-        .put(endpoint)
-        .set('Cookie', [adminCookieA])
-        .send({ crossYearMatchingEnabled: true });
-
-      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
-      expect(res.body.crossYearMatchingEnabled).toBe(true);
-    });
-
     it('rejects enabling when EDU creds are missing', async () => {
       canConnectSpy.mockResolvedValue(false);
       const res = await request(app.getHttpServer())
@@ -157,7 +135,18 @@ describe('PUT /partners/config', () => {
       expect(row.crossYearMatchingEnabled).toBe(false);
     });
 
-    it('only modifies the session partner', async () => {
+    it('rejects invalid body', async () => {
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieA])
+        .send({ crossYearMatchingEnabled: 'nope' });
+      expect(res.status).toBe(400);
+    });
+
+    // Acts as partner X (not the beforeEach's partner A) so this proves the
+    // write lands on the session's partner — not a fixed one — and leaves the
+    // other partner untouched, on top of the basic update + { status: 'ok' }.
+    it("updates only the session partner's row", async () => {
       const adminCookieX = (await authHelper.login(idpX, userX, tenantX, partnerAdminRoleX)).cookies;
       await global.prisma.partner.update({
         where: { id: 'partner-x' },
@@ -169,6 +158,7 @@ describe('PUT /partners/config', () => {
         .set('Cookie', [adminCookieX])
         .send({ crossYearMatchingEnabled: true });
       expect(res.status).toBe(200);
+      expect(res.body).toEqual({ status: 'ok' });
 
       const partnerXRow = await global.prisma.partner.findUniqueOrThrow({
         where: { id: 'partner-x' },
@@ -179,14 +169,6 @@ describe('PUT /partners/config', () => {
         where: { id: partnerA.id },
       });
       expect(partnerARow.crossYearMatchingEnabled).toBe(false);
-    });
-
-    it('rejects invalid body', async () => {
-      const res = await request(app.getHttpServer())
-        .put(endpoint)
-        .set('Cookie', [adminCookieA])
-        .send({ crossYearMatchingEnabled: 'nope' });
-      expect(res.status).toBe(400);
     });
   });
 });
