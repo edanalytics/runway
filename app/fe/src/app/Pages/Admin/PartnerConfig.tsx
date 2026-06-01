@@ -32,7 +32,9 @@ const switchSx = {
 } as const;
 
 export const PartnerConfig = () => {
-  const { data: config, isLoading } = useQuery(partnerConfigQuery);
+  const { data, isLoading } = useQuery(partnerConfigQuery);
+  const config = data?.config;
+  const modifiedAt = data?.modifiedAt ?? null;
   const update = useUpdatePartnerConfig();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -103,15 +105,25 @@ export const PartnerConfig = () => {
   const handleSaveConfirm = () => {
     setGeneralError(null);
     update.mutate(
-      { crossYearMatchingEnabled: draftEnabled },
+      { body: { crossYearMatchingEnabled: draftEnabled }, modifiedAt },
       {
         onSuccess: () => {
           onClose();
           setIsEditing(false);
         },
-        onError: () => {
+        onError: (error: any) => {
           onClose();
-          setGeneralError('Something went wrong saving your changes. Please try again.');
+          if (error?.status === 409 || error?.statusCode === 409) {
+            const by = error.lastModifiedBy ?? error.data?.lastModifiedBy;
+            const on = error.lastModifiedOn ?? error.data?.lastModifiedOn;
+            setGeneralError(
+              `This setting was changed${by ? ` by ${by}` : ''}${
+                on ? ` at ${new Date(on).toLocaleString()}` : ''
+              }. Please reload the page and try again.`
+            );
+          } else {
+            setGeneralError('Something went wrong saving your changes. Please try again.');
+          }
         },
       }
     );

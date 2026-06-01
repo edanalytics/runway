@@ -122,10 +122,19 @@ describe('PUT /partners/config', () => {
       canConnectSpy.mockRestore();
     });
 
+    // The PUT requires an x-if-config-modified-at header matching the row's
+    // current modifiedOn (optimistic concurrency). GET surfaces it.
+    const getModifiedAt = async (cookie: string) => {
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookie]);
+      return res.headers['x-config-modified-at'] as string;
+    };
+
     it('updates cross_year_matching_enabled on the partner row', async () => {
+      const ifModifiedAt = await getModifiedAt(adminCookieA);
       const res = await request(app.getHttpServer())
         .put(endpoint)
         .set('Cookie', [adminCookieA])
+        .set('x-if-config-modified-at', ifModifiedAt)
         .send({ crossYearMatchingEnabled: true });
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ status: 'ok' });
@@ -135,9 +144,11 @@ describe('PUT /partners/config', () => {
     });
 
     it('subsequent GET reflects the new value', async () => {
+      const ifModifiedAt = await getModifiedAt(adminCookieA);
       await request(app.getHttpServer())
         .put(endpoint)
         .set('Cookie', [adminCookieA])
+        .set('x-if-config-modified-at', ifModifiedAt)
         .send({ crossYearMatchingEnabled: true });
 
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
@@ -145,10 +156,12 @@ describe('PUT /partners/config', () => {
     });
 
     it('rejects enabling when EDU creds are missing', async () => {
+      const ifModifiedAt = await getModifiedAt(adminCookieA);
       canConnectSpy.mockResolvedValue(false);
       const res = await request(app.getHttpServer())
         .put(endpoint)
         .set('Cookie', [adminCookieA])
+        .set('x-if-config-modified-at', ifModifiedAt)
         .send({ crossYearMatchingEnabled: true });
       expect(res.status).toBe(400);
 
@@ -161,13 +174,48 @@ describe('PUT /partners/config', () => {
         where: { id: partnerA.id },
         data: { crossYearMatchingEnabled: true },
       });
+      const ifModifiedAt = await getModifiedAt(adminCookieA);
       canConnectSpy.mockResolvedValue(false);
 
       const res = await request(app.getHttpServer())
         .put(endpoint)
         .set('Cookie', [adminCookieA])
+        .set('x-if-config-modified-at', ifModifiedAt)
         .send({ crossYearMatchingEnabled: false });
       expect(res.status).toBe(200);
+
+      const row = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
+      expect(row.crossYearMatchingEnabled).toBe(false);
+    });
+
+    it('rejects a stale write with 409', async () => {
+      const staleModifiedAt = await getModifiedAt(adminCookieA);
+
+      // another writer changes the config after this client loaded it
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieA])
+        .set('x-if-config-modified-at', staleModifiedAt)
+        .send({ crossYearMatchingEnabled: false });
+      expect(res.status).toBe(409);
+      expect(res.body.lastModifiedOn).toBeTruthy();
+
+      // the rejected write left the other writer's value in place
+      const row = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
+      expect(row.crossYearMatchingEnabled).toBe(true);
+    });
+
+    it('rejects a write missing the if-config-modified-at header with 409', async () => {
+      const res = await request(app.getHttpServer())
+        .put(endpoint)
+        .set('Cookie', [adminCookieA])
+        .send({ crossYearMatchingEnabled: true });
+      expect(res.status).toBe(409);
 
       const row = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
       expect(row.crossYearMatchingEnabled).toBe(false);
@@ -180,9 +228,11 @@ describe('PUT /partners/config', () => {
         data: { crossYearMatchingEnabled: false },
       });
 
+      const ifModifiedAt = await getModifiedAt(adminCookieX);
       const res = await request(app.getHttpServer())
         .put(endpoint)
         .set('Cookie', [adminCookieX])
+        .set('x-if-config-modified-at', ifModifiedAt)
         .send({ crossYearMatchingEnabled: true });
       expect(res.status).toBe(200);
 
