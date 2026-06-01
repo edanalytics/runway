@@ -13,6 +13,7 @@ import {
   VStack,
   useDisclosure,
 } from '@chakra-ui/react';
+import { PutPartnerConfigDto } from '@edanalytics/models';
 import { useQuery } from '@tanstack/react-query';
 import { useBlocker } from '@tanstack/react-router';
 import {
@@ -23,34 +24,29 @@ import { ConfirmChangesModal } from './ConfirmChangesModal';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { IconCheckmark, IconExclamation } from '../../../assets/icons';
 
-const switchSx = {
-  '.chakra-switch__track': {
-    bg: 'blue.800',
-    _checked: { bg: 'green.300' },
-  },
-  '.chakra-switch__thumb': { bg: 'blue.50' },
-} as const;
-
 export const PartnerConfig = () => {
   const { data: config, isLoading } = useQuery(partnerConfigQuery);
   const update = useUpdatePartnerConfig();
 
   const [isEditing, setIsEditing] = useState(false);
-  const [draftEnabled, setDraftEnabled] = useState(false);
+  // null until the user starts editing (or config first loads); the saved
+  // config is the source of truth otherwise.
+  const [draftConfig, setDraftConfig] = useState<PutPartnerConfigDto | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  const { isOpen: isModalOpen, onOpen: onModalOpen, onClose: onModalClose } = useDisclosure();
   const { isOpen: isHelpOpen, onToggle: onToggleHelp } = useDisclosure();
   const [modalMode, setModalMode] = useState<'save' | 'leave'>('save');
   const [pendingLeaveAction, setPendingLeaveAction] = useState<null | 'cancel'>(null);
 
-  useEffect(() => {
-    if (config && !isEditing) setDraftEnabled(config.crossYearMatchingEnabled);
-  }, [config?.crossYearMatchingEnabled, isEditing]);
-
-  const hasChanges = !!config && draftEnabled !== config.crossYearMatchingEnabled;
+  const hasChanges =
+    !!config &&
+    !!draftConfig &&
+    draftConfig.crossYearMatchingEnabled !== config.crossYearMatchingEnabled;
   const shouldWarnAboutUnsavedChanges = isEditing && hasChanges && !update.isPending;
   const blocker = useBlocker({ condition: shouldWarnAboutUnsavedChanges });
 
+  // Native guard for unsaved edits on tab close / refresh / external nav (the
+  // cases the in-app router blocker below can't intercept).
   useEffect(() => {
     if (!shouldWarnAboutUnsavedChanges) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -64,22 +60,26 @@ export const PartnerConfig = () => {
   useEffect(() => {
     if (blocker.status === 'blocked') {
       setModalMode('leave');
-      onOpen();
+      onModalOpen();
     }
-  }, [blocker.status, onOpen]);
+  }, [blocker.status, onModalOpen]);
 
   if (isLoading || !config) {
     return <Box textStyle="body">loading...</Box>;
   }
 
+  // draftConfig is null outside of editing; fall back to the saved config so
+  // the edit controls always have a concrete value to render and submit.
+  const draft = draftConfig ?? { crossYearMatchingEnabled: config.crossYearMatchingEnabled };
+
   // Backend rejects enable-when-no-creds; mirror that on the FE so the
   // affordance disappears before the user can hit a 400.
   const cannotEnable = !config.eduCredsExist;
-  const switchDisabled = !isEditing || (cannotEnable && !draftEnabled);
+  const switchDisabled = !isEditing || (cannotEnable && !draft.crossYearMatchingEnabled);
 
   const startEdit = () => {
     setGeneralError(null);
-    setDraftEnabled(config.crossYearMatchingEnabled);
+    setDraftConfig({ crossYearMatchingEnabled: config.crossYearMatchingEnabled });
     setIsEditing(true);
   };
 
@@ -87,51 +87,49 @@ export const PartnerConfig = () => {
     if (shouldWarnAboutUnsavedChanges) {
       setPendingLeaveAction('cancel');
       setModalMode('leave');
-      onOpen();
+      onModalOpen();
       return;
     }
-    setDraftEnabled(config.crossYearMatchingEnabled);
+    setDraftConfig(null);
     setIsEditing(false);
   };
 
   const handleSave = () => {
     if (!hasChanges) return;
     setModalMode('save');
-    onOpen();
+    onModalOpen();
   };
 
   const handleSaveConfirm = () => {
     setGeneralError(null);
-    update.mutate(
-      { crossYearMatchingEnabled: draftEnabled },
-      {
-        onSuccess: () => {
-          onClose();
-          setIsEditing(false);
-        },
-        onError: () => {
-          onClose();
-          setGeneralError('Something went wrong saving your changes. Please try again.');
-        },
-      }
-    );
+    update.mutate(draft, {
+      onSuccess: () => {
+        onModalClose();
+        setDraftConfig(null);
+        setIsEditing(false);
+      },
+      onError: () => {
+        onModalClose();
+        setGeneralError('Something went wrong saving your changes. Please try again.');
+      },
+    });
   };
 
   const handleLeaveConfirm = () => {
-    onClose();
+    onModalClose();
     if (blocker.status === 'blocked') {
       blocker.proceed();
       return;
     }
     if (pendingLeaveAction === 'cancel') {
       setPendingLeaveAction(null);
-      setDraftEnabled(config.crossYearMatchingEnabled);
+      setDraftConfig(null);
       setIsEditing(false);
     }
   };
 
   const handleModalClose = () => {
-    onClose();
+    onModalClose();
     if (blocker.status === 'blocked') blocker.reset();
     setPendingLeaveAction(null);
   };
@@ -139,7 +137,7 @@ export const PartnerConfig = () => {
   const changes = hasChanges
     ? [
         `source roster from EDU: ${config.crossYearMatchingEnabled ? 'yes' : 'no'} → ${
-          draftEnabled ? 'yes' : 'no'
+          draft.crossYearMatchingEnabled ? 'yes' : 'no'
         }`,
       ]
     : [];
@@ -181,11 +179,19 @@ export const PartnerConfig = () => {
             </FormLabel>
             {isEditing ? (
               <Switch
-                sx={switchSx}
+                sx={{
+                  '.chakra-switch__track': {
+                    bg: 'blue.800',
+                    _checked: { bg: 'green.300' },
+                  },
+                  '.chakra-switch__thumb': { bg: 'blue.50' },
+                }}
                 aria-describedby="cross-year-edu-status"
-                isChecked={draftEnabled}
+                isChecked={draft.crossYearMatchingEnabled}
                 isDisabled={switchDisabled || update.isPending}
-                onChange={(e) => setDraftEnabled(e.target.checked)}
+                onChange={(e) =>
+                  setDraftConfig({ ...draft, crossYearMatchingEnabled: e.target.checked })
+                }
               />
             ) : (
               <Badge
@@ -306,7 +312,7 @@ export const PartnerConfig = () => {
       )}
 
       <ConfirmChangesModal
-        isOpen={isOpen}
+        isOpen={isModalOpen}
         onClose={handleModalClose}
         onConfirm={modalMode === 'save' ? handleSaveConfirm : handleLeaveConfirm}
         title={modalMode === 'save' ? 'confirm changes' : 'unsaved changes'}
