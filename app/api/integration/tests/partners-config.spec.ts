@@ -67,6 +67,17 @@ describe('GET /partners/config', () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
       expect(res.body.eduCredsExist).toBe(false);
     });
+
+    it('returns exactly { crossYearMatchingEnabled, eduCredsExist } and nothing else', async () => {
+      canConnectSpy.mockResolvedValue(true);
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ crossYearMatchingEnabled: true, eduCredsExist: true });
+    });
   });
 });
 
@@ -174,6 +185,11 @@ describe('PUT /partners/config', () => {
         .set('Cookie', [adminCookieX])
         .send({ crossYearMatchingEnabled: true });
       expect(res.status).toBe(200);
+
+      const partnerXRow = await global.prisma.partner.findUniqueOrThrow({
+        where: { id: 'partner-x' },
+      });
+      expect(partnerXRow.crossYearMatchingEnabled).toBe(true);
 
       const partnerARow = await global.prisma.partner.findUniqueOrThrow({
         where: { id: partnerA.id },
