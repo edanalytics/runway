@@ -80,6 +80,10 @@ class EarthmoverRunError(ExecutorError):
     def __init__(self, stacktrace=None):
         super().__init__("earthmover_run", stacktrace)
 
+class CrossYearRosterFetchError(ExecutorError):
+    def __init__(self, stacktrace=None):
+        super().__init__("cross_year_roster_fetch", stacktrace)
+
 class InsufficientMatchesError(ExecutorError):
     def __init__(self, match_rate, match_threshold, id_name, id_type, stacktrace=None):
         self.match_rate = match_rate
