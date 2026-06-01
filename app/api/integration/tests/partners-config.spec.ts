@@ -37,38 +37,10 @@ describe('GET /partners/config', () => {
       canConnectSpy.mockRestore();
     });
 
-    it('reflects the cross_year_matching_enabled column', async () => {
-      await global.prisma.partner.update({
-        where: { id: partnerA.id },
-        data: { crossYearMatchingEnabled: false },
-      });
-      let res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
-      expect(res.status).toBe(200);
-      expect(res.body.crossYearMatchingEnabled).toBe(false);
-
-      await global.prisma.partner.update({
-        where: { id: partnerA.id },
-        data: { crossYearMatchingEnabled: true },
-      });
-      res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
-      expect(res.body.crossYearMatchingEnabled).toBe(true);
-    });
-
-    it('reflects canConnect for eduCredsExist', async () => {
-      canConnectSpy.mockResolvedValue(true);
-      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
-      expect(res.status).toBe(200);
-      expect(res.body.eduCredsExist).toBe(true);
-      expect(canConnectSpy).toHaveBeenCalledWith(partnerA.id);
-    });
-
-    it('returns eduCredsExist=false when canConnect is false', async () => {
-      canConnectSpy.mockResolvedValue(false);
-      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
-      expect(res.body.eduCredsExist).toBe(false);
-    });
-
-    it('returns exactly { crossYearMatchingEnabled, eduCredsExist } and nothing else', async () => {
+    // The body mirrors the partner's toggle column and canConnect, and is
+    // exactly { crossYearMatchingEnabled, eduCredsExist } — asserting the full
+    // shape guards against leaking extra partner fields. One case per boolean.
+    it('returns the toggle column and EDU creds state (both true)', async () => {
       canConnectSpy.mockResolvedValue(true);
       await global.prisma.partner.update({
         where: { id: partnerA.id },
@@ -77,6 +49,18 @@ describe('GET /partners/config', () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ crossYearMatchingEnabled: true, eduCredsExist: true });
+      expect(canConnectSpy).toHaveBeenCalledWith(partnerA.id);
+    });
+
+    it('returns the toggle column and EDU creds state (both false)', async () => {
+      canConnectSpy.mockResolvedValue(false);
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: false },
+      });
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ crossYearMatchingEnabled: false, eduCredsExist: false });
     });
   });
 });
