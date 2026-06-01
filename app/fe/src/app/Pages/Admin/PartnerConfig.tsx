@@ -31,7 +31,7 @@ const switchSx = {
   '.chakra-switch__thumb': { bg: 'blue.50' },
 } as const;
 
-export const CrossYearMatchingSection = () => {
+export const PartnerConfig = () => {
   const { data: config, isLoading } = useQuery(partnerConfigQuery);
   const update = useUpdatePartnerConfig();
 
