@@ -29,6 +29,6 @@ import { EventEmitterModule } from 'api/src/event-emitter/event-emitter.module';
   ],
   providers: [EarthbeamApiService, EduSnowflakePoolService],
   controllers: [EarthbeamApiController],
-  exports: [],
+  exports: [EduSnowflakePoolService],
 })
 export class EarthbeamApiModule {}
