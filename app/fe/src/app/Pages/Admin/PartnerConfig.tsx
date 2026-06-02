@@ -21,6 +21,7 @@ import {
   useUpdatePartnerConfig,
 } from '../../api/queries/partner-config.queries';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
+import { ConfirmModal } from './ConfirmModal';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { IconCheckmark, IconExclamation } from '../../../assets/icons';
 
@@ -33,9 +34,9 @@ export const PartnerConfig = () => {
   // config is the source of truth otherwise.
   const [draftConfig, setDraftConfig] = useState<PutPartnerConfigDto | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
-  const { isOpen: isModalOpen, onOpen: onModalOpen, onClose: onModalClose } = useDisclosure();
+  const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
+  const { isOpen: isLeaveOpen, onOpen: onLeaveOpen, onClose: onLeaveClose } = useDisclosure();
   const { isOpen: isHelpOpen, onToggle: onToggleHelp } = useDisclosure();
-  const [modalMode, setModalMode] = useState<'save' | 'leave'>('save');
   const [pendingLeaveAction, setPendingLeaveAction] = useState<null | 'cancel'>(null);
 
   const hasChanges =
@@ -59,10 +60,9 @@ export const PartnerConfig = () => {
 
   useEffect(() => {
     if (blocker.status === 'blocked') {
-      setModalMode('leave');
-      onModalOpen();
+      onLeaveOpen();
     }
-  }, [blocker.status, onModalOpen]);
+  }, [blocker.status, onLeaveOpen]);
 
   if (isLoading || !config) {
     return <Box textStyle="body">loading...</Box>;
@@ -86,8 +86,7 @@ export const PartnerConfig = () => {
   const handleCancel = () => {
     if (shouldWarnAboutUnsavedChanges) {
       setPendingLeaveAction('cancel');
-      setModalMode('leave');
-      onModalOpen();
+      onLeaveOpen();
       return;
     }
     setDraftConfig(null);
@@ -96,27 +95,26 @@ export const PartnerConfig = () => {
 
   const handleSave = () => {
     if (!hasChanges) return;
-    setModalMode('save');
-    onModalOpen();
+    onSaveOpen();
   };
 
   const handleSaveConfirm = () => {
     setGeneralError(null);
     update.mutate(draft, {
       onSuccess: () => {
-        onModalClose();
+        onSaveClose();
         setDraftConfig(null);
         setIsEditing(false);
       },
       onError: () => {
-        onModalClose();
+        onSaveClose();
         setGeneralError('Something went wrong saving your changes. Please try again.');
       },
     });
   };
 
   const handleLeaveConfirm = () => {
-    onModalClose();
+    onLeaveClose();
     if (blocker.status === 'blocked') {
       blocker.proceed();
       return;
@@ -128,8 +126,8 @@ export const PartnerConfig = () => {
     }
   };
 
-  const handleModalClose = () => {
-    onModalClose();
+  const handleLeaveCancel = () => {
+    onLeaveClose();
     if (blocker.status === 'blocked') blocker.reset();
     setPendingLeaveAction(null);
   };
@@ -312,17 +310,18 @@ export const PartnerConfig = () => {
       )}
 
       <ConfirmChangesModal
-        isOpen={isModalOpen}
-        onClose={handleModalClose}
-        onConfirm={modalMode === 'save' ? handleSaveConfirm : handleLeaveConfirm}
-        title={modalMode === 'save' ? 'confirm changes' : 'unsaved changes'}
-        description={
-          modalMode === 'save'
-            ? 'The following changes will be saved:'
-            : 'You have unsaved partner configuration changes. Leave without saving?'
-        }
-        confirmLabel={modalMode === 'save' ? 'confirm' : 'leave'}
-        changes={modalMode === 'save' ? changes : []}
+        isOpen={isSaveOpen}
+        onClose={onSaveClose}
+        onConfirm={handleSaveConfirm}
+        changes={changes}
+      />
+      <ConfirmModal
+        isOpen={isLeaveOpen}
+        onClose={handleLeaveCancel}
+        onConfirm={handleLeaveConfirm}
+        title="unsaved changes"
+        description="You have unsaved partner configuration changes. Leave without saving?"
+        confirmLabel="leave"
       />
     </VStack>
   );

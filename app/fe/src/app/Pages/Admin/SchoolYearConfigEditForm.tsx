@@ -19,6 +19,7 @@ import { useUpdateSchoolYearConfig } from '../../api/queries/school-year-config.
 import { useBlocker } from '@tanstack/react-router';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
+import { ConfirmModal } from './ConfirmModal';
 
 const switchSx = {
   '.chakra-switch__track': {
@@ -62,8 +63,8 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
   );
   const [staleError, setStaleError] = useState<{ lastModifiedOn: string; lastModifiedBy: string | null } | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  const [modalMode, setModalMode] = useState<'save' | 'leave'>('save');
+  const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
+  const { isOpen: isLeaveOpen, onOpen: onLeaveOpen, onClose: onLeaveClose } = useDisclosure();
   const [pendingLeaveAction, setPendingLeaveAction] = useState<null | 'cancel'>(null);
   const mutation = useUpdateSchoolYearConfig();
 
@@ -97,10 +98,9 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
 
   useEffect(() => {
     if (blocker.status === 'blocked') {
-      setModalMode('leave');
-      onOpen();
+      onLeaveOpen();
     }
-  }, [blocker.status, onOpen]);
+  }, [blocker.status, onLeaveOpen]);
 
   const updateRow = (schoolYearId: string, field: 'isEnabled' | 'sendToOds', value: boolean) => {
     setRows((prev) =>
@@ -110,15 +110,13 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
 
   const handleSave = () => {
     if (!hasChanges) return;
-    setModalMode('save');
-    onOpen();
+    onSaveOpen();
   };
 
   const handleCancel = () => {
     if (shouldWarnAboutUnsavedChanges) {
       setPendingLeaveAction('cancel');
-      setModalMode('leave');
-      onOpen();
+      onLeaveOpen();
       return;
     }
     onCancel();
@@ -136,11 +134,11 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
       },
       {
         onSuccess: () => {
-          onClose();
+          onSaveClose();
           onSaved();
         },
         onError: (error: any) => {
-          onClose();
+          onSaveClose();
           if (error?.status === 409 || error?.statusCode === 409) {
             setStaleError({
               lastModifiedOn: error.lastModifiedOn ?? error.data?.lastModifiedOn,
@@ -155,7 +153,7 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
   };
 
   const handleLeaveConfirm = () => {
-    onClose();
+    onLeaveClose();
     if (blocker.status === 'blocked') {
       blocker.proceed();
       return;
@@ -166,8 +164,8 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
     }
   };
 
-  const handleModalClose = () => {
-    onClose();
+  const handleLeaveCancel = () => {
+    onLeaveClose();
     if (blocker.status === 'blocked') {
       blocker.reset();
     }
@@ -252,17 +250,18 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
       </HStack>
 
       <ConfirmChangesModal
-        isOpen={isOpen}
-        onClose={handleModalClose}
-        onConfirm={modalMode === 'save' ? handleSaveConfirm : handleLeaveConfirm}
-        title={modalMode === 'save' ? 'confirm changes' : 'unsaved changes'}
-        description={
-          modalMode === 'save'
-            ? 'The following changes will be saved:'
-            : 'You have unsaved school year config changes. Leave without saving?'
-        }
-        confirmLabel={modalMode === 'save' ? 'confirm' : 'leave'}
-        changes={modalMode === 'save' ? changes : []}
+        isOpen={isSaveOpen}
+        onClose={onSaveClose}
+        onConfirm={handleSaveConfirm}
+        changes={changes}
+      />
+      <ConfirmModal
+        isOpen={isLeaveOpen}
+        onClose={handleLeaveCancel}
+        onConfirm={handleLeaveConfirm}
+        title="unsaved changes"
+        description="You have unsaved school year config changes. Leave without saving?"
+        confirmLabel="leave"
       />
     </Box>
   );
