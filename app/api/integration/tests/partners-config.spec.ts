@@ -28,9 +28,8 @@ describe('GET /partners/config', () => {
 
     beforeEach(async () => {
       adminCookieA = (await authHelper.login(idpA, userA, tenantA, partnerAdminRoleA)).cookies;
-      canConnectSpy = jest
-        .spyOn(app.get(EduSnowflakePoolService), 'canConnect')
-        .mockResolvedValue(false);
+      // Each test sets the canConnect result it exercises.
+      canConnectSpy = jest.spyOn(app.get(EduSnowflakePoolService), 'canConnect');
     });
 
     afterEach(() => {
@@ -143,9 +142,6 @@ describe('PUT /partners/config', () => {
       expect(res.status).toBe(400);
     });
 
-    // Acts as partner X (not the beforeEach's partner A) so this proves the
-    // write lands on the session's partner — not a fixed one — and leaves the
-    // other partner untouched, on top of the basic update + { status: 'ok' }.
     it("updates only the session partner's row", async () => {
       const adminCookieX = (await authHelper.login(idpX, userX, tenantX, partnerAdminRoleX)).cookies;
       await global.prisma.partner.update({
@@ -165,6 +161,8 @@ describe('PUT /partners/config', () => {
       });
       expect(partnerXRow.crossYearMatchingEnabled).toBe(true);
 
+      // Load-bearing: partner A must be left untouched, proving the update is
+      // scoped to the session's partnerId rather than affecting other partners.
       const partnerARow = await global.prisma.partner.findUniqueOrThrow({
         where: { id: partnerA.id },
       });
