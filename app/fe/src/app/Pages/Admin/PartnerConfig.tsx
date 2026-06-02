@@ -134,7 +134,7 @@ export const PartnerConfig = () => {
 
   const changes = hasChanges
     ? [
-        `source roster from EDU: ${config.crossYearMatchingEnabled ? 'yes' : 'no'} → ${
+        `Cross-year roster for ID matching: ${config.crossYearMatchingEnabled ? 'yes' : 'no'} → ${
           draft.crossYearMatchingEnabled ? 'yes' : 'no'
         }`,
       ]
