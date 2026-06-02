@@ -64,8 +64,10 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
   const [staleError, setStaleError] = useState<{ lastModifiedOn: string; lastModifiedBy: string | null } | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
+  // Two distinct exits: discarding edits (cancel button, stay on the page) vs.
+  // navigating away with unsaved changes (router blocker / tab close).
+  const { isOpen: isDiscardOpen, onOpen: onDiscardOpen, onClose: onDiscardClose } = useDisclosure();
   const { isOpen: isLeaveOpen, onOpen: onLeaveOpen, onClose: onLeaveClose } = useDisclosure();
-  const [pendingLeaveAction, setPendingLeaveAction] = useState<null | 'cancel'>(null);
   const mutation = useUpdateSchoolYearConfig();
 
   const changes = describeChanges(data, rows);
@@ -115,10 +117,14 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
 
   const handleCancel = () => {
     if (shouldWarnAboutUnsavedChanges) {
-      setPendingLeaveAction('cancel');
-      onLeaveOpen();
+      onDiscardOpen();
       return;
     }
+    onCancel();
+  };
+
+  const handleDiscardConfirm = () => {
+    onDiscardClose();
     onCancel();
   };
 
@@ -154,22 +160,12 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
 
   const handleLeaveConfirm = () => {
     onLeaveClose();
-    if (blocker.status === 'blocked') {
-      blocker.proceed();
-      return;
-    }
-    if (pendingLeaveAction === 'cancel') {
-      setPendingLeaveAction(null);
-      onCancel();
-    }
+    if (blocker.status === 'blocked') blocker.proceed();
   };
 
   const handleLeaveCancel = () => {
     onLeaveClose();
-    if (blocker.status === 'blocked') {
-      blocker.reset();
-    }
-    setPendingLeaveAction(null);
+    if (blocker.status === 'blocked') blocker.reset();
   };
 
   return (
@@ -254,6 +250,14 @@ export const SchoolYearConfigEditForm = ({ data, modifiedAt, tableSx, onCancel, 
         onClose={onSaveClose}
         onConfirm={handleSaveConfirm}
         changes={changes}
+      />
+      <ConfirmModal
+        isOpen={isDiscardOpen}
+        onClose={onDiscardClose}
+        onConfirm={handleDiscardConfirm}
+        title="discard changes"
+        description="Discard your unsaved changes?"
+        confirmLabel="discard"
       />
       <ConfirmModal
         isOpen={isLeaveOpen}

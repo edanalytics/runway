@@ -35,9 +35,11 @@ export const PartnerConfig = () => {
   const [draftConfig, setDraftConfig] = useState<PutPartnerConfigDto | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
+  // Two distinct exits: discarding edits (cancel button, stay on the page) vs.
+  // navigating away with unsaved changes (router blocker / tab close).
+  const { isOpen: isDiscardOpen, onOpen: onDiscardOpen, onClose: onDiscardClose } = useDisclosure();
   const { isOpen: isLeaveOpen, onOpen: onLeaveOpen, onClose: onLeaveClose } = useDisclosure();
   const { isOpen: isHelpOpen, onToggle: onToggleHelp } = useDisclosure();
-  const [pendingLeaveAction, setPendingLeaveAction] = useState<null | 'cancel'>(null);
 
   const hasChanges =
     !!config &&
@@ -83,14 +85,22 @@ export const PartnerConfig = () => {
     setIsEditing(true);
   };
 
-  const handleCancel = () => {
-    if (shouldWarnAboutUnsavedChanges) {
-      setPendingLeaveAction('cancel');
-      onLeaveOpen();
-      return;
-    }
+  const discardEdits = () => {
     setDraftConfig(null);
     setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    if (shouldWarnAboutUnsavedChanges) {
+      onDiscardOpen();
+      return;
+    }
+    discardEdits();
+  };
+
+  const handleDiscardConfirm = () => {
+    onDiscardClose();
+    discardEdits();
   };
 
   const handleSave = () => {
@@ -115,21 +125,12 @@ export const PartnerConfig = () => {
 
   const handleLeaveConfirm = () => {
     onLeaveClose();
-    if (blocker.status === 'blocked') {
-      blocker.proceed();
-      return;
-    }
-    if (pendingLeaveAction === 'cancel') {
-      setPendingLeaveAction(null);
-      setDraftConfig(null);
-      setIsEditing(false);
-    }
+    if (blocker.status === 'blocked') blocker.proceed();
   };
 
   const handleLeaveCancel = () => {
     onLeaveClose();
     if (blocker.status === 'blocked') blocker.reset();
-    setPendingLeaveAction(null);
   };
 
   const changes = hasChanges
@@ -314,6 +315,14 @@ export const PartnerConfig = () => {
         onClose={onSaveClose}
         onConfirm={handleSaveConfirm}
         changes={changes}
+      />
+      <ConfirmModal
+        isOpen={isDiscardOpen}
+        onClose={onDiscardClose}
+        onConfirm={handleDiscardConfirm}
+        title="discard changes"
+        description="Discard your unsaved changes?"
+        confirmLabel="discard"
       />
       <ConfirmModal
         isOpen={isLeaveOpen}
