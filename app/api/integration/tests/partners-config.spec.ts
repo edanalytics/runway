@@ -37,7 +37,7 @@ describe('GET /partners/config', () => {
     });
 
     // The body mirrors the partner's toggle column and canConnect, and is
-    // exactly { crossYearMatchingEnabled, eduCredsExist } — asserting the full
+    // exactly { crossYearMatchingEnabled, canConnectToEdu } — asserting the full
     // shape guards against leaking extra partner fields. One case per boolean.
     it('returns the toggle column and EDU creds state (both true)', async () => {
       canConnectSpy.mockResolvedValue(true);
@@ -47,7 +47,7 @@ describe('GET /partners/config', () => {
       });
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ crossYearMatchingEnabled: true, eduCredsExist: true });
+      expect(res.body).toEqual({ crossYearMatchingEnabled: true, canConnectToEdu: true });
       expect(canConnectSpy).toHaveBeenCalledWith(partnerA.id);
     });
 
@@ -59,7 +59,7 @@ describe('GET /partners/config', () => {
       });
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [adminCookieA]);
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ crossYearMatchingEnabled: false, eduCredsExist: false });
+      expect(res.body).toEqual({ crossYearMatchingEnabled: false, canConnectToEdu: false });
     });
   });
 });

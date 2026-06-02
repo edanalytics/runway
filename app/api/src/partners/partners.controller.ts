@@ -26,10 +26,10 @@ export class PartnersController {
       where: { id: tenant.partnerId },
       select: { crossYearMatchingEnabled: true },
     });
-    const eduCredsExist = await this.eduPool.canConnect(tenant.partnerId);
+    const canConnectToEdu = await this.eduPool.canConnect(tenant.partnerId);
     return toGetPartnerConfigDto({
       crossYearMatchingEnabled: partner.crossYearMatchingEnabled,
-      eduCredsExist,
+      canConnectToEdu,
     });
   }
 

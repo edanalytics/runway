@@ -76,7 +76,7 @@ export const PartnerConfig = () => {
 
   // Backend rejects enable-when-no-creds; mirror that on the FE so the
   // affordance disappears before the user can hit a 400.
-  const cannotEnable = !config.eduCredsExist;
+  const cannotEnable = !config.canConnectToEdu;
   const switchDisabled = !isEditing || (cannotEnable && !draft.crossYearMatchingEnabled);
 
   const startEdit = () => {
@@ -207,22 +207,22 @@ export const PartnerConfig = () => {
             <VStack id="cross-year-edu-status" align="start" gap="100" flexShrink={0}>
               <HStack gap="200">
                 <Box
-                  bg={config.eduCredsExist ? 'green.300' : 'pink.400'}
+                  bg={config.canConnectToEdu ? 'green.300' : 'pink.400'}
                   borderRadius="20px"
                   padding="100"
                   flexShrink={0}
                 >
-                  {config.eduCredsExist ? <IconCheckmark /> : <IconExclamation />}
+                  {config.canConnectToEdu ? <IconCheckmark /> : <IconExclamation />}
                 </Box>
                 <Box
                   textStyle="h6"
-                  textColor={config.eduCredsExist ? 'green.50' : 'pink.50'}
+                  textColor={config.canConnectToEdu ? 'green.50' : 'pink.50'}
                   whiteSpace="nowrap"
                 >
-                  {config.eduCredsExist ? 'EDU connected' : 'EDU not connected'}
+                  {config.canConnectToEdu ? 'EDU connected' : 'EDU not connected'}
                 </Box>
               </HStack>
-              {!config.eduCredsExist && (
+              {!config.canConnectToEdu && (
                 <Text textStyle="caption" fontSize="xs" color="pink.50" maxW="14rem">
                   An EDU connection must be configured to enable this setting.
                 </Text>

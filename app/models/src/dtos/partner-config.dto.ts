@@ -7,7 +7,7 @@ export class GetPartnerConfigDto {
   crossYearMatchingEnabled: boolean;
 
   @Expose()
-  eduCredsExist: boolean;
+  canConnectToEdu: boolean;
 }
 
 export const toGetPartnerConfigDto = makeSerializer<GetPartnerConfigDto>(GetPartnerConfigDto);
