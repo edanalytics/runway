@@ -210,7 +210,7 @@ export const JobCreatePage = () => {
                     year.sendToOds && !year.hasOds
                       ? ' (no ODS configured)'
                       : !year.sendToOds && year.hasRoster !== true
-                      ? ' (no roster file loaded)'
+                      ? ' (no roster loaded)'
                       : ''
                   }`,
                   value: year.schoolYearId,

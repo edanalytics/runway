@@ -228,8 +228,7 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
       </Box>
       {!hasRoster && (
         <Box textStyle="body">
-          A roster file is required to match student IDs. Contact support to have a roster file
-          loaded.
+          A roster is required to match student IDs. Contact support to have a roster loaded.
         </Box>
       )}
       <HStack justifyContent="space-between">
@@ -243,10 +242,10 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
             {hasRoster ? <IconCheckmark /> : <IconExclamation />}
           </Box>
           <Box textStyle="h6" textColor={hasRoster ? 'green.50' : 'pink.50'}>
-            {hasRoster ? 'roster file loaded' : 'roster file not loaded'}
+            {hasRoster ? 'roster loaded' : 'roster not loaded'}
           </Box>
         </HStack>
-        {!hasRoster && <ContactSupport message="Roster file needs to be loaded" />}
+        {!hasRoster && <ContactSupport message="Roster needs to be loaded" />}
       </HStack>
     </VStack>
   );
