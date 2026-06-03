@@ -103,8 +103,13 @@ export class JobsService {
         where: { id: input.tenant.partnerId },
         select: { crossYearMatchingEnabled: true },
       });
+      if (!partner) {
+        // Every tenant has a partner (FK) — a missing one is an invariant
+        // violation, not a "cross-year disabled" case. Don't proceed.
+        throw new Error(`Partner not found: ${input.tenant.partnerId}`);
+      }
 
-      if (!partner?.crossYearMatchingEnabled) {
+      if (!partner.crossYearMatchingEnabled) {
         const rosterKey = rosterFileKey({ partnerId: input.tenant.partnerId, tenantCode: input.tenant.code }, config.schoolYear);
         const rosterExists = await this.fileService.doesFileExist(rosterKey, this.appConfig.rosterBucket());
         if (!rosterExists) {

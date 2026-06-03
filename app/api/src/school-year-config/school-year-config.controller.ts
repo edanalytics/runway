@@ -6,6 +6,7 @@ import {
   Get,
   Headers,
   Inject,
+  InternalServerErrorException,
   ParseArrayPipe,
   Put,
   Res,
@@ -44,7 +45,12 @@ export class SchoolYearConfigController {
       where: { id: tenant.partnerId },
       select: { crossYearMatchingEnabled: true },
     });
-    const crossYearMatchingEnabled = partner?.crossYearMatchingEnabled ?? false;
+    if (!partner) {
+      // Every tenant has a partner (FK) — a missing one is an invariant
+      // violation, not a "cross-year disabled" case. Don't proceed.
+      throw new InternalServerErrorException(`Partner not found: ${tenant.partnerId}`);
+    }
+    const crossYearMatchingEnabled = partner.crossYearMatchingEnabled;
 
     const schoolYears = await this.prisma.schoolYear.findMany({
       where: {
