@@ -626,7 +626,8 @@ class JobExecutor:
             try:
                 for id_code in record["studentIdentificationCodes"]:
                     # a given roster record may have several ID descriptors with different values
-                    id_type = id_code["studentIdentificationSystemDescriptor"].split("#")[1]
+                    # using split()[-1] here because it's possible for these ID types to have a full descriptor URI, and also for them to be bare
+                    id_type = id_code["studentIdentificationSystemDescriptor"].split("#")[-1]
                     if id_type not in id_types:
                         id_types[id_type] = {
                             "stu_id_matches": 0,
