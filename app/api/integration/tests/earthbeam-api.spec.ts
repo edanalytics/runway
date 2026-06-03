@@ -168,6 +168,27 @@ describe('Earthbeam API', () => {
         expect(res.body.crossYearMatchAvailable).toBe(false);
         expect(res.body.appUrls.roster).toBeUndefined();
       });
+
+      it('omits rosterFilePath on a no-ODS job when cross-year matching is available (EDU is the source)', async () => {
+        const authService = app.get(EarthbeamApiAuthService);
+        const noOdsJob = await seedJob({
+          sendToOds: false,
+          schoolYearId: '2324',
+          bundle: bundleA,
+          tenant: tenantA,
+        });
+        const noOdsRun = noOdsJob.runs[0];
+        const noOdsToken = await authService.createAccessToken({ runId: noOdsRun.id });
+
+        const res = await request(app.getHttpServer())
+          .get(`/earthbeam/jobs/${noOdsRun.id}`)
+          .set('Authorization', `Bearer ${noOdsToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.crossYearMatchAvailable).toBe(true);
+        expect(res.body.appUrls.roster).toBeDefined();
+        expect(res.body.rosterFilePath).toBeUndefined();
+      });
     });
 
     // TODO: add tests for things other than descriptor mappings
