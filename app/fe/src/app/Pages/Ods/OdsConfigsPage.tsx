@@ -103,7 +103,7 @@ export const OdsConfigsPage = () => {
                     onDelete={() => odsConfig && confirmDelete(yearConfig, odsConfig)}
                   />
                 ) : (
-                  <RosterYearContent hasRoster={yearConfig.hasRoster === true} />
+                  <RosterYearContent hasRoster={yearConfig.hasNonOdsRoster === true} />
                 )}
               </Box>
             );
@@ -242,7 +242,7 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
             {hasRoster ? <IconCheckmark /> : <IconExclamation />}
           </Box>
           <Box textStyle="h6" textColor={hasRoster ? 'green.50' : 'pink.50'}>
-            {hasRoster ? 'roster loaded' : 'roster not loaded'}
+            {hasRoster ? 'roster available' : 'roster not available'}
           </Box>
         </HStack>
         {!hasRoster && <ContactSupport message="Roster needs to be loaded" />}

@@ -97,7 +97,7 @@ export class JobsService {
     if (!config.sendToOds) {
       // A no-ODS year is valid if a roster file exists OR the partner has
       // cross-year matching enabled (EDU can supply the roster). This is the
-      // partner setting only — no creds/connection check (see project brief).
+      // partner setting only — no creds/connection check.
       // Short-circuit the S3 check when the toggle is on; we don't need the file.
       const partner = await this.prisma.partner.findUnique({
         where: { id: input.tenant.partnerId },
