@@ -183,7 +183,7 @@ Cross-year-matched rows are never sent to the ODS — they're only made availabl
 A roster is the student lookup the executor matches input rows against. Source precedence:
 
 1. **ODS** — for `sendToOds` years, the executor fetches the roster from the ODS API.
-2. **EDU** — for no-ODS (`sendToOds=false`) years, if `crossYearMatchAvailable`, the executor pulls the roster from EDU (Snowflake) via `appUrls.roster` as NDJSON. EDU is preferred over the S3 file when available (executor handles this; no app change in PR 3).
+2. **EDU** — for no-ODS (`sendToOds=false`) years, if `crossYearMatchAvailable`, the executor pulls the roster from EDU (Snowflake) via `appUrls.roster` as NDJSON. EDU is preferred over the S3 file when available (executor handles this; no executor change in PR 3).
 3. **S3 roster file** — the fallback for no-ODS years when cross-year matching is unavailable (`__rosters/...jsonl`). The app omits `rosterFilePath` from the payload when `crossYearMatchAvailable` is true (it would be a dangling pointer).
 
 A no-ODS year is **selectable** at job creation, and shows **green** ("roster loaded") on the ODS-config page, when a roster file exists **OR** the partner has cross-year matching enabled. This gate is the partner setting only (`crossYearMatchingEnabled`) — no creds/connection check, so a year can be selectable while the executor's `crossYearMatchAvailable` (which also requires `canConnect`) is false; that case fails cleanly at run time per run atomicity.
