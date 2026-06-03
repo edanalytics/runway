@@ -354,5 +354,36 @@ describe('GET /school-year-config/tenant', () => {
         doesFileExistMock.mockResolvedValue(true);
       }
     });
+
+    it('should return hasRoster=true for a no-ODS year when cross-year matching is enabled, without an S3 check', async () => {
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockClear();
+      doesFileExistMock.mockResolvedValue(false);
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+
+      try {
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+        // 2526 is sendToOds=false; toggle on → hasRoster true even with no file
+        const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
+        expect(row2526.hasRoster).toBe(true);
+
+        // ODS years stay null regardless of the toggle
+        const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+        expect(row2425.hasRoster).toBeNull();
+
+        // Toggle short-circuits the S3 check entirely
+        expect(doesFileExistMock).not.toHaveBeenCalled();
+      } finally {
+        doesFileExistMock.mockResolvedValue(true);
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: false },
+        });
+      }
+    });
   });
 });
