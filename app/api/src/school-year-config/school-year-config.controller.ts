@@ -37,6 +37,15 @@ export class SchoolYearConfigController {
   @Authorize('school-year-config.read')
   @Get('tenant')
   async getTenantConfig(@TenantDecorator() tenant: Tenant) {
+    // When cross-year matching is enabled, EDU can supply the roster, so a
+    // no-ODS year has a roster regardless of any S3 file. Partner setting only
+    // — no creds/connection check (see project brief).
+    const partner = await this.prisma.partner.findUnique({
+      where: { id: tenant.partnerId },
+      select: { crossYearMatchingEnabled: true },
+    });
+    const crossYearMatchingEnabled = partner?.crossYearMatchingEnabled ?? false;
+
     const schoolYears = await this.prisma.schoolYear.findMany({
       where: {
         schoolYearConfig: {
@@ -75,6 +84,8 @@ export class SchoolYearConfigController {
 
         const hasRoster = config.sendToOds
           ? null
+          : crossYearMatchingEnabled
+          ? true
           : await this.fileService.doesFileExist(
               rosterFileKey({ partnerId: tenant.partnerId, tenantCode: tenant.code }, schoolYear),
               this.appConfig.rosterBucket(),
