@@ -171,9 +171,14 @@ export class EarthbeamApiService {
       },
       crossYearMatchAvailable,
       sendToOds: job.sendToOds,
-      rosterFilePath: job.sendToOds
-        ? undefined
-        : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
+      // When cross-year matching is available, the executor pulls the roster
+      // from EDU via appUrls.roster, so the S3 file path would be a dangling
+      // (often nonexistent) pointer — omit it. The executor only reads
+      // rosterFilePath in its non-cross-year branch.
+      rosterFilePath:
+        job.sendToOds || crossYearMatchAvailable
+          ? undefined
+          : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
       // odsConnection check narrows the type — the early guard ensures it's present when sendToOds
       assessmentDatastore:
         odsConnection && job.sendToOds
