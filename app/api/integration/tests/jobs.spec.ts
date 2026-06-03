@@ -400,6 +400,76 @@ describe('POST /jobs', () => {
       }
     });
 
+    it('should create a no-ODS job without a roster file when cross-year matching is enabled', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+      await prisma.partner.update({
+        where: { id: tenantA.partnerId },
+        data: { crossYearMatchingEnabled: true },
+      });
+
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(201);
+
+        const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+        expect(job?.odsId).toBeNull();
+        expect(job?.sendToOds).toBe(false);
+      } finally {
+        doesFileExistMock.mockResolvedValue(true);
+        await prisma.partner.update({
+          where: { id: tenantA.partnerId },
+          data: { crossYearMatchingEnabled: false },
+        });
+      }
+    });
+
+    it('should reject a no-ODS job with no roster file when cross-year matching is disabled', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+      // partner A defaults to crossYearMatchingEnabled=false
+
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('No roster file found');
+      } finally {
+        doesFileExistMock.mockResolvedValue(true);
+      }
+    });
+
     it('should reject requests when the school year is not enabled', async () => {
       const res = await request(app.getHttpServer())
         .post(endpoint)
