@@ -275,6 +275,46 @@ describe('ExternalApiV1', () => {
           expect(job?.odsId).toBeNull();
           expect(job?.sendToOds).toBe(false);
         });
+
+        it('should create a no-ODS job without a roster file when cross-year matching is enabled', async () => {
+          await prisma.schoolYearConfig.create({
+            data: {
+              partnerId: partnerA.id,
+              schoolYearId: '2324',
+              isEnabled: true,
+              sendToOds: false,
+            },
+          });
+          await prisma.partner.update({
+            where: { id: partnerA.id },
+            data: { crossYearMatchingEnabled: true },
+          });
+
+          const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+          doesFileExistMock.mockResolvedValue(false);
+
+          try {
+            const res = await request(app.getHttpServer())
+              .post(endpoint)
+              .set('Authorization', `Bearer ${token}`)
+              .send({
+                ...jobInput,
+                schoolYear: '2024',
+              });
+
+            expect(res.status).toBe(201);
+
+            const job = await prisma.job.findUnique({ where: { uid: res.body.uid } });
+            expect(job?.odsId).toBeNull();
+            expect(job?.sendToOds).toBe(false);
+          } finally {
+            doesFileExistMock.mockResolvedValue(true);
+            await prisma.partner.update({
+              where: { id: partnerA.id },
+              data: { crossYearMatchingEnabled: false },
+            });
+          }
+        });
       });
 
       describe('API Client Info', () => {

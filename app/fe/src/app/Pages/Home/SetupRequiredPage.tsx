@@ -30,12 +30,12 @@ export const SetupRequiredPage = () => {
   const doesAnyYearSendToOds = yearConfigs.some((y) => y.sendToOds);
   if (!doesAnyYearSendToOds) {
     return (
-      <SetupMessage title="Roster File Required">
+      <SetupMessage title="Roster Required">
         <Box textStyle="bodyLarge">
-          Before you can start uploading assessments, a roster file must be loaded for your
+          Before you can start uploading assessments, a roster must be loaded for your
           district. Please contact support for assistance.
         </Box>
-        <ContactSupport message="Roster file needs to be loaded for my district." />
+        <ContactSupport message="Roster needs to be loaded for my district." />
       </SetupMessage>
     );
   }
