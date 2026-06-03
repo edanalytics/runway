@@ -95,10 +95,21 @@ export class JobsService {
     }
 
     if (!config.sendToOds) {
-      const rosterKey = rosterFileKey({ partnerId: input.tenant.partnerId, tenantCode: input.tenant.code }, config.schoolYear);
-      const rosterExists = await this.fileService.doesFileExist(rosterKey, this.appConfig.rosterBucket());
-      if (!rosterExists) {
-        return { status: 'error', code: 'roster_file_missing' };
+      // A no-ODS year is valid if a roster file exists OR the partner has
+      // cross-year matching enabled (EDU can supply the roster). This is the
+      // partner setting only — no creds/connection check (see project brief).
+      // Short-circuit the S3 check when the toggle is on; we don't need the file.
+      const partner = await this.prisma.partner.findUnique({
+        where: { id: input.tenant.partnerId },
+        select: { crossYearMatchingEnabled: true },
+      });
+
+      if (!partner?.crossYearMatchingEnabled) {
+        const rosterKey = rosterFileKey({ partnerId: input.tenant.partnerId, tenantCode: input.tenant.code }, config.schoolYear);
+        const rosterExists = await this.fileService.doesFileExist(rosterKey, this.appConfig.rosterBucket());
+        if (!rosterExists) {
+          return { status: 'error', code: 'roster_file_missing' };
+        }
       }
 
       return {
