@@ -538,6 +538,8 @@ class JobExecutor:
         self.input_sources["INPUT_FILE"]["path"] = unmatched_path
 
         self.get_roster_from_edu(config.CROSS_YEAR_ROSTER_PATH)
+        artifact.CROSS_YEAR_ROSTER.needs_upload = True
+        self.upload_artifact(artifact.CROSS_YEAR_ROSTER)
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
         # Constrain to the ID column the first pass matched on. The bundle always appends
