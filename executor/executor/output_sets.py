@@ -6,6 +6,11 @@
 import json
 
 
+# Destinations the student_ids bundle emits for diagnostic purposes; they aren't
+# Ed-Fi resources and shouldn't show up in the per-resource summary the app sees.
+NON_RESOURCE_DESTINATIONS = {"student_id_match_rates", "input_no_student_id_match"}
+
+
 class OutputSet:
     def __init__(self, local_dir, s3_subdir, sent_to_ods, em_results_path, lb_send_results_path=None):
         # Local directory containing the output files Earthmover produced for this set.
@@ -38,4 +43,5 @@ class OutputSet:
             key[len(dest_prefix):]: {"records_processed": count}
             for key, count in em_results.get("row_counts", {}).items()
             if key.startswith(dest_prefix)
+            and key[len(dest_prefix):] not in NON_RESOURCE_DESTINATIONS
         }
