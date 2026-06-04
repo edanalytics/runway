@@ -108,6 +108,7 @@ class JobExecutor:
             self.unpack_job(job)
             self.refresh_bundle_code()
             self.earthmover_deps()
+            self.log_bundle_split_version()
 
             if self.send_to_ods and self.local_mode:
                 self.modify_local_lightbeam()
@@ -264,6 +265,24 @@ class JobExecutor:
         except subprocess.CalledProcessError:
             self.error = error.EarthmoverDepsError()
             raise
+
+    def log_bundle_split_version(self):
+        """Echo the installed student_ids bundle so we can confirm at runtime which
+        version (index [1] vs [-1] on the descriptor split, etc.) is actually deployed."""
+        path = os.path.join(
+            config.BUNDLE_DIR, "packages", "student_id_wrapper",
+            "packages", "student_ids", "earthmover.yaml",
+        )
+        try:
+            with open(path) as f:
+                contents = f.read()
+        except FileNotFoundError:
+            self.logger.warning(f"bundle split check: could not open {path}")
+            return
+        for i, line in enumerate(contents.splitlines(), start=1):
+            if "split('#')" in line:
+                self.logger.info(f"bundle split check ({path}:{i}): {line.strip()}")
+        self.logger.info(f"bundle full contents ({path}):\n{contents}")
 
     def modify_local_lightbeam(self):
         """Disable SSL checking in Lightbeam so that it can communicate with a locally-running ODS"""
