@@ -30,7 +30,6 @@ import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
-import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 
 @Injectable()
 export class EarthbeamApiService {
@@ -41,8 +40,7 @@ export class EarthbeamApiService {
     private readonly encryptionService: EncryptionService,
     private readonly fileService: FileService,
     private readonly configService: AppConfigService,
-    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService,
-    private readonly eduPool: EduSnowflakePoolService
+    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
   ) {}
 
   async earthbeamInputForRun(runId: Run['id']) {
@@ -143,9 +141,12 @@ export class EarthbeamApiService {
 
     const executorBaseUrl = this.configService.executorCallbackBaseUrl();
 
-    const partnerId = job.tenant.partnerId;
-    const crossYearEnabled = job.tenant.partner.crossYearMatchingEnabled;
-    const crossYearMatchAvailable = crossYearEnabled && (await this.eduPool.canConnect(partnerId));
+    // The partner toggle alone — no creds/connection check. Once the toggle is
+    // on (the admin enable endpoint requires working creds to turn it on), the
+    // EDU connection is an assumed dependency like postgres or S3: if EDU is
+    // unavailable mid-run, the run fails loudly rather than silently degrading
+    // to weaker matching.
+    const crossYearMatchAvailable = job.tenant.partner.crossYearMatchingEnabled;
 
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
