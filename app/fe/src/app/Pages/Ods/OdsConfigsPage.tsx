@@ -228,7 +228,8 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
       </Box>
       {!hasRoster && (
         <Box textStyle="body">
-          A roster is required to match student IDs. Contact support to have a roster loaded.
+          A roster is required to match student IDs. Contact support to have a roster source
+          configured.
         </Box>
       )}
       <HStack justifyContent="space-between">
@@ -245,7 +246,7 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
             {hasRoster ? 'roster available' : 'roster not available'}
           </Box>
         </HStack>
-        {!hasRoster && <ContactSupport message="Roster needs to be loaded" />}
+        {!hasRoster && <ContactSupport message="A roster source needs to be configured" />}
       </HStack>
     </VStack>
   );
