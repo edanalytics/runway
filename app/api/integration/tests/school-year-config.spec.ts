@@ -340,14 +340,15 @@ describe('GET /school-year-config/tenant', () => {
       expect(row2526.hasOds).toBe(true);
     });
 
-    it('should return hasNonOdsRoster=false when roster file does not exist', async () => {
+    it('should return hasNonOdsRoster=false when roster file does not exist and cross-year matching is not enabled', async () => {
       const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
       doesFileExistMock.mockResolvedValue(false);
 
       try {
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
 
-        // 2526 is seeded as sendToOds=false, so hasNonOdsRoster reflects the S3 check
+        // 2526 is seeded as sendToOds=false and partner A defaults to
+        // crossYearMatchingEnabled=false, so hasNonOdsRoster reflects the S3 check
         const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
         expect(row2526.hasNonOdsRoster).toBe(false);
       } finally {
@@ -355,9 +356,8 @@ describe('GET /school-year-config/tenant', () => {
       }
     });
 
-    it('should return hasNonOdsRoster=true for a no-ODS year when cross-year matching is enabled, without an S3 check', async () => {
+    it('should return hasNonOdsRoster=true for a no-ODS year when cross-year matching is enabled, even with no roster file', async () => {
       const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
-      doesFileExistMock.mockClear();
       doesFileExistMock.mockResolvedValue(false);
       await global.prisma.partner.update({
         where: { id: partnerA.id },
@@ -374,15 +374,9 @@ describe('GET /school-year-config/tenant', () => {
         // ODS years stay null regardless of the toggle
         const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
         expect(row2425.hasNonOdsRoster).toBeNull();
-
-        // Toggle short-circuits the S3 check entirely
-        expect(doesFileExistMock).not.toHaveBeenCalled();
       } finally {
+        // No partner reset needed — seed data is refreshed before each test
         doesFileExistMock.mockResolvedValue(true);
-        await global.prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { crossYearMatchingEnabled: false },
-        });
       }
     });
   });

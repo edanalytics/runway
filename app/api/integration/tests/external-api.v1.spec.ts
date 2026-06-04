@@ -308,11 +308,8 @@ describe('ExternalApiV1', () => {
             expect(job?.odsId).toBeNull();
             expect(job?.sendToOds).toBe(false);
           } finally {
+            // No partner reset needed — seed data is refreshed before each test
             doesFileExistMock.mockResolvedValue(true);
-            await prisma.partner.update({
-              where: { id: partnerA.id },
-              data: { crossYearMatchingEnabled: false },
-            });
           }
         });
       });
@@ -577,7 +574,9 @@ describe('ExternalApiV1', () => {
               });
 
             expect(res.status).toBe(400);
-            expect(res.body.message).toContain('No roster file found');
+            expect(res.body.message).toContain(
+              'No roster file found and cross-year matching not enabled'
+            );
           } finally {
             doesFileExistMock.mockResolvedValue(true);
           }

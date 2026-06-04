@@ -112,7 +112,7 @@ export class ExternalApiV1JobsController {
         school_year_config_missing: `School year is not enabled: ${year}`,
         school_year_disabled: `School year is not enabled: ${year}`,
         ods_not_found: `No ODS found for school year: ${year}`,
-        roster_file_missing: `No roster file found for school year: ${year}`,
+        roster_unavailable: `No roster file found and cross-year matching not enabled for school year: ${year}`,
       };
       throw new BadRequestException(messages[destination.code]);
     }
