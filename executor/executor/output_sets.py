@@ -6,8 +6,6 @@
 import json
 
 
-# Destinations the student_ids bundle emits for diagnostic purposes; they aren't
-# Ed-Fi resources and shouldn't show up in the per-resource summary the app sees.
 NON_RESOURCE_DESTINATIONS = {"student_id_match_rates", "input_no_student_id_match"}
 
 
