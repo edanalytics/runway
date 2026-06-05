@@ -15,7 +15,7 @@ export const Route = createFileRoute('/')({
     // the admin who needs to enable years in the first place and define
     // whether jobs for those years are sent to an ODS.
     const isAnyYearReadyForJobs = yearConfigs.some((y) =>
-      y.sendToOds ? y.hasOds : y.hasRoster === true
+      y.sendToOds ? y.hasOds : y.hasNonOdsRoster === true
     );
     const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
     if (isAnyYearReadyForJobs || isPartnerAdmin) {

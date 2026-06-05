@@ -107,31 +107,17 @@ describe('Earthbeam API', () => {
     });
 
     describe('cross-year ID matching', () => {
-      // Default state per test: both gates ON (toggle enabled + creds present)
-      // so the happy path requires no overrides and each negative test reads
-      // as "remove one condition, expect the flag to flip false."
-      let getInfoSpy: jest.SpyInstance;
-
+      // crossYearMatchAvailable mirrors the partner toggle alone — there is no
+      // creds/connection check at run-prep time. EDU problems surface as loud
+      // run failures at roster-fetch time instead of silent degradation.
       beforeEach(async () => {
         await global.prisma.partner.update({
           where: { id: partnerA.id },
           data: { crossYearMatchingEnabled: true },
         });
-        const configService = app.get(AppConfigService);
-        getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue({
-          username: 'snowflake-user',
-          account: 'example',
-          database: 'edu_stg',
-          schema: 'public',
-          privateKey: Buffer.from('priv'),
-        });
       });
 
-      afterEach(() => {
-        getInfoSpy.mockRestore();
-      });
-
-      it('sets crossYearMatchAvailable=true and emits appUrls.roster when toggle on and creds exist', async () => {
+      it('sets crossYearMatchAvailable=true and emits appUrls.roster when the partner toggle is on', async () => {
         const res = await request(app.getHttpServer())
           .get(endpointA)
           .set('Authorization', `Bearer ${tokenA}`);
@@ -157,16 +143,25 @@ describe('Earthbeam API', () => {
         expect(res.body.appUrls.roster).toBeUndefined();
       });
 
-      it('sets crossYearMatchAvailable=false and omits appUrls.roster when creds are missing', async () => {
-        getInfoSpy.mockResolvedValue(null);
+      it('omits rosterFilePath on a no-ODS job when cross-year matching is available (EDU is the source)', async () => {
+        const authService = app.get(EarthbeamApiAuthService);
+        const noOdsJob = await seedJob({
+          sendToOds: false,
+          schoolYearId: '2324',
+          bundle: bundleA,
+          tenant: tenantA,
+        });
+        const noOdsRun = noOdsJob.runs[0];
+        const noOdsToken = await authService.createAccessToken({ runId: noOdsRun.id });
 
         const res = await request(app.getHttpServer())
-          .get(endpointA)
-          .set('Authorization', `Bearer ${tokenA}`);
+          .get(`/earthbeam/jobs/${noOdsRun.id}`)
+          .set('Authorization', `Bearer ${noOdsToken}`);
 
         expect(res.status).toBe(200);
-        expect(res.body.crossYearMatchAvailable).toBe(false);
-        expect(res.body.appUrls.roster).toBeUndefined();
+        expect(res.body.crossYearMatchAvailable).toBe(true);
+        expect(res.body.appUrls.roster).toBeDefined();
+        expect(res.body.rosterFilePath).toBeUndefined();
       });
     });
 

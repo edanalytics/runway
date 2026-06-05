@@ -343,6 +343,8 @@ describe('POST /jobs', () => {
       expect(job?.sendToOds).toBe(false);
     });
 
+    // Partner A defaults to crossYearMatchingEnabled=false, so this also
+    // guards the "cross-year matching disabled" rejection path.
     it('should reject no-ODS jobs when the roster file does not exist', async () => {
       await prisma.schoolYearConfig.create({
         data: {
@@ -366,7 +368,9 @@ describe('POST /jobs', () => {
           });
 
         expect(res.status).toBe(400);
-        expect(res.body.message).toContain('No roster file found');
+        expect(res.body.message).toContain(
+          'No roster file found and cross-year matching not enabled'
+        );
       } finally {
         doesFileExistMock.mockResolvedValue(true);
       }
@@ -396,6 +400,43 @@ describe('POST /jobs', () => {
 
         expect(res.status).toBe(500);
       } finally {
+        doesFileExistMock.mockResolvedValue(true);
+      }
+    });
+
+    it('should create a no-ODS job without a roster file when cross-year matching is enabled', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+      await prisma.partner.update({
+        where: { id: tenantA.partnerId },
+        data: { crossYearMatchingEnabled: true },
+      });
+
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(201);
+
+        const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+        expect(job?.odsId).toBeNull();
+        expect(job?.sendToOds).toBe(false);
+      } finally {
+        // No partner reset needed — seed data is refreshed before each test
         doesFileExistMock.mockResolvedValue(true);
       }
     });

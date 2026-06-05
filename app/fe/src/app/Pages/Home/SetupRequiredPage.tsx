@@ -10,8 +10,8 @@ import { tenantSchoolYearConfigQuery } from '../../api';
 // user at whatever will unblock them:
 //   - If any year is configured to send to an ODS, guide them to configure
 //     one — that's the only step they can take themselves.
-//   - Otherwise, they need an admin to either load a roster file or enable
-//     school years, so point them at support.
+//   - Otherwise, they need an admin to either configure a roster source or
+//     enable school years, so point them at support.
 export const SetupRequiredPage = () => {
   const { data: yearConfigs } = useSuspenseQuery(tenantSchoolYearConfigQuery);
 
@@ -30,12 +30,12 @@ export const SetupRequiredPage = () => {
   const doesAnyYearSendToOds = yearConfigs.some((y) => y.sendToOds);
   if (!doesAnyYearSendToOds) {
     return (
-      <SetupMessage title="Roster File Required">
+      <SetupMessage title="Roster Required">
         <Box textStyle="bodyLarge">
-          Before you can start uploading assessments, a roster file must be loaded for your
+          Before you can start uploading assessments, a roster source must be configured for your
           district. Please contact support for assistance.
         </Box>
-        <ContactSupport message="Roster file needs to be loaded for my district." />
+        <ContactSupport message="A roster source needs to be configured for my district." />
       </SetupMessage>
     );
   }
