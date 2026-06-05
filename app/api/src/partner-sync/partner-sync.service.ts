@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import PgBoss from 'pg-boss';
+import {PgBoss} from 'pg-boss';
 import { PrismaClient } from '@prisma/client';
 import { AppConfigService } from '../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../database/database.service';
@@ -39,7 +39,6 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
     const connStr = `postgres://${user}:${encodeURIComponent(String(password))}@${host ?? 'localhost'}:${port ?? 5432}/${database}?sslmode=${sslMode}`;
 
     this.boss = new PgBoss(connStr);
-    this.boss.on('error', (err: Error) => this.logger.error('pg-boss error', err));
     await this.boss.start();
 
     const alConfig = this.appConfig.alConfig();
