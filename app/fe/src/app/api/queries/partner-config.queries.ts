@@ -17,6 +17,7 @@ export const useUpdatePartnerConfig = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ['school-year-config', 'tenant'] }); // update list of available school years
     },
   });
 };
