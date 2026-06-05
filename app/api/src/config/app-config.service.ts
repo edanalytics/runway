@@ -210,6 +210,28 @@ export class AppConfigService {
     return { issuerUrl, audience };
   }
 
+  alConfig(): {
+    syncCron: string;
+    url: string;
+    auth0Domain: string;
+    clientId: string;
+    clientSecret: string;
+    audience: string;
+  } | null {
+    const syncCron = this.get('AL_SYNC_CRON');
+    const url = this.get('AL_URL');
+    const auth0Domain = this.get('AL_AUTH0_DOMAIN');
+    const clientId = this.get('AL_CLIENT_ID');
+    const clientSecret = this.get('AL_CLIENT_SECRET');
+    const audience = this.get('AL_AUDIENCE');
+
+    if (!syncCron || !url || !auth0Domain || !clientId || !clientSecret || !audience) {
+      return null;
+    }
+
+    return { syncCron, url, auth0Domain, clientId, clientSecret, audience };
+  }
+
   async ecsConfig(): Promise<{
     cluster: string;
     taskDefinition: { small: string; medium: string; large: string };

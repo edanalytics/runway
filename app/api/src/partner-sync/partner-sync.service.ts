@@ -1,11 +1,10 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import * as PgBossModule from 'pg-boss';
+import PgBoss from 'pg-boss';
 import { PrismaClient } from '@prisma/client';
 import { AppConfigService } from '../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../database/database.service';
 import { AlPartner, AlTenant } from './app-launcher.types';
 
-const PgBoss = PgBossModule.default;
 const AL_SYNC_CHANNEL = 'app-launcher-sync';
 
 type AlConfig = {
@@ -20,7 +19,7 @@ type AlConfig = {
 @Injectable()
 export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PartnerSyncService.name);
-  private boss: InstanceType<typeof PgBoss> | null = null;
+  private boss: PgBoss | null = null;
   private alToken: string | null = null;
   private alTokenExpiration: Date | null = null;
 
