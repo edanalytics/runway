@@ -31,6 +31,8 @@ model Partner {
   descriptorNamespace           String?                   @map("descriptor_namespace") @db.VarChar
   idpId                         String?                   @map("idp_id") @db.VarChar
   crossYearMatchingEnabled      Boolean                   @default(false) @map("cross_year_matching_enabled")
+  deletedOn                     DateTime?                 @map("deleted_on") @db.Timestamp(6)
+  syncManaged                   Boolean                   @default(false) @map("sync_managed")
   customDescriptorMapping       CustomDescriptorMapping[]
   userPartnerCreatedByIdTouser  User?                     @relation("partner_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   identityProvider              IdentityProvider?         @relation(fields: [idpId], references: [id], onUpdate: NoAction)
@@ -49,6 +51,10 @@ model Tenant {
   createdOn                    DateTime     @default(now()) @map("created_on") @db.Timestamp(6)
   modifiedById                 Int?         @map("modified_by_id")
   modifiedOn                   DateTime     @default(now()) @map("modified_on") @db.Timestamp(6)
+  deletedOn                    DateTime?    @map("deleted_on") @db.Timestamp(6)
+  children                     String[]     @default([])
+  isGlobal                     Boolean      @default(false) @map("is_global")
+  syncManaged                  Boolean      @default(false) @map("sync_managed")
   job                          Job[]
   odsConfig                    OdsConfig[]
   userTenantCreatedByIdTouser  User?        @relation("tenant_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
