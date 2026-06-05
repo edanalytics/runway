@@ -7,6 +7,9 @@ export default {
     '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
+  moduleNameMapper: {
+    '^pg-boss$': '<rootDir>/integration/helpers/mocks/pg-boss.mock.ts',
+  },
 
   // global setup is run in a separate process from setupFiles and setupFilesAfterEnv
   // and so cannot share global context with tests, though it does share global context
