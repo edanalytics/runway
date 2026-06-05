@@ -5,19 +5,35 @@ import { partnerA, partnerC, partnerX } from './partner-fixtures';
 export const tenantA: WithoutAudit<Tenant> = {
   code: 'tenant-a',
   partnerId: partnerA.id,
+  deletedOn: null,
+  syncManaged: false,
+  children: [],
+  isGlobal: false,
 };
 
 export const tenantB: WithoutAudit<Tenant> = {
   code: 'tenant-b',
   partnerId: partnerA.id,
+  deletedOn: null,
+  syncManaged: false,
+  children: [],
+  isGlobal: false,
 };
 
 export const tenantC: WithoutAudit<Tenant> = {
   code: 'tenant-c',
   partnerId: partnerC.id, // shares idp with partner A
+  deletedOn: null,
+  syncManaged: false,
+  children: [],
+  isGlobal: false,
 };
 
 export const tenantX: WithoutAudit<Tenant> = {
   code: 'tenant-x',
   partnerId: partnerX.id,
+  deletedOn: null,
+  syncManaged: false,
+  children: [],
+  isGlobal: false,
 };
