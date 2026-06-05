@@ -4,6 +4,7 @@
 # two output sets.
 
 import json
+import os
 
 
 class OutputSet:
@@ -34,8 +35,14 @@ class OutputSet:
         with open(self.em_results_path) as f:
             em_results = json.load(f)
         dest_prefix = "$destinations."
-        return {
-            key[len(dest_prefix):]: {"records_processed": count}
-            for key, count in em_results.get("row_counts", {}).items()
-            if key.startswith(dest_prefix)
-        }
+        resources = {}
+        # Earthmover produces a bunch of files; the summary must only contain
+        # information about the data outputs, i.e. JSONL
+        for key, count in em_results.get("row_counts", {}).items():
+            if not key.startswith(dest_prefix):
+                continue
+            name = key[len(dest_prefix):]
+            if not os.path.exists(os.path.join(self.local_dir, name + ".jsonl")):
+                continue
+            resources[name] = {"records_processed": count}
+        return resources
