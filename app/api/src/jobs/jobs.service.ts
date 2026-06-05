@@ -98,15 +98,10 @@ export class JobsService {
       // A no-ODS year is valid if a roster file exists OR the partner has
       // cross-year matching enabled (EDU can supply the roster).
       // Short-circuit the S3 check when the toggle is on; we don't need the file.
-      const partner = await this.prisma.partner.findUnique({
+      const partner = await this.prisma.partner.findUniqueOrThrow({
         where: { id: input.tenant.partnerId },
         select: { crossYearMatchingEnabled: true },
       });
-      if (!partner) {
-        // Every tenant has a partner (FK) — a missing one is an invariant
-        // violation, not a "cross-year disabled" case. Don't proceed.
-        throw new Error(`Partner not found: ${input.tenant.partnerId}`);
-      }
 
       if (!partner.crossYearMatchingEnabled) {
         const rosterKey = rosterFileKey(

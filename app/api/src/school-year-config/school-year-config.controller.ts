@@ -6,7 +6,6 @@ import {
   Get,
   Headers,
   Inject,
-  InternalServerErrorException,
   ParseArrayPipe,
   Put,
   Res,
@@ -32,7 +31,7 @@ export class SchoolYearConfigController {
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
     private fileService: FileService,
-    private appConfig: AppConfigService,
+    private appConfig: AppConfigService
   ) {}
 
   @Authorize('school-year-config.read')
@@ -41,16 +40,10 @@ export class SchoolYearConfigController {
     // When cross-year matching is enabled, EDU can supply the roster, so a
     // no-ODS year has a roster regardless of any S3 file. Partner setting only
     // — no creds/connection check.
-    const partner = await this.prisma.partner.findUnique({
+    const partner = await this.prisma.partner.findUniqueOrThrow({
       where: { id: tenant.partnerId },
       select: { crossYearMatchingEnabled: true },
     });
-    if (!partner) {
-      // Every tenant has a partner (FK) — a missing one is an invariant
-      // violation, not a "cross-year disabled" case. Don't proceed.
-      throw new InternalServerErrorException(`Partner not found: ${tenant.partnerId}`);
-    }
-    const crossYearMatchingEnabled = partner.crossYearMatchingEnabled;
 
     const schoolYears = await this.prisma.schoolYear.findMany({
       where: {
@@ -84,7 +77,7 @@ export class SchoolYearConfigController {
         const config = schoolYear.schoolYearConfig[0];
         if (!config) {
           throw new Error(
-            `Enabled school year missing config for ${tenant.partnerId}/${schoolYear.id}`,
+            `Enabled school year missing config for ${tenant.partnerId}/${schoolYear.id}`
           );
         }
 
@@ -93,11 +86,11 @@ export class SchoolYearConfigController {
         // cross-year matching is enabled, from EDU.
         const hasNonOdsRoster = config.sendToOds
           ? null
-          : crossYearMatchingEnabled
+          : partner.crossYearMatchingEnabled
           ? true
           : await this.fileService.doesFileExist(
               rosterFileKey({ partnerId: tenant.partnerId, tenantCode: tenant.code }, schoolYear),
-              this.appConfig.rosterBucket(),
+              this.appConfig.rosterBucket()
             );
 
         return {
@@ -144,17 +137,19 @@ export class SchoolYearConfigController {
       res.setHeader('x-config-modified-at', maxModifiedOn.toISOString());
     }
 
-    return toGetSchoolYearConfigDto(schoolYears.map((sy) => {
-      const config = sy.schoolYearConfig[0] ?? null;
-      return {
-        schoolYearId: sy.id,
-        startYear: sy.startYear,
-        endYear: sy.endYear,
-        isEnabled: config?.isEnabled ?? false,
-        sendToOds: config?.sendToOds ?? true,
-        odsCount: sy.odsConfig.length,
-      };
-    }));
+    return toGetSchoolYearConfigDto(
+      schoolYears.map((sy) => {
+        const config = sy.schoolYearConfig[0] ?? null;
+        return {
+          schoolYearId: sy.id,
+          startYear: sy.startYear,
+          endYear: sy.endYear,
+          isEnabled: config?.isEnabled ?? false,
+          sendToOds: config?.sendToOds ?? true,
+          odsCount: sy.odsConfig.length,
+        };
+      })
+    );
   }
 
   @Authorize('school-year-config.update')
@@ -163,7 +158,7 @@ export class SchoolYearConfigController {
     @TenantDecorator() tenant: Tenant,
     @Headers('x-if-config-modified-at') ifModifiedAtHeader: string | undefined,
     @Body(new ParseArrayPipe({ items: PutSchoolYearConfigRowDto }))
-    body: PutSchoolYearConfigRowDto[],
+    body: PutSchoolYearConfigRowDto[]
   ) {
     const partnerId = tenant.partnerId;
     const ifModifiedAt = ifModifiedAtHeader ?? null;
