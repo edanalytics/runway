@@ -54,8 +54,6 @@ export class EarthbeamApiController {
     runId: number,
     @Req() req: Request
   ) {
-    this.logger.log(`handling request: ${req.url}, runId: ${runId}`);
-
     const result = await this.earthbeamApiService.earthbeamInputForRun(runId);
     if (result.status === 'ERROR') {
       if (result.type === 'not_found') {
@@ -68,13 +66,6 @@ export class EarthbeamApiController {
       throw new InternalServerErrorException('Unable to construct payload');
     }
 
-    this.logger.log(
-      `sending payload: ${JSON.stringify(
-        { ...result.data, assessmentDatastore: 'redacted' },
-        null,
-        2
-      )}`
-    );
     return toEarthbeamApiJobResponseDto(result.data);
   }
 
@@ -182,8 +173,6 @@ export class EarthbeamApiController {
     @Param('runId', ParseIntPipe) runId: number,
     @Body() body: EarthbeamApiStatusPayloadDto
   ) {
-    this.logger.log(`handling status update: ${JSON.stringify(body, null, 2)}`);
-
     await this.prisma.runUpdate.create({
       data: {
         runId,
@@ -204,7 +193,6 @@ export class EarthbeamApiController {
 
   @Post(':runId/error')
   async reportError(@Param('runId', ParseIntPipe) runId: number, @Body() body: any) {
-    this.logger.log(`handling error for run ${runId}: ${JSON.stringify(body, null, 2)}`);
     await this.prisma.runError.create({
       data: {
         runId,
