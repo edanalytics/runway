@@ -42,4 +42,12 @@ export interface IEnvironmentVariables {
 
   OAUTH2_ISSUER?: string; // token issuer for external API
   OAUTH2_AUDIENCE?: string; // token audience for external API
+
+  // for tenant sync
+  AL_SYNC_CRON?: string; // e.g. "0 0 * * *" — unset = sync disabled
+  AL_URL?: string;
+  AL_AUTH0_DOMAIN?: string;
+  AL_CLIENT_ID?: string;
+  AL_CLIENT_SECRET?: string;
+  AL_AUDIENCE?: string;
 }
