@@ -17,6 +17,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
   earthbeamOutputFilesEndpoint,
+  earthbeamRosterEndpoint,
   earthbeamStatusUpdateEndpoint,
   earthbeamSummaryEndpoint,
   earthbeamUnmatchedIdsEndpoint,
@@ -140,6 +141,13 @@ export class EarthbeamApiService {
 
     const executorBaseUrl = this.configService.executorCallbackBaseUrl();
 
+    // The partner toggle alone — no creds/connection check. Once the toggle is
+    // on (the admin enable endpoint requires working creds to turn it on), the
+    // EDU connection is an assumed dependency like postgres or S3: if EDU is
+    // unavailable mid-run, the run fails loudly rather than silently degrading
+    // to weaker matching.
+    const crossYearMatchAvailable = job.tenant.partner.crossYearMatchingEnabled;
+
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
@@ -158,20 +166,30 @@ export class EarthbeamApiService {
         summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
+        ...(crossYearMatchAvailable
+          ? { roster: `${executorBaseUrl}/${earthbeamRosterEndpoint(runId)}` }
+          : {}),
       },
+      crossYearMatchAvailable,
       sendToOds: job.sendToOds,
-      rosterFilePath: job.sendToOds
-        ? undefined
-        : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
+      // When cross-year matching is available, the executor pulls the roster
+      // from EDU via appUrls.roster, so the S3 file path would be a dangling
+      // (often nonexistent) pointer — omit it. The executor only reads
+      // rosterFilePath in its non-cross-year branch.
+      rosterFilePath:
+        job.sendToOds || crossYearMatchAvailable
+          ? undefined
+          : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
       // odsConnection check narrows the type — the early guard ensures it's present when sendToOds
-      assessmentDatastore: odsConnection && job.sendToOds
-        ? {
-            apiYear: job.schoolYear.endYear.toString(),
-            url: odsConnection.host,
-            clientId: odsConnection.clientId,
-            clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
-          }
-        : undefined,
+      assessmentDatastore:
+        odsConnection && job.sendToOds
+          ? {
+              apiYear: job.schoolYear.endYear.toString(),
+              url: odsConnection.host,
+              clientId: odsConnection.clientId,
+              clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
+            }
+          : undefined,
     };
     return {
       status: 'SUCCESS',

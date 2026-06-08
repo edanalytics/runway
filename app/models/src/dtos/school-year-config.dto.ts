@@ -42,8 +42,11 @@ export class GetTenantSchoolYearConfigDto {
   @Expose()
   hasOds: boolean;
 
+  // Null for ODS years (they use an ODS-fetched roster). For no-ODS years,
+  // true when a roster is available — from an S3 file or, when cross-year
+  // matching is enabled, from EDU.
   @Expose()
-  hasRoster: boolean | null;
+  hasNonOdsRoster: boolean | null;
 }
 
 export const toGetTenantSchoolYearConfigDto = makeSerializer<GetTenantSchoolYearConfigDto>(

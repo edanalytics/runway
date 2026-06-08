@@ -145,6 +145,7 @@ sequenceDiagram
 
 - `app/api/src/earthbeam/api/earthbeam-api.controller.ts` — HTTP callback endpoints the executor calls
 - `app/api/src/earthbeam/api/earthbeam-api.service.ts` — Job payload assembly, run completion
+- `app/models/src/dtos/earthbeam-api.dto.ts` — Job payload shape
 - `executor/executor/executor.py` — Main executor: S3 operations, HTTP callbacks, earthmover/lightbeam invocation
 
 ### Executor Lifecycle
@@ -154,11 +155,38 @@ sequenceDiagram
 3. **Bundle refresh**: git fetch/checkout/pull the earthmover bundle
 4. **Roster fetch**: `lightbeam fetch` student roster from ODS, upload artifact to S3
 5. **File download**: Download user-uploaded input files from S3
-6. **Transform**: `earthmover run` (with encoding detection + retry)
-7. **Load**: `lightbeam send` to Ed-Fi ODS
-8. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
-9. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
-10. **Done**: POST status `{action: DONE, status: success|failure}`
+6. **Transform**: `earthmover run` against the ODS roster (with encoding detection + retry)
+7. **Cross-year retry** (when `crossYearMatchAvailable` and the first pass produced unmatched students): GET `appUrls.roster` for the cross-year NDJSON roster, write to a `.jsonl` file, and re-run `earthmover` against it using the same ID type.
+8. **Load**: `lightbeam send` to Ed-Fi ODS
+9. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
+10. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
+11. **Done**: POST status `{action: DONE, status: success|failure}`
+
+### Cross-Year Matching Flow
+
+When cross-year matching runs, the executor progresses through each stage of processing for both rosters before moving on, to avoid mixed-status jobs (e.g., a file failing "insufficient matches" against the ODS roster but succeeding against the cross-year roster, when those matches really belonged in the ODS).
+
+```mermaid
+flowchart TD
+    Input[Uploaded input rows] --> T1[earthmover: match + transform<br/>against ODS roster]
+    T1 -->|on success, if crossYearMatchAvailable<br/>and step 7 triggered| T2[earthmover: match + transform<br/>against cross-year EDU roster]
+    T1 -->|on success, otherwise| Load
+    T2 -->|both transforms succeeded| Load[lightbeam send<br/>ODS-matched rows → ODS]
+    Load -->|ODS load succeeded| App[POST results to Runway app<br/>ODS-matched + cross-year-matched rows<br/>exposed via API]
+    App -.fetched by.-> EDU[EDU / external API consumers]
+```
+
+Cross-year-matched rows are never sent to the ODS — they're only made available through the Runway app's API, which EDU and other external consumers query.
+
+### Roster sources & no-ODS year selectability
+
+A roster is the student lookup the executor matches input rows against. Source precedence:
+
+1. **ODS** — for `sendToOds` years, the executor fetches the roster from the ODS API.
+2. **EDU** — the cross-year roster from EDU (Snowflake), pulled via `appUrls.roster` as NDJSON when `crossYearMatchAvailable`. Two roles: for ODS years, it's the second-pass match for IDs that didn't match the ODS roster (see Cross-Year Matching Flow — those rows are never sent to the ODS); for no-ODS (`sendToOds=false`) years, it's the roster source, preferred over the S3 file (the executor handles this preference).
+3. **S3 roster file** — the fallback for no-ODS years when cross-year matching is unavailable (`__rosters/...jsonl`). The app omits `rosterFilePath` from the payload when `crossYearMatchAvailable` is true (it would be a dangling pointer).
+
+A no-ODS year is **selectable** at job creation, and shows **green** ("roster available") on the ODS-config page, when a roster file exists **OR** the partner has cross-year matching enabled. The executor payload's `crossYearMatchAvailable` is the same partner setting (`crossYearMatchingEnabled`) — there is no creds/connection check at run-prep time. The admin enable endpoint requires working EDU creds to turn the toggle on; once on, the EDU connection is an assumed dependency like postgres or S3: if EDU is unavailable mid-run, the run fails loudly at roster-fetch time rather than silently degrading to weaker matching. (In practice a tenant has either a roster file or an EDU connection, not both, so there is no fallback to preserve.)
 
 ### S3 Path Structure
 
