@@ -4,6 +4,9 @@
 # Use a base image
 FROM public.ecr.aws/docker/library/python:3.12-slim-bookworm
 
+RUN useradd -M -s /bin/bash executor && \
+    mkdir -p /executor && chown executor:executor /executor
+
 # Set the working directory
 WORKDIR /executor
 
@@ -12,14 +15,14 @@ RUN apt update && \
     # - git: clones bundle repositories
     apt install -y git
 
-COPY ./ /executor
-RUN pip install -r requirements.txt && \
-    pip install -e .
+COPY --chown=executor:executor requirements.txt /executor/
+RUN pip install -r requirements.txt
+
+COPY --chown=executor:executor ./ /executor
+RUN pip install -e .
+
+USER executor
 
 RUN git clone https://github.com/edanalytics/earthmover_edfi_bundles.git bundles
-
-RUN useradd -M -s /bin/bash executor && \
-    chown -R executor:executor /executor
-USER executor
 
 CMD ["python", "-u", "/executor/scripts/main.py"]
