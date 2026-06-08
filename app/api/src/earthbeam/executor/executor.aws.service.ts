@@ -31,7 +31,10 @@ export class ExecutorAwsService implements ExecutorService {
     const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
     const ecsConfig = await this.appConfig.ecsConfig();
     const rosterResource = !run.job.sendToOds
-      ? `arn:aws:s3:::${this.appConfig.rosterBucket()}/${rosterFileKey(run.job, run.job.schoolYear)}`
+      ? `arn:aws:s3:::${this.appConfig.rosterBucket()}/${rosterFileKey(
+          run.job,
+          run.job.schoolYear
+        )}`
       : null;
 
     const assumeRoleInput: AssumeRoleCommandInput = {
@@ -71,8 +74,8 @@ export class ExecutorAwsService implements ExecutorService {
       throw new Error('Failed to assume role for ECS task');
     }
 
-    const taskDefinition = ecsConfig.taskDefinition.small; // let's start with small. if needed, we can use medium and large
-    const containerName = ecsConfig.containerName.small;
+    const taskDefinition = ecsConfig.taskDefinition.medium;
+    const containerName = ecsConfig.containerName.medium;
     const taskInput: RunTaskCommandInput = {
       launchType: 'FARGATE',
       taskDefinition: taskDefinition,

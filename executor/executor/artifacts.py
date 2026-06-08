@@ -18,6 +18,12 @@ ROSTER = JobArtifact(
     "edfi_roster",
     os.path.abspath(os.path.join(config.ROSTER_DOWNLOAD_DIR, "studentEducationOrganizationAssociations.jsonl"),)
 )
+# Only populated when the cross-year matching pass runs and fetches a roster from EDU.
+CROSS_YEAR_ROSTER = JobArtifact(
+    "cross_year_roster",
+    os.path.abspath(config.CROSS_YEAR_ROSTER_PATH),
+    False
+)
 EM_RESULTS = JobArtifact(
     "earthmover_results",
     "em-results.json"
@@ -45,4 +51,4 @@ LB_SEND_RESULTS = JobArtifact(
     "lb-send-results.json"
 )
 
-ALL = [ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS]
+ALL = [ROSTER, CROSS_YEAR_ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS]

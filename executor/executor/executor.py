@@ -538,6 +538,8 @@ class JobExecutor:
         self.input_sources["INPUT_FILE"]["path"] = unmatched_path
 
         self.get_roster_from_edu(config.CROSS_YEAR_ROSTER_PATH)
+        artifact.CROSS_YEAR_ROSTER.needs_upload = True
+        self.upload_artifact(artifact.CROSS_YEAR_ROSTER)
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
         # Constrain to the ID column the first pass matched on. The bundle always appends
@@ -554,6 +556,7 @@ class JobExecutor:
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
 
+        self.logger.info(f"cross-year pass: match_rates: {load_match_rates()}")
         count = count_unmatched_students()
         if count is None:
             #    Edge case alert! It may be that in the second pass, there are no matches even with the
@@ -626,7 +629,8 @@ class JobExecutor:
             try:
                 for id_code in record["studentIdentificationCodes"]:
                     # a given roster record may have several ID descriptors with different values
-                    id_type = id_code["studentIdentificationSystemDescriptor"].split("#")[1]
+                    # using split()[-1] here because it's possible for these ID types to have a full descriptor URI, and also for them to be bare
+                    id_type = id_code["studentIdentificationSystemDescriptor"].split("#")[-1]
                     if id_type not in id_types:
                         id_types[id_type] = {
                             "stu_id_matches": 0,

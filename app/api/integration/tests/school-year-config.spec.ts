@@ -286,22 +286,22 @@ describe('GET /school-year-config/tenant', () => {
       expect(yearIds).toContain('2526');
       expect(yearIds).not.toContain('2324');
 
-      // 2425: sendToOds=true → hasRoster is null (no S3 check), hasOds from tenant's ODS config
+      // 2425: sendToOds=true → hasNonOdsRoster is null (no S3 check), hasOds from tenant's ODS config
       const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
       expect(row2425).toMatchObject({
         sendToOds: true,
         hasOds: true,
-        hasRoster: null,
+        hasNonOdsRoster: null,
         startYear: 2024,
         endYear: 2025,
       });
 
-      // 2526: sendToOds=false → hasRoster checked via S3, hasOds still reflects ODS config existence
+      // 2526: sendToOds=false → hasNonOdsRoster checked via S3, hasOds still reflects ODS config existence
       const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
       expect(row2526).toMatchObject({
         sendToOds: false,
         hasOds: true,
-        hasRoster: true,
+        hasNonOdsRoster: true,
         startYear: 2025,
         endYear: 2026,
       });
@@ -340,17 +340,42 @@ describe('GET /school-year-config/tenant', () => {
       expect(row2526.hasOds).toBe(true);
     });
 
-    it('should return hasRoster=false when roster file does not exist', async () => {
+    it('should return hasNonOdsRoster=false when roster file does not exist and cross-year matching is not enabled', async () => {
       const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
       doesFileExistMock.mockResolvedValue(false);
 
       try {
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
 
-        // 2526 is seeded as sendToOds=false, so hasRoster reflects the S3 check
+        // 2526 is seeded as sendToOds=false and partner A defaults to
+        // crossYearMatchingEnabled=false, so hasNonOdsRoster reflects the S3 check
         const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
-        expect(row2526.hasRoster).toBe(false);
+        expect(row2526.hasNonOdsRoster).toBe(false);
       } finally {
+        doesFileExistMock.mockResolvedValue(true);
+      }
+    });
+
+    it('should return hasNonOdsRoster=true for a no-ODS year when cross-year matching is enabled, even with no roster file', async () => {
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
+      await global.prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { crossYearMatchingEnabled: true },
+      });
+
+      try {
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookieA]);
+
+        // 2526 is sendToOds=false; toggle on → hasNonOdsRoster true even with no file
+        const row2526 = res.body.find((r: any) => r.schoolYearId === '2526');
+        expect(row2526.hasNonOdsRoster).toBe(true);
+
+        // ODS years stay null regardless of the toggle
+        const row2425 = res.body.find((r: any) => r.schoolYearId === '2425');
+        expect(row2425.hasNonOdsRoster).toBeNull();
+      } finally {
+        // No partner reset needed — seed data is refreshed before each test
         doesFileExistMock.mockResolvedValue(true);
       }
     });
