@@ -1,5 +1,16 @@
 import { PartnerSyncService } from '../../src/partner-sync/partner-sync.service';
 import { AlPartner, AlTenant } from '../../src/partner-sync/app-launcher.types';
+import {
+  syncPartner,
+  gonePartner,
+  returningPartner,
+  doomedPartner,
+  syncPartnerOldTenant,
+  syncPartnerReturningTenant,
+  syncPartnerUpdateableTenant,
+  doomedTenant1,
+  doomedTenant2,
+} from '../fixtures/context-fixtures/partner-sync-fixtures';
 
 const AL_CONFIG = {
   syncCron: '*/5 * * * *',
@@ -10,7 +21,11 @@ const AL_CONFIG = {
   audience: 'https://al.example.com',
 };
 
-function makeAlTenant(partnerCode: string, tenantCode: string, overrides: Partial<AlTenant> = {}): AlTenant {
+function makeAlTenant(
+  partnerCode: string,
+  tenantCode: string,
+  overrides: Partial<AlTenant> = {}
+): AlTenant {
   return {
     partnerCode,
     tenantCode,
@@ -39,7 +54,7 @@ function mockAlFetch({
         new Response(JSON.stringify({ access_token: 'test-token', expires_in: 3600 }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
-        }),
+        })
       );
     }
 
@@ -51,7 +66,7 @@ function mockAlFetch({
         new Response(JSON.stringify(partners), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
-        }),
+        })
       );
     }
 
@@ -61,7 +76,7 @@ function mockAlFetch({
         new Response(JSON.stringify(tenants[partnerCode] ?? []), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
-        }),
+        })
       );
     }
 
@@ -102,9 +117,7 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('soft-deletes sync-managed partners absent from AL', async () => {
-      await global.prisma.partner.create({
-        data: { id: 'gone-partner', name: 'Gone Partner', syncManaged: true },
-      });
+      await global.prisma.partner.create({ data: gonePartner });
 
       fetchSpy = mockAlFetch({ partners: [], tenants: {} });
 
@@ -125,9 +138,7 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('undeletes a sync-managed partner that reappears in AL', async () => {
-      await global.prisma.partner.create({
-        data: { id: 'returning-partner', name: 'Returning Partner', syncManaged: true, deletedOn: new Date('2024-01-01') },
-      });
+      await global.prisma.partner.create({ data: returningPartner });
 
       fetchSpy = mockAlFetch({
         partners: [{ partnerCode: 'returning-partner' }],
@@ -136,16 +147,16 @@ describe('PartnerSyncService.sync', () => {
 
       await runSync();
 
-      const partner = await global.prisma.partner.findUnique({ where: { id: 'returning-partner' } });
+      const partner = await global.prisma.partner.findUnique({
+        where: { id: 'returning-partner' },
+      });
       expect(partner?.deletedOn).toBeNull();
     });
   });
 
   describe('tenant sync', () => {
     it('creates new tenants returned by AL', async () => {
-      await global.prisma.partner.create({
-        data: { id: 'sync-partner', name: 'Sync Partner', syncManaged: true },
-      });
+      await global.prisma.partner.create({ data: syncPartner });
 
       fetchSpy = mockAlFetch({
         partners: [{ partnerCode: 'sync-partner' }],
@@ -171,12 +182,8 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('soft-deletes sync-managed tenants absent from AL', async () => {
-      await global.prisma.partner.create({
-        data: { id: 'sync-partner', name: 'Sync Partner', syncManaged: true },
-      });
-      await global.prisma.tenant.create({
-        data: { code: 'old-tenant', partnerId: 'sync-partner', syncManaged: true },
-      });
+      await global.prisma.partner.create({ data: syncPartner });
+      await global.prisma.tenant.create({ data: syncPartnerOldTenant });
 
       fetchSpy = mockAlFetch({
         partners: [{ partnerCode: 'sync-partner' }],
@@ -204,17 +211,8 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('undeletes tenants that reappear in AL', async () => {
-      await global.prisma.partner.create({
-        data: { id: 'sync-partner', name: 'Sync Partner', syncManaged: true },
-      });
-      await global.prisma.tenant.create({
-        data: {
-          code: 'returning-tenant',
-          partnerId: 'sync-partner',
-          syncManaged: true,
-          deletedOn: new Date('2024-01-01'),
-        },
-      });
+      await global.prisma.partner.create({ data: syncPartner });
+      await global.prisma.tenant.create({ data: syncPartnerReturningTenant });
 
       fetchSpy = mockAlFetch({
         partners: [{ partnerCode: 'sync-partner' }],
@@ -233,18 +231,8 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('updates children and isGlobal when they change', async () => {
-      await global.prisma.partner.create({
-        data: { id: 'sync-partner', name: 'Sync Partner', syncManaged: true },
-      });
-      await global.prisma.tenant.create({
-        data: {
-          code: 'updateable-tenant',
-          partnerId: 'sync-partner',
-          syncManaged: true,
-          isGlobal: false,
-          children: ['old-child'],
-        },
-      });
+      await global.prisma.partner.create({ data: syncPartner });
+      await global.prisma.tenant.create({ data: syncPartnerUpdateableTenant });
 
       fetchSpy = mockAlFetch({
         partners: [{ partnerCode: 'sync-partner' }],
@@ -268,26 +256,17 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('soft-deletes all tenants when their sync-managed partner is deleted', async () => {
-      await global.prisma.partner.create({
-        data: {
-          id: 'doomed-partner',
-          name: 'Doomed Partner',
-          syncManaged: true,
-          tenant: {
-            create: [
-              { code: 'doomed-tenant-1', syncManaged: true },
-              { code: 'doomed-tenant-2', syncManaged: true },
-            ],
-          },
-        },
-      });
+      await global.prisma.partner.create({ data: doomedPartner });
+      await global.prisma.tenant.createMany({ data: [doomedTenant1, doomedTenant2] });
 
       // AL no longer knows about this partner
       fetchSpy = mockAlFetch({ partners: [], tenants: {} });
 
       await runSync();
 
-      const tenants = await global.prisma.tenant.findMany({ where: { partnerId: 'doomed-partner' } });
+      const tenants = await global.prisma.tenant.findMany({
+        where: { partnerId: 'doomed-partner' },
+      });
       expect(tenants).toHaveLength(2);
       expect(tenants.every((t) => t.deletedOn !== null)).toBe(true);
     });
@@ -295,9 +274,7 @@ describe('PartnerSyncService.sync', () => {
 
   describe('error handling', () => {
     it('makes no DB changes when the token fetch fails', async () => {
-      await global.prisma.partner.create({
-        data: { id: 'sync-partner', name: 'Sync Partner', syncManaged: true },
-      });
+      await global.prisma.partner.create({ data: syncPartner });
 
       fetchSpy = mockAlFetch({ tokenFails: true });
 
@@ -309,9 +286,7 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('makes no DB changes when the partners fetch fails', async () => {
-      await global.prisma.partner.create({
-        data: { id: 'sync-partner', name: 'Sync Partner', syncManaged: true },
-      });
+      await global.prisma.partner.create({ data: syncPartner });
 
       fetchSpy = mockAlFetch({ partnersFail: true });
 
