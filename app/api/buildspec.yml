@@ -25,6 +25,8 @@ phases:
       - docker tag $DOCKER_TAG $DOCKER_CACHE
       - docker push $DOCKER_TAG
       - docker push $DOCKER_CACHE
+      # record a snapshot in the Snyk UI for ongoing vulnerability alerts
+      - snyk container monitor $DOCKER_TAG --file=Dockerfile --project-name=$ECR_REPO_NAME
   post_build:
     commands:
       - envsubst < Dockerrun.aws.template.json > Dockerrun.aws.json
