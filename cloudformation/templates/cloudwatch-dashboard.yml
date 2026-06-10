@@ -569,7 +569,7 @@ Resources:
                 "x": 0,
                 "type": "log",
                 "properties": {
-                  "query": "SOURCE logGroups(namePrefix: ['/ecs/JobExecutorSmall-${EnvLabel}', '/ecs/JobExecutorMedium-${EnvLabel}', '/ecs/JobExecutorLarge-${EnvLabel}']) |  parse  @message \"{'appDataBasePath': '*'\" as @s3path\n | filter !isblank(@s3path)\n | parse @s3path /(?<jobId>[^\\/]+)$/\n | sort @timestamp desc\n | display jobId,  @logStream, @s3path, @log, @timestamp",
+                  "query": "SOURCE '/ecs/JobExecutorMedium-${EnvLabel}' |  parse  @message \"{'appDataBasePath': '*'\" as @s3path\n | filter !isblank(@s3path)\n | parse @s3path /(?<jobId>[^\\/]+)$/\n | sort @timestamp desc\n | display jobId,  @logStream, @s3path, @log, @timestamp",
                   "region": "${AWS::Region}",
                   "stacked": false,
                   "view": "table"
