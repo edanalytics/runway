@@ -21,12 +21,12 @@ phases:
     commands:
       - docker pull $DOCKER_CACHE || true
       - docker build --cache-from $DOCKER_CACHE --build-arg GIT_HASH=${CODEBUILD_RESOLVED_SOURCE_VERSION} -t $DOCKER_TAG .
+      # record findings in the Snyk UI before gating, so blocked builds still show up there
+      - snyk container monitor $DOCKER_TAG --file=Dockerfile --project-name=$ECR_REPO_NAME
       - snyk container test $DOCKER_TAG --file=Dockerfile --severity-threshold=high
       - docker tag $DOCKER_TAG $DOCKER_CACHE
       - docker push $DOCKER_TAG
       - docker push $DOCKER_CACHE
-      # record a snapshot in the Snyk UI for ongoing vulnerability alerts
-      - snyk container monitor $DOCKER_TAG --file=Dockerfile --project-name=$ECR_REPO_NAME
   post_build:
     commands:
       - envsubst < Dockerrun.aws.template.json > Dockerrun.aws.json
