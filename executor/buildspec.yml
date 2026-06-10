@@ -1,5 +1,8 @@
 # config file to build Job Executor and push to ECR
 version: 0.2
+env:
+  secrets-manager:
+    SNYK_TOKEN: za-test-snyk/api-token
 phases:
   pre_build:
     commands:
@@ -11,12 +14,14 @@ phases:
       - export DOCKER_TAG=$ECR_REPO:$CODEBUILD_RESOLVED_SOURCE_VERSION
       - export DOCKER_CACHE=$ECR_REPO:latest
       - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
+      - curl -sSLo /usr/local/bin/snyk https://downloads.snyk.io/cli/stable/snyk-linux && chmod +x /usr/local/bin/snyk
       - env
   build:
     commands:
       - cd executor
       - docker pull $DOCKER_CACHE || true
       - docker build --cache-from $DOCKER_CACHE --build-arg GIT_HASH=${CODEBUILD_RESOLVED_SOURCE_VERSION} -t $DOCKER_TAG .
+      - snyk container test $DOCKER_TAG --file=Dockerfile --severity-threshold=high
       - docker tag $DOCKER_TAG $DOCKER_CACHE
       - docker push $DOCKER_TAG
       - docker push $DOCKER_CACHE

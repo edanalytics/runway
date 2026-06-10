@@ -249,9 +249,16 @@ Resources:
                 Resource:
                   - !GetAtt AppEcrRepository.Arn
               - Effect: Allow
-                Action: 
+                Action:
                   - ecr:GetAuthorizationToken
                 Resource: '*'
+        - PolicyName: SnykSecretRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:za-test-snyk/api-token*'
   
   CodeBuildRoleFE:
     Type: AWS::IAM::Role
