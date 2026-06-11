@@ -74,7 +74,7 @@ export class ExecutorAwsService implements ExecutorService {
       throw new Error('Failed to assume role for ECS task');
     }
 
-    const taskDefinition = ecsConfig.taskDefinition.large;
+    const taskDefinition = ecsConfig.taskDefinition.large; // test
     const containerName = ecsConfig.containerName.large;
     const taskInput: RunTaskCommandInput = {
       launchType: 'FARGATE',
