@@ -217,7 +217,11 @@ export class AppConfigService {
     const raw = this.get('ECS_FILE_SIZE_THRESHOLD_MB');
     if (!raw) return null; // not configured
     const mb = Number(raw);
-    return Number.isFinite(mb) ? mb * 1024 * 1024 : null; // null if unparseable
+    if (!Number.isFinite(mb)) {
+      this.logger.warn(`ECS_FILE_SIZE_THRESHOLD_MB is set but not a number: "${raw}"; ignoring`);
+      return null;
+    }
+    return mb * 1024 * 1024;
   }
 
   async ecsConfig(): Promise<{
