@@ -215,8 +215,9 @@ export class AppConfigService {
   // decides the default.
   ecsFileSizeThresholdBytes(): number | null {
     const raw = this.get('ECS_FILE_SIZE_THRESHOLD_MB');
-    const mb = raw ? Number(raw) : NaN;
-    return Number.isFinite(mb) ? mb * 1024 * 1024 : null;
+    if (!raw) return null; // not configured
+    const mb = Number(raw);
+    return Number.isFinite(mb) ? mb * 1024 * 1024 : null; // null if unparseable
   }
 
   async ecsConfig(): Promise<{
