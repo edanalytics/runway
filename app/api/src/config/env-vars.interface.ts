@@ -33,6 +33,7 @@ export interface IEnvironmentVariables {
   BUNDLE_BRANCH: string;
   S3_FILE_UPLOAD_BUCKET: string;
   TIMEOUT_SECONDS: string; // executor timeout
+  LARGE_TASK_FILE_SIZE_THRESHOLD_MB?: string; // jobs whose input files total at least this use the large executor task (default 100)
 
   // env vars we expect to only use locally
   LOCAL_EXECUTOR?: 'python' | 'docker';

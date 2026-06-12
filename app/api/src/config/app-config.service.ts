@@ -210,6 +210,14 @@ export class AppConfigService {
     return { issuerUrl, audience };
   }
 
+  // Jobs whose input files total at least this many bytes run on the large
+  // executor task instead of medium.
+  largeTaskFileSizeThresholdBytes(): number {
+    const raw = this.get('LARGE_TASK_FILE_SIZE_THRESHOLD_MB');
+    const mb = raw ? Number(raw) : NaN;
+    return (Number.isFinite(mb) ? mb : 100) * 1024 * 1024;
+  }
+
   async ecsConfig(): Promise<{
     cluster: string;
     taskDefinition: { small: string; medium: string; large: string };

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ExecutorService } from './executor.service';
-import { Job, Run, SchoolYear } from '@prisma/client';
+import { Job, JobFile, Run, SchoolYear } from '@prisma/client';
 import { AssumeRoleCommandInput, STSClient } from '@aws-sdk/client-sts';
 import { AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { ECSClient, RunTaskCommandInput } from '@aws-sdk/client-ecs';
@@ -8,6 +8,7 @@ import { RunTaskCommand } from '@aws-sdk/client-ecs';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { rosterFileKey } from 'api/src/earthbeam/roster-path';
 import { EarthbeamApiAuthService } from '../api/auth/earthbeam-api-auth.service';
+import { FileService } from 'api/src/files/file.service';
 
 @Injectable()
 export class ExecutorAwsService implements ExecutorService {
@@ -18,14 +19,15 @@ export class ExecutorAwsService implements ExecutorService {
 
   constructor(
     private readonly appConfig: AppConfigService,
-    private readonly apiAuth: EarthbeamApiAuthService
+    private readonly apiAuth: EarthbeamApiAuthService,
+    private readonly fileService: FileService
   ) {
     const region = this.appConfig.get('AWS_REGION');
     this.stsClient = new STSClient({ region });
     this.ecsClient = new ECSClient({ region });
   }
 
-  async start(run: Run & { job: Job & { schoolYear: SchoolYear } }) {
+  async start(run: Run & { job: Job & { schoolYear: SchoolYear; files: JobFile[] } }) {
     const initToken = await this.apiAuth.createInitToken({ runId: run.id });
     const initJobUrl = this.apiAuth.initEndpoint({ runId: run.id });
     const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
@@ -74,8 +76,9 @@ export class ExecutorAwsService implements ExecutorService {
       throw new Error('Failed to assume role for ECS task');
     }
 
-    const taskDefinition = ecsConfig.taskDefinition.medium;
-    const containerName = ecsConfig.containerName.medium;
+    const taskSize = await this.selectTaskSize(run);
+    const taskDefinition = ecsConfig.taskDefinition[taskSize];
+    const containerName = ecsConfig.containerName[taskSize];
     const taskInput: RunTaskCommandInput = {
       launchType: 'FARGATE',
       taskDefinition: taskDefinition,
@@ -121,5 +124,25 @@ export class ExecutorAwsService implements ExecutorService {
     }
 
     return;
+  }
+
+  // Large input files have caused the executor to run out of memory, so jobs
+  // whose input files total at least the configured threshold run on the
+  // large task instead of medium.
+  private async selectTaskSize(
+    run: Run & { job: Job & { files: JobFile[] } }
+  ): Promise<'medium' | 'large'> {
+    const fileSizes = await Promise.all(
+      run.job.files.map((file) =>
+        this.fileService.getFileSize(file.path, run.job.fileBucketOrHost!)
+      )
+    );
+    const totalInputBytes = fileSizes.reduce((sum, size) => sum + size, 0);
+    const thresholdBytes = this.appConfig.largeTaskFileSizeThresholdBytes();
+    const taskSize = totalInputBytes >= thresholdBytes ? 'large' : 'medium';
+    this.logger.log(
+      `Run ${run.id}: input files total ${totalInputBytes} bytes (large task threshold ${thresholdBytes}), using ${taskSize} task`
+    );
+    return taskSize;
   }
 }

@@ -72,7 +72,7 @@ Migrations run automatically at the start of the integration test suite. If test
 ### Deployed Infrastructure
 
 - **App**: Elastic Beanstalk (EC2 + ALB), frontend on S3 + CloudFront
-- **Executor**: ECS Fargate (3 task sizes: small/medium/large)
+- **Executor**: ECS Fargate (3 task sizes: small/medium/large). The app picks the size per run: `medium` by default, `large` when the job's input files total at least `LARGE_TASK_FILE_SIZE_THRESHOLD_MB` (default 100)
 - **Database**: RDS PostgreSQL (private subnet)
 - **Network**: VPC with public + private subnets across 2 AZs
 - **CI/CD**: CodePipeline + CodeBuild → Beanstalk deploy + ECR push
