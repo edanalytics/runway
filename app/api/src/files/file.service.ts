@@ -66,6 +66,16 @@ export class FileService {
       .map((key) => ({ key, name: key.replace(prefix, '') }));
   }
 
+  async getFileSize(fullPath: string, bucket: string): Promise<number> {
+    const result = await this.s3Client.send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: fullPath,
+      })
+    );
+    return result.ContentLength ?? 0;
+  }
+
   async doesFileExist(fullPath: string, bucket: string): Promise<boolean> {
     try {
       const result = await this.s3Client.send(

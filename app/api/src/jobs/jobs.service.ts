@@ -396,7 +396,7 @@ export class JobsService {
         jobId: job.id,
         status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
       },
-      include: { job: { include: { schoolYear: true } } },
+      include: { job: { include: { schoolYear: true, files: true } } },
     });
 
     try {
