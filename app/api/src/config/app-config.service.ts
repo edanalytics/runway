@@ -211,11 +211,12 @@ export class AppConfigService {
   }
 
   // Jobs whose input files total at least this many bytes run on the large
-  // executor task instead of medium.
-  largeTaskFileSizeThresholdBytes(): number {
-    const raw = this.get('LARGE_TASK_FILE_SIZE_THRESHOLD_MB');
+  // ECS task instead of medium. Null when unset or unparseable; the caller
+  // decides the default.
+  ecsFileSizeThresholdBytes(): number | null {
+    const raw = this.get('ECS_FILE_SIZE_THRESHOLD_MB');
     const mb = raw ? Number(raw) : NaN;
-    return (Number.isFinite(mb) ? mb : 100) * 1024 * 1024;
+    return Number.isFinite(mb) ? mb * 1024 * 1024 : null;
   }
 
   async ecsConfig(): Promise<{

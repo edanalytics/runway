@@ -39,7 +39,7 @@ describe('ExecutorAwsService', () => {
     },
   } as unknown as Run & { job: Job & { schoolYear: SchoolYear; files: JobFile[] } };
 
-  let appConfig: jest.Mocked<Pick<AppConfigService, 'get' | 'ecsConfig' | 'largeTaskFileSizeThresholdBytes'>>;
+  let appConfig: jest.Mocked<Pick<AppConfigService, 'get' | 'ecsConfig' | 'ecsFileSizeThresholdBytes'>>;
   let apiAuth: jest.Mocked<Pick<EarthbeamApiAuthService, 'createInitToken' | 'initEndpoint'>>;
   let fileService: jest.Mocked<Pick<FileService, 'getFileSize'>>;
   let service: ExecutorAwsService;
@@ -49,7 +49,8 @@ describe('ExecutorAwsService', () => {
     appConfig = {
       get: jest.fn().mockReturnValue(undefined),
       ecsConfig: jest.fn().mockResolvedValue(ecsConfig),
-      largeTaskFileSizeThresholdBytes: jest.fn().mockReturnValue(100 * MB),
+      // null = env var unset; the service falls back to the 100MB default
+      ecsFileSizeThresholdBytes: jest.fn().mockReturnValue(null),
     };
     apiAuth = {
       createInitToken: jest.fn().mockResolvedValue('init-token'),
@@ -97,6 +98,16 @@ describe('ExecutorAwsService', () => {
     const taskInput = ecsSend.mock.calls[0][0].input;
     expect(taskInput.taskDefinition).toBe('large-task-arn');
     expect(taskInput.overrides.containerOverrides[0].name).toBe('env-JobExecutorLarge');
+  });
+
+  it('uses a configured threshold instead of the default', async () => {
+    appConfig.ecsFileSizeThresholdBytes.mockReturnValue(50 * MB);
+    fileService.getFileSize.mockResolvedValueOnce(40 * MB).mockResolvedValueOnce(20 * MB);
+
+    await service.start(run);
+
+    // 60MB is under the 100MB default but over the configured 50MB
+    expect(ecsSend.mock.calls[0][0].input.taskDefinition).toBe('large-task-arn');
   });
 
   it('fails the start when a file size lookup fails', async () => {

@@ -5,10 +5,12 @@ import { AssumeRoleCommandInput, STSClient } from '@aws-sdk/client-sts';
 import { AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { ECSClient, RunTaskCommandInput } from '@aws-sdk/client-ecs';
 import { RunTaskCommand } from '@aws-sdk/client-ecs';
-import { AppConfigService } from 'api/src/config/app-config.service';
-import { rosterFileKey } from 'api/src/earthbeam/roster-path';
+import { AppConfigService } from '../../config/app-config.service';
+import { rosterFileKey } from '../../earthbeam/roster-path';
 import { EarthbeamApiAuthService } from '../api/auth/earthbeam-api-auth.service';
-import { FileService } from 'api/src/files/file.service';
+import { FileService } from '../../files/file.service';
+
+const DEFAULT_FILE_SIZE_THRESHOLD_BYTES = 100 * 1024 * 1024;
 
 @Injectable()
 export class ExecutorAwsService implements ExecutorService {
@@ -129,20 +131,15 @@ export class ExecutorAwsService implements ExecutorService {
   // Large input files have caused the executor to run out of memory, so jobs
   // whose input files total at least the configured threshold run on the
   // large task instead of medium.
-  private async selectTaskSize(
-    run: Run & { job: Job & { files: JobFile[] } }
-  ): Promise<'medium' | 'large'> {
+  private async selectTaskSize(run: Run & { job: Job & { files: JobFile[] } }) {
     const fileSizes = await Promise.all(
       run.job.files.map((file) =>
         this.fileService.getFileSize(file.path, run.job.fileBucketOrHost!)
       )
     );
     const totalInputBytes = fileSizes.reduce((sum, size) => sum + size, 0);
-    const thresholdBytes = this.appConfig.largeTaskFileSizeThresholdBytes();
-    const taskSize = totalInputBytes >= thresholdBytes ? 'large' : 'medium';
-    this.logger.log(
-      `Run ${run.id}: input files total ${totalInputBytes} bytes (large task threshold ${thresholdBytes}), using ${taskSize} task`
-    );
-    return taskSize;
+    const thresholdBytes =
+      this.appConfig.ecsFileSizeThresholdBytes() ?? DEFAULT_FILE_SIZE_THRESHOLD_BYTES;
+    return totalInputBytes >= thresholdBytes ? 'large' : 'medium';
   }
 }
