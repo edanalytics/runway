@@ -119,6 +119,24 @@ If using local Runway to test a bundle that is not on the main branch, you can f
 3. Make sure you have pushed an update to the bundle registry on your branch by running `python create-registry.py assessments`
 4. You should see the bundle as an option on the "load a new assessment" page
 
+## Testing
+
+Run the full API suite (integration + unit) from `app/`:
+
+```bash
+npm run api:test
+```
+
+**Integration tests** are the default choice — they exercise the real app against a Dockerized Postgres and live in [api/integration/](api/integration/). See the [integration test README](api/integration/README.md) for how the suite works (setup/teardown, seed data, fixtures, and factories). For local dev, `npm run api:test:integration:local` starts the test DB if needed and leaves it running between runs.
+
+**Unit tests** are for logic integration tests can't practically reach — for example, behavior behind mocked AWS clients like ECS task-size selection ([executor.aws.service.spec.ts](api/src/earthbeam/executor/executor.aws.service.spec.ts)). They live in `*.spec.ts` files next to the code they test, need no DB or Docker, and run with:
+
+```bash
+npx nx test-unit api
+```
+
+A unit test should assert behavior that can really break (e.g. "files over the threshold launch the large task"), not just that mocks were called.
+
 ## Package Supply Chain Safety
 
 The project `.npmrc` sets `min-release-age=14`, which prevents `npm install` from resolving any package version published less than 14 days ago. This reduces exposure to supply chain attacks via newly-published or compromised packages.
