@@ -210,6 +210,15 @@ export class AppConfigService {
     return { issuerUrl, audience };
   }
 
+  // Jobs whose input files total at least this many bytes run on the large
+  // ECS task instead of medium. Null when unset or unparseable; the caller
+  // decides the default.
+  ecsFileSizeThresholdBytes(): number | null {
+    const raw = this.get('ECS_FILE_SIZE_THRESHOLD_MB');
+    const mb = raw ? Number(raw) : NaN;
+    return Number.isFinite(mb) ? mb * 1024 * 1024 : null;
+  }
+
   async ecsConfig(): Promise<{
     cluster: string;
     taskDefinition: { small: string; medium: string; large: string };

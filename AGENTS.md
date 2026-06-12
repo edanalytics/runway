@@ -46,6 +46,14 @@ npm run api:test
 npm run api:test:integration:local
 ```
 
+**Unit tests** (no DB or Docker required):
+
+```bash
+npx nx test-unit api
+```
+
+Prefer integration tests; write a unit test only when integration tests can't practically reach the logic (e.g. code behind mocked AWS clients, like task-size selection in `executor.aws.service.spec.ts`). Unit tests are `*.spec.ts` files next to the code they test in `api/src/`, and must assert behavior that can really break — not just that mocks were called. Both suites run as part of `npm run api:test`.
+
 **Typechecking:**
 
 ```bash
@@ -72,7 +80,7 @@ Migrations run automatically at the start of the integration test suite. If test
 ### Deployed Infrastructure
 
 - **App**: Elastic Beanstalk (EC2 + ALB), frontend on S3 + CloudFront
-- **Executor**: ECS Fargate (3 task sizes: small/medium/large)
+- **Executor**: ECS Fargate (3 task sizes: small/medium/large). The app picks the size per run: `medium` by default, `large` when the job's input files total at least `ECS_FILE_SIZE_THRESHOLD_MB` (default 100)
 - **Database**: RDS PostgreSQL (private subnet)
 - **Network**: VPC with public + private subnets across 2 AZs
 - **CI/CD**: CodePipeline + CodeBuild → Beanstalk deploy + ECR push
