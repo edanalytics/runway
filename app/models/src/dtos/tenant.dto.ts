@@ -2,6 +2,7 @@ import { Expose } from 'class-transformer';
 import { makeSerializer } from '../utils/make-serializer';
 import { Tenant } from '@prisma/client';
 import { DtoGetBase } from '../utils';
+import { SyncManager } from '../enums';
 
 export class GetTenantDto extends DtoGetBase implements Tenant {
   @Expose()
@@ -14,13 +15,10 @@ export class GetTenantDto extends DtoGetBase implements Tenant {
   deletedOn: Date | null;
 
   @Expose()
-  children: string[];
-
-  @Expose()
   isGlobal: boolean;
 
   @Expose()
-  syncManaged: boolean;
+  managedBy: SyncManager;
 }
 
 export const toGetTenantDto = makeSerializer<GetTenantDto>(GetTenantDto);
