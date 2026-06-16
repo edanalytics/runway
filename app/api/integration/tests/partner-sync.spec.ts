@@ -7,6 +7,7 @@ import {
   doomedPartner,
   syncPartnerOldTenant,
   syncPartnerReturningTenant,
+  syncPartnerReturningTenantWithChangedGlobal,
   syncPartnerUpdateableTenant,
   doomedTenant1,
   doomedTenant2,
@@ -227,7 +228,31 @@ describe('PartnerSyncService.sync', () => {
       expect(tenant?.isGlobal).toBe(true);
     });
 
-    it('updates children and isGlobal when they change', async () => {
+    it('updates isGlobal when undeleting a tenant whose isGlobal changed while deleted', async () => {
+      await global.prisma.partner.create({ data: syncPartner });
+      await global.prisma.tenant.create({ data: syncPartnerReturningTenantWithChangedGlobal });
+
+      fetchSpy = mockAlFetch({
+        partners: [{ partnerCode: 'sync-partner' }],
+        tenants: {
+          'sync-partner': [
+            makeAlTenant('sync-partner', 'stale-returning-tenant', { isGlobal: true }),
+          ],
+        },
+      });
+
+      await runSync();
+
+      const tenant = await global.prisma.tenant.findUnique({
+        where: {
+          code_partnerId: { code: 'stale-returning-tenant', partnerId: 'sync-partner' },
+        },
+      });
+      expect(tenant?.deletedOn).toBeNull();
+      expect(tenant?.isGlobal).toBe(true);
+    });
+
+    it('updates isGlobal when it changes', async () => {
       await global.prisma.partner.create({ data: syncPartner });
       await global.prisma.tenant.create({ data: syncPartnerUpdateableTenant });
 

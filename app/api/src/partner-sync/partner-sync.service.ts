@@ -217,6 +217,7 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
       const tenantsToCreate: TenantUpsert[] = [];
       const tenantsToDelete: { code: string; partnerId: string }[] = [];
       const tenantsToUndelete: TenantUpsert[] = [];
+      const tenantsToUpdate: TenantUpsert[] = [];
 
       // For partners being deleted, soft-delete all their tenants
       for (const partnerId of partnerIdsToDelete) {
@@ -245,22 +246,24 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
 
           for (const apiTenant of result.tenants) {
             const existing = tenantMap.get(apiTenant.tenantCode);
-
+            const isGlobal = apiTenant.isGlobal;
             if (!existing) {
               tenantsToCreate.push({
                 code: apiTenant.tenantCode,
                 partnerId,
-                isGlobal: apiTenant.isGlobal,
+                isGlobal,
               });
             } else if (existing.deletedOn) {
               tenantsToUndelete.push({
                 code: existing.code,
                 partnerId: existing.partnerId,
-                isGlobal: existing.isGlobal,
+                isGlobal
               });
+            } else if (existing.isGlobal !== isGlobal) {
+              tenantsToUpdate.push({ code: existing.code, partnerId: existing.partnerId, isGlobal });
             }
           }
-
+          
           for (const [code, tenant] of tenantMap) {
             if (!!tenant.managedBy && !apiCodes.has(code) && !tenant.deletedOn) {
               tenantsToDelete.push({ code: tenant.code, partnerId: tenant.partnerId });
@@ -332,12 +335,19 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
           }
         }
 
-        for (const { code, partnerId } of tenantsToUndelete) {
+        for (const { code, partnerId, isGlobal } of tenantsToUndelete) {
           await tx.tenant.update({
             where: { code_partnerId: { code, partnerId } },
-            data: { deletedOn: null },
+            data: { deletedOn: null, isGlobal },
           });
           tenantsUndeleted++;
+        }
+
+        for (const { code, partnerId, isGlobal } of tenantsToUpdate) {
+          await tx.tenant.update({
+            where: { code_partnerId: { code, partnerId } },
+            data: { isGlobal },
+          });
         }
 
         this.logger.log(

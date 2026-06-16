@@ -33,12 +33,24 @@ export const syncPartnerOldTenant: Pick<Tenant, 'code' | 'partnerId' | 'managedB
 
 export const syncPartnerReturningTenant: Pick<
   Tenant,
-  'code' | 'partnerId' | 'managedBy' | 'deletedOn'
+  'code' | 'partnerId' | 'managedBy' | 'deletedOn' | 'isGlobal'
 > = {
   code: 'returning-tenant',
   partnerId: syncPartner.id,
   managedBy: 'al_sync',
   deletedOn: new Date('2024-01-01'),
+  isGlobal: true
+};
+
+export const syncPartnerReturningTenantWithChangedGlobal: Pick<
+  Tenant,
+  'code' | 'partnerId' | 'managedBy' | 'deletedOn' | 'isGlobal'
+> = {
+  code: 'stale-returning-tenant',
+  partnerId: syncPartner.id,
+  managedBy: 'al_sync',
+  deletedOn: new Date('2024-01-01'),
+  isGlobal: false,
 };
 
 export const syncPartnerUpdateableTenant: Pick<
