@@ -469,13 +469,15 @@ class JobExecutor:
         try:
             em = subprocess.run(
                 ["earthmover", "-c", self.wrapper_earthmover, "compile"],
-                capture_output=True, 
+                capture_output=True,
                 text=True
             )
             em.check_returncode()
 
             # attempt no. 1
-            cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path]
+            # `-e` sets earthmover's log_level to DEBUG (and enables stacktraces), surfacing the
+            # per-node/per-operation/per-partition memory logging used to diagnose OOM failures.
+            cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "-e", "--results-file", results_path]
             cmd.extend(encoding_args)
             em = subprocess.run(
                 cmd,
@@ -499,8 +501,14 @@ class JobExecutor:
                 try:
                     # attempt no. 2 - need a new em object to overwrite the decoding error
                     em = subprocess.run(
-                        ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"],
+                        ["earthmover", "-c", self.wrapper_earthmover, "run", "-e", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"],
+                        capture_output=True,
+                        text=True
                     )
+                    if em.stdout:
+                        self.logger.info(f"earthmover stdout: {em.stdout}")
+                    if em.stderr:
+                        self.logger.info(f"earthmover stderr: {em.stderr}")
                     em.check_returncode()
 
                     fatal = False # if we made it this far, we can abort the shutdown
