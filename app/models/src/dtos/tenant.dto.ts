@@ -14,13 +14,10 @@ export class GetTenantDto extends DtoGetBase implements Tenant {
   deletedOn: Date | null;
 
   @Expose()
-  children: string[];
-
-  @Expose()
   isGlobal: boolean;
 
   @Expose()
-  syncManaged: boolean;
+  managedBy: string;
 }
 
 export const toGetTenantDto = makeSerializer<GetTenantDto>(GetTenantDto);
