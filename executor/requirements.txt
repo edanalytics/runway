@@ -1,6 +1,6 @@
 awscli
 boto3
 chardet
-earthmover==0.4.10
+#earthmover==0.4.10
 lightbeam==0.1.12
 requests
