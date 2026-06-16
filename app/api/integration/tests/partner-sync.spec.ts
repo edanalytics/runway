@@ -32,7 +32,6 @@ function makeAlTenant(
     displayName: tenantCode,
     isEnabled: true,
     isGlobal: false,
-    children: null,
     ...overrides,
   };
 }
@@ -112,7 +111,7 @@ describe('PartnerSyncService.sync', () => {
 
       const created = await global.prisma.partner.findUnique({ where: { id: 'new-partner' } });
       expect(created).not.toBeNull();
-      expect(created?.syncManaged).toBe(true);
+      expect(created?.managedBy).not.toBeNull();
       expect(created?.deletedOn).toBeNull();
     });
 
@@ -128,7 +127,7 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('does not delete non-sync-managed partners absent from AL', async () => {
-      // seeded partnerA has syncManaged: false — must not be touched
+      // seeded partnerA has managedBy: null — must not be touched
       fetchSpy = mockAlFetch({ partners: [], tenants: {} });
 
       await runSync();
@@ -164,7 +163,6 @@ describe('PartnerSyncService.sync', () => {
           'sync-partner': [
             makeAlTenant('sync-partner', 'new-tenant', {
               isGlobal: true,
-              children: [{ tenantCode: 'child-1' }],
             }),
           ],
         },
@@ -176,9 +174,8 @@ describe('PartnerSyncService.sync', () => {
         where: { code_partnerId: { code: 'new-tenant', partnerId: 'sync-partner' } },
       });
       expect(tenant).not.toBeNull();
-      expect(tenant?.syncManaged).toBe(true);
+      expect(tenant?.managedBy).not.toBeNull();
       expect(tenant?.isGlobal).toBe(true);
-      expect(tenant?.children).toEqual(['child-1']);
     });
 
     it('soft-deletes sync-managed tenants absent from AL', async () => {
@@ -199,7 +196,7 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('does not delete non-sync-managed tenants absent from AL', async () => {
-      // seeded tenantA has syncManaged: false — must not be touched
+      // seeded tenantA has managedBy: null — must not be touched
       fetchSpy = mockAlFetch({ partners: [], tenants: {} });
 
       await runSync();
@@ -240,7 +237,6 @@ describe('PartnerSyncService.sync', () => {
           'sync-partner': [
             makeAlTenant('sync-partner', 'updateable-tenant', {
               isGlobal: true,
-              children: [{ tenantCode: 'new-child' }],
             }),
           ],
         },
@@ -252,7 +248,6 @@ describe('PartnerSyncService.sync', () => {
         where: { code_partnerId: { code: 'updateable-tenant', partnerId: 'sync-partner' } },
       });
       expect(tenant?.isGlobal).toBe(true);
-      expect(tenant?.children).toEqual(['new-child']);
     });
 
     it('soft-deletes all tenants when their sync-managed partner is deleted', async () => {

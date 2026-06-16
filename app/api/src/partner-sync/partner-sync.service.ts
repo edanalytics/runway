@@ -200,7 +200,7 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
         }
 
         for (const partner of existingPartners) {
-          if (partner.syncManaged && !partner.deletedOn && !apiPartnerCodes.has(partner.id)) {
+          if (!!partner.managedBy && !partner.deletedOn && !apiPartnerCodes.has(partner.id)) {
             partnerIdsToDelete.push(partner.id);
           }
         }
@@ -212,6 +212,7 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
       type TenantUpsert = {
         code: string;
         partnerId: string;
+        isGlobal: boolean;
       };
       const tenantsToCreate: TenantUpsert[] = [];
       const tenantsToDelete: { code: string; partnerId: string }[] = [];
@@ -246,14 +247,22 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
             const existing = tenantMap.get(apiTenant.tenantCode);
 
             if (!existing) {
-              tenantsToCreate.push({ code: apiTenant.tenantCode, partnerId });
+              tenantsToCreate.push({
+                code: apiTenant.tenantCode,
+                partnerId,
+                isGlobal: apiTenant.isGlobal,
+              });
             } else if (existing.deletedOn) {
-              tenantsToUndelete.push({ code: existing.code, partnerId: existing.partnerId });
+              tenantsToUndelete.push({
+                code: existing.code,
+                partnerId: existing.partnerId,
+                isGlobal: existing.isGlobal,
+              });
             }
           }
 
           for (const [code, tenant] of tenantMap) {
-            if (tenant.syncManaged && !apiCodes.has(code) && !tenant.deletedOn) {
+            if (!!tenant.managedBy && !apiCodes.has(code) && !tenant.deletedOn) {
               tenantsToDelete.push({ code: tenant.code, partnerId: tenant.partnerId });
             }
           }
@@ -274,7 +283,7 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
             data: partnerIdsToCreate.map((id) => ({
               id,
               name: id,
-              syncManaged: true,
+              managedBy: 'al_sync',
             })),
           });
           partnersCreated = r.count;
@@ -300,7 +309,7 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
           const r = await tx.tenant.createMany({
             data: tenantsToCreate.map((t) => ({
               ...t,
-              syncManaged: true,
+              managedBy: 'al_sync',
             })),
           });
           tenantsCreated = r.count;
