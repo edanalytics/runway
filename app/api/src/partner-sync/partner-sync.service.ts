@@ -212,13 +212,10 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
       type TenantUpsert = {
         code: string;
         partnerId: string;
-        children: string[];
-        isGlobal: boolean;
       };
       const tenantsToCreate: TenantUpsert[] = [];
       const tenantsToDelete: { code: string; partnerId: string }[] = [];
       const tenantsToUndelete: TenantUpsert[] = [];
-      const tenantsToUpdate: TenantUpsert[] = [];
 
       // For partners being deleted, soft-delete all their tenants
       for (const partnerId of partnerIdsToDelete) {
@@ -246,32 +243,12 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
           const apiCodes = new Set(result.tenants.map((t) => t.tenantCode));
 
           for (const apiTenant of result.tenants) {
-            const children = apiTenant.children?.map((c) => c.tenantCode) ?? [];
-            const isGlobal = apiTenant.isGlobal;
             const existing = tenantMap.get(apiTenant.tenantCode);
 
             if (!existing) {
-              tenantsToCreate.push({ code: apiTenant.tenantCode, partnerId, children, isGlobal });
+              tenantsToCreate.push({ code: apiTenant.tenantCode, partnerId });
             } else if (existing.deletedOn) {
-              tenantsToUndelete.push({
-                code: existing.code,
-                partnerId: existing.partnerId,
-                children,
-                isGlobal,
-              });
-            } else {
-              const childrenChanged =
-                existing.children.length !== children.length ||
-                !existing.children.every((c: string) => children.includes(c));
-              const isGlobalChanged = existing.isGlobal !== isGlobal;
-              if (childrenChanged || isGlobalChanged) {
-                tenantsToUpdate.push({
-                  code: existing.code,
-                  partnerId: existing.partnerId,
-                  children,
-                  isGlobal,
-                });
-              }
+              tenantsToUndelete.push({ code: existing.code, partnerId: existing.partnerId });
             }
           }
 
@@ -291,7 +268,6 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
         let tenantsCreated = 0;
         let tenantsDeleted = 0;
         let tenantsUndeleted = 0;
-        let tenantsUpdated = 0;
 
         if (partnerIdsToCreate.length) {
           const r = await tx.partner.createMany({
@@ -347,25 +323,17 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
           }
         }
 
-        for (const { code, partnerId, children, isGlobal } of tenantsToUndelete) {
+        for (const { code, partnerId } of tenantsToUndelete) {
           await tx.tenant.update({
             where: { code_partnerId: { code, partnerId } },
-            data: { deletedOn: null, children, isGlobal },
+            data: { deletedOn: null },
           });
           tenantsUndeleted++;
         }
 
-        for (const { code, partnerId, children, isGlobal } of tenantsToUpdate) {
-          await tx.tenant.update({
-            where: { code_partnerId: { code, partnerId } },
-            data: { children, isGlobal },
-          });
-          tenantsUpdated++;
-        }
-
         this.logger.log(
           `AL sync: partners +${partnersCreated} -${partnersDeleted} ↑${partnersUndeleted} | ` +
-            `tenants +${tenantsCreated} -${tenantsDeleted} ↑${tenantsUndeleted} ~${tenantsUpdated}`
+            `tenants +${tenantsCreated} -${tenantsDeleted} ↑${tenantsUndeleted}`
         );
       });
 
