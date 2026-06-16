@@ -16,6 +16,8 @@ COPY ./ /executor
 RUN pip install -r requirements.txt && \
     pip install -e .
 
+RUN git clone https://github.com/edanalytics/earthmover --branch feature/polars
+RUN pip install -e earthmover
 RUN git clone https://github.com/edanalytics/earthmover_edfi_bundles.git bundles
 
 RUN useradd -M -s /bin/bash executor && \
