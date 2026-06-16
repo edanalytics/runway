@@ -168,7 +168,7 @@ Resources:
           Name: !Sub '${EnvLabel}-JobExecutorLarge'
           WorkingDirectory: '/executor'
       Cpu: '8192'
-      Memory: '16384'
+      Memory: '32768'
       NetworkMode: 'awsvpc'
       RequiresCompatibilities: 
         - FARGATE
