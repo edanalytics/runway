@@ -32,7 +32,7 @@ model Partner {
   idpId                         String?                   @map("idp_id") @db.VarChar
   crossYearMatchingEnabled      Boolean                   @default(false) @map("cross_year_matching_enabled")
   deletedOn                     DateTime?                 @map("deleted_on") @db.Timestamp(6)
-  managedBy                     String?                   @map("managed_by") @db.VarChar
+  managedBy                     SyncManager?              @map("managed_by")
   customDescriptorMapping       CustomDescriptorMapping[]
   userPartnerCreatedByIdTouser  User?                     @relation("partner_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   identityProvider              IdentityProvider?         @relation(fields: [idpId], references: [id], onUpdate: NoAction)
@@ -53,7 +53,7 @@ model Tenant {
   modifiedOn                   DateTime     @default(now()) @map("modified_on") @db.Timestamp(6)
   deletedOn                    DateTime?    @map("deleted_on") @db.Timestamp(6)
   isGlobal                     Boolean      @default(false) @map("is_global")
-  managedBy                    String?      @map("managed_by") @db.VarChar
+  managedBy                    SyncManager? @map("managed_by")
   job                          Job[]
   odsConfig                    OdsConfig[]
   userTenantCreatedByIdTouser  User?        @relation("tenant_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
@@ -493,4 +493,11 @@ enum FileStorageProtocol {
   s3
 
   @@map("file_storage_protocol")
+}
+
+enum SyncManager {
+  al_sync @map("al-sync")
+  tx_sync @map("tx-sync")
+
+  @@map("sync_manager")
 }

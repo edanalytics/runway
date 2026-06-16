@@ -1,5 +1,1 @@
-export enum SyncManagers {
-  manual,
-  alSync,
-  txSync,
-}
+export { SyncManagers, SyncManager } from '@edanalytics/models';
