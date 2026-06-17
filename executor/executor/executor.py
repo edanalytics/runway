@@ -477,7 +477,7 @@ class JobExecutor:
             # attempt no. 1
             # `-e` sets earthmover's log_level to DEBUG (and enables stacktraces), surfacing the
             # per-node/per-operation/per-partition memory logging used to diagnose OOM failures.
-            cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "-e", "--results-file", results_path]
+            cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path]
             cmd.extend(encoding_args)
             em = subprocess.run(
                 cmd,
@@ -501,7 +501,7 @@ class JobExecutor:
                 try:
                     # attempt no. 2 - need a new em object to overwrite the decoding error
                     em = subprocess.run(
-                        ["earthmover", "-c", self.wrapper_earthmover, "run", "-e", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"],
+                        ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"],
                         capture_output=True,
                         text=True
                     )

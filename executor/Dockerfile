@@ -16,8 +16,8 @@ COPY ./ /executor
 RUN pip install -r requirements.txt && \
     pip install -e .
 
-RUN git clone https://github.com/edanalytics/earthmover --branch exp/sparse-melt
-RUN pip install -e earthmover
+#UN git clone https://github.com/edanalytics/earthmover --branch exp/sparse-melt
+#UN pip install -e earthmover
 RUN git clone https://github.com/edanalytics/earthmover_edfi_bundles.git bundles --branch exp/fastbridge-repartition
 
 RUN useradd -M -s /bin/bash executor && \
