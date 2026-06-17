@@ -1,7 +1,19 @@
 import { Module } from '@nestjs/common';
-import { PartnerSyncService } from './partner-sync.service';
+import { PartnerSyncCoordinator } from './partner-sync.coordinator';
+import { AlSyncHandler } from './al/al-sync.handler';
+import { TxSyncHandler } from './tx/tx-sync.handler';
+import { SYNC_HANDLERS } from './sync-handler.interface';
 
 @Module({
-  providers: [PartnerSyncService],
+  providers: [
+    AlSyncHandler,
+    TxSyncHandler,
+    {
+      provide: SYNC_HANDLERS,
+      useFactory: (al: AlSyncHandler, tx: TxSyncHandler) => [al, tx],
+      inject: [AlSyncHandler, TxSyncHandler],
+    },
+    PartnerSyncCoordinator,
+  ],
 })
 export class PartnerSyncModule {}

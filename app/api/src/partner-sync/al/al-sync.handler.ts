@@ -1,16 +1,16 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { PgBoss } from 'pg-boss';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { AlConfig, AppConfigService } from '../config/app-config.service';
-import { PRISMA_ANONYMOUS } from '../database/database.service';
-import { AlPartner, AlTenant } from './app-launcher.types';
-
-const AL_SYNC_CHANNEL = 'app-launcher-sync';
+import { AppConfigService, AlConfig } from '../../config/app-config.service';
+import { PRISMA_ANONYMOUS } from '../../database/database.service';
+import { SyncHandler } from '../sync-handler.interface';
+import { AlPartner, AlTenant } from './al-sync.types';
 
 @Injectable()
-export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(PartnerSyncService.name);
-  private boss: PgBoss | null = null;
+export class AlSyncHandler implements SyncHandler {
+  readonly sourceKey = 'al_sync';
+  readonly channel = 'app-launcher-sync';
+
+  private readonly logger = new Logger(AlSyncHandler.name);
   private alToken: string | null = null;
   private alTokenExpiration: Date | null = null;
 
@@ -19,48 +19,13 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
     @Inject(PRISMA_ANONYMOUS) private readonly prisma: PrismaClient
   ) {}
 
-  async onModuleDestroy() {
-    await this.boss?.stop();
-  }
-
-  async onModuleInit() {
-    const pgConfig = await this.appConfig.postgresPoolConfig();
-    const { user, password, host, database, port, ssl } = pgConfig;
-    const sslMode = ssl ? 'require' : 'disable';
-    const connStr = `postgres://${user}:${encodeURIComponent(String(password))}@${
-      host ?? 'localhost'
-    }:${port ?? 5432}/${database}?sslmode=${sslMode}`;
-
-    this.boss = new PgBoss(connStr);
-    await this.boss.start();
-
-    const partners = await this.prisma.partner.findMany({
-      where: { managedBy: { not: null } },
-      select: { managedBy: true },
-    });
-
-    const activeSources = new Set(
-      partners.flatMap((p) => (p.managedBy ? [p.managedBy] : []))
-    );
-
-    for (const source of activeSources) {
-      const config = this.appConfig.getSyncConfig(source);
-      if (source === 'al_sync') {
-        if (!config) {
-          this.logger.warn('AL sync config not set — unscheduling any existing AL sync job');
-          await this.boss.unschedule(AL_SYNC_CHANNEL);
-          continue;
-        }
-        await this.boss.createQueue(AL_SYNC_CHANNEL);
-        await this.boss.schedule(AL_SYNC_CHANNEL, config.syncCron, null, {
-          singletonKey: 'al-sync',
-        });
-        await this.boss.work(AL_SYNC_CHANNEL, () => this.sync(config as AlConfig));
-        this.logger.log(`AL sync scheduled: ${config.syncCron}`);
-      } else {
-        this.logger.warn(`Sync source "${source}" has no registered handler — skipping`);
-      }
+  async sync(): Promise<void> {
+    const config = this.appConfig.alConfig();
+    if (!config) {
+      this.logger.warn('AL sync config not set — skipping sync');
+      return;
     }
+    await this.runSync(config);
   }
 
   private async getToken(
@@ -162,7 +127,7 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
     return { status: 'success', tenants: result.data as AlTenant[] };
   }
 
-  private async sync(alConfig: AlConfig): Promise<void> {
+  private async runSync(alConfig: AlConfig): Promise<void> {
     try {
       this.logger.log('Starting AL sync');
 
@@ -224,7 +189,6 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
       const tenantsToUndelete: TenantUpsert[] = [];
       const tenantsToUpdate: TenantUpsert[] = [];
 
-      // For partners being deleted, soft-delete all their tenants
       for (const partnerId of partnerIdsToDelete) {
         for (const tenant of tenantsByPartner.get(partnerId)?.values() ?? []) {
           if (!tenant.deletedOn) {
@@ -233,7 +197,6 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Sync tenants for all non-deleted partners
       const partnerIdsForTenantSync = [
         ...existingPartners.filter((p) => !deletingPartnerIds.has(p.id)).map((p) => p.id),
         ...partnerIdsToCreate,
@@ -253,22 +216,14 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
             const existing = tenantMap.get(apiTenant.tenantCode);
             const isGlobal = apiTenant.isGlobal;
             if (!existing) {
-              tenantsToCreate.push({
-                code: apiTenant.tenantCode,
-                partnerId,
-                isGlobal,
-              });
+              tenantsToCreate.push({ code: apiTenant.tenantCode, partnerId, isGlobal });
             } else if (existing.deletedOn) {
-              tenantsToUndelete.push({
-                code: existing.code,
-                partnerId: existing.partnerId,
-                isGlobal
-              });
+              tenantsToUndelete.push({ code: existing.code, partnerId: existing.partnerId, isGlobal });
             } else if (existing.isGlobal !== isGlobal) {
               tenantsToUpdate.push({ code: existing.code, partnerId: existing.partnerId, isGlobal });
             }
           }
-          
+
           for (const [code, tenant] of tenantMap) {
             if (!!tenant.managedBy && !apiCodes.has(code) && !tenant.deletedOn) {
               tenantsToDelete.push({ code: tenant.code, partnerId: tenant.partnerId });
@@ -277,7 +232,6 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
         })
       );
 
-      // Apply all changes in a transaction
       await this.prisma.$transaction(async (tx) => {
         let partnersCreated = 0;
         let partnersDeleted = 0;
@@ -288,11 +242,7 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
 
         if (partnerIdsToCreate.length) {
           const r = await tx.partner.createMany({
-            data: partnerIdsToCreate.map((id) => ({
-              id,
-              name: id,
-              managedBy: 'al_sync',
-            })),
+            data: partnerIdsToCreate.map((id) => ({ id, name: id, managedBy: 'al_sync' })),
           });
           partnersCreated = r.count;
         }
@@ -315,15 +265,11 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
 
         if (tenantsToCreate.length) {
           const r = await tx.tenant.createMany({
-            data: tenantsToCreate.map((t) => ({
-              ...t,
-              managedBy: 'al_sync',
-            })),
+            data: tenantsToCreate.map((t) => ({ ...t, managedBy: 'al_sync' })),
           });
           tenantsCreated = r.count;
         }
 
-        // Batch tenant soft-deletes per partnerId
         if (tenantsToDelete.length) {
           const byPartner = new Map<string, string[]>();
           for (const { code, partnerId } of tenantsToDelete) {

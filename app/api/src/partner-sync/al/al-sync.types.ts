@@ -9,4 +9,3 @@ export type AlTenant = {
 export type AlPartner = {
   partnerCode: string;
 };
-export { SyncManagers, SyncManager } from '@edanalytics/models';
