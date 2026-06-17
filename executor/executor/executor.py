@@ -204,7 +204,7 @@ class JobExecutor:
                 del job["assessmentDatastore"]["clientSecret"]
 
             os.environ["ASSESSMENT_BUNDLE"] = os.path.basename(job["bundle"]["path"])
-            os.environ["ASSESSMENT_BUNDLE_BRANCH"] = job["bundle"]["branch"]
+            os.environ["ASSESSMENT_BUNDLE_BRANCH"] = "exp/fastbridge-repartition" # job["bundle"]["branch"]
 
             app_base_uri = parse.urlparse(job["appDataBasePath"])
             self.app_bucket = app_base_uri.hostname
