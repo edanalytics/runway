@@ -8,6 +8,20 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
+export type AlConfig = {
+  syncCron: string;
+  url: string;
+  auth0Domain: string;
+  clientId: string;
+  clientSecret: string;
+  audience: string;
+};
+
+export type TxConfig = {
+  syncCron: string;
+  clientSecret: string;
+};
+
 /**
  * AppConfigService is a wrapper on the @nestjs/config package's
  * ConfigService. It allows us to define custom getters, including
@@ -210,14 +224,7 @@ export class AppConfigService {
     return { issuerUrl, audience };
   }
 
-  alConfig(): {
-    syncCron: string;
-    url: string;
-    auth0Domain: string;
-    clientId: string;
-    clientSecret: string;
-    audience: string;
-  } | null {
+  alConfig(): AlConfig | null {
     const syncCron = this.get('AL_SYNC_CRON');
     const url = this.get('AL_URL');
     const auth0Domain = this.get('AL_AUTH0_DOMAIN');
@@ -230,6 +237,23 @@ export class AppConfigService {
     }
 
     return { syncCron, url, auth0Domain, clientId, clientSecret, audience };
+  }
+
+  txConfig(): TxConfig | null {
+    const syncCron = this.get('AL_SYNC_CRON');
+    const clientSecret = this.get('TX_CLIENT_SECRET');
+
+    if (!syncCron || !clientSecret) {
+      return null;
+    }
+
+    return { syncCron, clientSecret };
+  }
+
+  getSyncConfig(syncSource: string): AlConfig | TxConfig | null {
+    if (syncSource === 'al_sync') return this.alConfig();
+    if (syncSource === 'tx_sync') return this.txConfig();
+    return null;
   }
   // Jobs whose input files total at least this many bytes run on the large
   // ECS task instead of medium. Null when unset or unparseable; the caller

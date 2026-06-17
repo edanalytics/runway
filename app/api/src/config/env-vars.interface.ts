@@ -51,4 +51,5 @@ export interface IEnvironmentVariables {
   AL_CLIENT_ID?: string;
   AL_CLIENT_SECRET?: string;
   AL_AUDIENCE?: string;
+  TX_CLIENT_SECRET?: string;
 }

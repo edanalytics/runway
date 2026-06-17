@@ -1,20 +1,11 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PgBoss } from 'pg-boss';
 import { PrismaClient } from '@prisma/client';
-import { AppConfigService } from '../config/app-config.service';
+import { AlConfig, AppConfigService } from '../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../database/database.service';
 import { AlPartner, AlTenant } from './app-launcher.types';
 
 const AL_SYNC_CHANNEL = 'app-launcher-sync';
-
-type AlConfig = {
-  syncCron: string;
-  url: string;
-  auth0Domain: string;
-  clientId: string;
-  clientSecret: string;
-  audience: string;
-};
 
 @Injectable()
 export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
@@ -43,19 +34,33 @@ export class PartnerSyncService implements OnModuleInit, OnModuleDestroy {
     this.boss = new PgBoss(connStr);
     await this.boss.start();
 
-    const alConfig = this.appConfig.alConfig();
-    if (!alConfig) {
-      this.logger.warn('AL sync config not set — unscheduling any existing AL sync job');
-      await this.boss.unschedule(AL_SYNC_CHANNEL);
-      return;
-    }
-
-    await this.boss.createQueue(AL_SYNC_CHANNEL);
-    await this.boss.schedule(AL_SYNC_CHANNEL, alConfig.syncCron, null, {
-      singletonKey: 'al-sync',
+    const partners = await this.prisma.partner.findMany({
+      where: { managedBy: { not: null } },
+      select: { managedBy: true },
     });
-    await this.boss.work(AL_SYNC_CHANNEL, () => this.sync(alConfig));
-    this.logger.log(`AL sync scheduled: ${alConfig.syncCron}`);
+
+    const activeSources = new Set(
+      partners.flatMap((p) => (p.managedBy ? [p.managedBy] : []))
+    );
+
+    for (const source of activeSources) {
+      const config = this.appConfig.getSyncConfig(source);
+      if (source === 'al_sync') {
+        if (!config) {
+          this.logger.warn('AL sync config not set — unscheduling any existing AL sync job');
+          await this.boss.unschedule(AL_SYNC_CHANNEL);
+          continue;
+        }
+        await this.boss.createQueue(AL_SYNC_CHANNEL);
+        await this.boss.schedule(AL_SYNC_CHANNEL, config.syncCron, null, {
+          singletonKey: 'al-sync',
+        });
+        await this.boss.work(AL_SYNC_CHANNEL, () => this.sync(config as AlConfig));
+        this.logger.log(`AL sync scheduled: ${config.syncCron}`);
+      } else {
+        this.logger.warn(`Sync source "${source}" has no registered handler — skipping`);
+      }
+    }
   }
 
   private async getToken(
