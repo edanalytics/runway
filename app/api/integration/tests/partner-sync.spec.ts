@@ -1,5 +1,4 @@
-import { PartnerSyncService } from '../../src/partner-sync/partner-sync.service';
-import { AlPartner, AlTenant } from '../../src/partner-sync/app-launcher.types';
+import { AlPartner, AlTenant } from 'api/src/partner-sync/al/al-sync.types';
 import {
   syncPartner,
   gonePartner,
@@ -12,6 +11,7 @@ import {
   doomedTenant1,
   doomedTenant2,
 } from '../fixtures/context-fixtures/partner-sync-fixtures';
+import { AlSyncHandler } from 'api/src/partner-sync/al/al-sync.handler';
 
 const AL_CONFIG = {
   syncCron: '*/5 * * * *',
@@ -85,11 +85,11 @@ function mockAlFetch({
 }
 
 describe('PartnerSyncService.sync', () => {
-  let service: PartnerSyncService;
+  let service: AlSyncHandler;
   let fetchSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    service = app.get(PartnerSyncService);
+    service = app.get(AlSyncHandler);
     // Reset cached token so each test starts with a fresh auth state
     (service as any).alToken = null;
     (service as any).alTokenExpiration = null;
@@ -99,7 +99,7 @@ describe('PartnerSyncService.sync', () => {
     fetchSpy?.mockRestore();
   });
 
-  const runSync = () => (service as any).sync(AL_CONFIG);
+  const runSync = () => (service as any).runSync(AL_CONFIG);
 
   describe('partner sync', () => {
     it('creates new partners returned by AL', async () => {
