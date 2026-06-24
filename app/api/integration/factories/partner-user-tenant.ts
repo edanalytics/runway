@@ -14,15 +14,15 @@ export const makePartnerUserTenantContext = (tag: string) => {
     idpId: idp.id,
     descriptorNamespace: null,
     crossYearMatchingEnabled: false,
-    managedBy: 'user_management_sync',
-    deletedOn: null
+    managedBy: null,
+    deletedOn: null,
   };
 
   const tenant: WithoutAudit<Tenant> = {
     code: `tenant-${tag}`,
     partnerId: partner.id,
-    isGlobal: true,
-    deletedOn: null
+    isGlobal: false,
+    deletedOn: null,
   };
 
   const user: WithoutAudit<Omit<User, 'id'>> = {
@@ -78,4 +78,3 @@ export const seedContext = async (
     user,
   };
 };
-
