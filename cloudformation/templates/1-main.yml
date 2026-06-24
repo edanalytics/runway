@@ -496,6 +496,7 @@ Resources:
         DataBucketName: !Sub '${EnvLabel}-${AWS::AccountId}-data-integration'
         DomainName: !Ref DomainName
         S3AccessLoggingBucket: !If [EnableS3AccessLogging, !Ref S3AccessLoggingBucket, '']
+        SetCloudWatchRetentionLambdaFunctionArn: !GetAtt 'LambdaFunctionsStack.Outputs.SetCloudWatchRetentionLambdaFunctionArn'
   CloudWatchDashboardStack: 
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete

@@ -725,3 +725,6 @@ Outputs:
     Condition: EnableSlackAlerting
     Description: ARN of the ApplicationEventsToSlackFunction
     Value: !GetAtt 'ApplicationEventsToSlackFunction.Arn'
+  SetCloudWatchRetentionLambdaFunctionArn:
+    Description: ARN of the SetCloudWatchRetentionLambdaFunction
+    Value: !GetAtt 'SetCloudWatchRetentionLambdaFunction.Arn'
