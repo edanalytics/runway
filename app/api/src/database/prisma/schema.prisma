@@ -495,8 +495,8 @@ enum FileStorageProtocol {
 }
 
 enum SyncManager {
-  al_sync @map("al-sync")
-  tx_sync @map("tx-sync")
+  user_management_sync
+  tx_sync
 
   @@map("sync_manager")
 }

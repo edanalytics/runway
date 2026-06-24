@@ -1,4 +1,4 @@
-CREATE TYPE sync_manager AS ENUM ('al-sync', 'tx-sync');
+CREATE TYPE sync_manager AS ENUM ('user_management_sync', 'tx_sync');
 
 -- Add soft-delete and management columns to partner table
 ALTER TABLE public.partner
