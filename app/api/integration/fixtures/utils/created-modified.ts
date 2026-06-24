@@ -1,4 +1,1 @@
-export type WithoutAudit<T> = Omit<
-  T,
-  'createdById' | 'createdOn' | 'modifiedById' | 'modifiedOn' | 'deletedOn'
->;
+export type WithoutAudit<T> = Omit<T, 'createdById' | 'createdOn' | 'modifiedById' | 'modifiedOn'>;

@@ -14,13 +14,15 @@ export const makePartnerUserTenantContext = (tag: string) => {
     idpId: idp.id,
     descriptorNamespace: null,
     crossYearMatchingEnabled: false,
-    managedBy: 'user_management_sync'
+    managedBy: 'user_management_sync',
+    deletedOn: null
   };
 
   const tenant: WithoutAudit<Tenant> = {
     code: `tenant-${tag}`,
     partnerId: partner.id,
-    isGlobal: true
+    isGlobal: true,
+    deletedOn: null
   };
 
   const user: WithoutAudit<Omit<User, 'id'>> = {

@@ -9,6 +9,7 @@ export const partnerA: WithoutAudit<Partner> = {
   descriptorNamespace: 'partner-a',
   crossYearMatchingEnabled: false,
   managedBy: 'user_management_sync',
+  deletedOn: null,
 };
 
 export const partnerC: WithoutAudit<Partner> = {
@@ -18,6 +19,7 @@ export const partnerC: WithoutAudit<Partner> = {
   descriptorNamespace: 'partner-c',
   crossYearMatchingEnabled: false,
   managedBy: 'user_management_sync',
+  deletedOn: null,
 };
 
 export const partnerX: WithoutAudit<Partner> = {
@@ -27,4 +29,5 @@ export const partnerX: WithoutAudit<Partner> = {
   descriptorNamespace: null,
   crossYearMatchingEnabled: false,
   managedBy: 'user_management_sync',
+  deletedOn: null,
 };
