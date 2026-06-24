@@ -103,7 +103,7 @@ export const OdsConfigsPage = () => {
                     onDelete={() => odsConfig && confirmDelete(yearConfig, odsConfig)}
                   />
                 ) : (
-                  <RosterYearContent hasRoster={yearConfig.hasRoster === true} />
+                  <RosterYearContent hasRoster={yearConfig.hasNonOdsRoster === true} />
                 )}
               </Box>
             );
@@ -228,8 +228,8 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
       </Box>
       {!hasRoster && (
         <Box textStyle="body">
-          A roster file is required to match student IDs. Contact support to have a roster file
-          loaded.
+          A roster is required to match student IDs. Contact support to have a roster source
+          configured.
         </Box>
       )}
       <HStack justifyContent="space-between">
@@ -243,10 +243,10 @@ const RosterYearContent = ({ hasRoster }: { hasRoster: boolean }) => {
             {hasRoster ? <IconCheckmark /> : <IconExclamation />}
           </Box>
           <Box textStyle="h6" textColor={hasRoster ? 'green.50' : 'pink.50'}>
-            {hasRoster ? 'roster file loaded' : 'roster file not loaded'}
+            {hasRoster ? 'roster available' : 'roster not available'}
           </Box>
         </HStack>
-        {!hasRoster && <ContactSupport message="Roster file needs to be loaded" />}
+        {!hasRoster && <ContactSupport message="A roster source needs to be configured" />}
       </HStack>
     </VStack>
   );

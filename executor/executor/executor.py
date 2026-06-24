@@ -108,7 +108,6 @@ class JobExecutor:
             self.unpack_job(job)
             self.refresh_bundle_code()
             self.earthmover_deps()
-            self.log_bundle_split_version()
 
             if self.send_to_ods and self.local_mode:
                 self.modify_local_lightbeam()
@@ -265,24 +264,6 @@ class JobExecutor:
         except subprocess.CalledProcessError:
             self.error = error.EarthmoverDepsError()
             raise
-
-    def log_bundle_split_version(self):
-        """Echo the installed student_ids bundle so we can confirm at runtime which
-        version (index [1] vs [-1] on the descriptor split, etc.) is actually deployed."""
-        path = os.path.join(
-            config.BUNDLE_DIR, "packages", "student_id_wrapper",
-            "packages", "student_ids", "earthmover.yaml",
-        )
-        try:
-            with open(path) as f:
-                contents = f.read()
-        except FileNotFoundError:
-            self.logger.warning(f"bundle split check: could not open {path}")
-            return
-        for i, line in enumerate(contents.splitlines(), start=1):
-            if "split('#')" in line:
-                self.logger.info(f"bundle split check ({path}:{i}): {line.strip()}")
-        self.logger.info(f"bundle full contents ({path}):\n{contents}")
 
     def modify_local_lightbeam(self):
         """Disable SSL checking in Lightbeam so that it can communicate with a locally-running ODS"""
@@ -561,32 +542,6 @@ class JobExecutor:
         self.upload_artifact(artifact.CROSS_YEAR_ROSTER)
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
-        # diagnostic: how many students came back from EDU, plus a sample of the IDs
-        # we'll actually be matching against (the column the first pass chose)
-        roster_ids = set()
-        sample_roster_ids = []
-        roster_count = 0
-        with open(config.CROSS_YEAR_ROSTER_PATH) as f:
-            for line in f:
-                rec = json.loads(line)
-                roster_count += 1
-                if first_run_id_type == "studentUniqueId":
-                    sid = rec["studentReference"]["studentUniqueId"]
-                    roster_ids.add(sid)
-                    if len(sample_roster_ids) < 5:
-                        sample_roster_ids.append(sid)
-                else:
-                    for id_code in rec.get("studentIdentificationCodes") or []:
-                        descriptor = id_code.get("studentIdentificationSystemDescriptor") or ""
-                        if descriptor.split("#")[-1] == first_run_id_type:
-                            code = id_code.get("identificationCode")
-                            if code:
-                                roster_ids.add(code)
-                                if len(sample_roster_ids) < 5:
-                                    sample_roster_ids.append(code)
-                            break
-        self.logger.info(f"cross-year roster: {roster_count} students; {len(roster_ids)} have a {first_run_id_type} ID; sample: {sample_roster_ids}")
-
         # Constrain to the ID column the first pass matched on. The bundle always appends
         # studentUniqueId internally, so we pass an empty list when that's what won.
         os.environ["POSSIBLE_STUDENT_ID_COLUMNS"] = first_run_id_name
@@ -597,25 +552,11 @@ class JobExecutor:
         os.environ["REQUIRED_ID_MATCH_RATE"] = "0.0"
         self.logger.info(f"cross-year pass: matching on {first_run_id_name} ({first_run_id_type} ID)")
 
-        # diagnostic: what does the second-pass input look like, and how do its IDs overlap with the roster?
-        self.logger.info(f"cross-year input file: {unmatched_path}")
-        with open(unmatched_path) as f:
-            head = [next(f, None) for _ in range(6)]
-        self.logger.info(f"cross-year input sample (first 5 rows after header): {head[1:]}")
-
-        input_ids = set()
-        with open(unmatched_path) as f:
-            for row in csv.DictReader(f):
-                v = row.get(first_run_id_name)
-                if v:
-                    input_ids.add(v)
-        self.logger.info(f"cross-year overlap: {len(input_ids & roster_ids)} of {len(input_ids)} input IDs appear in roster ({first_run_id_type})")
-
         self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
 
-        self.logger.info(f"cross-year match_rates: {load_match_rates()}")
+        self.logger.info(f"cross-year pass: match_rates: {load_match_rates()}")
         count = count_unmatched_students()
         if count is None:
             #    Edge case alert! It may be that in the second pass, there are no matches even with the

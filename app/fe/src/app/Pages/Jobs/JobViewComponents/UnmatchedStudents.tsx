@@ -57,7 +57,7 @@ export const UnmatchedStudents = ({ job }: { job: GetJobDto }) => {
                 </>
               )}
               If the file already contains the correct ID, then the student likely does not exist in
-              {job.sendToOds ? ' the ODS' : ' the roster file'}. Contact your district administrator.
+              {job.sendToOds ? ' the ODS' : ' the roster'}. Contact your district administrator.
             </Box>
           </UnmatchedStudentStep>
           <UnmatchedStudentStep>
