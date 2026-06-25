@@ -1,4 +1,7 @@
-import { UserManagementTenant, UserManagementPartner } from 'api/src/partner-sync/user-management/um-sync.types';
+import {
+  UserManagementTenant,
+  UserManagementPartner,
+} from 'api/src/partner-sync/user-management/um-sync.types';
 import {
   syncPartner,
   gonePartner,
@@ -102,7 +105,7 @@ describe('PartnerSyncService.sync', () => {
   const runSync = () => (service as any).runSync(UM_CONFIG);
 
   describe('partner sync', () => {
-    it('creates new partners returned by AL', async () => {
+    it('creates new partners returned by UM', async () => {
       fetchSpy = mockUmFetch({
         partners: [{ partnerCode: 'new-partner' }],
         tenants: { 'new-partner': [] },
@@ -116,7 +119,7 @@ describe('PartnerSyncService.sync', () => {
       expect(created?.deletedOn).toBeNull();
     });
 
-    it('soft-deletes sync-managed partners absent from AL', async () => {
+    it('soft-deletes sync-managed partners absent from UM', async () => {
       await global.prisma.partner.create({ data: gonePartner });
 
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
@@ -127,7 +130,7 @@ describe('PartnerSyncService.sync', () => {
       expect(partner?.deletedOn).not.toBeNull();
     });
 
-    it('does not delete non-sync-managed partners absent from AL', async () => {
+    it('does not delete non-sync-managed partners absent from UM', async () => {
       // seeded partnerA has managedBy: null — must not be touched
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
 
@@ -137,7 +140,7 @@ describe('PartnerSyncService.sync', () => {
       expect(partner?.deletedOn).toBeNull();
     });
 
-    it('undeletes a sync-managed partner that reappears in AL', async () => {
+    it('undeletes a sync-managed partner that reappears in UM', async () => {
       await global.prisma.partner.create({ data: returningPartner });
 
       fetchSpy = mockUmFetch({
@@ -155,7 +158,7 @@ describe('PartnerSyncService.sync', () => {
   });
 
   describe('tenant sync', () => {
-    it('creates new tenants returned by AL', async () => {
+    it('creates new tenants returned by UM', async () => {
       await global.prisma.partner.create({ data: syncPartner });
 
       fetchSpy = mockUmFetch({
@@ -178,7 +181,7 @@ describe('PartnerSyncService.sync', () => {
       expect(tenant?.isGlobal).toBe(true);
     });
 
-    it('soft-deletes sync-managed tenants absent from AL', async () => {
+    it('soft-deletes sync-managed tenants absent from UM', async () => {
       await global.prisma.partner.create({ data: syncPartner });
       await global.prisma.tenant.create({ data: syncPartnerOldTenant });
 
@@ -195,7 +198,7 @@ describe('PartnerSyncService.sync', () => {
       expect(tenant?.deletedOn).not.toBeNull();
     });
 
-    it('does not delete non-sync-managed tenants absent from AL', async () => {
+    it('does not delete non-sync-managed tenants absent from UM', async () => {
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
 
       await runSync();
@@ -206,7 +209,7 @@ describe('PartnerSyncService.sync', () => {
       expect(tenant?.deletedOn).toBeNull();
     });
 
-    it('undeletes tenants that reappear in AL', async () => {
+    it('undeletes tenants that reappear in UM', async () => {
       await global.prisma.partner.create({ data: syncPartner });
       await global.prisma.tenant.create({ data: syncPartnerReturningTenant });
 
@@ -277,7 +280,7 @@ describe('PartnerSyncService.sync', () => {
       await global.prisma.partner.create({ data: doomedPartner });
       await global.prisma.tenant.createMany({ data: [doomedTenant1, doomedTenant2] });
 
-      // AL no longer knows about this partner
+      // UM no longer knows about this partner
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
 
       await runSync();
@@ -298,7 +301,7 @@ describe('PartnerSyncService.sync', () => {
 
       await runSync();
 
-      // sync-managed partner must not be soft-deleted when we cannot reach AL
+      // sync-managed partner must not be soft-deleted when we cannot reach UM
       const partner = await global.prisma.partner.findUnique({ where: { id: 'sync-partner' } });
       expect(partner?.deletedOn).toBeNull();
     });
@@ -310,7 +313,7 @@ describe('PartnerSyncService.sync', () => {
 
       await runSync();
 
-      // sync-managed partner must not be soft-deleted when we cannot reach AL
+      // sync-managed partner must not be soft-deleted when we cannot reach UM
       const partner = await global.prisma.partner.findUnique({ where: { id: 'sync-partner' } });
       expect(partner?.deletedOn).toBeNull();
     });

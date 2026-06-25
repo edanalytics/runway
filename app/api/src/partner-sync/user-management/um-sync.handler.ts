@@ -193,7 +193,7 @@ export class UmSyncHandler implements SyncHandler {
       }
 
       const partnerIdsForTenantSync = [
-        ...existingPartners.filter((p) => !deletingPartnerIds.has(p.id)).map((p) => p.id),
+        ...existingPartners.filter((p) => p.managedBy && !deletingPartnerIds.has(p.id)).map((p) => p.id),
         ...partnerIdsToCreate,
       ];
 
