@@ -18,11 +18,11 @@ import { UmSyncHandler } from 'api/src/partner-sync/user-management/um-sync.hand
 
 const UM_CONFIG = {
   syncCron: '*/5 * * * *',
-  url: 'https://al.example.com',
+  url: 'https://um.example.com',
   auth0Domain: 'auth.example.com',
   clientId: 'test-client-id',
   clientSecret: 'test-client-secret',
-  audience: 'https://al.example.com',
+  audience: 'https://um.example.com',
 };
 
 function makeUmTenant(

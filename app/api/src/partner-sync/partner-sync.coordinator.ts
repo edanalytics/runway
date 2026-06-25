@@ -1,8 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PgBoss } from 'pg-boss';
-import { PrismaClient } from '@prisma/client';
 import { AppConfigService } from '../config/app-config.service';
-import { PRISMA_ANONYMOUS } from '../database/database.service';
 import { SyncHandler, SYNC_HANDLERS } from './sync-handler.interface';
 
 @Injectable()
@@ -12,7 +10,6 @@ export class PartnerSyncCoordinator implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly appConfig: AppConfigService,
-    @Inject(PRISMA_ANONYMOUS) private readonly prisma: PrismaClient,
     @Inject(SYNC_HANDLERS) private readonly handlers: SyncHandler[]
   ) {}
 
@@ -31,24 +28,8 @@ export class PartnerSyncCoordinator implements OnModuleInit, OnModuleDestroy {
     this.boss = new PgBoss(connStr);
     await this.boss.start();
 
-    const partners = await this.prisma.partner.findMany({
-      where: { managedBy: { not: null } },
-      select: { managedBy: true },
-    });
-
-    const activeSources = new Set(
-      partners.flatMap((p) => (p.managedBy ? [p.managedBy] : []))
-    );
-
-    const handlersBySource = new Map(this.handlers.map((h) => [h.sourceKey, h]));
-
-    for (const source of activeSources) {
-      const handler = handlersBySource.get(source);
-      if (!handler) {
-        this.logger.warn(`Sync source "${source}" has no registered handler — skipping`);
-        continue;
-      }
-
+    for (const handler of this.handlers) {
+      const source = handler.sourceKey;
       const config = this.appConfig.getSyncConfig(source);
       if (!config) {
         this.logger.warn(`${source} config not set — unscheduling any existing job`);
