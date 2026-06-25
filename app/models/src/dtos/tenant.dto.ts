@@ -16,9 +16,6 @@ export class GetTenantDto extends DtoGetBase implements Tenant {
 
   @Expose()
   isGlobal: boolean;
-
-  @Expose()
-  managedBy: SyncManager;
 }
 
 export const toGetTenantDto = makeSerializer<GetTenantDto>(GetTenantDto);

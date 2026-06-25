@@ -53,7 +53,10 @@ model Tenant {
   modifiedOn                   DateTime     @default(now()) @map("modified_on") @db.Timestamp(6)
   deletedOn                    DateTime?    @map("deleted_on") @db.Timestamp(6)
   isGlobal                     Boolean      @default(false) @map("is_global")
+<<<<<<< HEAD
   managedBy                    SyncManager? @map("managed_by")
+=======
+>>>>>>> development
   job                          Job[]
   odsConfig                    OdsConfig[]
   userTenantCreatedByIdTouser  User?        @relation("tenant_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
@@ -496,8 +499,8 @@ enum FileStorageProtocol {
 }
 
 enum SyncManager {
-  al_sync @map("al-sync")
-  tx_sync @map("tx-sync")
+  user_management_sync
+  tx_sync
 
   @@map("sync_manager")
 }
