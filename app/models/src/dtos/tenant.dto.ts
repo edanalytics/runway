@@ -9,6 +9,12 @@ export class GetTenantDto extends DtoGetBase implements Tenant {
 
   @Expose()
   partnerId: string;
+
+  @Expose()
+  deletedOn: Date | null;
+
+  @Expose()
+  isGlobal: boolean;
 }
 
 export const toGetTenantDto = makeSerializer<GetTenantDto>(GetTenantDto);
