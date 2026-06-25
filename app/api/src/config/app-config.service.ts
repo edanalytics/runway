@@ -240,7 +240,7 @@ export class AppConfigService {
   }
 
   txConfig(): TxConfig | null {
-    const syncCron = this.get('UM_SYNC_CRON');
+    const syncCron = this.get('TX_SYNC_CRON');
     const clientSecret = this.get('TX_CLIENT_SECRET');
 
     if (!syncCron || !clientSecret) {

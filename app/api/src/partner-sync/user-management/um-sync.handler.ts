@@ -44,7 +44,7 @@ export class UmSyncHandler implements SyncHandler {
       });
 
       if (!response.ok) {
-        this.logger.error(`Failed to get AL token: ${response.status} ${response.statusText}`);
+        this.logger.error(`Failed to get UM token: ${response.status} ${response.statusText}`);
         return { status: 'failure' };
       }
 
@@ -53,7 +53,7 @@ export class UmSyncHandler implements SyncHandler {
       this.alTokenExpiration = new Date(Date.now() + data.expires_in * 1000);
       return { status: 'success' };
     } catch (error) {
-      this.logger.error('Error fetching AL token', error);
+      this.logger.error('Error fetching UM token', error);
       return { status: 'failure' };
     }
   }
@@ -67,7 +67,7 @@ export class UmSyncHandler implements SyncHandler {
     return { status: 'success' };
   }
 
-  private async alRequest(
+  private async umRequest(
     umConfig: UmConfig,
     path: string,
     searchParams?: Record<string, string>
@@ -100,14 +100,14 @@ export class UmSyncHandler implements SyncHandler {
       return { status: 'success', data: await response.json() };
     }
 
-    this.logger.warn(`AL request to ${url} failed with ${response.status}: ${response.statusText}`);
+    this.logger.warn(`UM request to ${url} failed with ${response.status}: ${response.statusText}`);
     return { status: 'failure' };
   }
 
   private async getPartners(
     umConfig: UmConfig
   ): Promise<{ status: 'success'; partners: UserManagementPartner[] } | { status: 'failure' }> {
-    const result = await this.alRequest(umConfig, 'partners');
+    const result = await this.umRequest(umConfig, 'partners');
     if (result.status !== 'success') {
       this.logger.error('Failed to fetch partners from AL');
       return { status: 'failure' };
@@ -119,9 +119,9 @@ export class UmSyncHandler implements SyncHandler {
     umConfig: UmConfig,
     partnerCode: string
   ): Promise<{ status: 'success'; tenants: UserManagementTenant[] } | { status: 'failure' }> {
-    const result = await this.alRequest(umConfig, 'tenants', { partnerCode });
+    const result = await this.umRequest(umConfig, 'tenants', { partnerCode });
     if (result.status !== 'success') {
-      this.logger.error(`Failed to fetch tenants for partner ${partnerCode} from AL`);
+      this.logger.error(`Failed to fetch tenants for partner ${partnerCode} from UM`);
       return { status: 'failure' };
     }
     return { status: 'success', tenants: result.data as UserManagementTenant[] };
@@ -129,7 +129,7 @@ export class UmSyncHandler implements SyncHandler {
 
   private async runSync(umConfig: UmConfig): Promise<void> {
     try {
-      this.logger.log('Starting AL sync');
+      this.logger.log('Starting UM sync');
 
       const [existingPartners, existingTenants] = await Promise.all([
         this.prisma.partner.findMany(),
@@ -297,14 +297,14 @@ export class UmSyncHandler implements SyncHandler {
         }
 
         this.logger.log(
-          `AL sync: partners +${partnersCreated} -${partnersDeleted} ↑${partnersUndeleted} | ` +
+          `UM sync: partners +${partnersCreated} -${partnersDeleted} ↑${partnersUndeleted} | ` +
             `tenants +${tenantsCreated} -${tenantsDeleted} ↑${tenantsUndeleted}`
         );
       });
 
-      this.logger.log('AL sync complete');
+      this.logger.log('UM sync complete');
     } catch (err) {
-      this.logger.error('AL sync failed', err);
+      this.logger.error('UM sync failed', err);
       throw err;
     }
   }

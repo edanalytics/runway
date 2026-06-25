@@ -51,5 +51,7 @@ export interface IEnvironmentVariables {
   UM_CLIENT_ID?: string;
   UM_CLIENT_SECRET?: string;
   UM_AUDIENCE?: string;
+
+  TX_SYNC_CRON?: string;
   TX_CLIENT_SECRET?: string;
 }
