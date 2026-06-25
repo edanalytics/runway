@@ -1,7 +1,8 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PgBoss } from 'pg-boss';
 import { AppConfigService } from '../config/app-config.service';
-import { SyncHandler, SYNC_HANDLERS } from './sync-handler.interface';
+import { TxSyncHandler } from './tx/tx-sync.handler';
+import { UmSyncHandler } from './user-management/um-sync.handler';
 
 @Injectable()
 export class PartnerSyncCoordinator implements OnModuleInit, OnModuleDestroy {
@@ -10,8 +11,8 @@ export class PartnerSyncCoordinator implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly appConfig: AppConfigService,
-    @Inject(SYNC_HANDLERS) private readonly handlers: SyncHandler[]
-  ) {}
+  private readonly umHandler: UmSyncHandler,
+  private readonly txHandler: TxSyncHandler,  ) {}
 
   async onModuleDestroy() {
     await this.boss?.stop();
@@ -28,7 +29,7 @@ export class PartnerSyncCoordinator implements OnModuleInit, OnModuleDestroy {
     this.boss = new PgBoss(connStr);
     await this.boss.start();
 
-    for (const handler of this.handlers) {
+    for (const handler of [this.umHandler, this.txHandler]) {
       const source = handler.sourceKey;
       const config = this.appConfig.getSyncConfig(source);
       if (!config) {
