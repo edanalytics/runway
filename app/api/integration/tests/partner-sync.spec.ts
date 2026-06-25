@@ -196,7 +196,6 @@ describe('PartnerSyncService.sync', () => {
     });
 
     it('does not delete non-sync-managed tenants absent from AL', async () => {
-      // seeded tenantA has managedBy: null — must not be touched
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
 
       await runSync();

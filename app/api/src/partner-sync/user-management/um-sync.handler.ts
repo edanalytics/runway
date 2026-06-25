@@ -22,7 +22,7 @@ export class UmSyncHandler implements SyncHandler {
   async sync(): Promise<void> {
     const config = this.appConfig.UmConfig();
     if (!config) {
-      this.logger.warn('AL sync config not set — skipping sync');
+      this.logger.warn('UM sync config not set — skipping sync');
       return;
     }
     await this.runSync(config);
@@ -260,7 +260,7 @@ export class UmSyncHandler implements SyncHandler {
 
         if (tenantsToCreate.length) {
           const r = await tx.tenant.createMany({
-            data: tenantsToCreate.map((t) => ({ ...t, managedBy: 'user_management_sync' })),
+            data: tenantsToCreate.map((t) => ({ ...t})),
           });
           tenantsCreated = r.count;
         }
