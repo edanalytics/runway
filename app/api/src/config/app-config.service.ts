@@ -225,12 +225,12 @@ export class AppConfigService {
   }
 
   alConfig(): AlConfig | null {
-    const syncCron = this.get('AL_SYNC_CRON');
-    const url = this.get('AL_URL');
-    const auth0Domain = this.get('AL_AUTH0_DOMAIN');
-    const clientId = this.get('AL_CLIENT_ID');
-    const clientSecret = this.get('AL_CLIENT_SECRET');
-    const audience = this.get('AL_AUDIENCE');
+    const syncCron = this.get('UM_SYNC_CRON');
+    const url = this.get('UM_URL');
+    const auth0Domain = this.get('UM_AUTH0_DOMAIN');
+    const clientId = this.get('UM_CLIENT_ID');
+    const clientSecret = this.get('UM_CLIENT_SECRET');
+    const audience = this.get('UM_AUDIENCE');
 
     if (!syncCron || !url || !auth0Domain || !clientId || !clientSecret || !audience) {
       return null;
@@ -240,7 +240,7 @@ export class AppConfigService {
   }
 
   txConfig(): TxConfig | null {
-    const syncCron = this.get('AL_SYNC_CRON');
+    const syncCron = this.get('UM_SYNC_CRON');
     const clientSecret = this.get('TX_CLIENT_SECRET');
 
     if (!syncCron || !clientSecret) {
@@ -251,7 +251,7 @@ export class AppConfigService {
   }
 
   getSyncConfig(syncSource: string): AlConfig | TxConfig | null {
-    if (syncSource === 'al_sync') return this.alConfig();
+    if (syncSource === 'user_management_sync') return this.alConfig();
     if (syncSource === 'tx_sync') return this.txConfig();
     return null;
   }

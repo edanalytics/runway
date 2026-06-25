@@ -3,12 +3,13 @@ import { PrismaClient } from '@prisma/client';
 import { AppConfigService, AlConfig } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database/database.service';
 import { SyncHandler } from '../sync-handler.interface';
-import { AlPartner, AlTenant } from './al-sync.types';
+import { TenantUpsert, UserManagementPartner, UserManagementTenant } from './um-sync.types';
+import { GetTenantDto } from 'models/src/dtos/tenant.dto';
 
 @Injectable()
 export class AlSyncHandler implements SyncHandler {
-  readonly sourceKey = 'al_sync';
-  readonly channel = 'app-launcher-sync';
+  readonly sourceKey = 'user_management_sync';
+  readonly channel = 'user_management_sync';
 
   private readonly logger = new Logger(AlSyncHandler.name);
   private alToken: string | null = null;
@@ -106,25 +107,25 @@ export class AlSyncHandler implements SyncHandler {
 
   private async getPartners(
     alConfig: AlConfig
-  ): Promise<{ status: 'success'; partners: AlPartner[] } | { status: 'failure' }> {
+  ): Promise<{ status: 'success'; partners: UserManagementPartner[] } | { status: 'failure' }> {
     const result = await this.alRequest(alConfig, 'partners');
     if (result.status !== 'success') {
       this.logger.error('Failed to fetch partners from AL');
       return { status: 'failure' };
     }
-    return { status: 'success', partners: result.data as AlPartner[] };
+    return { status: 'success', partners: result.data as UserManagementPartner[] };
   }
 
   private async getTenants(
     alConfig: AlConfig,
     partnerCode: string
-  ): Promise<{ status: 'success'; tenants: AlTenant[] } | { status: 'failure' }> {
+  ): Promise<{ status: 'success'; tenants: UserManagementTenant[] } | { status: 'failure' }> {
     const result = await this.alRequest(alConfig, 'tenants', { partnerCode });
     if (result.status !== 'success') {
       this.logger.error(`Failed to fetch tenants for partner ${partnerCode} from AL`);
       return { status: 'failure' };
     }
-    return { status: 'success', tenants: result.data as AlTenant[] };
+    return { status: 'success', tenants: result.data as UserManagementTenant[] };
   }
 
   private async runSync(alConfig: AlConfig): Promise<void> {
@@ -137,7 +138,7 @@ export class AlSyncHandler implements SyncHandler {
       ]);
 
       // Build tenant lookup: partnerId -> tenantCode -> tenant
-      const tenantsByPartner = new Map<string, Map<string, (typeof existingTenants)[0]>>();
+      const tenantsByPartner = new Map<string, Map<string, GetTenantDto>>();
       for (const partner of existingPartners) {
         tenantsByPartner.set(partner.id, new Map());
       }
@@ -179,11 +180,6 @@ export class AlSyncHandler implements SyncHandler {
       const deletingPartnerIds = new Set(partnerIdsToDelete);
 
       // --- Tenant sync ---
-      type TenantUpsert = {
-        code: string;
-        partnerId: string;
-        isGlobal: boolean;
-      };
       const tenantsToCreate: TenantUpsert[] = [];
       const tenantsToDelete: { code: string; partnerId: string }[] = [];
       const tenantsToUndelete: TenantUpsert[] = [];
@@ -209,8 +205,8 @@ export class AlSyncHandler implements SyncHandler {
             return;
           }
 
-          const tenantMap = tenantsByPartner.get(partnerId) ?? new Map();
-          const apiCodes = new Set(result.tenants.map((t) => t.tenantCode));
+          const tenantMap: Map<string, GetTenantDto> = tenantsByPartner.get(partnerId) ?? new Map();
+          const umTenantCodes = new Set(result.tenants.map((t) => t.tenantCode));
 
           for (const apiTenant of result.tenants) {
             const existing = tenantMap.get(apiTenant.tenantCode);
@@ -225,7 +221,7 @@ export class AlSyncHandler implements SyncHandler {
           }
 
           for (const [code, tenant] of tenantMap) {
-            if (!!tenant.managedBy && !apiCodes.has(code) && !tenant.deletedOn) {
+            if (!umTenantCodes.has(code) && !tenant.deletedOn) {
               tenantsToDelete.push({ code: tenant.code, partnerId: tenant.partnerId });
             }
           }
@@ -242,7 +238,7 @@ export class AlSyncHandler implements SyncHandler {
 
         if (partnerIdsToCreate.length) {
           const r = await tx.partner.createMany({
-            data: partnerIdsToCreate.map((id) => ({ id, name: id, managedBy: 'al_sync' })),
+            data: partnerIdsToCreate.map((id) => ({ id, name: id, managedBy: 'user_management_sync' })),
           });
           partnersCreated = r.count;
         }
@@ -265,7 +261,7 @@ export class AlSyncHandler implements SyncHandler {
 
         if (tenantsToCreate.length) {
           const r = await tx.tenant.createMany({
-            data: tenantsToCreate.map((t) => ({ ...t, managedBy: 'al_sync' })),
+            data: tenantsToCreate.map((t) => ({ ...t, managedBy: 'user_management_sync' })),
           });
           tenantsCreated = r.count;
         }

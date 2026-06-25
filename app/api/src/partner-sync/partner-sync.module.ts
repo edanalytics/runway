@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PartnerSyncCoordinator } from './partner-sync.coordinator';
-import { AlSyncHandler } from './al/al-sync.handler';
+import { AlSyncHandler } from './user-management/um-sync.handler';
 import { TxSyncHandler } from './tx/tx-sync.handler';
 import { SYNC_HANDLERS } from './sync-handler.interface';
 

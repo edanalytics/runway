@@ -45,11 +45,11 @@ export interface IEnvironmentVariables {
   OAUTH2_AUDIENCE?: string; // token audience for external API
 
   // for tenant sync
-  AL_SYNC_CRON?: string; // e.g. "0 0 * * *" — unset = sync disabled
-  AL_URL?: string;
-  AL_AUTH0_DOMAIN?: string;
-  AL_CLIENT_ID?: string;
-  AL_CLIENT_SECRET?: string;
-  AL_AUDIENCE?: string;
+  UM_SYNC_CRON?: string; // e.g. "0 0 * * *" — unset = sync disabled
+  UM_URL?: string;
+  UM_AUTH0_DOMAIN?: string;
+  UM_CLIENT_ID?: string;
+  UM_CLIENT_SECRET?: string;
+  UM_AUDIENCE?: string;
   TX_CLIENT_SECRET?: string;
 }

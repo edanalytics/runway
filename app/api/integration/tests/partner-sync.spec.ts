@@ -1,4 +1,4 @@
-import { AlPartner, AlTenant } from 'api/src/partner-sync/al/al-sync.types';
+import { UserManagementPartner, UserManagementTenant } from 'api/src/partner-sync/al/al-sync.types';
 import {
   syncPartner,
   gonePartner,
@@ -25,8 +25,8 @@ const AL_CONFIG = {
 function makeAlTenant(
   partnerCode: string,
   tenantCode: string,
-  overrides: Partial<AlTenant> = {}
-): AlTenant {
+  overrides: Partial<UserManagementTenant> = {}
+): UserManagementTenant {
   return {
     partnerCode,
     tenantCode,
@@ -38,8 +38,8 @@ function makeAlTenant(
 }
 
 function mockAlFetch({
-  partners = [] as AlPartner[],
-  tenants = {} as Record<string, AlTenant[]>,
+  partners = [] as UserManagementPartner[],
+  tenants = {} as Record<string, UserManagementTenant[]>,
   tokenFails = false,
   partnersFail = false,
 } = {}): jest.SpyInstance {
