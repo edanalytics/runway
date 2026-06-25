@@ -8,7 +8,7 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
-export type AlConfig = {
+export type UmConfig = {
   syncCron: string;
   url: string;
   auth0Domain: string;
@@ -224,7 +224,7 @@ export class AppConfigService {
     return { issuerUrl, audience };
   }
 
-  alConfig(): AlConfig | null {
+  UmConfig(): UmConfig | null {
     const syncCron = this.get('UM_SYNC_CRON');
     const url = this.get('UM_URL');
     const auth0Domain = this.get('UM_AUTH0_DOMAIN');
@@ -250,8 +250,8 @@ export class AppConfigService {
     return { syncCron, clientSecret };
   }
 
-  getSyncConfig(syncSource: string): AlConfig | TxConfig | null {
-    if (syncSource === 'user_management_sync') return this.alConfig();
+  getSyncConfig(syncSource: string): UmConfig | TxConfig | null {
+    if (syncSource === 'user_management_sync') return this.UmConfig();
     if (syncSource === 'tx_sync') return this.txConfig();
     return null;
   }

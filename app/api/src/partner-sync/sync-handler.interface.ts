@@ -1,6 +1,5 @@
 export interface SyncHandler {
   readonly sourceKey: string;
-  readonly channel: string;
   sync(): Promise<void>;
 }
 

@@ -1,17 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { AppConfigService, AlConfig } from '../../config/app-config.service';
+import { AppConfigService, UmConfig } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database/database.service';
 import { SyncHandler } from '../sync-handler.interface';
 import { TenantUpsert, UserManagementPartner, UserManagementTenant } from './um-sync.types';
 import { GetTenantDto } from 'models/src/dtos/tenant.dto';
 
 @Injectable()
-export class AlSyncHandler implements SyncHandler {
+export class UmSyncHandler implements SyncHandler {
   readonly sourceKey = 'user_management_sync';
-  readonly channel = 'user_management_sync';
 
-  private readonly logger = new Logger(AlSyncHandler.name);
+  private readonly logger = new Logger(UmSyncHandler.name);
   private alToken: string | null = null;
   private alTokenExpiration: Date | null = null;
 
@@ -21,7 +20,7 @@ export class AlSyncHandler implements SyncHandler {
   ) {}
 
   async sync(): Promise<void> {
-    const config = this.appConfig.alConfig();
+    const config = this.appConfig.UmConfig();
     if (!config) {
       this.logger.warn('AL sync config not set — skipping sync');
       return;
@@ -30,17 +29,17 @@ export class AlSyncHandler implements SyncHandler {
   }
 
   private async getToken(
-    alConfig: AlConfig
+    umConfig: UmConfig
   ): Promise<{ status: 'success' } | { status: 'failure' }> {
     try {
-      const response = await fetch(`https://${alConfig.auth0Domain}/oauth/token`, {
+      const response = await fetch(`https://${umConfig.auth0Domain}/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           grant_type: 'client_credentials',
-          client_id: alConfig.clientId,
-          client_secret: alConfig.clientSecret,
-          audience: alConfig.audience,
+          client_id: umConfig.clientId,
+          client_secret: umConfig.clientSecret,
+          audience: umConfig.audience,
         }),
       });
 
@@ -60,25 +59,25 @@ export class AlSyncHandler implements SyncHandler {
   }
 
   private async ensureToken(
-    alConfig: AlConfig
+    umConfig: UmConfig
   ): Promise<{ status: 'success' } | { status: 'failure' }> {
     if (!this.alToken || !this.alTokenExpiration || this.alTokenExpiration < new Date()) {
-      return this.getToken(alConfig);
+      return this.getToken(umConfig);
     }
     return { status: 'success' };
   }
 
   private async alRequest(
-    alConfig: AlConfig,
+    umConfig: UmConfig,
     path: string,
     searchParams?: Record<string, string>
   ): Promise<{ status: 'success'; data: unknown } | { status: 'failure' }> {
-    const tokenResult = await this.ensureToken(alConfig);
+    const tokenResult = await this.ensureToken(umConfig);
     if (tokenResult.status === 'failure') {
       return { status: 'failure' };
     }
 
-    const url = new URL(`${alConfig.url}/api/v1/${path}`);
+    const url = new URL(`${umConfig.url}/api/v1/${path}`);
     if (searchParams) {
       Object.entries(searchParams).forEach(([key, value]) => url.searchParams.append(key, value));
     }
@@ -88,7 +87,7 @@ export class AlSyncHandler implements SyncHandler {
     });
 
     if (response.status === 401) {
-      const refreshResult = await this.getToken(alConfig);
+      const refreshResult = await this.getToken(umConfig);
       if (refreshResult.status === 'failure') {
         return { status: 'failure' };
       }
@@ -106,9 +105,9 @@ export class AlSyncHandler implements SyncHandler {
   }
 
   private async getPartners(
-    alConfig: AlConfig
+    umConfig: UmConfig
   ): Promise<{ status: 'success'; partners: UserManagementPartner[] } | { status: 'failure' }> {
-    const result = await this.alRequest(alConfig, 'partners');
+    const result = await this.alRequest(umConfig, 'partners');
     if (result.status !== 'success') {
       this.logger.error('Failed to fetch partners from AL');
       return { status: 'failure' };
@@ -117,10 +116,10 @@ export class AlSyncHandler implements SyncHandler {
   }
 
   private async getTenants(
-    alConfig: AlConfig,
+    umConfig: UmConfig,
     partnerCode: string
   ): Promise<{ status: 'success'; tenants: UserManagementTenant[] } | { status: 'failure' }> {
-    const result = await this.alRequest(alConfig, 'tenants', { partnerCode });
+    const result = await this.alRequest(umConfig, 'tenants', { partnerCode });
     if (result.status !== 'success') {
       this.logger.error(`Failed to fetch tenants for partner ${partnerCode} from AL`);
       return { status: 'failure' };
@@ -128,7 +127,7 @@ export class AlSyncHandler implements SyncHandler {
     return { status: 'success', tenants: result.data as UserManagementTenant[] };
   }
 
-  private async runSync(alConfig: AlConfig): Promise<void> {
+  private async runSync(umConfig: UmConfig): Promise<void> {
     try {
       this.logger.log('Starting AL sync');
 
@@ -150,7 +149,7 @@ export class AlSyncHandler implements SyncHandler {
       }
 
       // --- Partner sync ---
-      const partnersResult = await this.getPartners(alConfig);
+      const partnersResult = await this.getPartners(umConfig);
 
       const partnerIdsToCreate: string[] = [];
       const partnerIdsToDelete: string[] = [];
@@ -200,7 +199,7 @@ export class AlSyncHandler implements SyncHandler {
 
       await Promise.all(
         partnerIdsForTenantSync.map(async (partnerId) => {
-          const result = await this.getTenants(alConfig, partnerId);
+          const result = await this.getTenants(umConfig, partnerId);
           if (result.status !== 'success') {
             return;
           }

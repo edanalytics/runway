@@ -52,15 +52,15 @@ export class PartnerSyncCoordinator implements OnModuleInit, OnModuleDestroy {
       const config = this.appConfig.getSyncConfig(source);
       if (!config) {
         this.logger.warn(`${source} config not set — unscheduling any existing job`);
-        await this.boss.unschedule(handler.channel);
+        await this.boss.unschedule(handler.sourceKey);
         continue;
       }
 
-      await this.boss.createQueue(handler.channel);
-      await this.boss.schedule(handler.channel, config.syncCron, null, {
+      await this.boss.createQueue(handler.sourceKey);
+      await this.boss.schedule(handler.sourceKey, config.syncCron, null, {
         singletonKey: source,
       });
-      await this.boss.work(handler.channel, () => handler.sync());
+      await this.boss.work(handler.sourceKey, () => handler.sync());
       this.logger.log(`${source} sync scheduled: ${config.syncCron}`);
     }
   }
