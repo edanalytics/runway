@@ -25,52 +25,46 @@ export const doomedPartner: Pick<Partner, 'id' | 'name' | 'managedBy'> = {
   managedBy: 'user_management_sync',
 };
 
-export const syncPartnerOldTenant: Pick<Tenant, 'code' | 'partnerId' | 'managedBy'> = {
+export const syncPartnerOldTenant: Pick<Tenant, 'code' | 'partnerId'> = {
   code: 'old-tenant',
   partnerId: syncPartner.id,
-  managedBy: 'user_management_sync',
 };
 
 export const syncPartnerReturningTenant: Pick<
   Tenant,
-  'code' | 'partnerId' | 'managedBy' | 'deletedOn' | 'isGlobal'
+  'code' | 'partnerId' | 'deletedOn' | 'isGlobal'
 > = {
   code: 'returning-tenant',
   partnerId: syncPartner.id,
-  managedBy: 'user_management_sync',
   deletedOn: new Date('2024-01-01'),
   isGlobal: true
 };
 
 export const syncPartnerReturningTenantWithChangedGlobal: Pick<
   Tenant,
-  'code' | 'partnerId' | 'managedBy' | 'deletedOn' | 'isGlobal'
+  'code' | 'partnerId' | 'deletedOn' | 'isGlobal'
 > = {
   code: 'stale-returning-tenant',
   partnerId: syncPartner.id,
-  managedBy: 'user_management_sync',
   deletedOn: new Date('2024-01-01'),
   isGlobal: false,
 };
 
 export const syncPartnerUpdateableTenant: Pick<
   Tenant,
-  'code' | 'partnerId' | 'managedBy' | 'isGlobal'
+  'code' | 'partnerId' | 'isGlobal'
 > = {
   code: 'updateable-tenant',
   partnerId: syncPartner.id,
-  managedBy: 'user_management_sync',
   isGlobal: false,
 };
 
-export const doomedTenant1: Pick<Tenant, 'code' | 'partnerId' | 'managedBy'> = {
+export const doomedTenant1: Pick<Tenant, 'code' | 'partnerId' > = {
   code: 'doomed-tenant-1',
   partnerId: doomedPartner.id,
-  managedBy: 'user_management_sync',
 };
 
-export const doomedTenant2: Pick<Tenant, 'code' | 'partnerId' | 'managedBy'> = {
+export const doomedTenant2: Pick<Tenant, 'code' | 'partnerId' > = {
   code: 'doomed-tenant-2',
   partnerId: doomedPartner.id,
-  managedBy: 'user_management_sync',
 };
