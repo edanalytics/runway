@@ -58,13 +58,13 @@ fi
 
 repos_dir="../../../../../.."
 bundle_repo="$repos_dir/earthmover_edfi_bundles"
-bundle_branch="development"
+bundle_branch="main"
 git -C $bundle_repo fetch
 git -C $bundle_repo checkout $bundle_branch
 git -C $bundle_repo pull --ff-only
 
 sc_repo="$repos_dir/stadium_south_carolina"
-sc_branch="feature/iowa_pta_refactor"
+sc_branch="main"
 git -C $sc_repo fetch
 git -C $sc_repo checkout $sc_branch
 git -C $sc_repo pull --ff-only
