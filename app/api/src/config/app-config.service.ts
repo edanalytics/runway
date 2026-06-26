@@ -153,9 +153,7 @@ export class AppConfigService {
 
     const envLabel = this.get('ENVLABEL');
     if (!envLabel) {
-      throw new Error(
-        'ENVLABEL must be set in order to retrieve EDU connection info'
-      );
+      throw new Error('ENVLABEL must be set in order to retrieve EDU connection info');
     }
     const secretName = `${envLabel}-edu-connection-info-${partnerId}`;
     let secret: string | Record<string, string>;
@@ -178,8 +176,7 @@ export class AppConfigService {
     if (typeof secret !== 'object') {
       return null;
     }
-    const { username, account, database, schema, privateKey, warehouse, role } =
-      secret;
+    const { username, account, database, schema, privateKey, warehouse, role } = secret;
     if (!username || !account || !database || !schema || !privateKey) {
       return null;
     }
