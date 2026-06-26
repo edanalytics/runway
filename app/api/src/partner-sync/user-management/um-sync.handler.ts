@@ -175,7 +175,8 @@ export class UmSyncHandler implements SyncHandler {
           }
         }
       } else {
-        throw new Error("Failed to fetch partner from UM")
+        this.logger.error('Failed to fetch partners from UM — aborting sync');
+        return;
       }
 
       const deletingPartnerIds = new Set(partnerIdsToDelete);
