@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Tenant } from '@prisma/client';
 import { AppConfigService, UmConfig } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database/database.service';
 import { SyncHandler } from '../sync-handler.interface';
@@ -170,10 +170,12 @@ export class UmSyncHandler implements SyncHandler {
         }
 
         for (const partner of existingPartners) {
-          if (!!partner.managedBy && !partner.deletedOn && !apiPartnerCodes.has(partner.id)) {
+          if (partner.managedBy === this.sourceKey && !partner.deletedOn && !apiPartnerCodes.has(partner.id)) {
             partnerIdsToDelete.push(partner.id);
           }
         }
+      } else {
+        throw new Error("Failed to fetch partner from UM")
       }
 
       const deletingPartnerIds = new Set(partnerIdsToDelete);
@@ -193,7 +195,7 @@ export class UmSyncHandler implements SyncHandler {
       }
 
       const partnerIdsForTenantSync = [
-        ...existingPartners.filter((p) => p.managedBy && !deletingPartnerIds.has(p.id)).map((p) => p.id),
+        ...existingPartners.filter((p) => p.managedBy === this.sourceKey && !deletingPartnerIds.has(p.id)).map((p) => p.id),
         ...partnerIdsToCreate,
       ];
 
@@ -204,7 +206,7 @@ export class UmSyncHandler implements SyncHandler {
             return;
           }
 
-          const tenantMap: Map<string, GetTenantDto> = tenantsByPartner.get(partnerId) ?? new Map();
+          const tenantMap: Map<string, Tenant> = tenantsByPartner.get(partnerId) ?? new Map();
           const umTenantCodes = new Set(result.tenants.map((t) => t.tenantCode));
 
           for (const apiTenant of result.tenants) {

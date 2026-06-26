@@ -10,7 +10,7 @@ export class PartnerSyncCoordinator implements OnModuleInit, OnModuleDestroy {
   private boss: PgBoss | null = null;
 
   constructor(
-    private readonly appConfig: AppConfigService,
+  private readonly appConfig: AppConfigService,
   private readonly umHandler: UmSyncHandler,
   private readonly txHandler: TxSyncHandler,  ) {}
 
