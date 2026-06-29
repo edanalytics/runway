@@ -524,6 +524,7 @@ class JobExecutor:
     def cross_year_pass(self, primary):
         """Run a second Earthmover pass on unmatched students using a cross-year roster in an attempt to match more students."""
         # constrain this pass to use the IDs that matched best in the first pass
+        first_run_match_rate = self.highest_match_rate
         first_run_id_name = self.highest_match_id_name
         first_run_id_type = self.highest_match_id_type
 
@@ -542,15 +543,19 @@ class JobExecutor:
         self.upload_artifact(artifact.CROSS_YEAR_ROSTER)
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
-        # Constrain to the ID column the first pass matched on. The bundle always appends
-        # studentUniqueId internally, so we pass an empty list when that's what won.
-        os.environ["POSSIBLE_STUDENT_ID_COLUMNS"] = first_run_id_name
-        os.environ["EDFI_STUDENT_ID_TYPES"] = (
-            "" if first_run_id_type == "studentUniqueId" else first_run_id_type
-        )
-        # we already know which ID to use so we should succeed no matter how many failed matches remain
-        os.environ["REQUIRED_ID_MATCH_RATE"] = "0.0"
-        self.logger.info(f"cross-year pass: matching on {first_run_id_name} ({first_run_id_type} ID)")
+        # If we hit the required match rate on the first pass, constrain to the ID column that won.
+        # Otherwise, we run again and check against all ID types.
+        # The bundle always appends studentUniqueId internally, so we pass an empty list when that's what won.
+        if first_run_match_rate >= config.REQUIRED_ID_MATCH_RATE:
+            os.environ["POSSIBLE_STUDENT_ID_COLUMNS"] = first_run_id_name
+            os.environ["EDFI_STUDENT_ID_TYPES"] = (
+                "" if first_run_id_type == "studentUniqueId" else first_run_id_type
+            )
+            # we already know which ID to use so we should succeed no matter how many failed matches remain
+            os.environ["REQUIRED_ID_MATCH_RATE"] = "0.0"
+            self.logger.info(f"cross-year pass: matching on {first_run_id_name} ({first_run_id_type} ID)")
+        else:
+            self.logger.info("cross-year pass: first pass below threshold, running again against all ID types")
 
         self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
