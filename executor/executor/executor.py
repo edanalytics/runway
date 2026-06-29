@@ -432,7 +432,6 @@ class JobExecutor:
         self.earthmover_run(artifact.EM_RESULTS.path)
         self.upload_artifact(artifact.EM_RESULTS)
         self.record_highest_match_rate()
-        self.enforce_match_threshold()
 
         self.output_sets = [OutputSet(
             local_dir=self.output_dir,
@@ -451,6 +450,10 @@ class JobExecutor:
             # and thus produce a second output set to be sideloaded
             cross_year_output = self.cross_year_pass(self.output_sets[0])
             self.output_sets.append(cross_year_output)
+        # If the conditions for a second pass are not met
+        # fall back to our typical process and enforce the match rate threshold
+        else:
+            self.enforce_match_threshold()
 
         self.upload_artifact(artifact.MATCH_RATES)
 
