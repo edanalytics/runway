@@ -536,11 +536,6 @@ class JobExecutor:
         primary.local_dir = first_run_output_dir
         os.mkdir(self.output_dir)
 
-        # use only the students who failed to match the primary ID from the first run
-        unmatched_path = os.path.join(first_run_output_dir, os.path.basename(artifact.UNMATCHED_STUDENTS.path))
-        os.environ["INPUT_FILE"] = unmatched_path
-        self.input_sources["INPUT_FILE"]["path"] = unmatched_path
-
         self.get_roster_from_edu(config.CROSS_YEAR_ROSTER_PATH)
         artifact.CROSS_YEAR_ROSTER.needs_upload = True
         self.upload_artifact(artifact.CROSS_YEAR_ROSTER)
@@ -550,6 +545,12 @@ class JobExecutor:
         # Otherwise, we run again and check against all ID types.
         # The bundle always appends studentUniqueId internally, so we pass an empty list when that's what won.
         if first_run_match_rate >= config.REQUIRED_ID_MATCH_RATE:
+
+            # use only the students who failed to match the primary ID from the first run
+            unmatched_path = os.path.join(first_run_output_dir, os.path.basename(artifact.UNMATCHED_STUDENTS.path))
+            os.environ["INPUT_FILE"] = unmatched_path
+            self.input_sources["INPUT_FILE"]["path"] = unmatched_path
+
             os.environ["POSSIBLE_STUDENT_ID_COLUMNS"] = first_run_id_name
             os.environ["EDFI_STUDENT_ID_TYPES"] = (
                 "" if first_run_id_type == "studentUniqueId" else first_run_id_type
