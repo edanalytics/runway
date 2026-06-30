@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { PartnerSyncCoordinator } from './partner-sync.coordinator';
+import { PgBossService } from './pg-boss.service';
 import { UmSyncHandler } from './user-management/um-sync.handler';
 
 @Module({
   providers: [
+    PgBossService,
     UmSyncHandler,
-    PartnerSyncCoordinator,
   ],
 })
 export class PartnerSyncModule {}

@@ -1,13 +1,13 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaClient, Tenant } from '@prisma/client';
 import { AppConfigService, UmConfig } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database/database.service';
-import { SyncHandler } from '../sync-handler.interface';
+import { PgBossService } from '../pg-boss.service';
 import { TenantUpsert, UserManagementPartner, UserManagementTenant } from './um-sync.types';
 import { GetTenantDto } from 'models/src/dtos/tenant.dto';
 
 @Injectable()
-export class UmSyncHandler implements SyncHandler {
+export class UmSyncHandler implements OnModuleInit {
   readonly sourceKey = 'user_management_sync';
 
   private readonly logger = new Logger(UmSyncHandler.name);
@@ -16,8 +16,25 @@ export class UmSyncHandler implements SyncHandler {
 
   constructor(
     private readonly appConfig: AppConfigService,
+    private readonly pgBoss: PgBossService,
     @Inject(PRISMA_ANONYMOUS) private readonly prisma: PrismaClient
   ) {}
+
+  async onModuleInit() {
+    const config = await this.appConfig.UmConfig();
+    if (!config) {
+      this.logger.warn(`${this.sourceKey} config not set — unscheduling any existing job`);
+      await this.pgBoss.boss.unschedule(this.sourceKey);
+      return;
+    }
+
+    await this.pgBoss.boss.createQueue(this.sourceKey);
+    await this.pgBoss.boss.schedule(this.sourceKey, config.syncCron, null, {
+      singletonKey: this.sourceKey,
+    });
+    await this.pgBoss.boss.work(this.sourceKey, () => this.sync());
+    this.logger.log(`${this.sourceKey} sync scheduled: ${config.syncCron}`);
+  }
 
   async sync(): Promise<void> {
     const config = await this.appConfig.UmConfig();

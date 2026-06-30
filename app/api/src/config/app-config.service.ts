@@ -274,11 +274,6 @@ export class AppConfigService {
     return { syncCron, clientSecret };
   }
 
-  async getSyncConfig(syncSource: string): Promise<UmConfig | TxConfig | null> {
-    if (syncSource === 'user_management_sync') return this.UmConfig();
-    if (syncSource === 'tx_sync') return this.txConfig();
-    return null;
-  }
   // Jobs whose input files total at least this many bytes run on the large
   // ECS task instead of medium. Null when unset or unparseable; the caller
   // decides the default.
