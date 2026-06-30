@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { PgBossService } from './pg-boss.service';
+import { PgBossService } from '../pg-boss/pg-boss.service';
 import { UmSyncHandler } from './user-management/um-sync.handler';
 
 @Module({

@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaClient, Tenant } from '@prisma/client';
 import { AppConfigService, UmConfig } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database/database.service';
-import { PgBossService } from '../pg-boss.service';
+import { PgBossService } from '../../pg-boss/pg-boss.service';
 import { TenantUpsert, UserManagementPartner, UserManagementTenant } from './um-sync.types';
 import { GetTenantDto } from 'models/src/dtos/tenant.dto';
 
