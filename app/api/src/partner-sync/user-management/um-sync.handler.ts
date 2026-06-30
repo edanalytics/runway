@@ -20,7 +20,7 @@ export class UmSyncHandler implements SyncHandler {
   ) {}
 
   async sync(): Promise<void> {
-    const config = this.appConfig.UmConfig();
+    const config = await this.appConfig.UmConfig();
     if (!config) {
       this.logger.warn('UM sync config not set — skipping sync');
       return;

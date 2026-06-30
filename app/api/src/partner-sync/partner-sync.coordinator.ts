@@ -30,7 +30,7 @@ export class PartnerSyncCoordinator implements OnModuleInit, OnModuleDestroy {
 
     for (const handler of [this.umHandler]) {
       const source = handler.sourceKey;
-      const config = this.appConfig.getSyncConfig(source);
+      const config = await this.appConfig.getSyncConfig(source);
       if (!config) {
         this.logger.warn(`${source} config not set — unscheduling any existing job`);
         await this.boss.unschedule(handler.sourceKey);

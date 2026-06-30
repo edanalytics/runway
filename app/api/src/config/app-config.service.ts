@@ -221,8 +221,25 @@ export class AppConfigService {
     return { issuerUrl, audience };
   }
 
-  UmConfig(): UmConfig | null {
+  async UmConfig(): Promise<UmConfig | null> {
     const syncCron = this.get('UM_SYNC_CRON');
+    const configSecret = this.get('UM_CONFIG_SECRET');
+    if (configSecret) {
+      const secret = await this.getAWSSecret(configSecret);
+      if (typeof secret !== 'object') {
+        throw new Error(`Value for AWS secret ${configSecret} must be an object`);
+      }
+      if (!syncCron) return null;
+      return {
+        syncCron,
+        url: secret['url'],
+        auth0Domain: secret['auth0Domain'],
+        clientId: secret['clientId'],
+        clientSecret: secret['clientSecret'],
+        audience: secret['audience'],
+      };
+    }
+
     const url = this.get('UM_URL');
     const auth0Domain = this.get('UM_AUTH0_DOMAIN');
     const clientId = this.get('UM_CLIENT_ID');
@@ -236,8 +253,18 @@ export class AppConfigService {
     return { syncCron, url, auth0Domain, clientId, clientSecret, audience };
   }
 
-  txConfig(): TxConfig | null {
+  async txConfig(): Promise<TxConfig | null> {
     const syncCron = this.get('TX_SYNC_CRON');
+    const configSecret = this.get('TX_CONFIG_SECRET');
+    if (configSecret) {
+      const secret = await this.getAWSSecret(configSecret);
+      if (typeof secret !== 'object') {
+        throw new Error(`Value for AWS secret ${configSecret} must be an object`);
+      }
+      if (!syncCron) return null;
+      return { syncCron, clientSecret: secret['clientSecret'] };
+    }
+
     const clientSecret = this.get('TX_CLIENT_SECRET');
 
     if (!syncCron || !clientSecret) {
@@ -247,7 +274,7 @@ export class AppConfigService {
     return { syncCron, clientSecret };
   }
 
-  getSyncConfig(syncSource: string): UmConfig | TxConfig | null {
+  async getSyncConfig(syncSource: string): Promise<UmConfig | TxConfig | null> {
     if (syncSource === 'user_management_sync') return this.UmConfig();
     if (syncSource === 'tx_sync') return this.txConfig();
     return null;
