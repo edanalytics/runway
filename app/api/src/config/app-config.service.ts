@@ -9,7 +9,6 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
 export type UmConfig = {
-  syncCron: string;
   url: string;
   auth0Domain: string;
   clientId: string;
@@ -217,7 +216,6 @@ export class AppConfigService {
   }
 
   async UmConfig(): Promise<UmConfig | null> {
-    const syncCron = this.get('UM_SYNC_CRON') ?? '0 0 * * *';
     const configSecret = this.get('UM_CONFIG_SECRET');
     if (configSecret) {
       const secret = await this.fetchAWSSecret(configSecret);
@@ -225,7 +223,6 @@ export class AppConfigService {
         throw new Error(`Value for AWS secret ${configSecret} must be an object`);
       }
       return {
-        syncCron,
         url: secret['url'],
         auth0Domain: secret['auth0Domain'],
         clientId: secret['clientId'],
@@ -240,11 +237,11 @@ export class AppConfigService {
     const clientSecret = this.get('UM_CLIENT_SECRET');
     const audience = this.get('UM_AUDIENCE');
 
-    if (!syncCron || !url || !auth0Domain || !clientId || !clientSecret || !audience) {
+    if (!url || !auth0Domain || !clientId || !clientSecret || !audience) {
       return null;
     }
 
-    return { syncCron, url, auth0Domain, clientId, clientSecret, audience };
+    return { url, auth0Domain, clientId, clientSecret, audience };
   }
 
   // Jobs whose input files total at least this many bytes run on the large
