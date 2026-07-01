@@ -1,7 +1,9 @@
-import { Job, Run, SchoolYear } from '@prisma/client';
+import { Job, JobFile, Run, SchoolYear } from '@prisma/client';
 
 export interface ExecutorService {
-  start: (run: Run & { job: Job & { schoolYear: SchoolYear } }) => Promise<void>;
+  start: (
+    run: Run & { job: Job & { schoolYear: SchoolYear; files: JobFile[] } }
+  ) => Promise<void>;
 }
 
 // DI token — used in earthbeam.module.ts factory and consumers
