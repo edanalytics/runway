@@ -23,6 +23,9 @@ Parameters:
   S3AccessLoggingBucket: 
     Description: Provide a name for the destination S3 bucket where your Data Integration S3 Bucket Access Logs will be saved. 
     Type: String
+  SetCloudWatchRetentionLambdaFunctionArn: 
+    Type: String 
+    Description: ARN of the SetCloudWatchRetentionLambdaFunction
     
 Conditions:
   DoCreateEcsServiceLinkedRole: !Equals
@@ -55,7 +58,25 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
                 Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
-  EcsCluster: 
+  JobExecutorLogGroupSmall:
+    Type: Custom::CloudWatchRetention
+    Properties:
+      ServiceToken: !Ref SetCloudWatchRetentionLambdaFunctionArn
+      logGroupName: !Sub '/ecs/JobExecutorSmall-${EnvLabel}'
+      retentionInDays: 365
+  JobExecutorLogGroupMedium:
+    Type: Custom::CloudWatchRetention
+    Properties:
+      ServiceToken: !Ref SetCloudWatchRetentionLambdaFunctionArn
+      logGroupName: !Sub '/ecs/JobExecutorMedium-${EnvLabel}'
+      retentionInDays: 365
+  JobExecutorLogGroupLarge:
+    Type: Custom::CloudWatchRetention
+    Properties:
+      ServiceToken: !Ref SetCloudWatchRetentionLambdaFunctionArn
+      logGroupName: !Sub '/ecs/JobExecutorLarge-${EnvLabel}'
+      retentionInDays: 365
+  EcsCluster:
     Type: AWS::ECS::Cluster
     Properties: 
       CapacityProviders: 
