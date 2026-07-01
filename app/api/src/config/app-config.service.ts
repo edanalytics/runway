@@ -17,11 +17,6 @@ export type UmConfig = {
   audience: string;
 };
 
-export type TxConfig = {
-  syncCron: string;
-  clientSecret: string;
-};
-
 /**
  * AppConfigService is a wrapper on the @nestjs/config package's
  * ConfigService. It allows us to define custom getters, including
@@ -225,7 +220,7 @@ export class AppConfigService {
     const syncCron = this.get('UM_SYNC_CRON');
     const configSecret = this.get('UM_CONFIG_SECRET');
     if (configSecret) {
-      const secret = await this.getAWSSecret(configSecret);
+      const secret = await this.fetchAWSSecret(configSecret);
       if (typeof secret !== 'object') {
         throw new Error(`Value for AWS secret ${configSecret} must be an object`);
       }
@@ -251,27 +246,6 @@ export class AppConfigService {
     }
 
     return { syncCron, url, auth0Domain, clientId, clientSecret, audience };
-  }
-
-  async txConfig(): Promise<TxConfig | null> {
-    const syncCron = this.get('TX_SYNC_CRON');
-    const configSecret = this.get('TX_CONFIG_SECRET');
-    if (configSecret) {
-      const secret = await this.getAWSSecret(configSecret);
-      if (typeof secret !== 'object') {
-        throw new Error(`Value for AWS secret ${configSecret} must be an object`);
-      }
-      if (!syncCron) return null;
-      return { syncCron, clientSecret: secret['clientSecret'] };
-    }
-
-    const clientSecret = this.get('TX_CLIENT_SECRET');
-
-    if (!syncCron || !clientSecret) {
-      return null;
-    }
-
-    return { syncCron, clientSecret };
   }
 
   // Jobs whose input files total at least this many bytes run on the large

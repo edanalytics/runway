@@ -52,8 +52,4 @@ export interface IEnvironmentVariables {
   UM_CLIENT_SECRET?: string;
   UM_AUDIENCE?: string;
   UM_CONFIG_SECRET?: string; // deployed envs: name of AWS secret containing UM credentials
-
-  TX_SYNC_CRON?: string;
-  TX_CLIENT_SECRET?: string;
-  TX_CONFIG_SECRET?: string; // deployed envs: name of AWS secret containing TX credentials
 }
