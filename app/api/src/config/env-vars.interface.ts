@@ -43,4 +43,13 @@ export interface IEnvironmentVariables {
 
   OAUTH2_ISSUER?: string; // token issuer for external API
   OAUTH2_AUDIENCE?: string; // token audience for external API
+
+  // for tenant sync
+  UM_SYNC_CRON?: string; // e.g. "0 0 * * *" — unset = sync disabled
+  UM_URL?: string;
+  UM_AUTH0_DOMAIN?: string;
+  UM_CLIENT_ID?: string;
+  UM_CLIENT_SECRET?: string;
+  UM_AUDIENCE?: string;
+  UM_CONFIG_SECRET?: string; // deployed envs: name of AWS secret containing UM credentials
 }
