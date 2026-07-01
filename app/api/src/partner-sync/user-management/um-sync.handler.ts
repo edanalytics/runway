@@ -29,7 +29,7 @@ export class UmSyncHandler implements OnModuleInit {
   async onModuleInit() {
     try {
       const config = await this.appConfig.UmConfig();
-      const syncCron = this.get('UM_SYNC_CRON') ?? '0 0 * * *';
+      const syncCron = this.get('UM_SYNC_CRON') ?? '0 2 * * *';
 
       if (!config) {
         this.logger.warn(`${this.sourceKey} config not set — unscheduling any existing job`);
