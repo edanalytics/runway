@@ -21,19 +21,23 @@ export class UmSyncHandler implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    const config = await this.appConfig.UmConfig();
-    if (!config) {
-      this.logger.warn(`${this.sourceKey} config not set — unscheduling any existing job`);
-      await this.pgBoss.boss.unschedule(this.sourceKey);
-      return;
-    }
+    try {
+      const config = await this.appConfig.UmConfig();
+      if (!config) {
+        this.logger.warn(`${this.sourceKey} config not set — unscheduling any existing job`);
+        await this.pgBoss.boss.unschedule(this.sourceKey);
+        return;
+      }
 
-    await this.pgBoss.boss.createQueue(this.sourceKey);
-    await this.pgBoss.boss.schedule(this.sourceKey, config.syncCron, null, {
-      singletonKey: this.sourceKey,
-    });
-    await this.pgBoss.boss.work(this.sourceKey, () => this.sync());
-    this.logger.log(`${this.sourceKey} sync scheduled: ${config.syncCron}`);
+      await this.pgBoss.boss.createQueue(this.sourceKey);
+      await this.pgBoss.boss.schedule(this.sourceKey, config.syncCron, null, {
+        singletonKey: this.sourceKey,
+      });
+      await this.pgBoss.boss.work(this.sourceKey, () => this.sync());
+      this.logger.log(`${this.sourceKey} sync scheduled: ${config.syncCron}`);
+    } catch (err) {
+      this.logger.error(`Failed to schedule ${this.sourceKey} sync`, err);
+    }
   }
 
   async sync(): Promise<void> {
@@ -187,7 +191,11 @@ export class UmSyncHandler implements OnModuleInit {
         }
 
         for (const partner of existingPartners) {
-          if (partner.managedBy === this.sourceKey && !partner.deletedOn && !apiPartnerCodes.has(partner.id)) {
+          if (
+            partner.managedBy === this.sourceKey &&
+            !partner.deletedOn &&
+            !apiPartnerCodes.has(partner.id)
+          ) {
             partnerIdsToDelete.push(partner.id);
           }
         }
@@ -213,7 +221,9 @@ export class UmSyncHandler implements OnModuleInit {
       }
 
       const partnerIdsForTenantSync = [
-        ...existingPartners.filter((p) => p.managedBy === this.sourceKey && !deletingPartnerIds.has(p.id)).map((p) => p.id),
+        ...existingPartners
+          .filter((p) => p.managedBy === this.sourceKey && !deletingPartnerIds.has(p.id))
+          .map((p) => p.id),
         ...partnerIdsToCreate,
       ];
 
@@ -233,9 +243,17 @@ export class UmSyncHandler implements OnModuleInit {
             if (!existing) {
               tenantsToCreate.push({ code: apiTenant.tenantCode, partnerId, isGlobal });
             } else if (existing.deletedOn) {
-              tenantsToUndelete.push({ code: existing.code, partnerId: existing.partnerId, isGlobal });
+              tenantsToUndelete.push({
+                code: existing.code,
+                partnerId: existing.partnerId,
+                isGlobal,
+              });
             } else if (existing.isGlobal !== isGlobal) {
-              tenantsToUpdate.push({ code: existing.code, partnerId: existing.partnerId, isGlobal });
+              tenantsToUpdate.push({
+                code: existing.code,
+                partnerId: existing.partnerId,
+                isGlobal,
+              });
             }
           }
 
@@ -257,7 +275,11 @@ export class UmSyncHandler implements OnModuleInit {
 
         if (partnerIdsToCreate.length) {
           const r = await tx.partner.createMany({
-            data: partnerIdsToCreate.map((id) => ({ id, name: id, managedBy: 'user_management_sync' })),
+            data: partnerIdsToCreate.map((id) => ({
+              id,
+              name: id,
+              managedBy: 'user_management_sync',
+            })),
           });
           partnersCreated = r.count;
         }
@@ -280,7 +302,7 @@ export class UmSyncHandler implements OnModuleInit {
 
         if (tenantsToCreate.length) {
           const r = await tx.tenant.createMany({
-            data: tenantsToCreate.map((t) => ({ ...t})),
+            data: tenantsToCreate.map((t) => ({ ...t })),
           });
           tenantsCreated = r.count;
         }

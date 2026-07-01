@@ -217,7 +217,7 @@ export class AppConfigService {
   }
 
   async UmConfig(): Promise<UmConfig | null> {
-    const syncCron = this.get('UM_SYNC_CRON') ?? '* * * * *';
+    const syncCron = this.get('UM_SYNC_CRON') ?? '0 0 * * *';
     const configSecret = this.get('UM_CONFIG_SECRET');
     if (configSecret) {
       const secret = await this.fetchAWSSecret(configSecret);
