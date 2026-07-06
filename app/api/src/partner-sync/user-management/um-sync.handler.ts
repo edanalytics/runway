@@ -277,15 +277,9 @@ export class UmSyncHandler implements OnModuleInit {
         }
 
         if (tenantsToDelete.length) {
-          const byPartner = new Map<string, string[]>();
-          for (const { code, partnerId } of tenantsToDelete) {
-            const codes = byPartner.get(partnerId) ?? [];
-            codes.push(code);
-            byPartner.set(partnerId, codes);
-          }
-          for (const [partnerId, codes] of byPartner) {
+          for (const { partnerId, code } of tenantsToDelete) {
             const r = await tx.tenant.updateMany({
-              where: { partnerId, code: { in: codes } },
+              where: { partnerId, code },
               data: { deletedOn: new Date() },
             });
             tenantsDeleted += r.count;
