@@ -43,91 +43,12 @@ export class UmSyncHandler implements OnModuleInit {
   }
 
   async sync(): Promise<void> {
-    const config = await this.appConfig.umConfig();
-    if (!config) {
+    const umConfig = await this.appConfig.umConfig();
+    if (!umConfig) {
       this.logger.warn('UM sync config not set — skipping sync');
       return;
     }
-    await this.runSync(config);
-  }
 
-  private async getToken(
-    umConfig: UmConfig
-  ): Promise<{ status: 'success' } | { status: 'failure' }> {
-    try {
-      const response = await fetch(`https://${umConfig.auth0Domain}/oauth/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          grant_type: 'client_credentials',
-          client_id: umConfig.clientId,
-          client_secret: umConfig.clientSecret,
-          audience: umConfig.audience,
-        }),
-      });
-
-      if (!response.ok) {
-        this.logger.error(`Failed to get UM token: ${response.status} ${response.statusText}`);
-        return { status: 'failure' };
-      }
-
-      const data = (await response.json()) as { access_token: string; expires_in: number };
-      this.umToken = data.access_token;
-      this.umTokenExpiration = new Date(Date.now() + data.expires_in * 1000);
-      return { status: 'success' };
-    } catch (error) {
-      this.logger.error('Error fetching UM token', error);
-      return { status: 'failure' };
-    }
-  }
-
-  private async ensureToken(
-    umConfig: UmConfig
-  ): Promise<{ status: 'success' } | { status: 'failure' }> {
-    if (!this.umToken || !this.umTokenExpiration || this.umTokenExpiration < new Date()) {
-      return this.getToken(umConfig);
-    }
-    return { status: 'success' };
-  }
-
-  private async umRequest<T>(
-    umConfig: UmConfig,
-    path: string,
-    searchParams?: Record<string, string>
-  ): Promise<{ status: 'success'; data: T } | { status: 'failure' }> {
-    const tokenResult = await this.ensureToken(umConfig);
-    if (tokenResult.status === 'failure') {
-      return { status: 'failure' };
-    }
-
-    const url = new URL(`${umConfig.url}/api/v1/${path}`);
-    if (searchParams) {
-      Object.entries(searchParams).forEach(([key, value]) => url.searchParams.append(key, value));
-    }
-
-    let response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${this.umToken}` },
-    });
-
-    if (response.status === 401) {
-      const refreshResult = await this.getToken(umConfig);
-      if (refreshResult.status === 'failure') {
-        return { status: 'failure' };
-      }
-      response = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${this.umToken}` },
-      });
-    }
-
-    if (response.ok) {
-      return { status: 'success', data: (await response.json()) as T };
-    }
-
-    this.logger.warn(`UM request to ${url} failed with ${response.status}: ${response.statusText}`);
-    return { status: 'failure' };
-  }
-
-  private async runSync(umConfig: UmConfig): Promise<void> {
     try {
       this.logger.log('Starting UM sync');
 
@@ -312,5 +233,81 @@ export class UmSyncHandler implements OnModuleInit {
       this.logger.error('UM sync failed', err);
       throw err;
     }
+  }
+
+  private async getToken(
+    umConfig: UmConfig
+  ): Promise<{ status: 'success' } | { status: 'failure' }> {
+    try {
+      const response = await fetch(`https://${umConfig.auth0Domain}/oauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'client_credentials',
+          client_id: umConfig.clientId,
+          client_secret: umConfig.clientSecret,
+          audience: umConfig.audience,
+        }),
+      });
+
+      if (!response.ok) {
+        this.logger.error(`Failed to get UM token: ${response.status} ${response.statusText}`);
+        return { status: 'failure' };
+      }
+
+      const data = (await response.json()) as { access_token: string; expires_in: number };
+      this.umToken = data.access_token;
+      this.umTokenExpiration = new Date(Date.now() + data.expires_in * 1000);
+      return { status: 'success' };
+    } catch (error) {
+      this.logger.error('Error fetching UM token', error);
+      return { status: 'failure' };
+    }
+  }
+
+  private async ensureToken(
+    umConfig: UmConfig
+  ): Promise<{ status: 'success' } | { status: 'failure' }> {
+    if (!this.umToken || !this.umTokenExpiration || this.umTokenExpiration < new Date()) {
+      return this.getToken(umConfig);
+    }
+    return { status: 'success' };
+  }
+
+  private async umRequest<T>(
+    umConfig: UmConfig,
+    path: string,
+    searchParams?: Record<string, string>
+  ): Promise<{ status: 'success'; data: T } | { status: 'failure' }> {
+    const tokenResult = await this.ensureToken(umConfig);
+    if (tokenResult.status === 'failure') {
+      return { status: 'failure' };
+    }
+
+    const url = new URL(`${umConfig.url}/api/v1/${path}`);
+    if (searchParams) {
+      Object.entries(searchParams).forEach(([key, value]) => url.searchParams.append(key, value));
+    }
+
+    let response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${this.umToken}` },
+    });
+
+    if (response.status === 401) {
+      const refreshResult = await this.getToken(umConfig);
+      if (refreshResult.status === 'failure') {
+        return { status: 'failure' };
+      }
+      response = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${this.umToken}` },
+      });
+    }
+
+    if (response.ok) {
+      return { status: 'success', data: (await response.json()) as T };
+    }
+
+    this.logger.warn(`UM request to ${url} failed with ${response.status}: ${response.statusText}`);
+    return { status: 'failure' };
   }
 }

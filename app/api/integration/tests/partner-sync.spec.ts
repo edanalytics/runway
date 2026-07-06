@@ -15,6 +15,7 @@ import {
   doomedTenant2,
 } from '../fixtures/context-fixtures/partner-sync-fixtures';
 import { UmSyncHandler } from 'api/src/partner-sync/user-management/um-sync.handler';
+import { AppConfigService } from 'api/src/config/app-config.service';
 
 const UM_CONFIG = {
   syncCron: '*/5 * * * *',
@@ -96,13 +97,16 @@ describe('PartnerSyncService.sync', () => {
     // Reset cached token so each test starts with a fresh auth state
     (service as any).umToken = null;
     (service as any).umTokenExpiration = null;
+    // UmSyncHandler's AppConfigService is injected via the global ServicesModule,
+    // a separate instance from app.get(AppConfigService) — spy on the actual instance it holds.
+    jest.spyOn((service as any).appConfig as AppConfigService, 'umConfig').mockResolvedValue(UM_CONFIG);
   });
 
   afterEach(() => {
-    fetchSpy?.mockRestore();
+    jest.restoreAllMocks();
   });
 
-  const runSync = () => (service as any).runSync(UM_CONFIG);
+  const sync = () => service.sync();
 
   describe('partner sync', () => {
     it('creates new partners returned by UM', async () => {
@@ -111,7 +115,7 @@ describe('PartnerSyncService.sync', () => {
         tenants: { 'new-partner': [] },
       });
 
-      await runSync();
+      await sync();
 
       const created = await global.prisma.partner.findUnique({ where: { id: 'new-partner' } });
       expect(created).not.toBeNull();
@@ -124,7 +128,7 @@ describe('PartnerSyncService.sync', () => {
 
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
 
-      await runSync();
+      await sync();
 
       const partner = await global.prisma.partner.findUnique({ where: { id: 'gone-partner' } });
       expect(partner?.deletedOn).not.toBeNull();
@@ -134,7 +138,7 @@ describe('PartnerSyncService.sync', () => {
       // seeded partnerA has managedBy: null — must not be touched
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
 
-      await runSync();
+      await sync();
 
       const partner = await global.prisma.partner.findUnique({ where: { id: 'partner-a' } });
       expect(partner?.deletedOn).toBeNull();
@@ -148,7 +152,7 @@ describe('PartnerSyncService.sync', () => {
         tenants: { 'returning-partner': [] },
       });
 
-      await runSync();
+      await sync();
 
       const partner = await global.prisma.partner.findUnique({
         where: { id: 'returning-partner' },
@@ -172,7 +176,7 @@ describe('PartnerSyncService.sync', () => {
         },
       });
 
-      await runSync();
+      await sync();
 
       const tenant = await global.prisma.tenant.findUnique({
         where: { code_partnerId: { code: 'new-tenant', partnerId: 'sync-partner' } },
@@ -190,7 +194,7 @@ describe('PartnerSyncService.sync', () => {
         tenants: { 'sync-partner': [] },
       });
 
-      await runSync();
+      await sync();
 
       const tenant = await global.prisma.tenant.findUnique({
         where: { code_partnerId: { code: 'old-tenant', partnerId: 'sync-partner' } },
@@ -201,7 +205,7 @@ describe('PartnerSyncService.sync', () => {
     it('does not delete non-sync-managed tenants absent from UM', async () => {
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
 
-      await runSync();
+      await sync();
 
       const tenant = await global.prisma.tenant.findUnique({
         where: { code_partnerId: { code: 'tenant-a', partnerId: 'partner-a' } },
@@ -220,7 +224,7 @@ describe('PartnerSyncService.sync', () => {
         },
       });
 
-      await runSync();
+      await sync();
 
       const tenant = await global.prisma.tenant.findUnique({
         where: { code_partnerId: { code: 'returning-tenant', partnerId: 'sync-partner' } },
@@ -242,7 +246,7 @@ describe('PartnerSyncService.sync', () => {
         },
       });
 
-      await runSync();
+      await sync();
 
       const tenant = await global.prisma.tenant.findUnique({
         where: {
@@ -268,7 +272,7 @@ describe('PartnerSyncService.sync', () => {
         },
       });
 
-      await runSync();
+      await sync();
 
       const tenant = await global.prisma.tenant.findUnique({
         where: { code_partnerId: { code: 'updateable-tenant', partnerId: 'sync-partner' } },
@@ -283,7 +287,7 @@ describe('PartnerSyncService.sync', () => {
       // UM no longer knows about this partner
       fetchSpy = mockUmFetch({ partners: [], tenants: {} });
 
-      await runSync();
+      await sync();
 
       const tenants = await global.prisma.tenant.findMany({
         where: { partnerId: 'doomed-partner' },
@@ -299,7 +303,7 @@ describe('PartnerSyncService.sync', () => {
 
       fetchSpy = mockUmFetch({ tokenFails: true });
 
-      await runSync();
+      await sync();
 
       // sync-managed partner must not be soft-deleted when we cannot reach UM
       const partner = await global.prisma.partner.findUnique({ where: { id: 'sync-partner' } });
@@ -311,7 +315,7 @@ describe('PartnerSyncService.sync', () => {
 
       fetchSpy = mockUmFetch({ partnersFail: true });
 
-      await runSync();
+      await sync();
 
       // sync-managed partner must not be soft-deleted when we cannot reach UM
       const partner = await global.prisma.partner.findUnique({ where: { id: 'sync-partner' } });
