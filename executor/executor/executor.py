@@ -252,6 +252,21 @@ class JobExecutor:
         except subprocess.CalledProcessError:
             self.error = error.GitPullError()
             raise
+    
+    def earthmover_cmd(self, **kwargs):
+        """Thinly wrap our em calls to handle invocation and logging. Returns either a CompletedProcess object or CalledProcessError object for use downstream"""
+
+        em=subprocess.run(
+            **kwargs
+        )
+
+        # Log stdout and stderror if they exist
+        if em.stdout:
+            self.logger.info(f"earthmover stdout: {em.stdout}")
+        if em.stderr:
+            self.logger.info(f"earthmover stderr: {em.stderr}")
+
+        return em       
 
     def earthmover_deps(self):
         """Create the Earthmover runtime environment by installing bundle dependencies"""
