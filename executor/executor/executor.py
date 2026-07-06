@@ -273,9 +273,8 @@ class JobExecutor:
         self.set_action(action.EARTHMOVER_DEPS)
 
         try:
-            subprocess.run(
-                ["earthmover", "-c", self.wrapper_earthmover, "deps"],
-            ).check_returncode()
+            cmd=["earthmover", "-c", self.wrapper_earthmover, "deps"]
+            self.earthmover_cmd(args=cmd, check=True)
         except subprocess.CalledProcessError:
             self.error = error.EarthmoverDepsError()
             raise
