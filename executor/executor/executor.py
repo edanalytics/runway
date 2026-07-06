@@ -526,10 +526,6 @@ class JobExecutor:
 
     def cross_year_pass(self, primary):
         """Run a second Earthmover pass on unmatched students using a cross-year roster in an attempt to match more students."""
-        # constrain this pass to use the IDs that matched best in the first pass
-        first_run_match_rate = self.highest_match_rate
-        first_run_id_name = self.highest_match_id_name
-        first_run_id_type = self.highest_match_id_type
 
         first_run_output_dir = os.path.abspath(config.OUTPUT_DIR_FIRST_RUN)
         os.rename(self.output_dir, first_run_output_dir)
@@ -544,12 +540,16 @@ class JobExecutor:
         # If we hit the required match rate on the first pass, constrain to the ID column that won.
         # Otherwise, we run again and check against all ID types.
         # The bundle always appends studentUniqueId internally, so we pass an empty list when that's what won.
-        if first_run_match_rate >= config.REQUIRED_ID_MATCH_RATE:
+        if self.highest_match_rate >= config.REQUIRED_ID_MATCH_RATE:
 
             # use only the students who failed to match the primary ID from the first run
             unmatched_path = os.path.join(first_run_output_dir, os.path.basename(artifact.UNMATCHED_STUDENTS.path))
             os.environ["INPUT_FILE"] = unmatched_path
             self.input_sources["INPUT_FILE"]["path"] = unmatched_path
+            
+            # constrain this pass to use the IDs that matched best in the first pass
+            first_run_id_name = self.highest_match_id_name
+            first_run_id_type = self.highest_match_id_type
 
             os.environ["POSSIBLE_STUDENT_ID_COLUMNS"] = first_run_id_name
             os.environ["EDFI_STUDENT_ID_TYPES"] = (
