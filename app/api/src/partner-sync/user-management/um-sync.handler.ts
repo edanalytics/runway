@@ -144,6 +144,8 @@ export class UmSyncHandler implements OnModuleInit {
         this.logger.error('Failed to fetch partners from UM — aborting sync');
         return;
       }
+      const apiPartnerCodes = new Set(partnersResult.data.map((p) => p.partnerCode));
+
       const partnerIdsToCreate = partnersResult.data
         .filter((p) => !existingById.has(p.partnerCode))
         .map((p) => p.partnerCode);
@@ -161,8 +163,6 @@ export class UmSyncHandler implements OnModuleInit {
             existingById.get(p.partnerCode)?.managedBy === this.sourceKey
         )
         .map((p) => p.partnerCode);
-
-      const apiPartnerCodes = new Set(partnersResult.data.map((p) => p.partnerCode));
 
       const deletingPartnerIds = new Set(partnerIdsToDelete);
 
