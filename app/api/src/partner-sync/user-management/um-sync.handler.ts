@@ -183,7 +183,10 @@ export class UmSyncHandler implements OnModuleInit {
       const partnerIdsToDelete: string[] = [];
       const partnerIdsToUndelete: string[] = [];
 
-      if (partnersResult.status === 'success') {
+      if (partnersResult.status !== 'success') {
+        this.logger.error('Failed to fetch partners from UM — aborting sync');
+        return;
+      } else {
         const existingById = new Map(existingPartners.map((p) => [p.id, p]));
         const apiPartnerCodes = new Set(partnersResult.partners.map((p) => p.partnerCode));
 
@@ -206,9 +209,6 @@ export class UmSyncHandler implements OnModuleInit {
             partnerIdsToDelete.push(partner.id);
           }
         }
-      } else {
-        this.logger.error('Failed to fetch partners from UM — aborting sync');
-        return;
       }
 
       const deletingPartnerIds = new Set(partnerIdsToDelete);
