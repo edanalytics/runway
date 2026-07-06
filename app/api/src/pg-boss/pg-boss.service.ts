@@ -4,17 +4,24 @@ import { AppConfigService } from '../config/app-config.service';
 
 @Injectable()
 export class PgBossService implements OnModuleInit, OnModuleDestroy {
-  boss: PgBoss;
+  private _boss: PgBoss | undefined;
 
   constructor(private readonly appConfig: AppConfigService) {}
 
+  get boss(): PgBoss {
+    if (!this._boss) {
+      throw new Error('PgBossService.boss accessed before initialization');
+    }
+    return this._boss;
+  }
+
   async onModuleInit() {
     const pgConfig = await this.appConfig.postgresPoolConfig();
-    this.boss = new PgBoss(pgConfig);
-    await this.boss.start();
+    this._boss = new PgBoss(pgConfig);
+    await this._boss.start();
   }
 
   async onModuleDestroy() {
-    await this.boss?.stop();
+    await this._boss?.stop();
   }
 }

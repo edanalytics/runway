@@ -4,8 +4,6 @@ import { AppConfigService, UmConfig } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database/database.service';
 import { PgBossService } from '../../pg-boss/pg-boss.service';
 import { TenantUpsert, UserManagementPartner, UserManagementTenant } from './um-sync.types';
-import { IEnvironmentVariables } from 'api/src/config/env-vars.interface';
-import { ConfigService } from '@nestjs/config/dist/config.service';
 
 @Injectable()
 export class UmSyncHandler implements OnModuleInit {
@@ -19,16 +17,13 @@ export class UmSyncHandler implements OnModuleInit {
   constructor(
     private readonly appConfig: AppConfigService,
     private readonly pgBoss: PgBossService,
-    @Inject(PRISMA_ANONYMOUS) private readonly prisma: PrismaClient,
-    private readonly configService: ConfigService<IEnvironmentVariables>
+    @Inject(PRISMA_ANONYMOUS) private readonly prisma: PrismaClient
   ) {}
-  get<K extends keyof IEnvironmentVariables>(key: K): IEnvironmentVariables[K] | undefined {
-    return this.configService.get(key, { infer: true });
-  }
+
   async onModuleInit() {
     try {
       const config = await this.appConfig.umConfig();
-      const syncCron = this.get('UM_SYNC_CRON') ?? '0 2 * * *';
+      const syncCron = this.appConfig.get('UM_SYNC_CRON') ?? '0 2 * * *';
 
       if (!config) {
         this.logger.warn(`${this.sourceKey} config not set — unscheduling any existing job`);
