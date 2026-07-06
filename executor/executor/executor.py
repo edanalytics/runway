@@ -564,6 +564,10 @@ class JobExecutor:
         self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
+        # Record our new second pass match rate.
+        # If we don't meet the threshold, halt!
+        self.record_highest_match_rate()
+        self.enforce_match_threshold()
 
         self.logger.info(f"cross-year pass: match_rates: {load_match_rates()}")
         count = count_unmatched_students()
