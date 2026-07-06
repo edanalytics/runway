@@ -140,35 +140,29 @@ export class UmSyncHandler implements OnModuleInit {
       // --- Partner sync ---
       const partnersResult = await this.umRequest<UserManagementPartner[]>(umConfig, 'partners');
 
-      const partnerIdsToCreate: string[] = [];
-      const partnerIdsToDelete: string[] = [];
-      const partnerIdsToUndelete: string[] = [];
-
       if (partnersResult.status !== 'success') {
         this.logger.error('Failed to fetch partners from UM — aborting sync');
         return;
-      } else {
-        const apiPartnerCodes = new Set(partnersResult.data.map((p) => p.partnerCode));
-
-        for (const { partnerCode } of partnersResult.data) {
-          const existing = existingById.get(partnerCode);
-          if (!existing) {
-            partnerIdsToCreate.push(partnerCode);
-          } else if (existing.deletedOn && existing.managedBy === this.sourceKey) {
-            partnerIdsToUndelete.push(partnerCode);
-          }
-        }
-
-        for (const partner of existingPartners) {
-          if (
-            partner.managedBy === this.sourceKey &&
-            !partner.deletedOn &&
-            !apiPartnerCodes.has(partner.id)
-          ) {
-            partnerIdsToDelete.push(partner.id);
-          }
-        }
       }
+      const partnerIdsToCreate = partnersResult.data
+        .filter((p) => !existingById.has(p.partnerCode))
+        .map((p) => p.partnerCode);
+
+      const partnerIdsToDelete: string[] = existingPartners
+        .filter((p) => !apiPartnerCodes.has(p.id))
+        .filter((p) => p.managedBy === this.sourceKey && !p.deletedOn)
+        .map((p) => p.id);
+
+      const partnerIdsToUndelete: string[] = partnersResult.data
+        .filter((p) => existingById.has(p.partnerCode))
+        .filter(
+          (p) =>
+            existingById.get(p.partnerCode)?.deletedOn &&
+            existingById.get(p.partnerCode)?.managedBy === this.sourceKey
+        )
+        .map((p) => p.partnerCode);
+
+      const apiPartnerCodes = new Set(partnersResult.data.map((p) => p.partnerCode));
 
       const deletingPartnerIds = new Set(partnerIdsToDelete);
 
