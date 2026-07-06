@@ -174,7 +174,7 @@ export class UmSyncHandler implements OnModuleInit {
           const existing = existingById.get(partnerCode);
           if (!existing) {
             partnerIdsToCreate.push(partnerCode);
-          } else if (existing.deletedOn) {
+          } else if (existing.deletedOn && existing.managedBy === this.sourceKey) {
             partnerIdsToUndelete.push(partnerCode);
           }
         }
