@@ -94,8 +94,8 @@ describe('PartnerSyncService.sync', () => {
   beforeEach(() => {
     service = app.get(UmSyncHandler);
     // Reset cached token so each test starts with a fresh auth state
-    (service as any).alToken = null;
-    (service as any).alTokenExpiration = null;
+    (service as any).umToken = null;
+    (service as any).umTokenExpiration = null;
   });
 
   afterEach(() => {
