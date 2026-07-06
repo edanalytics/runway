@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { PrismaClient, Tenant } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { AppConfigService, UmConfig } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database/database.service';
 import { PgBossService } from '../../pg-boss/pg-boss.service';
@@ -154,22 +154,8 @@ export class UmSyncHandler implements OnModuleInit {
     try {
       this.logger.log('Starting UM sync');
 
-      const [existingPartners, existingTenants] = await Promise.all([
-        this.prisma.partner.findMany(),
-        this.prisma.tenant.findMany(),
-      ]);
-
-      // Build tenant lookup: partnerId -> tenantCode -> tenant
-      const tenantsByPartner = new Map<string, Map<string, Tenant>>();
-      for (const partner of existingPartners) {
-        tenantsByPartner.set(partner.id, new Map());
-      }
-      for (const tenant of existingTenants) {
-        if (!tenantsByPartner.has(tenant.partnerId)) {
-          tenantsByPartner.set(tenant.partnerId, new Map());
-        }
-        tenantsByPartner.get(tenant.partnerId)!.set(tenant.code, tenant);
-      }
+      const existingPartners = await this.prisma.partner.findMany({ include: { tenant: true } });
+      const existingById = new Map(existingPartners.map((p) => [p.id, p]));
 
       // --- Partner sync ---
       const partnersResult = await this.getPartners(umConfig);
@@ -182,14 +168,12 @@ export class UmSyncHandler implements OnModuleInit {
         this.logger.error('Failed to fetch partners from UM — aborting sync');
         return;
       } else {
-        const existingById = new Map(existingPartners.map((p) => [p.id, p]));
         const apiPartnerCodes = new Set(partnersResult.partners.map((p) => p.partnerCode));
 
         for (const { partnerCode } of partnersResult.partners) {
           const existing = existingById.get(partnerCode);
           if (!existing) {
             partnerIdsToCreate.push(partnerCode);
-            tenantsByPartner.set(partnerCode, new Map());
           } else if (existing.deletedOn) {
             partnerIdsToUndelete.push(partnerCode);
           }
@@ -215,7 +199,7 @@ export class UmSyncHandler implements OnModuleInit {
       const tenantsToUpdate: TenantUpsert[] = [];
 
       for (const partnerId of partnerIdsToDelete) {
-        for (const tenant of tenantsByPartner.get(partnerId)?.values() ?? []) {
+        for (const tenant of existingById.get(partnerId)?.tenant ?? []) {
           if (!tenant.deletedOn) {
             tenantsToDelete.push({ code: tenant.code, partnerId: tenant.partnerId });
           }
@@ -236,7 +220,9 @@ export class UmSyncHandler implements OnModuleInit {
             return;
           }
 
-          const tenantMap: Map<string, Tenant> = tenantsByPartner.get(partnerId) ?? new Map();
+          const tenantMap = new Map(
+            (existingById.get(partnerId)?.tenant ?? []).map((t) => [t.code, t])
+          );
           const umTenantCodes = new Set(result.tenants.map((t) => t.tenantCode));
 
           for (const apiTenant of result.tenants) {
