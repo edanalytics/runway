@@ -187,48 +187,52 @@ export class UmSyncHandler implements OnModuleInit {
         ...partnerIdsToCreate,
       ];
 
-      await Promise.all(
-        partnerIdsForTenantSync.map(async (partnerId) => {
-          const result = await this.umRequest<UserManagementTenant[]>(umConfig, 'tenants', {
+      const tenantFetchResults = await Promise.all(
+        partnerIdsForTenantSync.map(async (partnerId) => ({
+          partnerId,
+          result: await this.umRequest<UserManagementTenant[]>(umConfig, 'tenants', {
             partnerCode: partnerId,
-          });
-          if (result.status !== 'success') {
-            this.logger.error(`Failed to fetch tenants for partner ${partnerId} from UM`);
-            return;
-          }
-
-          const tenantMap = new Map(
-            (existingById.get(partnerId)?.tenant ?? []).map((t) => [t.code, t])
-          );
-          const umTenantCodes = new Set(result.data.map((t) => t.tenantCode));
-
-          for (const apiTenant of result.data) {
-            const existing = tenantMap.get(apiTenant.tenantCode);
-            const isGlobal = apiTenant.isGlobal;
-            if (!existing) {
-              tenantsToCreate.push({ code: apiTenant.tenantCode, partnerId, isGlobal });
-            } else if (existing.deletedOn) {
-              tenantsToUndelete.push({
-                code: existing.code,
-                partnerId: existing.partnerId,
-                isGlobal,
-              });
-            } else if (existing.isGlobal !== isGlobal) {
-              tenantsToUpdate.push({
-                code: existing.code,
-                partnerId: existing.partnerId,
-                isGlobal,
-              });
-            }
-          }
-
-          for (const [code, tenant] of tenantMap) {
-            if (!umTenantCodes.has(code) && !tenant.deletedOn) {
-              tenantsToDelete.push({ code: tenant.code, partnerId: tenant.partnerId });
-            }
-          }
-        })
+          }),
+        }))
       );
+
+      for (const { partnerId, result } of tenantFetchResults) {
+        if (result.status !== 'success') {
+          this.logger.error(`Failed to fetch tenants for partner ${partnerId} from UM`);
+          continue;
+        }
+
+        const tenantMap = new Map(
+          (existingById.get(partnerId)?.tenant ?? []).map((t) => [t.code, t])
+        );
+        const umTenantCodes = new Set(result.data.map((t) => t.tenantCode));
+
+        for (const apiTenant of result.data) {
+          const existing = tenantMap.get(apiTenant.tenantCode);
+          const isGlobal = apiTenant.isGlobal;
+          if (!existing) {
+            tenantsToCreate.push({ code: apiTenant.tenantCode, partnerId, isGlobal });
+          } else if (existing.deletedOn) {
+            tenantsToUndelete.push({
+              code: existing.code,
+              partnerId: existing.partnerId,
+              isGlobal,
+            });
+          } else if (existing.isGlobal !== isGlobal) {
+            tenantsToUpdate.push({
+              code: existing.code,
+              partnerId: existing.partnerId,
+              isGlobal,
+            });
+          }
+        }
+
+        for (const [code, tenant] of tenantMap) {
+          if (!umTenantCodes.has(code) && !tenant.deletedOn) {
+            tenantsToDelete.push({ code: tenant.code, partnerId: tenant.partnerId });
+          }
+        }
+      }
 
       await this.prisma.$transaction(async (tx) => {
         let partnersCreated = 0;
