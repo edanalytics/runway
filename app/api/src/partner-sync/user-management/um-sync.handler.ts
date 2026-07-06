@@ -4,7 +4,6 @@ import { AppConfigService, UmConfig } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database/database.service';
 import { PgBossService } from '../../pg-boss/pg-boss.service';
 import { TenantUpsert, UserManagementPartner, UserManagementTenant } from './um-sync.types';
-import { GetTenantDto } from 'models/src/dtos/tenant.dto';
 import { IEnvironmentVariables } from 'api/src/config/env-vars.interface';
 import { ConfigService } from '@nestjs/config/dist/config.service';
 
@@ -14,8 +13,8 @@ export class UmSyncHandler implements OnModuleInit {
 
   private readonly logger = new Logger(UmSyncHandler.name);
   
-  private alToken: string | null = null;
-  private alTokenExpiration: Date | null = null;
+  private umToken: string | null = null;
+  private umTokenExpiration: Date | null = null;
 
   constructor(
     private readonly appConfig: AppConfigService,
@@ -28,7 +27,7 @@ export class UmSyncHandler implements OnModuleInit {
   }
   async onModuleInit() {
     try {
-      const config = await this.appConfig.UmConfig();
+      const config = await this.appConfig.umConfig();
       const syncCron = this.get('UM_SYNC_CRON') ?? '0 2 * * *';
 
       if (!config) {
@@ -49,7 +48,7 @@ export class UmSyncHandler implements OnModuleInit {
   }
 
   async sync(): Promise<void> {
-    const config = await this.appConfig.UmConfig();
+    const config = await this.appConfig.umConfig();
     if (!config) {
       this.logger.warn('UM sync config not set — skipping sync');
       return;
@@ -78,8 +77,8 @@ export class UmSyncHandler implements OnModuleInit {
       }
 
       const data = (await response.json()) as { access_token: string; expires_in: number };
-      this.alToken = data.access_token;
-      this.alTokenExpiration = new Date(Date.now() + data.expires_in * 1000);
+      this.umToken = data.access_token;
+      this.umTokenExpiration = new Date(Date.now() + data.expires_in * 1000);
       return { status: 'success' };
     } catch (error) {
       this.logger.error('Error fetching UM token', error);
@@ -90,7 +89,7 @@ export class UmSyncHandler implements OnModuleInit {
   private async ensureToken(
     umConfig: UmConfig
   ): Promise<{ status: 'success' } | { status: 'failure' }> {
-    if (!this.alToken || !this.alTokenExpiration || this.alTokenExpiration < new Date()) {
+    if (!this.umToken || !this.umTokenExpiration || this.umTokenExpiration < new Date()) {
       return this.getToken(umConfig);
     }
     return { status: 'success' };
@@ -112,7 +111,7 @@ export class UmSyncHandler implements OnModuleInit {
     }
 
     let response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${this.alToken}` },
+      headers: { Authorization: `Bearer ${this.umToken}` },
     });
 
     if (response.status === 401) {
@@ -121,7 +120,7 @@ export class UmSyncHandler implements OnModuleInit {
         return { status: 'failure' };
       }
       response = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${this.alToken}` },
+        headers: { Authorization: `Bearer ${this.umToken}` },
       });
     }
 
@@ -138,7 +137,7 @@ export class UmSyncHandler implements OnModuleInit {
   ): Promise<{ status: 'success'; partners: UserManagementPartner[] } | { status: 'failure' }> {
     const result = await this.umRequest(umConfig, 'partners');
     if (result.status !== 'success') {
-      this.logger.error('Failed to fetch partners from AL');
+      this.logger.error('Failed to fetch partners from UM');
       return { status: 'failure' };
     }
     return { status: 'success', partners: result.data as UserManagementPartner[] };
@@ -166,7 +165,7 @@ export class UmSyncHandler implements OnModuleInit {
       ]);
 
       // Build tenant lookup: partnerId -> tenantCode -> tenant
-      const tenantsByPartner = new Map<string, Map<string, GetTenantDto>>();
+      const tenantsByPartner = new Map<string, Map<string, Tenant>>();
       for (const partner of existingPartners) {
         tenantsByPartner.set(partner.id, new Map());
       }
