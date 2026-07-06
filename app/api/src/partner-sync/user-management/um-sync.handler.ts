@@ -255,7 +255,7 @@ export class UmSyncHandler implements OnModuleInit {
 
         if (partnerIdsToDelete.length) {
           const r = await tx.partner.updateMany({
-            where: { id: { in: partnerIdsToDelete } },
+            where: { id: { in: partnerIdsToDelete }, managedBy: this.sourceKey },
             data: { deletedOn: new Date() },
           });
           partnersDeleted = r.count;
@@ -263,7 +263,7 @@ export class UmSyncHandler implements OnModuleInit {
 
         if (partnerIdsToUndelete.length) {
           const r = await tx.partner.updateMany({
-            where: { id: { in: partnerIdsToUndelete } },
+            where: { id: { in: partnerIdsToUndelete }, managedBy: this.sourceKey },
             data: { deletedOn: null },
           });
           partnersUndeleted = r.count;
