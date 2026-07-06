@@ -10,7 +10,7 @@ export class UmSyncHandler implements OnModuleInit {
   readonly sourceKey = 'user_management_sync';
 
   private readonly logger = new Logger(UmSyncHandler.name);
-  
+
   private umToken: string | null = null;
   private umTokenExpiration: Date | null = null;
 
@@ -90,11 +90,11 @@ export class UmSyncHandler implements OnModuleInit {
     return { status: 'success' };
   }
 
-  private async umRequest(
+  private async umRequest<T>(
     umConfig: UmConfig,
     path: string,
     searchParams?: Record<string, string>
-  ): Promise<{ status: 'success'; data: unknown } | { status: 'failure' }> {
+  ): Promise<{ status: 'success'; data: T } | { status: 'failure' }> {
     const tokenResult = await this.ensureToken(umConfig);
     if (tokenResult.status === 'failure') {
       return { status: 'failure' };
@@ -120,45 +120,25 @@ export class UmSyncHandler implements OnModuleInit {
     }
 
     if (response.ok) {
-      return { status: 'success', data: await response.json() };
+      return { status: 'success', data: (await response.json()) as T };
     }
 
     this.logger.warn(`UM request to ${url} failed with ${response.status}: ${response.statusText}`);
     return { status: 'failure' };
   }
 
-  private async getPartners(
-    umConfig: UmConfig
-  ): Promise<{ status: 'success'; partners: UserManagementPartner[] } | { status: 'failure' }> {
-    const result = await this.umRequest(umConfig, 'partners');
-    if (result.status !== 'success') {
-      this.logger.error('Failed to fetch partners from UM');
-      return { status: 'failure' };
-    }
-    return { status: 'success', partners: result.data as UserManagementPartner[] };
-  }
-
-  private async getTenants(
-    umConfig: UmConfig,
-    partnerCode: string
-  ): Promise<{ status: 'success'; tenants: UserManagementTenant[] } | { status: 'failure' }> {
-    const result = await this.umRequest(umConfig, 'tenants', { partnerCode });
-    if (result.status !== 'success') {
-      this.logger.error(`Failed to fetch tenants for partner ${partnerCode} from UM`);
-      return { status: 'failure' };
-    }
-    return { status: 'success', tenants: result.data as UserManagementTenant[] };
-  }
-
   private async runSync(umConfig: UmConfig): Promise<void> {
     try {
       this.logger.log('Starting UM sync');
 
-      const existingPartners = await this.prisma.partner.findMany({ include: { tenant: true } });
+      const existingPartners = await this.prisma.partner.findMany({
+        where: { managedBy: this.sourceKey },
+        include: { tenant: true },
+      });
       const existingById = new Map(existingPartners.map((p) => [p.id, p]));
 
       // --- Partner sync ---
-      const partnersResult = await this.getPartners(umConfig);
+      const partnersResult = await this.umRequest<UserManagementPartner[]>(umConfig, 'partners');
 
       const partnerIdsToCreate: string[] = [];
       const partnerIdsToDelete: string[] = [];
@@ -168,9 +148,9 @@ export class UmSyncHandler implements OnModuleInit {
         this.logger.error('Failed to fetch partners from UM — aborting sync');
         return;
       } else {
-        const apiPartnerCodes = new Set(partnersResult.partners.map((p) => p.partnerCode));
+        const apiPartnerCodes = new Set(partnersResult.data.map((p) => p.partnerCode));
 
-        for (const { partnerCode } of partnersResult.partners) {
+        for (const { partnerCode } of partnersResult.data) {
           const existing = existingById.get(partnerCode);
           if (!existing) {
             partnerIdsToCreate.push(partnerCode);
@@ -215,17 +195,20 @@ export class UmSyncHandler implements OnModuleInit {
 
       await Promise.all(
         partnerIdsForTenantSync.map(async (partnerId) => {
-          const result = await this.getTenants(umConfig, partnerId);
+          const result = await this.umRequest<UserManagementTenant[]>(umConfig, 'tenants', {
+            partnerCode: partnerId,
+          });
           if (result.status !== 'success') {
+            this.logger.error(`Failed to fetch tenants for partner ${partnerId} from UM`);
             return;
           }
 
           const tenantMap = new Map(
             (existingById.get(partnerId)?.tenant ?? []).map((t) => [t.code, t])
           );
-          const umTenantCodes = new Set(result.tenants.map((t) => t.tenantCode));
+          const umTenantCodes = new Set(result.data.map((t) => t.tenantCode));
 
-          for (const apiTenant of result.tenants) {
+          for (const apiTenant of result.data) {
             const existing = tenantMap.get(apiTenant.tenantCode);
             const isGlobal = apiTenant.isGlobal;
             if (!existing) {
