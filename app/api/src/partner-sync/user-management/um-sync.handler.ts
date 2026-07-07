@@ -89,17 +89,15 @@ export class UmSyncHandler implements OnModuleInit {
 
       // --- Tenant sync ---
       const tenantsToCreate: TenantUpsert[] = [];
-      const tenantsToDelete: { code: string; partnerId: string }[] = [];
       const tenantsToUndelete: TenantUpsert[] = [];
       const tenantsToUpdate: TenantUpsert[] = [];
 
-      for (const partnerId of partnerIdsToDelete) {
-        for (const tenant of existingById.get(partnerId)?.tenant ?? []) {
-          if (!tenant.deletedOn) {
-            tenantsToDelete.push({ code: tenant.code, partnerId: tenant.partnerId });
-          }
-        }
-      }
+      const tenantsToDelete: { code: string; partnerId: string }[] = partnerIdsToDelete.flatMap(
+        (partnerId) =>
+          (existingById.get(partnerId)?.tenant ?? [])
+            .filter((tenant) => !tenant.deletedOn)
+            .map((tenant) => ({ code: tenant.code, partnerId: tenant.partnerId }))
+      );
 
       const partnerIdsForTenantSync = [
         ...existingPartners
