@@ -254,7 +254,7 @@ class JobExecutor:
             raise
     
     def earthmover_cmd(self, **kwargs):
-        """Thinly wrap our em calls to handle invocation and logging. Returns either a CompletedProcess object or CalledProcessError object for use downstream"""
+        """Thinly wrap our em calls to handle invocation and logging. Returns either a CompletedProcess object or CalledProcessError object"""
 
         em=subprocess.run(
             **kwargs
@@ -265,6 +265,9 @@ class JobExecutor:
             self.logger.info(f"earthmover stdout: {em.stdout}")
         if em.stderr:
             self.logger.info(f"earthmover stderr: {em.stderr}")
+
+        # Raise CalledProcessError if return code is non-zero
+        em.check_returncode()
 
         return em       
 
@@ -483,14 +486,12 @@ class JobExecutor:
         try:
             cmd = ["earthmover", "-c", self.wrapper_earthmover, "compile"]
             em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
-            em.check_returncode()
 
             # attempt no. 1
             cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path]
             cmd.extend(encoding_args)
             em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
 
-            em.check_returncode()
         except subprocess.CalledProcessError as err:
             self.logger.error("earthmover encountered an error")
             fatal = True
@@ -503,8 +504,6 @@ class JobExecutor:
                     # attempt no. 2 - need a new em object to overwrite the decoding error
                     cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"]
                     em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
-
-                    em.check_returncode()
 
                     fatal = False # if we made it this far, we can abort the shutdown
                 except subprocess.CalledProcessError:
