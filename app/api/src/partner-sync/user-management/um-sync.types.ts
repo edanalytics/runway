@@ -2,7 +2,6 @@ export type UserManagementTenant = {
   partnerCode: string;
   tenantCode: string;
   displayName: string;
-  isEnabled: boolean;
   isGlobal: boolean;
 };
 

@@ -35,7 +35,6 @@ function makeUmTenant(
     partnerCode,
     tenantCode,
     displayName: tenantCode,
-    isEnabled: true,
     isGlobal: false,
     ...overrides,
   };

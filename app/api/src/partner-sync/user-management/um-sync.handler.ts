@@ -52,11 +52,10 @@ export class UmSyncHandler implements OnModuleInit {
     try {
       this.logger.log('Starting UM sync');
 
-      const existingPartners = await this.prisma.partner.findMany({
-        where: { managedBy: this.sourceKey },
+      const allExistingParnters = await this.prisma.partner.findMany({
         include: { tenant: true },
       });
-      const existingById = new Map(existingPartners.map((p) => [p.id, p]));
+      const existingById = new Map(allExistingParnters.map((p) => [p.id, p]));
 
       // --- Partner sync ---
       const partnersResult = await this.umRequest<UserManagementPartner[]>(umConfig, 'partners');
@@ -71,7 +70,7 @@ export class UmSyncHandler implements OnModuleInit {
         .filter((p) => !existingById.has(p.partnerCode))
         .map((p) => p.partnerCode);
 
-      const partnerIdsToDelete: string[] = existingPartners
+      const partnerIdsToDelete: string[] = allExistingParnters
         .filter((p) => !apiPartnerCodes.has(p.id))
         .filter((p) => p.managedBy === this.sourceKey && !p.deletedOn)
         .map((p) => p.id);
@@ -100,7 +99,7 @@ export class UmSyncHandler implements OnModuleInit {
       );
 
       const partnerIdsForTenantSync = [
-        ...existingPartners
+        ...allExistingParnters
           .filter((p) => p.managedBy === this.sourceKey && !deletingPartnerIds.has(p.id))
           .map((p) => p.id),
         ...partnerIdsToCreate,
@@ -197,11 +196,11 @@ export class UmSyncHandler implements OnModuleInit {
 
         if (tenantsToDelete.length) {
           for (const { partnerId, code } of tenantsToDelete) {
-            const r = await tx.tenant.updateMany({
-              where: { partnerId, code },
+            const r = await tx.tenant.update({
+            where: { code_partnerId: { code, partnerId } },
               data: { deletedOn: new Date() },
             });
-            tenantsDeleted += r.count;
+            tenantsDeleted++;
           }
         }
 
@@ -266,7 +265,13 @@ export class UmSyncHandler implements OnModuleInit {
   private async ensureToken(
     umConfig: UmConfig
   ): Promise<{ status: 'success' } | { status: 'failure' }> {
-    if (!this.umToken || !this.umTokenExpiration || this.umTokenExpiration < new Date()) {
+    // add 30 second buffer to avoid token expiration during request
+    const expirationBufferMs = 30000;
+    if (
+      !this.umToken ||
+      !this.umTokenExpiration ||
+      this.umTokenExpiration.getTime() - expirationBufferMs < Date.now()
+    ) {
       return this.getToken(umConfig);
     }
     return { status: 'success' };
