@@ -25,17 +25,19 @@ export class UmSyncHandler implements OnModuleInit {
       const config = await this.appConfig.umConfig();
       const syncCron = this.appConfig.get('UM_SYNC_CRON') ?? '0 2 * * *';
 
+      const boss = await this.pgBoss.boss;
+
       if (!config) {
         this.logger.warn(`${this.sourceKey} config not set — unscheduling any existing job`);
-        await this.pgBoss.boss.unschedule(this.sourceKey);
+        await boss.unschedule(this.sourceKey);
         return;
       }
 
-      await this.pgBoss.boss.createQueue(this.sourceKey);
-      await this.pgBoss.boss.schedule(this.sourceKey, syncCron, null, {
+      await boss.createQueue(this.sourceKey);
+      await boss.schedule(this.sourceKey, syncCron, null, {
         singletonKey: this.sourceKey,
       });
-      await this.pgBoss.boss.work(this.sourceKey, () => this.sync());
+      await boss.work(this.sourceKey, () => this.sync());
       this.logger.log(`${this.sourceKey} sync scheduled: ${syncCron}`);
     } catch (err) {
       this.logger.error(`Failed to schedule ${this.sourceKey} sync`, err);

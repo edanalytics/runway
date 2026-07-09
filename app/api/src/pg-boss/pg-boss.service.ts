@@ -5,20 +5,26 @@ import { AppConfigService } from '../config/app-config.service';
 @Injectable()
 export class PgBossService implements OnModuleInit, OnModuleDestroy {
   private _boss: PgBoss | undefined;
+  private readonly _ready: Promise<PgBoss>;
 
-  constructor(private readonly appConfig: AppConfigService) {}
+  constructor(private readonly appConfig: AppConfigService) {
+    this._ready = this.init();
+  }
 
-  get boss(): PgBoss {
-    if (!this._boss) {
-      throw new Error('PgBossService.boss accessed before initialization');
-    }
+  // Resolves once the underlying PgBoss instance has started (migrations run, ready for DB access).
+  get boss(): Promise<PgBoss> {
+    return this._ready;
+  }
+
+  private async init(): Promise<PgBoss> {
+    const pgConfig = await this.appConfig.postgresPoolConfig();
+    this._boss = new PgBoss(pgConfig);
+    await this._boss.start();
     return this._boss;
   }
 
   async onModuleInit() {
-    const pgConfig = await this.appConfig.postgresPoolConfig();
-    this._boss = new PgBoss(pgConfig);
-    await this._boss.start();
+    await this._ready;
   }
 
   async onModuleDestroy() {
