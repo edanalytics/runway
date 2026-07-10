@@ -486,11 +486,13 @@ class JobExecutor:
         try:
             cmd = ["earthmover", "-c", self.wrapper_earthmover, "compile"]
             em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
+            em.check_returncode()
 
             # attempt no. 1
             cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path]
             cmd.extend(encoding_args)
             em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
+            em.check_returncode()
 
         except subprocess.CalledProcessError as err:
             self.logger.error("earthmover encountered an error")
@@ -504,7 +506,8 @@ class JobExecutor:
                     # attempt no. 2 - need a new em object to overwrite the decoding error
                     cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"]
                     em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
-
+                    em.check_returncode()
+                    
                     fatal = False # if we made it this far, we can abort the shutdown
                 except subprocess.CalledProcessError:
                     # failed again, move on to shutdown procedure
