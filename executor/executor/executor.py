@@ -266,9 +266,6 @@ class JobExecutor:
         if em.stderr:
             self.logger.info(f"earthmover stderr: {em.stderr}")
 
-        # Raise CalledProcessError if return code is non-zero
-        em.check_returncode()
-
         return em       
 
     def earthmover_deps(self):
