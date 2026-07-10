@@ -8,6 +8,14 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
+export type UmConfig = {
+  url: string;
+  auth0Domain: string;
+  clientId: string;
+  clientSecret: string;
+  audience: string;
+};
+
 /**
  * AppConfigService is a wrapper on the @nestjs/config package's
  * ConfigService. It allows us to define custom getters, including
@@ -139,9 +147,7 @@ export class AppConfigService {
 
     const envLabel = this.get('ENVLABEL');
     if (!envLabel) {
-      throw new Error(
-        'ENVLABEL must be set in order to retrieve EDU connection info'
-      );
+      throw new Error('ENVLABEL must be set in order to retrieve EDU connection info');
     }
     const secretName = `${envLabel}-edu-connection-info-${partnerId}`;
     let secret: string | Record<string, string>;
@@ -164,8 +170,7 @@ export class AppConfigService {
     if (typeof secret !== 'object') {
       return null;
     }
-    const { username, account, database, schema, privateKey, warehouse, role } =
-      secret;
+    const { username, account, database, schema, privateKey, warehouse, role } = secret;
     if (!username || !account || !database || !schema || !privateKey) {
       return null;
     }
@@ -208,6 +213,35 @@ export class AppConfigService {
     const issuerUrl = this.get('OAUTH2_ISSUER');
     const audience = this.get('OAUTH2_AUDIENCE') ?? this.get('MY_URL'); // OAUTH2_AUDIENCE is only used for running locally. Deployed envs should use the API url
     return { issuerUrl, audience };
+  }
+
+  async umConfig(): Promise<UmConfig | null> {
+    const configSecret = this.get('UM_CONFIG_SECRET');
+    if (configSecret) {
+      const secret = await this.fetchAWSSecret(configSecret);
+      if (typeof secret !== 'object') {
+        throw new Error(`Value for AWS secret ${configSecret} must be an object`);
+      }
+      return {
+        url: secret['url'],
+        auth0Domain: secret['auth0Domain'],
+        clientId: secret['clientId'],
+        clientSecret: secret['clientSecret'],
+        audience: secret['audience'],
+      };
+    }
+
+    const url = this.get('UM_URL');
+    const auth0Domain = this.get('UM_AUTH0_DOMAIN');
+    const clientId = this.get('UM_CLIENT_ID');
+    const clientSecret = this.get('UM_CLIENT_SECRET');
+    const audience = this.get('UM_AUDIENCE');
+
+    if (!url || !auth0Domain || !clientId || !clientSecret || !audience) {
+      return null;
+    }
+
+    return { url, auth0Domain, clientId, clientSecret, audience };
   }
 
   // Jobs whose input files total at least this many bytes run on the large
