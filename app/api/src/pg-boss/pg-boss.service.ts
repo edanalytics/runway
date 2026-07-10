@@ -11,7 +11,7 @@ export class PgBossService implements OnModuleInit, OnModuleDestroy {
 
   // Resolves once the underlying PgBoss instance has started (migrations run, ready for DB access).
   get boss(): Promise<PgBoss> {
-    this._ready ??= this.init()
+    this._ready ??= this.init();
     return this._ready;
   }
 
@@ -22,7 +22,7 @@ export class PgBossService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    this._ready ??= this.init()
+    this._ready ??= this.init();
     await this._ready;
   }
 

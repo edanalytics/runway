@@ -197,8 +197,8 @@ export class UmSyncHandler implements OnModuleInit {
 
       if (tenantsToDelete.length) {
         for (const { partnerId, code } of tenantsToDelete) {
-          const r = await tx.tenant.update({
-            where: { code_partnerId: { code, partnerId } },
+          await tx.tenant.update({
+            where: { code_partnerId: { code, partnerId }, partner: {managedBy: this.sourceKey} },
             data: { deletedOn: new Date() },
           });
           tenantsDeleted++;
@@ -207,7 +207,7 @@ export class UmSyncHandler implements OnModuleInit {
 
       for (const { code, partnerId, isGlobal } of tenantsToUndelete) {
         await tx.tenant.update({
-          where: { code_partnerId: { code, partnerId } },
+            where: { code_partnerId: { code, partnerId }, partner: {managedBy: this.sourceKey} },
           data: { deletedOn: null, isGlobal },
         });
         tenantsUndeleted++;
@@ -215,7 +215,7 @@ export class UmSyncHandler implements OnModuleInit {
 
       for (const { code, partnerId, isGlobal } of tenantsToUpdate) {
         await tx.tenant.update({
-          where: { code_partnerId: { code, partnerId } },
+            where: { code_partnerId: { code, partnerId }, partner: {managedBy: this.sourceKey} },
           data: { isGlobal },
         });
       }
