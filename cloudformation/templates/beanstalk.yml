@@ -583,7 +583,7 @@ Resources:
           Value: !Ref OAuth2Issuer
         - Namespace: aws:elasticbeanstalk:application:environment
           OptionName: UM_CONFIG_SECRET
-          Value: !Sub '${EnvLabel}-Auth0ConfigSecret'
+          Value: !Sub '${EnvLabel}-UMConfigSecret'
         - Namespace: aws:elasticbeanstalk:environment:process:https
           OptionName: Port
           Value: 443
