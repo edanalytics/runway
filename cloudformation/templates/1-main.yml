@@ -518,4 +518,4 @@ Resources:
 Outputs:
   TemplateVersion:
     Description: The version of the cloudformation template
-    Value: '2.0.6'
+    Value: '2.0.7'
