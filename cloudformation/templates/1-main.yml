@@ -42,6 +42,7 @@ Metadata:
           - DeploymentStrategy
           - BeanstalkPlatformUpdateTime
           - BundleBranch
+          - OAuth2Issuer
       - Label:
           default: S3 Cloudfront Information
         Parameters: 
@@ -66,9 +67,10 @@ Metadata:
           - ViteAlternateMatomoUrl
           - ViteAlternateMatomoSiteId
           - ViteAlternateMatomoSubdomain
-      - Label: 
-          default: ECS Information 
-        Parameters: 
+      - Label:
+          default: Job Executor and ECS Information
+        Parameters:
+          - CreateExecutorS3Bucket
           - CreateEcsServiceLinkedRole
       - Label: 
           default: VPC Network Configuration
@@ -209,6 +211,13 @@ Parameters:
   CreateS3Bucket:
     Type: String
     Description: Create the S3 bucket named 'codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
+    Default: 'The S3 Bucket already exists'
+    AllowedValues:
+      - 'Create the S3 Bucket'
+      - 'The S3 Bucket already exists'
+  CreateExecutorS3Bucket:
+    Type: String
+    Description: Create the S3 bucket named 'job-executor-codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
     Default: 'The S3 Bucket already exists'
     AllowedValues:
       - 'Create the S3 Bucket'
@@ -482,7 +491,7 @@ Resources:
         GitHubBranch: !Ref GitHubBranch
         GitHubConnectionArn: !Ref GitHubConnectionArn
         GitHubRepo: !Ref GitHubRepo
-        CreateS3Bucket: 'The S3 Bucket already exists'
+        CreateS3Bucket: !Ref CreateExecutorS3Bucket
   EcsStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
@@ -513,4 +522,4 @@ Resources:
 Outputs:
   TemplateVersion:
     Description: The version of the cloudformation template
-    Value: '2.0.5'
+    Value: '2.0.6'
