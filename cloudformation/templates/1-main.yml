@@ -43,6 +43,7 @@ Metadata:
           - BeanstalkPlatformUpdateTime
           - BundleBranch
           - OAuth2Issuer
+          - Auth0ConfigSecret
       - Label:
           default: S3 Cloudfront Information
         Parameters: 
@@ -341,6 +342,9 @@ Parameters:
   OAuth2Issuer:
     Type: String
     Description: 'URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function.'
+  Auth0ConfigSecret:
+    Type: String
+    Description: 'Secret name for the Auth0 configuration secret in AWS Secrets Manager.'
 
 Mappings:
   PostgreSQLInformation:
@@ -415,6 +419,7 @@ Resources:
         ApplicationEventsToSlackFunctionArn: !If [EnableSlackAlerting, !GetAtt 'LambdaFunctionsStack.Outputs.ApplicationEventsToSlackFunctionArn', '']
         SlackWebhookURL: !If [EnableSlackAlerting, !Ref SlackWebhookURL, '']
         OAuth2Issuer: !Ref OAuth2Issuer
+        Auth0ConfigSecret: !Ref Auth0ConfigSecret
   LambdaFunctionsStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
@@ -522,4 +527,4 @@ Resources:
 Outputs:
   TemplateVersion:
     Description: The version of the cloudformation template
-    Value: '2.0.6'
+    Value: '2.0.7'
