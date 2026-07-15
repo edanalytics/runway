@@ -82,9 +82,6 @@ Parameters:
   OAuth2Issuer:
     Type: String
     Description: URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function.
-  Auth0ConfigSecret:
-    Type: String
-    Description: Secret name for the Auth0 configuration secret in AWS Secrets Manager.
     
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
@@ -586,7 +583,7 @@ Resources:
           Value: !Ref OAuth2Issuer
         - Namespace: aws:elasticbeanstalk:application:environment
           OptionName: UM_CONFIG_SECRET
-          Value: !Ref Auth0ConfigSecret
+          Value: !Sub '${EnvLabel}-UMConfigSecret'
         - Namespace: aws:elasticbeanstalk:environment:process:https
           OptionName: Port
           Value: 443
