@@ -458,7 +458,8 @@ class JobExecutor:
         # if we're here, the first pass of Earthmover was successful
         if (self.send_to_ods                          # i.e. we've only tried matching this year's students so far
             and self.cross_year_match_available       # and we have access to EDU
-            and self.num_unmatched_students > 0       # and there are unmatched students from the first pass
+            and (self.num_unmatched_students is None  # and either there were no matches at all
+                 or self.num_unmatched_students > 0)  # or there are any remaining unmatched students
         ):
             # then take a second pass with the cross-year roster from EDU
             # and thus produce a second output set to be sideloaded
