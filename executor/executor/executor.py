@@ -133,10 +133,10 @@ class JobExecutor:
             # still has something to report to the app.
             if not self.error:
                 self.logger.info("firing #1")
-                self.error = error.UnknownError(traceback.format_exc(limit=1))
+                self.error = error.UnknownError(traceback.format_exc())
             if not self.error.stacktrace:
                 self.logger.info("firing #2")
-                self.error.stacktrace = traceback.format_exc(limit=1)
+                self.error.stacktrace = traceback.format_exc()
 
             # generic exception catching to be super-defensive while we cleanup and make a best effort to get the error object out the door
             try:
