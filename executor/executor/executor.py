@@ -567,15 +567,14 @@ class JobExecutor:
         else:
             self.logger.info("cross-year pass: first pass below threshold, running again against all ID types")
 
-        try:
-            self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
-            artifact.EM_RESULTS_X_YEAR.needs_upload = True
-            self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
-        finally:
-            if not met_initial_threshold:
-                # Only enforce our match threshold if the initial run did not hit
-                self.record_highest_match_rate()
-                self.enforce_match_threshold()
+        self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
+        artifact.EM_RESULTS_X_YEAR.needs_upload = True
+        self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
+        
+        if not met_initial_threshold:
+            # Only enforce our match threshold if the initial run did not hit
+            self.record_highest_match_rate()
+            self.enforce_match_threshold()
 
         self.logger.info(f"cross-year pass: match_rates: {load_match_rates()}")
         count = count_unmatched_students()
