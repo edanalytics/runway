@@ -133,10 +133,10 @@ class JobExecutor:
             # still has something to report to the app.
             if not self.error:
                 self.logger.info("firing #1")
-                self.error = error.UnknownError(traceback.format_exc())
+                self.error = error.UnknownError(traceback.format_exc(limit=1))
             if not self.error.stacktrace:
                 self.logger.info("firing #2")
-                self.error.stacktrace = traceback.format_exc()
+                self.error.stacktrace = traceback.format_exc(limit=1)
 
             # generic exception catching to be super-defensive while we cleanup and make a best effort to get the error object out the door
             try:
@@ -961,7 +961,6 @@ class JobExecutor:
 
     def send_error(self):
         """Send a diagnostic message to app after a fatal error"""
-        self.logger.info(self.error.to_json())
         self.logger.debug("Sending error report")
         self.conn.post(self.error_url, json=self.error.to_json())
 
