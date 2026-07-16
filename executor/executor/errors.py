@@ -15,6 +15,10 @@ class ExecutorError:
     def to_json(self):
         all_keys = deepcopy(vars(self))
         del all_keys["code"]
+        max_bytes = 6144
+        bytes = self.stacktrace.encode('utf-8')
+        truncated_bytes = bytes[-max_bytes:]
+        self.stacktrace = truncated_bytes.decode(encoding, errors='ignore')
         return {"code": self.code, "payload": all_keys}
 
 class UnknownError(ExecutorError):
