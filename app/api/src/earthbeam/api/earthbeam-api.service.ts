@@ -223,7 +223,6 @@ export class EarthbeamApiService {
     }
 
     try {
-      
       /**
        * We're pulling data from the run to construct this payload rather than just passing
        * the run to eventEmitter.emit for two reasons:
