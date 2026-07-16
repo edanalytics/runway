@@ -540,10 +540,13 @@ class JobExecutor:
         self.upload_artifact(artifact.CROSS_YEAR_ROSTER)
         os.environ["EDFI_ROSTER_FILE"] = os.path.abspath(config.CROSS_YEAR_ROSTER_PATH)
 
+        # Boolean to capture whether our first run met the match rate threshold
+        met_initial_threshold = self.highest_match_rate >= config.REQUIRED_ID_MATCH_RATE
+
         # If we hit the required match rate on the first pass, constrain to the ID column that won.
         # Otherwise, we run again and check against all ID types.
         # The bundle always appends studentUniqueId internally, so we pass an empty list when that's what won.
-        if self.highest_match_rate >= config.REQUIRED_ID_MATCH_RATE:
+        if met_initial_threshold:
 
             # use only the students who failed to match the primary ID from the first run
             unmatched_path = os.path.join(first_run_output_dir, os.path.basename(artifact.UNMATCHED_STUDENTS.path))
@@ -564,13 +567,15 @@ class JobExecutor:
         else:
             self.logger.info("cross-year pass: first pass below threshold, running again against all ID types")
 
-        self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
-        artifact.EM_RESULTS_X_YEAR.needs_upload = True
-        self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
-        # Record our new second pass match rate.
-        # If we don't meet the threshold, halt!
-        self.record_highest_match_rate()
-        self.enforce_match_threshold()
+        try:
+            self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
+            artifact.EM_RESULTS_X_YEAR.needs_upload = True
+            self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
+        finally:
+            if not met_initial_threshold:
+                # Only enforce our match threshold if the initial run did not hit
+                self.record_highest_match_rate()
+                self.enforce_match_threshold()
 
         self.logger.info(f"cross-year pass: match_rates: {load_match_rates()}")
         count = count_unmatched_students()
