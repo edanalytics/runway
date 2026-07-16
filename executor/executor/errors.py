@@ -13,6 +13,10 @@ class ExecutorError:
         self.stacktrace = stacktrace
     
     def to_json(self):
+        max_bytes = 6144 # an error payload above 8kB will be rejected. Truncate to the last 6kB of the stacktrace
+        bytes = self.stacktrace.encode('utf-8')
+        truncated_bytes = bytes[-max_bytes:]
+        self.stacktrace = truncated_bytes.decode('utf-8', errors='ignore')
         all_keys = deepcopy(vars(self))
         del all_keys["code"]
         return {"code": self.code, "payload": all_keys}
