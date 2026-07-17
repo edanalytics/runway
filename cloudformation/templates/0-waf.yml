@@ -389,6 +389,11 @@ Resources:
          ResourceArn: !GetAtt RegionalWebAcl.Arn
          LogDestinationConfigs: 
            - !GetAtt WebAclLogging.Arn
+         RedactedFields:
+           - SingleHeader:
+               Name: cookie
+           - SingleHeader:
+               Name: authorization
 
   WAFDashboard:
     Type: AWS::CloudWatch::Dashboard
@@ -929,7 +934,7 @@ Resources:
 Outputs:
   BaseVersion:
     Description: The version of the cloudformation template
-    Value: '1.0.0'
+    Value: '1.0.2'
   RegionalWebAclArn: 
     Value: !GetAtt RegionalWebAcl.Arn
     Description: ARN of the Web ACL used to create rules to inspect web requests. 
