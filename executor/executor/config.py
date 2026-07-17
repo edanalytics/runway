@@ -1,6 +1,9 @@
 BUNDLE_DIR = 'bundles'
 OUTPUT_DIR = 'output'
-LB_DOWNLOAD_DIR = 'lb-download-dir'
+# when performing a cross-year-matching second pass: location to move earthmover output set from the first pass
+OUTPUT_DIR_FIRST_RUN = 'output-first-run'
+ROSTER_DOWNLOAD_DIR = 'roster-download-dir'
+CROSS_YEAR_ROSTER_PATH = 'cross_year_roster.jsonl'
 
 REQUIRED_ID_MATCH_RATE = 0.5
 STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75

@@ -2,15 +2,21 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { AppConfigService } from '../config/app-config.service';
 
+export interface EventEmitterService {
+  emit(label: string, payload: any): Promise<void>;
+}
+
+export const EVENT_EMITTER_SERVICE = 'EventEmitterService';
+
 @Injectable()
-export class EventEmitterService {
-  private readonly logger = new Logger(EventEmitterService.name);
+export class EventEmitterEventBridgeService implements EventEmitterService {
+  private readonly logger = new Logger(EventEmitterEventBridgeService.name);
   private readonly eventBridgeClient: EventBridgeClient;
   private readonly source: string;
 
   constructor(private readonly appConfig: AppConfigService) {
-    this.eventBridgeClient = new EventBridgeClient({ region: process.env.AWS_REGION });
     this.source = `runway.${this.appConfig.get('ENVLABEL') ?? 'unknown-env'}`;
+    this.eventBridgeClient = new EventBridgeClient({ region: this.appConfig.get('AWS_REGION') });
   }
 
   async emit(label: string, payload: any) {
@@ -41,5 +47,21 @@ export class EventEmitterService {
       // failing to emit an event is not a critical error
       this.logger.error(`Error emitting event: ${error}`);
     }
+  }
+}
+
+@Injectable()
+export class EventEmitterLogService implements EventEmitterService {
+  private readonly logger = new Logger(EventEmitterLogService.name);
+
+  async emit(label: string, payload: any) {
+    this.logger.log(`Event: ${label} — ${JSON.stringify(payload)}`);
+  }
+}
+
+@Injectable()
+export class EventEmitterNoopService implements EventEmitterService {
+  async emit() {
+    // intentionally empty
   }
 }

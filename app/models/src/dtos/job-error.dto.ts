@@ -142,7 +142,7 @@ export class JobInsufficientMatchesErrorDto extends JobErrorDto {
     // is enough to get users on the right track and they can exercise their professional judgement to figure
     // out how to update IDs... If that's the case, then the value of being more specific is low and outweighed
     // by the risk of telling the user something potentially misleading that goes against their professional judgement.
-    return `Runway matched ${rate}% of students from the input file to students in the ODS, which is below the required threshold of ${threshold}% to load data. Please review the student IDs in the original file and update them as needed to match IDs present in the ODS.`;
+    return `Runway matched ${rate}% of students from the input file to students in your roster, which is below the required threshold of ${threshold}% to load data. Please review the student IDs in the original file and update them as needed to match IDs present in your roster.`;
   }
 }
 

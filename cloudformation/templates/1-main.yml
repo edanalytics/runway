@@ -18,7 +18,7 @@ Metadata:
           default: Database (RDS Postgres) information
         Parameters:
           - DBInstanceClass
-          - EngineVersion
+          - PostgresVersion
           - DBName
           - DBAllocatedStorage
           - DBMultiAZ
@@ -42,6 +42,7 @@ Metadata:
           - DeploymentStrategy
           - BeanstalkPlatformUpdateTime
           - BundleBranch
+          - OAuth2Issuer
       - Label:
           default: S3 Cloudfront Information
         Parameters: 
@@ -66,9 +67,10 @@ Metadata:
           - ViteAlternateMatomoUrl
           - ViteAlternateMatomoSiteId
           - ViteAlternateMatomoSubdomain
-      - Label: 
-          default: ECS Information 
-        Parameters: 
+      - Label:
+          default: Job Executor and ECS Information
+        Parameters:
+          - CreateExecutorS3Bucket
           - CreateEcsServiceLinkedRole
       - Label: 
           default: VPC Network Configuration
@@ -151,11 +153,15 @@ Parameters:
     Description: The weekly time range (in UTC) during which system maintenance can occur.
     Type: String
     Default: 'sat:07:00-sat:07:30' 
-  EngineVersion:
+  PostgresVersion:
     Description: 'PostgreSQL version.'
     Type: String
-    Default: '16.6'
-    AllowedValues: ['13.18', '14.15', '15.12', '16.6']
+    Default: 'Fifteen'
+    AllowedValues: 
+      - 'Fourteen'
+      - 'Fifteen'
+      - 'Sixteen'
+      - 'Seventeen'
   EnableIAMDatabaseAuthentication:
     Description: 'Enable mapping of AWS Identity and Access Management (IAM) accounts to database accounts (https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/UsingWithRDS.IAMDBAuth.html).'
     Type: String
@@ -205,6 +211,13 @@ Parameters:
   CreateS3Bucket:
     Type: String
     Description: Create the S3 bucket named 'codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
+    Default: 'The S3 Bucket already exists'
+    AllowedValues:
+      - 'Create the S3 Bucket'
+      - 'The S3 Bucket already exists'
+  CreateExecutorS3Bucket:
+    Type: String
+    Description: Create the S3 bucket named 'job-executor-codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}'?  Do not change this value if updating an existing stack.
     Default: 'The S3 Bucket already exists'
     AllowedValues:
       - 'Create the S3 Bucket'
@@ -329,6 +342,14 @@ Parameters:
     Type: String
     Description: 'URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function.'
 
+Mappings:
+  PostgreSQLInformation:
+    EngineVersion:
+      'Fourteen': '14.22'
+      'Fifteen': '15.17'
+      'Sixteen': '16.13'
+      'Seventeen': '17.9'
+
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   EnableS3AccessLogging: !Not [!Equals [!Ref S3AccessLoggingBucket, '']]
@@ -356,7 +377,10 @@ Resources:
         DBMultiAZ: !Ref DBMultiAZ
         PreferredBackupWindow: !Ref PreferredBackupWindow
         PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
-        EngineVersion: !Ref EngineVersion
+        DBEngineVersion: !FindInMap
+          - PostgreSQLInformation
+          - EngineVersion
+          - !Ref PostgresVersion
         EnableIAMDatabaseAuthentication: !Ref EnableIAMDatabaseAuthentication
   BeanstalkStack:
     Type: AWS::CloudFormation::Stack
@@ -467,7 +491,7 @@ Resources:
         GitHubBranch: !Ref GitHubBranch
         GitHubConnectionArn: !Ref GitHubConnectionArn
         GitHubRepo: !Ref GitHubRepo
-        CreateS3Bucket: 'The S3 Bucket already exists'
+        CreateS3Bucket: !Ref CreateExecutorS3Bucket
   EcsStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
@@ -481,6 +505,7 @@ Resources:
         DataBucketName: !Sub '${EnvLabel}-${AWS::AccountId}-data-integration'
         DomainName: !Ref DomainName
         S3AccessLoggingBucket: !If [EnableS3AccessLogging, !Ref S3AccessLoggingBucket, '']
+        SetCloudWatchRetentionLambdaFunctionArn: !GetAtt 'LambdaFunctionsStack.Outputs.SetCloudWatchRetentionLambdaFunctionArn'
   CloudWatchDashboardStack: 
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
@@ -497,4 +522,4 @@ Resources:
 Outputs:
   TemplateVersion:
     Description: The version of the cloudformation template
-    Value: '2.0.3'
+    Value: '2.0.9'

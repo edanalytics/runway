@@ -1,6 +1,6 @@
 import { Expose } from 'class-transformer';
 import { makeSerializer } from '../utils';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class EarthbeamApiInitResponseDto {
   @Expose()
@@ -43,10 +43,21 @@ export class EarthbeamApiJobResponseDto {
     error: string;
     summary: string;
     unmatchedIds: string;
+    outputFiles: string;
+    roster?: string;
   };
 
   @Expose()
-  assessmentDatastore: {
+  sendToOds: boolean;
+
+  @Expose()
+  crossYearMatchAvailable: boolean;
+
+  @Expose()
+  rosterFilePath?: string;
+
+  @Expose()
+  assessmentDatastore?: {
     apiYear: string;
     url: string;
     clientId: string;
@@ -80,4 +91,13 @@ export class EarthbeamApiUnmatchedIdsPayloadDto {
 
   @IsOptional()
   count?: number;
+}
+
+export class EarthbeamApiOutputFilesPayloadDto {
+  @IsString()
+  @IsNotEmpty()
+  path: string;
+
+  @IsBoolean()
+  sentToOds: boolean;
 }

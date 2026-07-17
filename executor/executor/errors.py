@@ -13,6 +13,10 @@ class ExecutorError:
         self.stacktrace = stacktrace
     
     def to_json(self):
+        max_bytes = 6144 # an error payload above 8kB will be rejected. Truncate to the last 6kB of the stacktrace
+        bytes = self.stacktrace.encode('utf-8')
+        truncated_bytes = bytes[-max_bytes:]
+        self.stacktrace = truncated_bytes.decode('utf-8', errors='ignore')
         all_keys = deepcopy(vars(self))
         del all_keys["code"]
         return {"code": self.code, "payload": all_keys}
@@ -79,6 +83,10 @@ class EarthmoverDepsError(ExecutorError):
 class EarthmoverRunError(ExecutorError):
     def __init__(self, stacktrace=None):
         super().__init__("earthmover_run", stacktrace)
+
+class CrossYearRosterFetchError(ExecutorError):
+    def __init__(self, stacktrace=None):
+        super().__init__("cross_year_roster_fetch", stacktrace)
 
 class InsufficientMatchesError(ExecutorError):
     def __init__(self, match_rate, match_threshold, id_name, id_type, stacktrace=None):

@@ -33,6 +33,23 @@ export interface IEnvironmentVariables {
   BUNDLE_BRANCH: string;
   S3_FILE_UPLOAD_BUCKET: string;
   TIMEOUT_SECONDS: string; // executor timeout
+  ECS_FILE_SIZE_THRESHOLD_MB?: string; // jobs whose input files total at least this run on the large ECS task
+
+  // env vars we expect to only use locally
+  LOCAL_EXECUTOR?: 'python' | 'docker';
+  LOCAL_S3_ENDPOINT_URL?: string; // e.g. "http://localhost:9090" for S3Mock
+  LOCAL_EVENT_EMITTER?: 'log' | 'noop'; // default (unset) = EventBridge
+  LOCAL_BUNDLE_CACHE_DISABLED?: 'true' | 'false';
+
   OAUTH2_ISSUER?: string; // token issuer for external API
   OAUTH2_AUDIENCE?: string; // token audience for external API
+
+  // for tenant sync
+  UM_SYNC_CRON?: string; // e.g. "0 0 * * *" — unset = sync disabled
+  UM_URL?: string;
+  UM_AUTH0_DOMAIN?: string;
+  UM_CLIENT_ID?: string;
+  UM_CLIENT_SECRET?: string;
+  UM_AUDIENCE?: string;
+  UM_CONFIG_SECRET?: string; // deployed envs: name of AWS secret containing UM credentials
 }

@@ -34,7 +34,7 @@ export const NavButton = (props: INavButtonProps) => {
         background: 'blue.800',
       }}
     >
-      <Icon as={props.icon} />
+      <Icon as={props.icon} boxSize="42px" />
       <Box textStyle="button" as="span">
         {props.text}
       </Box>

@@ -24,6 +24,7 @@ import { PRISMA_ANONYMOUS, PRISMA_READ_ONLY } from 'api/src/database/database.se
 import { isPartnerAllowed } from '../auth/external-api-partner-scope.helpers';
 import { InitJobPayloadV1Dto, toInitJobResponseV1Dto } from '@edanalytics/models';
 import { FileService } from 'api/src/files/file.service';
+import { AppConfigService } from 'api/src/config/app-config.service';
 import { ApiTokenClient, ExternalApiTokenClient } from '../external-api-token-client.decorator';
 
 @Controller('jobs')
@@ -37,7 +38,8 @@ export class ExternalApiV1JobsController {
     private readonly jobsService: JobsService,
     @Inject(PRISMA_READ_ONLY) private readonly prismaRO: PrismaClient,
     @Inject(PRISMA_ANONYMOUS) private readonly prismaAnon: PrismaClient,
-    private readonly fileService: FileService
+    private readonly fileService: FileService,
+    private readonly appConfig: AppConfigService,
   ) {}
 
   @Post()
@@ -91,39 +93,37 @@ export class ExternalApiV1JobsController {
       );
     }
 
-    // ─── Validate ODS ───────────────────────────────────────────────────────
-    const odsConfigs = await this.prismaRO.odsConfig.findMany({
+    const schoolYear = await this.prismaRO.schoolYear.findUnique({
       where: {
-        activeConnection: {
-          schoolYear: { endYear: parseInt(jobInitDto.schoolYear) },
-        },
-        retired: false,
-        tenantCode,
-        partnerId,
-      },
-      include: {
-        activeConnection: {
-          include: { schoolYear: true },
-        },
+        endYear: parseInt(jobInitDto.schoolYear),
       },
     });
-
-    if (odsConfigs.length === 0) {
-      throw new BadRequestException(`No ODS found for school year: ${jobInitDto.schoolYear}`);
+    if (!schoolYear) {
+      throw new BadRequestException(`Invalid school year: ${jobInitDto.schoolYear}`);
     }
-    if (odsConfigs.length > 1) {
-      this.logger.error(`Multiple ODS found for school year: ${jobInitDto.schoolYear}`);
-      throw new InternalServerErrorException(
-        `Multiple ODS found for school year: ${jobInitDto.schoolYear}`
-      );
+
+    const destination = await this.jobsService.resolveJobDestination({
+      schoolYearId: schoolYear.id,
+      tenant,
+    });
+    if (destination.status === 'error') {
+      const year = jobInitDto.schoolYear;
+      const messages: Record<typeof destination.code, string> = {
+        school_year_config_missing: `School year is not enabled: ${year}`,
+        school_year_disabled: `School year is not enabled: ${year}`,
+        ods_not_found: `No ODS found for school year: ${year}`,
+        roster_unavailable: `No roster file found and cross-year matching not enabled for school year: ${year}`,
+      };
+      throw new BadRequestException(messages[destination.code]);
     }
 
     // ─── Create job ───────────────────────────────────────────────────────────
     const result = await this.jobsService.createJob(
       {
         bundlePath: jobInitDto.bundle,
-        odsId: odsConfigs[0].id,
-        schoolYearId: odsConfigs[0].activeConnection!.schoolYear.id,
+        odsId: destination.data.odsId,
+        sendToOds: destination.data.sendToOds,
+        schoolYearId: destination.data.schoolYearId,
         files: Object.entries(jobInitDto.files).map(([envVar, fileName]) => ({
           templateKey: envVar,
           nameFromUser: fileName,
@@ -173,7 +173,7 @@ export class ExternalApiV1JobsController {
       throw new NotFoundException(`Job not found: ${jobUid}`);
     }
 
-    const filesExist = await this.fileService.doFilesExist(job.files.map((f) => f.path));
+    const filesExist = await this.fileService.doFilesExist(job.files.map((f) => f.path), this.appConfig.s3Bucket());
     if (!filesExist) {
       throw new BadRequestException(
         `Some expected files were not found. Expected files: ${job.files

@@ -22,7 +22,6 @@ interface IBaseJobDto {
   id: number;
   uid: string;
   name: string;
-  odsId: number;
   schoolYearId: string;
   template: GetJobTemplateDto;
   inputParams: JobInputParamDto[] | null;
@@ -47,7 +46,7 @@ export class GetJobDto
   extends DtoGetBase
   implements
     GetDto<
-      Omit<Job, 'template' | 'inputParams'> & {
+      Omit<Job, 'template' | 'inputParams' | 'odsId'> & {
         template: GetJobTemplateDto;
         inputParams: JobInputParamDto[] | null;
       }
@@ -63,7 +62,7 @@ export class GetJobDto
   name: string;
 
   @Expose()
-  odsId: number;
+  sendToOds: boolean;
 
   @Expose()
   schoolYearId: string;
@@ -226,10 +225,6 @@ export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto> {
   @Expose()
   @IsString()
   name: string;
-
-  @Expose()
-  @IsNumber()
-  odsId: number;
 
   @Expose()
   @IsString()

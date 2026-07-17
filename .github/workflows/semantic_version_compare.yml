@@ -6,15 +6,19 @@ on:
     paths:
       - cloudformation/**
 
+permissions:
+  contents: read
+
 jobs:
   version_check:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Compare Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{github.ref}}
+          persist-credentials: false
 
       # - name: current directory
       #   run: ls -la
@@ -27,9 +31,10 @@ jobs:
           echo "${new_version}"
 
       - name: Checkout Base Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{github.event.pull_request.base.ref}}
+          persist-credentials: false
 
       - name: Get Current Version
         id: get_current_version

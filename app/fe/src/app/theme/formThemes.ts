@@ -35,6 +35,17 @@ const FormControl = formControlHelper.defineMultiStyleConfig({
         _hover: { ...noOutline, ...pointer },
       },
     }),
+    // No container chrome — for controls that supply their own layout
+    // (e.g. a toggle row already nested in a contentBox).
+    plain: formControlHelper.definePartsStyle({
+      container: {
+        bg: 'transparent',
+        borderRadius: '0',
+        padding: '0',
+        _focusWithin: { boxShadow: 'none' },
+        _hover: { boxShadow: 'none' },
+      },
+    }),
   },
 });
 

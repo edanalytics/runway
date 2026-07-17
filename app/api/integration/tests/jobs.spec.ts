@@ -5,16 +5,16 @@ import { tenantA, tenantB, tenantX } from '../fixtures/context-fixtures/tenant-f
 import { userA, userB, userX } from '../fixtures/user-fixtures';
 import { sessionData } from '../helpers/session/session-factory';
 import {
+  odsConfigA2425,
+  odsConfigB2526,
   odsConfigX2425,
-  odsConnA2425,
-  odsConnB2526,
-  odsConnX2425,
 } from '../fixtures/context-fixtures/ods-fixture';
 import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { makePostJobDto } from '../factories/job-input-factory';
 import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { DtoableJob, GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
+import { FileService } from 'api/src/files/file.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
 import { Job, JobNote } from '@prisma/client';
@@ -34,18 +34,18 @@ describe('GET /jobs', () => {
     const sessionX = sessionCookie('jobs-spec-x');
 
     let aJobs: DtoableJob[] = [];
-    beforeAll(async () => {
+    beforeEach(async () => {
       // A starts with jobs, X starts with none
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
       await sessionStore.set(sessionX.sid, sessionData(userX, tenantX));
       aJobs = await Promise.all([
         seedJob({
-          odsConnection: odsConnA2425,
+          odsConfig: odsConfigA2425,
           bundle: bundleA,
           tenant: tenantA,
         }),
         seedJob({
-          odsConnection: odsConnA2425,
+          odsConfig: odsConfigA2425,
           bundle: bundleA,
           tenant: tenantA,
           summary: true,
@@ -55,18 +55,6 @@ describe('GET /jobs', () => {
       ]);
     });
 
-    afterAll(async () => {
-      await sessionStore.destroy(sessionA.sid);
-      await sessionStore.destroy(sessionX.sid);
-      await prisma.job.deleteMany({
-        where: {
-          id: {
-            in: aJobs.map((j) => j.id),
-          },
-        },
-      });
-    });
-
     it('should return an empty array if there are no jobs', async () => {
       // X has no jobs
       const resX = await request(app.getHttpServer())
@@ -74,6 +62,23 @@ describe('GET /jobs', () => {
         .set('Cookie', [sessionX.cookie]);
       expect(resX.status).toBe(200);
       expect(resX.body).toEqual([]);
+    });
+
+    it('should return sendToOds=false for no-ODS jobs', async () => {
+      const noOdsJob = await seedJob({
+        sendToOds: false,
+        schoolYearId: '2324',
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(endpoint)
+        .set('Cookie', [sessionA.cookie]);
+
+      const dto = res.body.find((j: GetJobDto) => j.id === noOdsJob.id);
+      expect(dto).toBeDefined();
+      expect(dto.sendToOds).toBe(false);
     });
 
     it('should match the expected values', async () => {
@@ -91,7 +96,6 @@ describe('GET /jobs', () => {
 
           expect(jDto.name).toBe(original?.name);
           expect(jDto.template).toEqual(original?.template);
-          expect(jDto.odsId).toBe(original?.odsId);
           expect(jDto.schoolYearId).toBe(original?.schoolYearId);
           expect(jDto.inputParams).toEqual(original.inputParams);
           // expect(jDto.createdBy.id).toBe(original.createdById); // Not testing this at the moment given how createdBy is set from the PG trigger and the test suite doesn't use the request-scoped DB connections these expect
@@ -139,7 +143,7 @@ describe('GET /jobs', () => {
     it('should return a list of jobs for each tenant', async () => {
       const xJobs: DtoableJob[] = [
         await seedJob({
-          odsConnection: odsConnX2425,
+          odsConfig: odsConfigX2425,
           bundle: bundleX,
           tenant: tenantX,
         }),
@@ -152,28 +156,18 @@ describe('GET /jobs', () => {
         .get(endpoint)
         .set('Cookie', [sessionX.cookie]);
 
-      try {
-        expect(resA.status).toBe(200);
-        expect(resX.status).toBe(200);
+      expect(resA.status).toBe(200);
+      expect(resX.status).toBe(200);
 
-        expect(resA.body.length).toBe(aJobs.length);
-        expect(resX.body.length).toBe(xJobs.length);
+      expect(resA.body.length).toBe(aJobs.length);
+      expect(resX.body.length).toBe(xJobs.length);
 
-        expect(resA.body.map((j: GetJobDto) => j.id)).toEqual(
-          expect.arrayContaining(aJobs.map((j) => j.id))
-        );
-        expect(resX.body.map((j: GetJobDto) => j.id)).toEqual(
-          expect.arrayContaining(xJobs.map((j) => j.id))
-        );
-      } finally {
-        await prisma.job.deleteMany({
-          where: {
-            id: {
-              in: xJobs.map((j) => j.id),
-            },
-          },
-        });
-      }
+      expect(resA.body.map((j: GetJobDto) => j.id)).toEqual(
+        expect.arrayContaining(aJobs.map((j) => j.id))
+      );
+      expect(resX.body.map((j: GetJobDto) => j.id)).toEqual(
+        expect.arrayContaining(xJobs.map((j) => j.id))
+      );
     });
   });
 });
@@ -184,27 +178,21 @@ describe('GET /jobs/:id', () => {
   let jobA: Job;
   let jobB: Job;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
       seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       }),
       seedJob({
-        odsConnection: odsConnB2526,
+        odsConfig: odsConfigB2526,
         bundle: bundleA, // same bundle for both tenants is fine
         tenant: tenantB,
       }),
     ]);
     endpointA = `/jobs/${jobA.id}`;
     endpointB = `/jobs/${jobB.id}`;
-  });
-
-  afterAll(async () => {
-    await prisma.job.deleteMany({
-      where: { id: { in: [jobA.id, jobB.id] } },
-    });
   });
 
   it('should reject unauthenticated requests', async () => {
@@ -220,15 +208,25 @@ describe('GET /jobs/:id', () => {
       cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
     });
 
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-      await authHelper.logout(cookieB);
-    });
-
     it('should return the job if the user is logged into the associated tenant', async () => {
       const resA = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       expect(resA.status).toBe(200);
       expect(resA.body.id).toEqual(jobA.id);
+    });
+
+    it('should return sendToOds=false for a no-ODS job', async () => {
+      const noOdsJob = await seedJob({
+        sendToOds: false,
+        schoolYearId: '2324',
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/jobs/${noOdsJob.id}`)
+        .set('Cookie', [cookieA]);
+      expect(res.status).toBe(200);
+      expect(res.body.sendToOds).toBe(false);
     });
 
     it('should reject requests for jobs that are not associated with the tenant', async () => {
@@ -251,10 +249,10 @@ describe('POST /jobs', () => {
   describe('authenticated requests', () => {
     const sessionA = sessionCookie('jobs-spec');
     const jobTemplateA = makeJobTemplate(bundleA);
-    const postJobDto = makePostJobDto(jobTemplateA, odsConnA2425);
+    const postJobDto = makePostJobDto(jobTemplateA, odsConfigA2425.schoolYearId);
     let getBundlesMock: jest.SpyInstance;
 
-    beforeAll(async () => {
+    beforeEach(async () => {
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
       getBundlesMock = jest
         .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
@@ -262,7 +260,6 @@ describe('POST /jobs', () => {
     });
 
     afterAll(async () => {
-      await sessionStore.destroy(sessionA.sid);
       getBundlesMock.mockRestore();
     });
 
@@ -274,6 +271,10 @@ describe('POST /jobs', () => {
         .set('Cookie', [sessionA.cookie])
         .send(postJobDto);
       expect(res.status).toBe(201);
+
+      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+      expect(job?.odsId).toBe(odsConfigA2425.id);
+      expect(job?.sendToOds).toBe(true);
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
@@ -317,16 +318,160 @@ describe('POST /jobs', () => {
       expect(res.status).toBe(400);
     });
 
-    it('should reject requests with an ODS that is not owned by the tenant', async () => {
-      const jobInputWithNonOwnedOds: PostJobDto = {
-        ...postJobDto,
-        odsId: odsConfigX2425.id,
-      };
+    it('should create a job without an ODS when the year is configured not to send to ODS', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
       const res = await request(app.getHttpServer())
         .post(endpoint)
         .set('Cookie', [sessionA.cookie])
-        .send(jobInputWithNonOwnedOds);
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
+
+      expect(res.status).toBe(201);
+
+      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+      expect(job?.odsId).toBeNull();
+      expect(job?.sendToOds).toBe(false);
+    });
+
+    // Partner A defaults to crossYearMatchingEnabled=false, so this also
+    // guards the "cross-year matching disabled" rejection path.
+    it('should reject no-ODS jobs when the roster file does not exist', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain(
+          'No roster file found and cross-year matching not enabled'
+        );
+      } finally {
+        doesFileExistMock.mockResolvedValue(true);
+      }
+    });
+
+    it('should propagate S3 errors from roster check instead of treating them as missing', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockRejectedValue(new Error('S3 operational failure'));
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(500);
+      } finally {
+        doesFileExistMock.mockResolvedValue(true);
+      }
+    });
+
+    it('should create a no-ODS job without a roster file when cross-year matching is enabled', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: false,
+        },
+      });
+      await prisma.partner.update({
+        where: { id: tenantA.partnerId },
+        data: { crossYearMatchingEnabled: true },
+      });
+
+      const doesFileExistMock = app.get(FileService).doesFileExist as jest.Mock;
+      doesFileExistMock.mockResolvedValue(false);
+
+      try {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send({
+            ...postJobDto,
+            schoolYearId: '2324',
+          });
+
+        expect(res.status).toBe(201);
+
+        const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+        expect(job?.odsId).toBeNull();
+        expect(job?.sendToOds).toBe(false);
+      } finally {
+        // No partner reset needed — seed data is refreshed before each test
+        doesFileExistMock.mockResolvedValue(true);
+      }
+    });
+
+    it('should reject requests when the school year is not enabled', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
       expect(res.status).toBe(400);
+    });
+
+    it('should reject requests when an enabled send-to-ODS year has no ODS', async () => {
+      await prisma.schoolYearConfig.create({
+        data: {
+          partnerId: tenantA.partnerId,
+          schoolYearId: '2324',
+          isEnabled: true,
+          sendToOds: true,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send({
+          ...postJobDto,
+          schoolYearId: '2324',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('No ODS found');
     });
 
     it('should reject requests if a file name is an empty string', async () => {
@@ -361,22 +506,16 @@ describe('PUT /jobs/:id/resolve', () => {
   beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
       seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       }),
       seedJob({
-        odsConnection: odsConnB2526,
+        odsConfig: odsConfigB2526,
         bundle: bundleA,
         tenant: tenantB,
       }),
     ]);
-  });
-
-  afterEach(async () => {
-    await prisma.job.deleteMany({
-      where: { id: { in: [jobA.id, jobB.id] } },
-    });
   });
 
   it('should reject unauthenticated requests', async () => {
@@ -478,7 +617,7 @@ describe('GET /jobs/:id/notes', () => {
   let noteA2: JobNote;
   beforeEach(async () => {
     jobA = await seedJob({
-      odsConnection: odsConnA2425,
+      odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
     });
@@ -496,12 +635,6 @@ describe('GET /jobs/:id/notes', () => {
     [noteA1, noteA2] = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
   });
 
-  afterEach(async () => {
-    await prisma.jobNote.deleteMany({
-      where: { jobId: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).get(endpoint(jobA.id));
     expect(res.status).toBe(401);
@@ -511,9 +644,6 @@ describe('GET /jobs/:id/notes', () => {
     let cookieA: string;
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
-    });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
     });
     it('should reject requests for jobs that are not associated with the tenant', async () => {
       const cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
@@ -547,15 +677,9 @@ describe('POST /jobs/:id/notes', () => {
 
   beforeEach(async () => {
     jobA = await seedJob({
-      odsConnection: odsConnA2425,
+      odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
-    });
-  });
-
-  afterEach(async () => {
-    await prisma.jobNote.deleteMany({
-      where: { jobId: jobA.id },
     });
   });
 
@@ -570,10 +694,6 @@ describe('POST /jobs/:id/notes', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
       cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
-    });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-      await authHelper.logout(cookieB);
     });
     it('should create a new note for the job', async () => {
       const noteText = 'test note for job ' + jobA.id;
@@ -647,7 +767,7 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
   let noteA: JobNote;
   beforeEach(async () => {
     jobA = await seedJob({
-      odsConnection: odsConnA2425,
+      odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
     });
@@ -658,13 +778,6 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
         createdById: userA.id,
         createdOn: new Date(),
       },
-    });
-  });
-
-  afterEach(async () => {
-    // cascade takes care of the note
-    await prisma.job.deleteMany({
-      where: { id: jobA.id },
     });
   });
 
@@ -680,10 +793,6 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-    });
-
     it('should reject requests if the job is not associated with the tenant', async () => {
       const cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
       const resA = await request(app.getHttpServer())
@@ -695,7 +804,7 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
 
     it('should reject requests if the note is not associated with the job', async () => {
       const jobA2 = await seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       });
@@ -712,13 +821,7 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
         .put(endpoint(jobA.id, noteA2.id)) // mismatch
         .set('Cookie', [cookieA])
         .send({ noteText: 'updated note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(404);
-      } finally {
-        await prisma.job.deleteMany({
-          where: { id: jobA2.id },
-        });
-      }
+      expect(resA.status).toBe(404);
     });
 
     it('should update the note text', async () => {
@@ -771,7 +874,7 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
   let noteA2: JobNote;
   beforeEach(async () => {
     jobA = await seedJob({
-      odsConnection: odsConnA2425,
+      odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
     });
@@ -793,12 +896,6 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
     });
   });
 
-  afterEach(async () => {
-    await prisma.job.deleteMany({
-      where: { id: jobA.id },
-    });
-  });
-
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).delete(endpoint(jobA.id, noteA1.id));
     expect(res.status).toBe(401);
@@ -809,10 +906,6 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
     beforeEach(async () => {
       cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
     });
-    afterEach(async () => {
-      await authHelper.logout(cookieA);
-    });
-
     it('should delete the note', async () => {
       const resA = await request(app.getHttpServer())
         .delete(endpoint(jobA.id, noteA1.id))
@@ -829,18 +922,14 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
         .delete(endpoint(jobA.id, noteA1.id))
         .set('Cookie', [cookieB])
         .send({ noteText: 'test note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(403);
-        const notes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
-        expect(notes.length).toBe(2);
-      } finally {
-        await authHelper.logout(cookieB);
-      }
+      expect(resA.status).toBe(403);
+      const notes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
+      expect(notes.length).toBe(2);
     });
 
     it('should reject requests if the note is not associated with the job', async () => {
       const jobA2 = await seedJob({
-        odsConnection: odsConnA2425,
+        odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
       });
@@ -857,19 +946,13 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
         .delete(endpoint(jobA.id, noteA2.id)) // mismatch
         .set('Cookie', [cookieA])
         .send({ noteText: 'updated note for job ' + jobA.id });
-      try {
-        expect(resA.status).toBe(404);
+      expect(resA.status).toBe(404);
 
-        const jobANotes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
-        expect(jobANotes.length).toBe(2);
-        const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
-        expect(jobA2Notes.length).toBe(1);
-        expect(jobA2Notes[0].id).toBe(noteA2.id);
-      } finally {
-        await prisma.job.deleteMany({
-          where: { id: jobA2.id },
-        });
-      }
+      const jobANotes = await prisma.jobNote.findMany({ where: { jobId: jobA.id } });
+      expect(jobANotes.length).toBe(2);
+      const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
+      expect(jobA2Notes.length).toBe(1);
+      expect(jobA2Notes[0].id).toBe(noteA2.id);
     });
   });
 });

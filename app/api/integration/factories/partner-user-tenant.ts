@@ -13,11 +13,16 @@ export const makePartnerUserTenantContext = (tag: string) => {
     name: `Partner ${tag}`,
     idpId: idp.id,
     descriptorNamespace: null,
+    crossYearMatchingEnabled: false,
+    managedBy: null,
+    deletedOn: null,
   };
 
   const tenant: WithoutAudit<Tenant> = {
     code: `tenant-${tag}`,
     partnerId: partner.id,
+    isGlobal: false,
+    deletedOn: null,
   };
 
   const user: WithoutAudit<Omit<User, 'id'>> = {
@@ -72,33 +77,4 @@ export const seedContext = async (
     tenant,
     user,
   };
-};
-
-export const removeContext = async (context: Awaited<ReturnType<typeof seedContext>>) => {
-  const { user, tenant, partner, idp } = context;
-
-  await prisma.user.delete({
-    where: {
-      id: user.id,
-    },
-  });
-  await prisma.tenant.delete({
-    where: {
-      code_partnerId: {
-        code: tenant.code,
-        partnerId: partner.id,
-      },
-    },
-  });
-
-  await prisma.identityProvider.delete({
-    where: {
-      id: idp.id,
-    },
-  });
-  await prisma.partner.delete({
-    where: {
-      id: partner.id,
-    },
-  });
 };

@@ -4,8 +4,9 @@ import { methods } from '../methods';
 
 const baseUrl = '';
 
-export const useMe = () =>
-  useQuery({
-    queryKey: [`me`],
-    queryFn: () => methods.getOne<GetSessionDataDto>(`${baseUrl}/auth/me`, GetSessionDataDto),
-  });
+export const meQuery = {
+  queryKey: [`me`],
+  queryFn: () => methods.getOne<GetSessionDataDto>(`${baseUrl}/auth/me`, GetSessionDataDto),
+};
+
+export const useMe = () => useQuery(meQuery);

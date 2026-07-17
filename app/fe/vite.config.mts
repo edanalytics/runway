@@ -1,4 +1,5 @@
 /// <reference types='vitest' />
+import { resolve } from 'node:path';
 import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
@@ -21,8 +22,8 @@ export default defineConfig({
 
   plugins: [
     TanStackRouterVite({
-      routesDirectory: './src/app/routes/',
-      generatedRouteTree: './src/app/routeTree.gen.ts',
+      routesDirectory: resolve(__dirname, './src/app/routes/'), // absolute paths are a workaround for the issue fixed in https://github.com/TanStack/router/pull/5963
+      generatedRouteTree: resolve(__dirname, './src/app/routeTree.gen.ts'),
     }),
     react(),
     nxViteTsPaths(),

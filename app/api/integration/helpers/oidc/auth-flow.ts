@@ -28,11 +28,12 @@ export const initiateAuth = async (idp: IdpFixture) => {
   const loginEndpoint = `/auth/login?origin=${idp.feHome}`;
   const callbackEndpoint = `/auth/callback/${idp.id}`;
   const res1 = await request(app.getHttpServer()).get(loginEndpoint);
+  expect(res1.status).toBe(302);
+
   const issuerAuthEndpoint = res1.headers.location;
   const params = new URL(issuerAuthEndpoint).searchParams;
   const redirectUri = params.get('redirect_uri');
 
-  expect(res1.status).toBe(302);
   expect(issuerAuthEndpoint).toContain(idp.oidcConfig.issuer); // we're redirecting back to the callback endpoint for our specific IdP
   expect(redirectUri).toContain(callbackEndpoint);
 
@@ -83,10 +84,11 @@ export const initiateAuth = async (idp: IdpFixture) => {
 const login = async (
   idp: IdpFixture,
   user: Pick<User, 'email' | 'givenName' | 'familyName'>,
-  tenant: Pick<Tenant, 'code'>
+  tenant: Pick<Tenant, 'code'>,
+  roles: string | string[] = idp.oidcConfig.requiredRoles[0]
 ) => {
   const { claimsMocker, completeAuth } = await initiateAuth(idp);
-  claimsMocker.authUserInTenant(user, tenant).addRoles(idp.oidcConfig.requiredRoles[0]);
+  claimsMocker.authUserInTenant(user, tenant).addRoles(roles);
   return await completeAuth('pass');
 };
 

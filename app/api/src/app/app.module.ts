@@ -16,6 +16,8 @@ import { EarthbeamApiAuthModule } from '../earthbeam/api/auth/earthbeam-api-auth
 import { ExternalApiV1Module } from '../external-api/v1/external-api.v1.module';
 import { AuthorizedGuard } from '../auth/login/authorized.guard';
 import { PartnersModule } from '../partners/partners.module';
+import { SchoolYearConfigModule } from '../school-year-config/school-year-config.module';
+import { PartnerSyncModule } from '../partner-sync/partner-sync.module';
 
 const resourceModules = [
   UsersModule,
@@ -26,6 +28,7 @@ const resourceModules = [
   EarthbeamApiModule,
   EarthbeamApiAuthModule,
   PartnersModule,
+  SchoolYearConfigModule,
 ];
 
 @Module({
@@ -34,6 +37,7 @@ const resourceModules = [
     RouterModule.register(routes),
     AuthModule,
     ...resourceModules,
+    PartnerSyncModule,
     ExternalApiV1Module,
   ],
   controllers: [AppController],

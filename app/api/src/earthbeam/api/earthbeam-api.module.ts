@@ -7,6 +7,7 @@ import { AppConfigModule } from 'api/src/config/app-config.module';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { EarthbeamApiAuthModule } from './auth/earthbeam-api-auth.module';
 import { EarthbeamApiService } from './earthbeam-api.service';
+import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { FileModule } from 'api/src/files/file.module';
 import { EventEmitterModule } from 'api/src/event-emitter/event-emitter.module';
 
@@ -26,8 +27,8 @@ import { EventEmitterModule } from 'api/src/event-emitter/event-emitter.module';
       }),
     }),
   ],
-  providers: [EarthbeamApiService],
+  providers: [EarthbeamApiService, EduSnowflakePoolService],
   controllers: [EarthbeamApiController],
-  exports: [],
+  exports: [EduSnowflakePoolService],
 })
 export class EarthbeamApiModule {}

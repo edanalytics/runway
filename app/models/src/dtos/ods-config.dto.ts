@@ -65,7 +65,7 @@ const entityToDtoInput = (entity: DtoableEntity) => {
     clientSecret: entity.activeConnection.clientSecret,
     lastUseResult: entity.activeConnection.lastUseResult,
     lastUseOn: entity.activeConnection.lastUseOn,
-    schoolYearId: entity.activeConnection.schoolYearId,
+    schoolYearId: entity.schoolYearId,
   };
 };
 
@@ -85,7 +85,10 @@ export const toGetOdsConfigWithSecretDto = (entity: DtoableEntity | DtoableEntit
     : toDtoInstanceWithSecret(entityToDtoInput(entity));
 };
 
-export class PutOdsConfigDto extends DtoPutBase implements PutDto<BaseOdsConfigDto> {
+// schoolYearId is intentionally omitted — edits cannot change the ODS's year.
+// The FE renders the year as readonly; any value sent here is stripped by
+// the global excludeExtraneousValues pipe before reaching the service.
+export class PutOdsConfigDto extends DtoPutBase implements PutDto<Omit<BaseOdsConfigDto, 'schoolYearId'>> {
   @Expose()
   @IsNotEmpty({ message: 'EdFi base API URL is required' })
   host: string;
@@ -97,10 +100,6 @@ export class PutOdsConfigDto extends DtoPutBase implements PutDto<BaseOdsConfigD
   @Expose()
   @IsNotEmpty({ message: 'secret is required' })
   clientSecret: string;
-
-  @Expose()
-  @IsNotEmpty({ message: 'year is required' })
-  schoolYearId: string;
 }
 
 export class PostOdsConfigDto extends DtoPostBase implements PostDto<BaseOdsConfigDto> {

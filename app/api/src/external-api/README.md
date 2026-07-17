@@ -1,6 +1,6 @@
 # External API
 
-The External API allows external systems to programmatically submit jobs to Runway using OAuth2 bearer tokens.
+The External API allows external systems to programmatically submit jobs to Runway and retrieve processed output files using OAuth2 bearer tokens.
 
 ## Configuration
 
@@ -19,19 +19,41 @@ Configure an OAuth2/OIDC client in your identity provider with:
 2. **Audience**: Set to match the Runway backend URL (e.g., `https://api.runway.example.com`)
 3. **Scopes**: The token's `scope` claim must include:
    - `create:jobs` — Required to create and start jobs
+   - `read:jobs` — Required to list output sets
+   - `read:jobs:output-files` — Required to fetch presigned download links for output files
    - `partner:<code>` — One or more partner scopes (e.g., `partner:acme`) to authorize access to specific partners
 
 ### Token Claims
 
 The access token must include the following claims:
 
-| Claim         | Required | Description                                                                                         |
-| ------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `client_id`   | Yes\*    | The OAuth2 client ID. Used to attribute jobs to the API client.                                     |
-| `azp`         | Yes\*    | Authorized party. Used as fallback if `client_id` is not present.                                   |
-| `client_name` | No       | Display name for the API client. If provided, shown in the Runway UI for jobs created via the API.  |
+| Claim         | Required | Description                                                                                        |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `client_id`   | Yes\*    | The OAuth2 client ID. Used to attribute jobs to the API client.                                    |
+| `azp`         | Yes\*    | Authorized party. Used as fallback if `client_id` is not present.                                  |
+| `client_name` | No       | Display name for the API client. If provided, shown in the Runway UI for jobs created via the API. |
 
 \* At least one of `client_id` or `azp` must be present. Most OAuth2 providers include `client_id` by default in client credentials tokens.
+
+### Local Development
+
+The local Keycloak instance (started by `docker compose`) comes pre-configured with a `runway-api` client for the external API. No additional IdP setup is needed.
+
+The client is configured in [`api/keycloak/config.yaml`](../../../api/keycloak/config.yaml) with the `create:jobs`, `read:jobs`, `read:jobs:output-files`, and `partner:ea` scopes and an audience of `runway-local`.
+
+Get a token and verify it:
+
+```bash
+# Obtain a token from local Keycloak
+TOKEN=$(curl -s -X POST http://localhost:8080/realms/example/protocol/openid-connect/token \
+  -d "grant_type=client_credentials" \
+  -d "client_id=runway-api" \
+  -d "client_secret=api-secret-123" | jq -r '.access_token')
+
+# Verify it against the local API
+curl -X POST http://localhost:3333/api/v1/token/verify \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ## API Usage
 
@@ -43,18 +65,22 @@ Authorization: Bearer <access_token>
 
 ### Endpoints
 
-| Method | Endpoint                     | Description                                         |
-| ------ | ---------------------------- | --------------------------------------------------- |
-| POST   | `/api/v1/jobs`               | Create a job and get presigned S3 upload URLs       |
-| POST   | `/api/v1/jobs/:jobUid/start` | Start a job after uploading files                   |
-| POST   | `/api/v1/token/verify`       | Verify a token and see which partners it authorizes |
+| Method | Endpoint                                     | Description                                            |
+| ------ | -------------------------------------------- | ------------------------------------------------------ |
+| POST   | `/api/v1/jobs`                               | Create a job and get presigned S3 upload URLs          |
+| POST   | `/api/v1/jobs/:jobUid/start`                 | Start a job after uploading files                      |
+| GET    | `/api/v1/output-sets`                        | List output sets for successful runs                   |
+| POST   | `/api/v1/output-sets/:setUid/download-links` | Get presigned download URLs for files in an output set |
+| POST   | `/api/v1/token/verify`                       | Verify a token and see which partners it authorizes    |
 
 ### Workflow Overview
 
-1. **Obtain a token** from your identity provider using client credentials
-2. **Create a job**: `POST /api/v1/jobs` — Returns presigned S3 upload URLs
-3. **Upload files** to the presigned URLs
-4. **Start the job**: `POST /api/v1/jobs/:jobUid/start`
+There are two related but independent flows:
+
+1. **Job submission flow**: Use `POST /api/v1/jobs` and `POST /api/v1/jobs/:jobUid/start` to create and launch jobs through the external API.
+2. **Output retrieval flow**: Use `GET /api/v1/output-sets` and `POST /api/v1/output-sets/:setUid/download-links` to discover and download processed JSONL output files for successful runs.
+
+The output retrieval endpoints are not limited to jobs created through the external API. They can be used to pull output files for any job, whether created via the API or the web app, as long as the caller has the required partner scope and read scopes.
 
 ---
 
@@ -70,7 +96,7 @@ curl --request POST \
     "client_id": "<client_id>",
     "client_secret": "<client_secret>",
     "audience": "<api_audience>",
-    "scope": "create:jobs partner:<partner_code>",
+    "scope": "create:jobs read:jobs read:jobs:output-files partner:<partner_code>",
     "grant_type": "client_credentials"
   }'
 ```
@@ -87,9 +113,15 @@ curl --request POST \
 
 This endpoint verifies that the token is signed by the expected issuer, has the correct audience, and includes the `create:jobs` scope. The response indicates which partner(s) the token is authorized to operate on.
 
+**Limitation:** `/api/v1/token/verify` currently requires the `create:jobs` scope, so a token intended only for output retrieval cannot use this endpoint for validation.
+
 ---
 
-## Step 2: Create the Job
+## Job Submission Flow
+
+Use this flow when you want to create and run a job through the external API.
+
+### Step 1: Create the Job
 
 `POST /api/v1/jobs`
 
@@ -153,7 +185,7 @@ curl --request POST \
 
 ---
 
-## Step 3: Upload Files to S3
+### Step 2: Upload Files to S3
 
 Use the presigned URLs from the previous response to upload your input files. You can use any HTTP client—no AWS SDK required.
 
@@ -166,7 +198,7 @@ curl -X PUT \
 
 ---
 
-## Step 4: Start the Job
+### Step 3: Start the Job
 
 `POST /api/v1/jobs/:jobUid/start`
 
@@ -179,6 +211,98 @@ curl -X POST \
 ```
 
 Returns `202 Accepted` on success.
+
+---
+
+## Output Retrieval Flow
+
+Use this flow when you want to discover and download processed output files from successful runs.
+
+### Step 1: List Output Sets
+
+`GET /api/v1/output-sets`
+
+Use this endpoint to poll for processed output sets from successful runs.
+
+### Required Scope
+
+- `read:jobs`
+
+### Query Parameters
+
+| Field          | Type    | Required | Description                                                              |
+| -------------- | ------- | -------- | ------------------------------------------------------------------------ |
+| `partner`      | string  | Yes      | Partner code. Must match a `partner:<code>` scope on the token.          |
+| `tenant`       | string  | No       | Filter to a tenant code                                                  |
+| `schoolYear`   | string  | No       | 4-digit school-year end year (for example `2026`)                        |
+| `sentToOds`    | boolean | No       | Filter to output sets that were or were not sent to an ODS               |
+| `createdAfter` | string  | No       | ISO 8601 date or timestamp (e.g. `2026-03-15T00:00:00Z`). Only output sets created after this value are listed |
+| `bundle`       | string  | No       | Filter to a bundle key such as `assessments/PSAT_SAT`                    |
+
+### Example Request
+
+```bash
+curl -G \
+  --url <runway_api_url>/api/v1/output-sets \
+  --header 'Authorization: Bearer <token>' \
+  -d 'partner=acme' \
+  -d 'tenant=acme' \
+  -d 'sentToOds=false' \
+  -d 'createdAfter=2026-03-01T00:00:00Z'
+```
+
+### Response
+
+The response is a flat array of output sets ordered by `createdAt` ascending.
+
+```json
+[
+  {
+    "uid": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
+    "files": ["studentAssessments.jsonl", "objectiveAssessments.jsonl"],
+    "sentToOds": false,
+    "createdAt": "2026-03-15T14:30:00Z",
+    "jobUid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "partner": "acme",
+    "tenant": "acme",
+    "schoolYear": "2026",
+    "bundle": "assessments/PSAT_SAT"
+  }
+]
+```
+
+---
+
+### Step 2: Get Download Links for an Output Set
+
+`POST /api/v1/output-sets/:setUid/download-links`
+
+Use the output set `uid` from the previous step to fetch presigned download links for all files in the set.
+
+### Required Scope
+
+- `read:jobs:output-files`
+
+### Example Request
+
+```bash
+curl -X POST \
+  --url <runway_api_url>/api/v1/output-sets/<set_uid>/download-links \
+  --header 'Authorization: Bearer <token>'
+```
+
+### Response
+
+```json
+{
+  "downloadLinks": {
+    "studentAssessments.jsonl": "https://s3.amazonaws.com/bucket/path/studentAssessments.jsonl?X-Amz-...",
+    "objectiveAssessments.jsonl": "https://s3.amazonaws.com/bucket/path/objectiveAssessments.jsonl?X-Amz-..."
+  }
+}
+```
+
+Presigned URLs have a 1-hour TTL, but will also expire early if the API server's AWS session credentials rotate before the TTL elapses (whichever comes first). API consumers should treat download links as short-lived and request a fresh set if a download fails.
 
 ---
 
@@ -196,4 +320,5 @@ For detailed request/response schemas:
 | 401    | Missing or invalid token                                               |
 | 403    | Insufficient scopes or unauthorized partner                            |
 | 400    | Invalid request (missing required input, unexpected input files, etc.) |
+| 404    | Resource not found or not accessible to this token                     |
 | 503    | External API disabled (issuer not configured)                          |

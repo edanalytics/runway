@@ -43,8 +43,10 @@ const getStageStatus = (
 
 export const JobProgressTracker = ({
   statusUpdates,
+  sendToOds,
 }: {
   statusUpdates: GetRunUpdateDto[] | undefined;
+  sendToOds: boolean;
 }) => {
   const doneUpdate = statusUpdates?.find((update) => update.action === 'done');
   const statuses: Record<string, ProgressStepStatus> = {
@@ -62,10 +64,25 @@ export const JobProgressTracker = ({
         nextStepStatus={statuses.transforming}
       />
       <ProgressStep title="Transforming" stepNumber="2" status={statuses.transforming} />
-      <ProgressLine prevStepStatus={statuses.transforming} nextStepStatus={statuses.sending} />
-      <ProgressStep title="Sending" stepNumber="3" status={statuses.sending} />
-      <ProgressLine prevStepStatus={statuses.sending} nextStepStatus={statuses.done} />
-      <ProgressStep title="Complete" stepNumber="4" status={statuses.done} />
+      {sendToOds ? (
+        <>
+          <ProgressLine
+            prevStepStatus={statuses.transforming}
+            nextStepStatus={statuses.sending}
+          />
+          <ProgressStep title="Sending" stepNumber="3" status={statuses.sending} />
+          <ProgressLine prevStepStatus={statuses.sending} nextStepStatus={statuses.done} />
+          <ProgressStep title="Complete" stepNumber="4" status={statuses.done} />
+        </>
+      ) : (
+        <>
+          <ProgressLine
+            prevStepStatus={statuses.transforming}
+            nextStepStatus={statuses.done}
+          />
+          <ProgressStep title="Complete" stepNumber="3" status={statuses.done} />
+        </>
+      )}
     </HStack>
   );
 };

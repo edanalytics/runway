@@ -7,6 +7,7 @@ import {
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -24,6 +25,7 @@ import type { PrismaClient, Tenant as TTenant } from '@prisma/client';
 import { PRISMA_APP_USER } from '../database';
 import { throwNotFound } from '../utils';
 import { OdsConfigService } from './ods-config.service';
+import { EdfiService } from '../edfi/edfi.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
@@ -34,7 +36,8 @@ import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership
 export class OdsConfigController {
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
-    private odsConfigService: OdsConfigService
+    private odsConfigService: OdsConfigService,
+    private edfiService: EdfiService
   ) {}
 
   @Get()
@@ -60,17 +63,16 @@ export class OdsConfigController {
   @Post()
   @SkipTenantOwnership()
   async create(@Body() createOdsDto: PostOdsConfigDto, @Tenant() tenant: TTenant) {
-    const result = await this.odsConfigService.testConnection(createOdsDto);
-    if (result.status === 'ERROR') {
-      const msg =
-        result.type === 'AUTH'
-          ? 'Unable to authenticate to ODS with given credentials.'
-          : 'ODS connection failed.';
-      throw new BadRequestException(msg);
+    const connectionTest = await this.edfiService.testConnection(createOdsDto);
+    if (connectionTest.status === 'ERROR') {
+      throw new BadRequestException('Unable to authenticate to ODS with given credentials.');
     }
 
-    const newOdsConfig = await this.odsConfigService.create(createOdsDto, tenant, this.prisma);
-    return toGetOdsConfigWithSecretDto(newOdsConfig);
+    const result = await this.odsConfigService.create(createOdsDto, tenant, this.prisma);
+    if (result.status === 'ERROR') {
+      throw new ConflictException('An active ODS configuration already exists for this tenant and school year.');
+    }
+    return toGetOdsConfigWithSecretDto(result.data);
   }
 
   @Put(':odsConfigId')
@@ -79,18 +81,16 @@ export class OdsConfigController {
     odsConfigId: number,
     @Body() updateOdsDto: PutOdsConfigDto
   ) {
-    const result = await this.odsConfigService.testConnection(updateOdsDto);
-    if (result.status === 'ERROR') {
-      const msg =
-        result.type === 'AUTH'
-          ? 'Unable to authenticate to ODS with given credentials.'
-          : 'ODS connection failed.';
-      throw new BadRequestException(msg);
+    const connectionTest = await this.edfiService.testConnection(updateOdsDto);
+    if (connectionTest.status === 'ERROR') {
+      throw new BadRequestException('Unable to authenticate to ODS with given credentials.');
     }
 
-    return toGetOdsConfigWithSecretDto(
-      await this.odsConfigService.update(odsConfigId, updateOdsDto, this.prisma)
-    );
+    const result = await this.odsConfigService.update(odsConfigId, updateOdsDto, this.prisma);
+    if (result.status === 'ERROR') {
+      throw new ConflictException('An active ODS configuration already exists for this tenant and school year.');
+    }
+    return toGetOdsConfigWithSecretDto(result.data);
   }
 
   @Post(':odsConfigId/test-connection')
@@ -104,7 +104,7 @@ export class OdsConfigController {
       return throwNotFound(`ODS not found: ${odsConfigId}`);
     }
 
-    const result = await this.odsConfigService.testConnection(ods.activeConnection);
+    const result = await this.edfiService.testConnection(ods.activeConnection);
     const updatedConfig = await this.odsConfigService.updateConnectionStatus(
       odsConfigId,
       result.status === 'SUCCESS' ? 'success' : 'error', // TODO: clean this up, ugly

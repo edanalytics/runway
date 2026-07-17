@@ -1,15 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { OdsConfig, OdsConnection, PrismaClient, Tenant } from '@prisma/client';
+import { OdsConfig, OdsConnection, Prisma, PrismaClient, Tenant } from '@prisma/client';
 import { PRISMA_READ_ONLY } from '../database';
 import { PostOdsConfigDto, PutOdsConfigDto } from '@edanalytics/models';
-import { EdfiService } from '../edfi/edfi.service';
 import { EncryptionService } from '../encryption/encryption.service';
 
 @Injectable()
 export class OdsConfigService {
   constructor(
     @Inject(PRISMA_READ_ONLY) private prisma: PrismaClient,
-    @Inject(EdfiService) private edfiService: EdfiService,
     @Inject(EncryptionService) private encryptionService: EncryptionService
   ) {}
 
@@ -43,23 +41,6 @@ export class OdsConfigService {
     } catch (e) {
       Logger.error(`Failed to decrypt client secret for ODS config: ${odsConfig.id}`);
     }
-  }
-
-  async testConnection(connectionInfo: PostOdsConfigDto | PutOdsConfigDto) {
-    const year = await this.prisma.schoolYear.findFirst({
-      where: { id: connectionInfo.schoolYearId },
-    });
-
-    if (!year) {
-      throw new Error(`School year not found while testing connection: ${connectionInfo}`);
-    }
-
-    return await this.edfiService.testConnection({
-      host: connectionInfo.host,
-      clientId: connectionInfo.clientId,
-      clientSecret: connectionInfo.clientSecret,
-      year: year.startYear,
-    });
   }
 
   async findOne(id: number, prisma: PrismaClient = this.prisma) {
@@ -110,6 +91,7 @@ export class OdsConfigService {
         data: {
           tenantCode: tenant.code,
           partnerId: tenant.partnerId,
+          schoolYearId: data.schoolYearId,
         },
       });
 
@@ -119,7 +101,6 @@ export class OdsConfigService {
           host: data.host,
           clientId: data.clientId,
           clientSecret: this.encryptionService.encrypt(data.clientSecret),
-          schoolYearId: data.schoolYearId,
           lastUseOn: new Date(),
           lastUseResult: status,
         },
@@ -137,7 +118,12 @@ export class OdsConfigService {
         throw new Error(`Failed to create ODS config with connection info: ${newConfig.id}`);
       }
 
-      return newConfig;
+      return { status: 'SUCCESS' as const, data: newConfig };
+    }).catch((e) => {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return { status: 'ERROR' as const, code: 'CONFLICT' as const };
+      }
+      throw e;
     });
   }
 
@@ -158,7 +144,7 @@ export class OdsConfigService {
       throw new Error(`ODS configuration not found: ${id}`);
     }
 
-    const updatedConfig = await prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx) => {
       await tx.odsConnection.update({
         where: { id: existingConfig.activeConnection.id },
         data: {
@@ -173,26 +159,30 @@ export class OdsConfigService {
           host: data.host,
           clientId: data.clientId,
           clientSecret: this.encryptionService.encrypt(data.clientSecret),
-          schoolYearId: data.schoolYearId,
           lastUseOn: new Date(),
           lastUseResult: status,
         },
       });
 
-      return tx.odsConfig.update({
+      const updatedConfig = await tx.odsConfig.update({
         where: { id },
         data: {
           activeConnectionId: newConnection.id,
         },
         include: { activeConnection: true },
       });
-    });
 
-    if (!this.isCompleteConfig(updatedConfig)) {
-      throw new Error(`Failed to update ODS config with new connection info: ${updatedConfig.id}`);
-    }
-    this.decryptSecret(updatedConfig);
-    return updatedConfig;
+      if (!this.isCompleteConfig(updatedConfig)) {
+        throw new Error(`Failed to update ODS config with new connection info: ${updatedConfig.id}`);
+      }
+      this.decryptSecret(updatedConfig);
+      return { status: 'SUCCESS' as const, data: updatedConfig };
+    }).catch((e) => {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return { status: 'ERROR' as const, code: 'CONFLICT' as const };
+      }
+      throw e;
+    });
   }
 
   async updateConnectionStatus(

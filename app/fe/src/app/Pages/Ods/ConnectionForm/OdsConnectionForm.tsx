@@ -1,6 +1,5 @@
 import { chakra, HStack, VStack } from '@chakra-ui/react';
-import { RunwaySelect } from '../../../components/Form/RunwaySelect';
-import { useController, UseFormReturn } from 'react-hook-form';
+import { FieldError, FieldValues, Path, UseFormReturn } from 'react-hook-form';
 import { RunwayInput } from '../../../components/Form/RunwayInput';
 import { RunwayErrorBox } from '../../../components/Form/RunwayFormErrorBox';
 import { GoBackLink } from '../../../components/links';
@@ -9,47 +8,50 @@ import { GetOdsConfigDto, Id, PostOdsConfigDto, PutOdsConfigDto } from '@edanaly
 import React from 'react';
 import { UseMutationResult } from '@tanstack/react-query';
 
-export const OdsConnectionForm = ({
+// Minimal shape shared by both create (POST) and edit (PUT) forms.
+type OdsConnectionFormFields = { host: string; clientId: string; clientSecret: string };
+
+export const OdsConnectionForm = <T extends FieldValues & OdsConnectionFormFields>({
   form,
   submit,
   mutation,
-  yearOptions,
-  isOptionDisabled,
+  yearField,
 }: {
-  form: UseFormReturn<PutOdsConfigDto | PostOdsConfigDto>;
+  form: UseFormReturn<T>;
   submit: React.FormEventHandler;
-  yearOptions: Array<{ label: string; value: string }>;
-  isOptionDisabled: (option: { value: string }) => boolean;
+  // TODO: drop yearField once the flow changes to "add ODS" per school year —
+  // the year will be implied by which row's button was clicked and won't be
+  // editable in the form.
+  yearField?: React.ReactNode;
   mutation:
     | UseMutationResult<GetOdsConfigDto, Error, { entity: PutOdsConfigDto } & Id>
     | UseMutationResult<GetOdsConfigDto, Error, { entity: PostOdsConfigDto }>;
 }) => {
   const {
     register,
-    control,
-    formState: { errors, isLoading, isDirty, defaultValues },
+    formState: { errors, isLoading, isDirty },
   } = form;
+  const e = errors as Partial<Record<keyof OdsConnectionFormFields, FieldError>>;
 
   return (
     <chakra.form width="100%" height="100%" onSubmit={submit}>
-      <VStack justifyContent="space-between" alignItems="flex-start" width="100%" height="100%">
-        <VStack width="100%" maxW="32rem" flexGrow="1" gap="300">
-          <RunwaySelect
-            label="year"
-            defaultValue={defaultValues?.schoolYearId}
-            controller={useController({
-              name: 'schoolYearId',
-              control,
-            })}
-            options={yearOptions}
-            isOptionDisabled={isOptionDisabled}
+      <VStack alignItems="flex-start" width="100%" height="100%" gap="500" maxW="32rem">
+        <VStack width="100%" gap="300">
+          {yearField}
+          <RunwayInput
+            label="Edfi API base URL"
+            error={e.host}
+            register={register('host' as Path<T>)}
           />
-          <RunwayInput label="Edfi API base URL" error={errors.host} register={register('host')} />
-          <RunwayInput label="key" error={errors.clientId} register={register('clientId')} />
+          <RunwayInput
+            label="key"
+            error={e.clientId}
+            register={register('clientId' as Path<T>)}
+          />
           <RunwayInput
             label="secret"
-            error={errors.clientSecret}
-            register={register('clientSecret')}
+            error={e.clientSecret}
+            register={register('clientSecret' as Path<T>)}
             type="password"
           />
         </VStack>
@@ -61,7 +63,6 @@ export const OdsConnectionForm = ({
             <GoBackLink to="/ods-configs" />
             <RunwaySubmit
               label="save"
-              // rightIcon={<IconArrowRight />}
               isLoading={isLoading || mutation.isPending}
               isDisabled={!isDirty}
             />

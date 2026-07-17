@@ -11,10 +11,20 @@ import { AppConfigService } from '../config/app-config.service';
 
 @Injectable()
 export class FileService {
-  private s3Client: S3Client = new S3Client({ region: process.env.AWS_REGION });
+  private s3Client: S3Client;
   private logger = new Logger(FileService.name);
 
-  constructor(private readonly appConfig: AppConfigService) {}
+  constructor(private readonly appConfig: AppConfigService) {
+    const localEndpoint = this.appConfig.get('LOCAL_S3_ENDPOINT_URL');
+    this.s3Client = new S3Client({
+      region: this.appConfig.get('AWS_REGION'),
+      ...(this.appConfig.isDevEnvironment() && localEndpoint && {
+        endpoint: localEndpoint,
+        forcePathStyle: true, // S3Mock requires path-style: http://localhost:9090/bucket/key
+        credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
+      }),
+    });
+  }
 
   async getPresignedUploadUrl({ fullPath, fileType }: { fullPath: string; fileType: string }) {
     const command = new PutObjectCommand({
@@ -41,33 +51,50 @@ export class FileService {
     return await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
   }
 
-  async listFilesAtPath(prefix: string) {
+  async listFilesAtPath(prefix: string): Promise<{ key: string; name: string }[]> {
     const { Contents } = await this.s3Client.send(
       new ListObjectsV2Command({
         Bucket: this.appConfig.s3Bucket(),
         Prefix: prefix,
       })
     );
-    return Contents?.map((content) => content.Key);
+    // Filter out undefined keys (possible per the S3 SDK types) and the prefix
+    // itself, which S3 returns when a "folder marker" object exists at the path.
+    return (Contents ?? [])
+      .map((content) => content.Key)
+      .filter((key): key is string => typeof key === 'string' && key !== prefix)
+      .map((key) => ({ key, name: key.replace(prefix, '') }));
   }
 
-  async doFilesExist(fullPaths: string[]): Promise<boolean> {
-    const results = await Promise.all(
-      fullPaths.map(async (fullPath) => {
-        try {
-          const result = await this.s3Client.send(
-            new HeadObjectCommand({
-              Bucket: this.appConfig.s3Bucket(),
-              Key: fullPath,
-            })
-          );
-          return result.ContentLength !== undefined && result.ContentLength > 0;
-        } catch (error) {
-          // NotFound or similar errors mean the file doesn't exist
-          return false;
-        }
+  async getFileSize(fullPath: string, bucket: string): Promise<number> {
+    const result = await this.s3Client.send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: fullPath,
       })
     );
+    return result.ContentLength ?? 0;
+  }
+
+  async doesFileExist(fullPath: string, bucket: string): Promise<boolean> {
+    try {
+      const result = await this.s3Client.send(
+        new HeadObjectCommand({
+          Bucket: bucket,
+          Key: fullPath,
+        })
+      );
+      return result.ContentLength !== undefined && result.ContentLength > 0;
+    } catch (error: any) {
+      if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async doFilesExist(fullPaths: string[], bucket: string): Promise<boolean> {
+    const results = await Promise.all(fullPaths.map((p) => this.doesFileExist(p, bucket)));
     return results.every((exists) => exists);
   }
 }

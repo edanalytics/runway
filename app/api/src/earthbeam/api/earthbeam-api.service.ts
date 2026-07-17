@@ -16,14 +16,21 @@ import { EncryptionService } from 'api/src/encryption/encryption.service';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
+  earthbeamOutputFilesEndpoint,
+  earthbeamRosterEndpoint,
   earthbeamStatusUpdateEndpoint,
   earthbeamSummaryEndpoint,
   earthbeamUnmatchedIdsEndpoint,
 } from './earthbeam-api.endpoints';
 import { FileService } from 'api/src/files/file.service';
+import { rosterFileKey } from 'api/src/earthbeam/roster-path';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
-import { EventEmitterService } from 'api/src/event-emitter/event-emitter.service';
+import {
+  EventEmitterService,
+  EVENT_EMITTER_SERVICE,
+} from 'api/src/event-emitter/event-emitter.service';
+
 @Injectable()
 export class EarthbeamApiService {
   private readonly logger = new Logger(EarthbeamApiService.name);
@@ -33,7 +40,7 @@ export class EarthbeamApiService {
     private readonly encryptionService: EncryptionService,
     private readonly fileService: FileService,
     private readonly configService: AppConfigService,
-    private readonly eventEmitter: EventEmitterService
+    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
   ) {}
 
   async earthbeamInputForRun(runId: Run['id']) {
@@ -68,7 +75,8 @@ export class EarthbeamApiService {
     }
 
     const job = run.job;
-    if (!job.odsConfig.activeConnection) {
+    const odsConnection = job.odsConfig?.activeConnection;
+    if (job.sendToOds && !odsConnection) {
       return {
         status: 'ERROR',
         type: 'server_error',
@@ -106,7 +114,6 @@ export class EarthbeamApiService {
     if (descriptorNamespace) {
       paramsForEarthbeam['DESCRIPTOR_NAMESPACE'] = descriptorNamespace;
     }
-
     const filesForEarthbeam = job.files.reduce<Record<string, string>>((acc, file) => {
       acc[file.templateKey] = file.nameInternal;
       return acc;
@@ -132,6 +139,15 @@ export class EarthbeamApiService {
       },
     });
 
+    const executorBaseUrl = this.configService.executorCallbackBaseUrl();
+
+    // The partner toggle alone — no creds/connection check. Once the toggle is
+    // on (the admin enable endpoint requires working creds to turn it on), the
+    // EDU connection is an assumed dependency like postgres or S3: if EDU is
+    // unavailable mid-run, the run fails loudly rather than silently degrading
+    // to weaker matching.
+    const crossYearMatchAvailable = job.tenant.partner.crossYearMatchingEnabled;
+
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
@@ -145,19 +161,35 @@ export class EarthbeamApiService {
         branch: this.configService.bundleBranch(),
       },
       appUrls: {
-        status: `${process.env.MY_URL}/${earthbeamStatusUpdateEndpoint(runId)}`,
-        error: `${process.env.MY_URL}/${earthbeamErrorUpdateEndpoint(runId)}`,
-        summary: `${process.env.MY_URL}/${earthbeamSummaryEndpoint(runId)}`,
-        unmatchedIds: `${process.env.MY_URL}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
+        status: `${executorBaseUrl}/${earthbeamStatusUpdateEndpoint(runId)}`,
+        error: `${executorBaseUrl}/${earthbeamErrorUpdateEndpoint(runId)}`,
+        summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
+        unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
+        outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
+        ...(crossYearMatchAvailable
+          ? { roster: `${executorBaseUrl}/${earthbeamRosterEndpoint(runId)}` }
+          : {}),
       },
-      assessmentDatastore: {
-        apiYear: apiYear,
-        url: job.odsConfig.activeConnection.host,
-        clientId: job.odsConfig.activeConnection.clientId,
-        clientSecret: await this.encryptionService.decrypt(
-          job.odsConfig.activeConnection.clientSecret
-        ),
-      },
+      crossYearMatchAvailable,
+      sendToOds: job.sendToOds,
+      // When cross-year matching is available, the executor pulls the roster
+      // from EDU via appUrls.roster, so the S3 file path would be a dangling
+      // (often nonexistent) pointer — omit it. The executor only reads
+      // rosterFilePath in its non-cross-year branch.
+      rosterFilePath:
+        job.sendToOds || crossYearMatchAvailable
+          ? undefined
+          : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
+      // odsConnection check narrows the type — the early guard ensures it's present when sendToOds
+      assessmentDatastore:
+        odsConnection && job.sendToOds
+          ? {
+              apiYear: job.schoolYear.endYear.toString(),
+              url: odsConnection.host,
+              clientId: odsConnection.clientId,
+              clientSecret: await this.encryptionService.decrypt(odsConnection.clientSecret),
+            }
+          : undefined,
     };
     return {
       status: 'SUCCESS',
@@ -179,22 +211,14 @@ export class EarthbeamApiService {
 
     // Save output files
     const basePath = `${run.job.fileBasePath}/output/`;
-    const filePaths = await this.fileService.listFilesAtPath(basePath);
-    const runOutputFiles = filePaths
-      ?.map((fullPath) => ({ name: fullPath?.split(basePath)[1], path: fullPath }))
-      .filter(
-        (file): file is { name: string; path: string } =>
-          typeof file.name == 'string' && typeof file.path == 'string'
-      )
-      .map((file) => ({
-        runId: run.id,
-        name: file.name,
-        path: file.path, // contains the full path including file name
-      }));
-
-    if (runOutputFiles && runOutputFiles.length > 0) {
+    const outputFiles = await this.fileService.listFilesAtPath(basePath);
+    if (outputFiles.length > 0) {
       await prisma.runOutputFile.createMany({
-        data: runOutputFiles,
+        data: outputFiles.map((file) => ({
+          runId: run.id,
+          name: file.name,
+          path: file.key,
+        })),
       });
     }
 
@@ -230,10 +254,10 @@ export class EarthbeamApiService {
         ? resourceErrors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',')
         : '';
 
-      const hasUnmatchedStudents = runOutputFiles?.some(
+      const hasUnmatchedStudents = outputFiles.some(
         (file) => file.name === 'input_no_student_id_match.csv'
       );
-      const odsUrl = run.job.odsConfig.activeConnection?.host;
+      const odsUrl = run.job.odsConfig?.activeConnection?.host;
       const assessmentType = run.job.name;
       const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
       const tenantCode = run.job.tenantCode;
@@ -257,6 +281,7 @@ export class EarthbeamApiService {
         status: run.status,
         completedWithErrors:
           run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
+        sendToOds: run.job.sendToOds,
         odsUrl,
         schoolYear: run.job.schoolYearId,
         unmatchedStudentsCount: unmatchedStudentsInfo?.count ?? 0,

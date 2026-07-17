@@ -1,3 +1,8 @@
 .env
 app/node_modules/
 storage/
+
+executor/local-run
+*.egg-info
+__pycache__
+/.scratch

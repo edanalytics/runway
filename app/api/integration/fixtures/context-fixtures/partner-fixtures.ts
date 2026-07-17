@@ -7,6 +7,9 @@ export const partnerA: WithoutAudit<Partner> = {
   name: 'Partner A',
   idpId: idpA.id,
   descriptorNamespace: 'partner-a',
+  crossYearMatchingEnabled: false,
+  managedBy: null,
+  deletedOn: null,
 };
 
 export const partnerC: WithoutAudit<Partner> = {
@@ -14,6 +17,9 @@ export const partnerC: WithoutAudit<Partner> = {
   name: 'Partner C',
   idpId: idpA.id, // shares idp with partner A
   descriptorNamespace: 'partner-c',
+  crossYearMatchingEnabled: false,
+  managedBy: null,
+  deletedOn: null,
 };
 
 export const partnerX: WithoutAudit<Partner> = {
@@ -21,4 +27,7 @@ export const partnerX: WithoutAudit<Partner> = {
   name: 'Partner X',
   idpId: idpX.id,
   descriptorNamespace: null,
+  crossYearMatchingEnabled: false,
+  managedBy: null,
+  deletedOn: null,
 };

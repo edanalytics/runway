@@ -1,0 +1,226 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  ConflictException,
+  Get,
+  Headers,
+  Inject,
+  ParseArrayPipe,
+  Put,
+  Res,
+} from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { PrismaClient, Tenant } from '@prisma/client';
+import {
+  PutSchoolYearConfigRowDto,
+  toGetSchoolYearConfigDto,
+  toGetTenantSchoolYearConfigDto,
+} from '@edanalytics/models';
+import { Response } from 'express';
+import { PRISMA_APP_USER } from '../database';
+import { Authorize } from '../auth/helpers/authorize.decorator';
+import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
+import { FileService } from '../files/file.service';
+import { rosterFileKey } from '../earthbeam/roster-path';
+import { AppConfigService } from '../config/app-config.service';
+
+@ApiTags('SchoolYearConfig')
+@Controller()
+export class SchoolYearConfigController {
+  constructor(
+    @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
+    private fileService: FileService,
+    private appConfig: AppConfigService
+  ) {}
+
+  @Authorize('school-year-config.read')
+  @Get('tenant')
+  async getTenantConfig(@TenantDecorator() tenant: Tenant) {
+    // When cross-year matching is enabled, EDU can supply the roster, so a
+    // no-ODS year has a roster regardless of any S3 file. Partner setting only
+    // — no creds/connection check.
+    const partner = await this.prisma.partner.findUniqueOrThrow({
+      where: { id: tenant.partnerId },
+      select: { crossYearMatchingEnabled: true },
+    });
+
+    const schoolYears = await this.prisma.schoolYear.findMany({
+      where: {
+        schoolYearConfig: {
+          some: {
+            partnerId: tenant.partnerId,
+            isEnabled: true,
+          },
+        },
+      },
+      orderBy: { startYear: 'desc' },
+      include: {
+        schoolYearConfig: {
+          where: { partnerId: tenant.partnerId },
+        },
+        odsConfig: {
+          where: {
+            partnerId: tenant.partnerId,
+            tenantCode: tenant.code,
+            retired: false,
+            activeConnectionId: { not: null },
+          },
+          select: { id: true },
+        },
+      },
+    });
+
+    const rows = await Promise.all(
+      schoolYears.map(async (schoolYear) => {
+        // Should never be undefined — the where clause filters to years with an enabled config
+        const config = schoolYear.schoolYearConfig[0];
+        if (!config) {
+          throw new Error(
+            `Enabled school year missing config for ${tenant.partnerId}/${schoolYear.id}`
+          );
+        }
+
+        // ODS years use an ODS-fetched roster, so this is null for them. For
+        // no-ODS years, a roster is available from an S3 file or, when
+        // cross-year matching is enabled, from EDU.
+        const hasNonOdsRoster = config.sendToOds
+          ? null
+          : partner.crossYearMatchingEnabled
+          ? true
+          : await this.fileService.doesFileExist(
+              rosterFileKey({ partnerId: tenant.partnerId, tenantCode: tenant.code }, schoolYear),
+              this.appConfig.rosterBucket()
+            );
+
+        return {
+          schoolYearId: schoolYear.id,
+          startYear: schoolYear.startYear,
+          endYear: schoolYear.endYear,
+          sendToOds: config.sendToOds,
+          hasOds: schoolYear.odsConfig.length > 0,
+          hasNonOdsRoster,
+        };
+      })
+    );
+
+    return toGetTenantSchoolYearConfigDto(rows);
+  }
+
+  @Authorize('school-year-config.read')
+  @Get()
+  async getConfig(@TenantDecorator() tenant: Tenant, @Res({ passthrough: true }) res: Response) {
+    const partnerId = tenant.partnerId;
+
+    const schoolYears = await this.prisma.schoolYear.findMany({
+      orderBy: { startYear: 'desc' },
+      include: {
+        schoolYearConfig: {
+          where: { partnerId },
+        },
+        odsConfig: {
+          where: { partnerId, retired: false },
+          select: { id: true },
+        },
+      },
+    });
+
+    let maxModifiedOn: Date | null = null;
+    for (const sy of schoolYears) {
+      const config = sy.schoolYearConfig[0];
+      if (config && (!maxModifiedOn || config.modifiedOn > maxModifiedOn)) {
+        maxModifiedOn = config.modifiedOn;
+      }
+    }
+
+    if (maxModifiedOn) {
+      res.setHeader('x-config-modified-at', maxModifiedOn.toISOString());
+    }
+
+    return toGetSchoolYearConfigDto(
+      schoolYears.map((sy) => {
+        const config = sy.schoolYearConfig[0] ?? null;
+        return {
+          schoolYearId: sy.id,
+          startYear: sy.startYear,
+          endYear: sy.endYear,
+          isEnabled: config?.isEnabled ?? false,
+          sendToOds: config?.sendToOds ?? true,
+          odsCount: sy.odsConfig.length,
+        };
+      })
+    );
+  }
+
+  @Authorize('school-year-config.update')
+  @Put()
+  async updateConfig(
+    @TenantDecorator() tenant: Tenant,
+    @Headers('x-if-config-modified-at') ifModifiedAtHeader: string | undefined,
+    @Body(new ParseArrayPipe({ items: PutSchoolYearConfigRowDto }))
+    body: PutSchoolYearConfigRowDto[]
+  ) {
+    const partnerId = tenant.partnerId;
+    const ifModifiedAt = ifModifiedAtHeader ?? null;
+
+    // Validate all submitted schoolYearIds exist
+    if (body.length > 0) {
+      const submittedIds = body.map((r) => r.schoolYearId);
+      const validYears = await this.prisma.schoolYear.findMany({
+        where: { id: { in: submittedIds } },
+        select: { id: true },
+      });
+      const validIds = new Set(validYears.map((y) => y.id));
+      const invalid = submittedIds.filter((id) => !validIds.has(id));
+      if (invalid.length > 0) {
+        throw new BadRequestException(`Invalid school year IDs: ${invalid.join(', ')}`);
+      }
+    }
+
+    // Optimistic concurrency check
+    const latestConfig = await this.prisma.schoolYearConfig.findFirst({
+      where: { partnerId },
+      orderBy: { modifiedOn: 'desc' },
+      include: { user: true },
+    });
+
+    const latestModifiedOn = latestConfig?.modifiedOn ?? null;
+    const currentModifiedAt = latestModifiedOn ? latestModifiedOn.toISOString() : null;
+
+    // Check-then-write: concurrent requests can both pass before either writes.
+    // Acceptable for a low-frequency admin config surface.
+    if (ifModifiedAt !== currentModifiedAt) {
+      throw new ConflictException({
+        statusCode: 409,
+        message: 'Config has been modified since you loaded it.',
+        lastModifiedOn: currentModifiedAt,
+        lastModifiedBy: latestConfig?.user
+          ? `${latestConfig.user.givenName} ${latestConfig.user.familyName}`
+          : null,
+      });
+    }
+
+    // Bulk upsert — audit columns (modified_on, modified_by_id) are set by DB triggers
+    await this.prisma.$transaction(
+      body.map((row) =>
+        this.prisma.schoolYearConfig.upsert({
+          where: {
+            partnerId_schoolYearId: { partnerId, schoolYearId: row.schoolYearId },
+          },
+          create: {
+            partnerId,
+            schoolYearId: row.schoolYearId,
+            isEnabled: row.isEnabled,
+            sendToOds: row.sendToOds,
+          },
+          update: {
+            isEnabled: row.isEnabled,
+            sendToOds: row.sendToOds,
+          },
+        })
+      )
+    );
+
+    return { status: 'ok' };
+  }
+}

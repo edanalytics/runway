@@ -6,7 +6,6 @@ interface IEdfiConnection {
   host: string;
   clientId: string;
   clientSecret: string;
-  year: number;
 }
 
 @Injectable()
@@ -54,7 +53,7 @@ export class EdfiService {
 
   async testConnection(
     connectionInfo: IEdfiConnection
-  ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; type: 'AUTH' | 'YEAR' }> {
+  ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; type: 'AUTH' }> {
     let accessToken: string;
     try {
       accessToken = await this.getAccessToken(connectionInfo);

@@ -9,6 +9,9 @@ on:
     paths:
       - "app/**"
 
+permissions:
+  contents: read
+
 defaults:
   run:
     working-directory: ./app # Applies only to `run` steps, not `uses` steps
@@ -24,14 +27,18 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           cache: "npm"
           cache-dependency-path: "app/package-lock.json"
+      - name: Install safe-chain
+        run: curl -fsSL https://github.com/AikidoSec/safe-chain/releases/download/1.5.12/install-safe-chain.sh | sh -s -- --ci
       - name: Install Node.js dependencies
-        run: npm ci
+        run: npm ci --safe-chain-minimum-package-age-hours=168
       - name: Sandworm Audit
         run: npm run sandworm
 
@@ -72,9 +79,11 @@ jobs:
         node-version: [22.x]
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           cache: "npm"
           cache-dependency-path: "app/package-lock.json" # Point to app directory
@@ -89,9 +98,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           cache: "npm"
           cache-dependency-path: "app/package-lock.json"
@@ -111,9 +122,11 @@ jobs:
         node-version: [22.x]
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           cache: "npm"
           cache-dependency-path: "app/package-lock.json"
@@ -126,9 +139,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           cache: "npm"
           cache-dependency-path: "app/package-lock.json"
@@ -149,9 +164,11 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           cache: "npm"
           cache-dependency-path: "app/package-lock.json"

@@ -1,23 +1,54 @@
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { wait } from '@edanalytics/utils';
 import { PrismaClient, OidcConfig, IdentityProvider, Partner } from '@prisma/client';
 import { Request as ExpressRequest } from 'express';
 import * as jose from 'jose';
 import { BaseClient, IdTokenClaims, Strategy } from 'openid-client';
 import passport from 'passport';
+import pg from 'pg';
 import { AppConfigService } from '../../config/app-config.service';
 import { PRISMA_ANONYMOUS } from '../../database';
 import { AuthService } from '../auth.service';
 import { initOpenidClient } from './init-openid-client';
-import { IPassportSession } from '@edanalytics/models';
+import { IPassportSession, rolePrivileges, AppRoles } from '@edanalytics/models';
+
+/** Lowercase AppRole string → canonical name; derived from `rolePrivileges` at module load. */
+const CANONICAL_APP_ROLE_BY_LOWER: ReadonlyMap<string, AppRoles> = new Map(
+  (Object.keys(rolePrivileges) as AppRoles[]).map((r) => [r.toLowerCase(), r] as const)
+);
 
 /**
- * Identity Provider Service. Today, this is focused on OIDC integrations and there's
- * a lot of OIDC-specific code in here. You could imagine us factoring this out
- * if we someday add SAML support, too.
+ * Identity Provider Service. Manages OIDC identity provider registrations as
+ * in-memory Passport strategies (required by Passport's architecture).
+ *
+ * ## Lifecycle
+ *
+ * **Registration** — `refreshRegistrations` reads all IdPs from the DB and
+ * attempts issuer discovery for each (concurrently). The initial discovery
+ * attempt for each IdP is awaited, but if an issuer is unreachable, retries
+ * continue in the background with exponential backoff. This means:
+ * - At boot, the app starts serving immediately; unreachable issuers don't
+ *   block startup and will be registered once the retry succeeds.
+ * - On a live refresh, an IdP whose issuer fails discovery is pruned (fail
+ *   closed — its Passport strategy is removed so login is blocked). If the
+ *   background retry later succeeds, the strategy is re-registered.
+ *
+ * **Live refresh** — PostgreSQL triggers on `oidc_config`, `identity_provider`,
+ * and `partner` fire `NOTIFY idp_config_changed`. A dedicated LISTEN connection
+ * (scheduled from `main.ts` after boot) picks these up and re-runs registration.
+ *
+ * **Abort / supersede** — each refresh gets an `AbortController`. When a new
+ * notification arrives, the previous controller is aborted, cancelling any
+ * in-flight discovery, registration, and background retries. Without this,
+ * a stale refresh could overwrite the newer one's registrations with
+ * outdated config.
+ *
+ * Today this is focused on OIDC. You could imagine factoring the protocol-
+ * specific code out if we someday add SAML support.
  */
 
 @Injectable()
-export class IdentityProviderService implements OnApplicationBootstrap {
+export class IdentityProviderService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(IdentityProviderService.name);
   private readonly idpRegistrations: {
     [k: IdentityProvider['id']]: {
@@ -27,18 +58,45 @@ export class IdentityProviderService implements OnApplicationBootstrap {
       feHome: string;
     };
   } = {};
+  private listenerClient: pg.PoolClient | null = null;
+  private connecting = false;
+  private destroyed = false;
+  private refreshAbortController: AbortController | null = null;
 
   constructor(
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     @Inject(AuthService)
     private authService: AuthService,
-    private readonly configService: AppConfigService
+    private readonly configService: AppConfigService,
+    @Inject('DatabaseService') private pool: pg.Pool
   ) {}
 
   async onApplicationBootstrap() {
+    const controller = new AbortController();
+    this.refreshAbortController = controller;
+    await this.refreshRegistrations(controller.signal);
+  }
+
+  async onModuleDestroy() {
+    this.destroyed = true;
+    if (this.listenerClient) {
+      try {
+        await this.listenerClient.query('UNLISTEN idp_config_changed');
+        this.listenerClient.release();
+      } catch {
+        /* ignore during shutdown */
+      }
+    }
+  }
+
+  async refreshRegistrations(signal?: AbortSignal) {
     const idps = await this.prisma.identityProvider.findMany({
       include: { oidcConfig: true, partners: true },
     });
+
+    const validIdpIds = new Set<string>();
+
+    const registrations: Promise<void>[] = [];
     for (const idp of idps) {
       if (idp.oidcConfig && idp.partners.length > 0) {
         if (idp.partners.length > 1 && !idp.oidcConfig.partnerClaim) {
@@ -54,10 +112,28 @@ export class IdentityProviderService implements OnApplicationBootstrap {
               )}. Users for these partners will not be able to log in until this is fixed.`
           );
         } else {
-          await this.registerOidcIdp(
-            idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] }
+          registrations.push(
+            this.registerOidcIdp(
+              idp as IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+              signal
+            ).then((registered) => {
+              if (registered) validIdpIds.add(idp.id);
+            })
           );
         }
+      }
+    }
+
+    await Promise.allSettled(registrations);
+
+    if (signal?.aborted) return;
+
+    // Remove registrations for IdPs that are no longer valid
+    for (const existingId of Object.keys(this.idpRegistrations)) {
+      if (!validIdpIds.has(existingId)) {
+        passport.unuse(this.passportKey(existingId));
+        delete this.idpRegistrations[existingId];
+        this.logger.verbose(`Unregistered ${existingId}`);
       }
     }
   }
@@ -107,22 +183,145 @@ export class IdentityProviderService implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * Schedule the LISTEN connection for `idp_config_changed` PostgreSQL
+   * notifications. Must be called externally (e.g. from main.ts after
+   * app.listen()) rather than from onApplicationBootstrap so that tests
+   * don't start a listener — seed operations fire the notification triggers
+   * and a listener active during seed teardown/reload can race with the
+   * test harness.
+   *
+   * Also handles reconnection on error — the `connecting` flag ensures only
+   * one connection attempt is in flight at a time, and the `destroyed` flag
+   * prevents reconnection after shutdown.
+   */
+  scheduleListener(delaySec = 0): void {
+    if (this.connecting || this.destroyed) return;
+    this.connecting = true;
+
+    if (this.listenerClient) {
+      try {
+        this.listenerClient.release(true); // destroy; don't return a broken connection to the pool
+      } catch {
+        /* ignore */
+      }
+      this.listenerClient = null;
+    }
+
+    const connect = () => {
+      if (this.destroyed) {
+        this.connecting = false;
+        return;
+      }
+      this.pool
+        .connect()
+        .then(async (client) => {
+          if (this.destroyed) {
+            client.release(true);
+            return;
+          }
+          this.listenerClient = client;
+          await client.query('LISTEN idp_config_changed');
+          client.on('notification', () => this.onNotification());
+          client.on('error', (err) => {
+            this.logger.error('LISTEN connection error', err);
+            this.scheduleListener(5);
+          });
+          this.connecting = false;
+          this.logger.verbose('Listening for idp_config_changed notifications');
+        })
+        .catch((err) => {
+          this.connecting = false;
+          this.logger.error('Failed to start LISTEN connection', err);
+          if (!this.destroyed) this.scheduleListener(5);
+        });
+    };
+
+    if (delaySec > 0) {
+      setTimeout(connect, delaySec * 1000);
+    } else {
+      connect();
+    }
+  }
+
+  private async onNotification(): Promise<void> {
+    // Abort any in-flight refresh so it doesn't block or overwrite us
+    this.refreshAbortController?.abort();
+
+    const controller = new AbortController();
+    this.refreshAbortController = controller;
+
+    this.logger.verbose('Received idp_config_changed, refreshing registrations');
+    try {
+      await this.refreshRegistrations(controller.signal);
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        this.logger.error('Failed to refresh IdP registrations', err);
+      }
+    }
+  }
+
+  private static readonly MAX_RETRIES = 10;
+  private static readonly MAX_RETRY_DELAY_SEC = 5 * 60;
+
   private async registerOidcIdp(
-    idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] }
+    idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+    signal?: AbortSignal
+  ): Promise<boolean> {
+    const result = await initOpenidClient(idp.oidcConfig);
+
+    if (signal?.aborted) return false;
+
+    if (result.status === 'SUCCESS') {
+      this.applyIdpRegistration(idp, result.client);
+      return true;
+    }
+
+    this.logger.warn(`Failed to contact issuer for ${idp.id}, retrying in background`);
+    this.retryRegistration(idp, signal);
+    return false;
+  }
+
+  private async retryRegistration(
+    idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+    signal?: AbortSignal
   ): Promise<void> {
-    const initClientResult = await initOpenidClient(idp.oidcConfig);
+    let retryDelay = 1;
+    for (let retry = 1; retry <= IdentityProviderService.MAX_RETRIES; retry++) {
+      if (signal?.aborted) return;
 
-    if (initClientResult.client) {
-      this.idpRegistrations[idp.id] = {
-        id: idp.id,
-        client: initClientResult.client,
-        config: idp.oidcConfig,
-        feHome: idp.feHome,
-      };
+      await wait(retryDelay * 1000);
+      if (signal?.aborted) return;
 
-      const strategy = new Strategy<IPassportSession | false>(
+      const result = await initOpenidClient(idp.oidcConfig);
+      if (signal?.aborted) return;
+
+      if (result.status === 'SUCCESS') {
+        this.logger.log(`Successfully contacted OIDC issuer on retry: ${idp.id}`);
+        this.applyIdpRegistration(idp, result.client);
+        return;
+      }
+
+      retryDelay = Math.min(retryDelay * 2, IdentityProviderService.MAX_RETRY_DELAY_SEC);
+      this.logger.warn(`Retry ${retry}/${IdentityProviderService.MAX_RETRIES} failed for ${idp.id}, next attempt in ${retryDelay}s`);
+    }
+    this.logger.error(`Exhausted retries for ${idp.id}`);
+  }
+
+  private applyIdpRegistration(
+    idp: IdentityProvider & { oidcConfig: OidcConfig; partners: Partner[] },
+    client: BaseClient
+  ): void {
+    this.idpRegistrations[idp.id] = {
+      id: idp.id,
+      client,
+      config: idp.oidcConfig,
+      feHome: idp.feHome,
+    };
+
+    const strategy = new Strategy<IPassportSession | false>(
         {
-          client: initClientResult.client,
+          client,
           params: {
             redirect_uri: `${this.configService.get('MY_URL')}/api/auth/callback/${idp.id}`,
             scope: idp.oidcConfig.scopes ?? 'openid email profile',
@@ -171,6 +370,14 @@ export class IdentityProviderService implements OnApplicationBootstrap {
                 throw new Error('User does not have required role');
               }
             }
+
+            // Extract and match roles from the claim to populate session roles.
+            // This is purely additive — it does not affect login success/failure.
+            const matchedRoles = this.extractAppRoles(
+              claims,
+              idp.oidcConfig.rolesClaim,
+              idp.oidcConfig.rolePrefix
+            );
 
             let partnerId: string | undefined;
             if (idp.oidcConfig.partnerClaim) {
@@ -231,7 +438,7 @@ export class IdentityProviderService implements OnApplicationBootstrap {
               tenant,
               idpSessionId: (claims.sid as string) ?? null, // used to look up session for OIDC backchannel logout
               idToken: tokenset.id_token ?? null,
-              roles: [],
+              roles: matchedRoles,
             });
           } catch (err) {
             // Log error so we can troubleshoot config but pass null to `done`
@@ -245,11 +452,8 @@ export class IdentityProviderService implements OnApplicationBootstrap {
           }
         }
       );
-      passport.use(this.passportKey(idp.id), strategy);
-      this.logger.verbose(`Registered ${idp.id}`);
-    } else {
-      this.logger.warn(`Failed to contact issuer for ${idp.id}`);
-    }
+    passport.use(this.passportKey(idp.id), strategy);
+    this.logger.verbose(`Registered ${idp.id}`);
   }
 
   private hasARequiredRole(roleOrRoles: unknown, requiredRoles: string[]): boolean {
@@ -260,6 +464,56 @@ export class IdentityProviderService implements OnApplicationBootstrap {
     } else {
       return false;
     }
+  }
+
+  /**
+   * Maps OIDC role claim values to `AppRoles`.
+   *
+   * When `rolePrefix` is set (per IdP in DB), we match it case-insensitively. Roles without the
+   * prefix are ignored. Roles with the prefix have the prefix removed. We use lowercased strings
+   * for the match and slice to avoid Unicode case folding issues.
+   *
+   * The suffix (or full token when there is no prefix) is looked up case-insensitively in
+   * `rolePrivileges`.
+   *
+   * Values that do not map to a known app role are ignored.
+   */
+  private extractAppRoles(
+    claims: IdTokenClaims,
+    rolesClaim: string | null,
+    rolePrefix: string | null
+  ): AppRoles[] {
+    if (!rolesClaim) return [];
+
+    const rawRoles = this.getClaimValue(claims, rolesClaim, false);
+    if (!rawRoles) return [];
+
+    const rolesArray: string[] = Array.isArray(rawRoles)
+      ? rawRoles.filter((r): r is string => typeof r === 'string')
+      : typeof rawRoles === 'string'
+      ? [rawRoles]
+      : [];
+
+    const prefixLower = rolePrefix?.toLowerCase() ?? null;
+    const matched = new Set<AppRoles>();
+    for (const role of rolesArray) {
+      let candidate: string;
+      const roleLower = role.toLowerCase();
+      if (prefixLower) {
+        if (!roleLower.startsWith(prefixLower)) {
+          continue;
+        }
+        candidate = roleLower.slice(prefixLower.length);
+      } else {
+        candidate = roleLower;
+      }
+      const canonical = CANONICAL_APP_ROLE_BY_LOWER.get(candidate);
+      if (canonical !== undefined) {
+        matched.add(canonical);
+      }
+    }
+
+    return Array.from(matched);
   }
 
   private getClaimValue<K extends keyof IdTokenClaims>(

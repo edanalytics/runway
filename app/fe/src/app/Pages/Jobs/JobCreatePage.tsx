@@ -4,10 +4,10 @@ import { RunwayBottomButtonRow } from '../../components/Form/RunwayFormButtonRow
 import { RunwaySelect } from '../../components/Form/RunwaySelect';
 import { Controller, useController, useFieldArray, useForm } from 'react-hook-form';
 import { useNavigate } from '@tanstack/react-router';
-import { GetJobTemplateDto, GetSchoolYearDto, PostFileDto, PostJobDto } from '@edanalytics/models';
+import { GetJobTemplateDto, PostFileDto, PostJobDto } from '@edanalytics/models';
 import { jobQueries } from '../../api/queries/job.queries';
-import { useSchoolYears } from '../../helpers/useSchoolYears';
 import { jobTemplateQueries } from '../../api/queries/job-template.queries';
+import { tenantSchoolYearConfigQuery } from '../../api/queries/school-year-config.queries';
 import { RunwayFileInput } from '../../components/Form/RunwayFileInput';
 import { useEffect, useState } from 'react';
 import { uploadToS3 } from '../../helpers/uploadToS3';
@@ -27,7 +27,7 @@ import { useSuspenseQuery } from '@tanstack/react-query';
  */
 interface IJobForm {
   name: string;
-  year: GetSchoolYearDto['id'];
+  year: string;
   requiredFiles: IJobFile[];
   supplementaryFiles: IJobFile[];
   jobParams: Array<GetJobTemplateDto['params'][0] & { value: string | null }>; // TODO: simplify
@@ -151,7 +151,7 @@ export const JobCreatePage = () => {
     }
   }, [selectedAssessment, jobTemplates]);
 
-  const { allYears, doesYearHaveOds, odsConfigForYear } = useSchoolYears();
+  const { data: selectableYears } = useSuspenseQuery(tenantSchoolYearConfigQuery);
   const formDataToDto = (data: IJobForm): PostJobDto => {
     const template = jobTemplates?.find((t) => t.name === data.name);
     if (!template) {
@@ -161,7 +161,6 @@ export const JobCreatePage = () => {
     // TODO: refactor this payload to better match the slimmed-down payload the external API uses
     return {
       name: data.name,
-      odsId: odsConfigForYear(data.year).id,
       schoolYearId: data.year,
       files: [...data.requiredFiles, ...data.supplementaryFiles]
         .map((fileFields) => {
@@ -179,16 +178,11 @@ export const JobCreatePage = () => {
     };
   };
 
-  if (!allYears) {
-    // TODO: add suspense query in useSchoolYears
-    return null;
-  }
-
-  if (allYears.length === 0 || jobTemplates.length === 0) {
+  if (selectableYears.length === 0 || jobTemplates.length === 0) {
     const missingRequirement =
-      allYears.length === 0 && jobTemplates.length === 0
+      selectableYears.length === 0 && jobTemplates.length === 0
         ? 'school years or assessment types'
-        : allYears.length === 0
+        : selectableYears.length === 0
         ? 'school years'
         : 'assessment types';
     return (
@@ -211,13 +205,23 @@ export const JobCreatePage = () => {
               <RunwaySelect
                 label="year"
                 controller={yearController}
-                options={allYears.map(({ year, odsConfig }) => ({
+                options={selectableYears.map((year) => ({
                   label: `${year.startYear} - ${year.endYear} school year${
-                    !odsConfig ? ' (no ODS configured)' : ''
+                    year.sendToOds && !year.hasOds
+                      ? ' (no ODS configured)'
+                      : !year.sendToOds && year.hasNonOdsRoster !== true
+                      ? ' (no roster available)'
+                      : ''
                   }`,
-                  value: year.id,
+                  value: year.schoolYearId,
                 }))}
-                isOptionDisabled={(option) => !doesYearHaveOds(option.value)}
+                isOptionDisabled={(option) => {
+                  const year = selectableYears.find((row) => row.schoolYearId === option.value);
+                  if (!year) return true; // narrow .find() return type
+                  if (year.sendToOds && !year.hasOds) return true;
+                  if (!year.sendToOds && year.hasNonOdsRoster !== true) return true;
+                  return false;
+                }}
               ></RunwaySelect>
               <RunwaySelect
                 label="assessment name"
