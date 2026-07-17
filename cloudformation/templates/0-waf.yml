@@ -389,6 +389,11 @@ Resources:
          ResourceArn: !GetAtt RegionalWebAcl.Arn
          LogDestinationConfigs: 
            - !GetAtt WebAclLogging.Arn
+         RedactedFields:
+           - SingleHeader:
+               Name: cookie
+           - SingleHeader:
+               Name: authorization
 
   WAFDashboard:
     Type: AWS::CloudWatch::Dashboard
