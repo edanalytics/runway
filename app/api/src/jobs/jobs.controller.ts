@@ -32,12 +32,12 @@ import {
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
-import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
+import { makeTenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
 
 @Controller()
 @ApiTags('Job')
-@UseGuards(new TenantOwnership('job'))
+@UseGuards(makeTenantOwnershipGuard('job'))
 export class JobsController {
   private logger = new Logger(JobsController.name);
   constructor(

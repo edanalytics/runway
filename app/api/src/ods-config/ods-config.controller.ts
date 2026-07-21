@@ -27,11 +27,11 @@ import { throwNotFound } from '../utils';
 import { OdsConfigService } from './ods-config.service';
 import { EdfiService } from '../edfi/edfi.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
-import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
+import { makeTenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
 
 @ApiTags('ODS')
-@UseGuards(new TenantOwnership('odsConfig'))
+@UseGuards(makeTenantOwnershipGuard('odsConfig'))
 @Controller()
 export class OdsConfigController {
   constructor(

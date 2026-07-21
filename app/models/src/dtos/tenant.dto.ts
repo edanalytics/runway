@@ -21,4 +21,4 @@ export class GetTenantDto extends DtoGetBase implements Tenant {
   }
 }
 
-export const toGetTenantDto = makeSerializer<GetTenantDto>(GetTenantDto);
+export const toGetTenantDto = makeSerializer<GetTenantDto, 'isDescendant'>(GetTenantDto);

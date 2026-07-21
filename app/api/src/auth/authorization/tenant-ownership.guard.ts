@@ -1,48 +1,66 @@
-import { CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { PrismaClient } from '@prisma/client';
+import { toGetTenantDto } from '@edanalytics/models';
 import { Request } from 'express';
+import { PRISMA_READ_ONLY } from '../../database';
 import { SKIP_TENANT_OWNERSHIP } from './skip-tenant-ownership.decorator';
 
-@Injectable()
-export class TenantOwnership implements CanActivate {
-  private reflector: Reflector;
-  constructor(private readonly resourceKey: keyof Request) {
-    this.reflector = new Reflector();
-  }
+export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
+  @Injectable()
+  class TenantOwnershipGuard implements CanActivate {
+    constructor(
+      private readonly reflector: Reflector,
+      @Inject(PRISMA_READ_ONLY) private readonly prisma: PrismaClient
+    ) {}
 
-  canActivate(context: ExecutionContext): boolean {
-    const skipTenantOwnershipCheck = this.reflector.get<boolean>(
-      SKIP_TENANT_OWNERSHIP,
-      context.getHandler()
-    );
+    async canActivate(context: ExecutionContext): Promise<boolean> {
+      const skipTenantOwnershipCheck = this.reflector.get<boolean>(
+        SKIP_TENANT_OWNERSHIP,
+        context.getHandler()
+      );
 
-    if (skipTenantOwnershipCheck) {
+      if (skipTenantOwnershipCheck) {
+        return true;
+      }
+
+      const request = context.switchToHttp().getRequest<Request>();
+      const tenant = request.user.tenant;
+      if (!tenant) {
+        throw new ForbiddenException('Forbidden'); // if there is no tenant, something is wrong with the session
+      }
+
+      // TODO: get some better typing around this
+      const resource = request[resourceKey];
+      const sessionTenant = toGetTenantDto(tenant);
+      if (!resource) {
+        throw new ForbiddenException('Forbidden');
+      }
+
+      const resourceTenantRow = await this.prisma.tenant.findUnique({
+        where: { code_partnerId: { code: resource.tenantCode, partnerId: resource.partnerId } },
+      });
+      if (!resourceTenantRow) {
+        throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
+      }
+      const resourceTenant = toGetTenantDto(resourceTenantRow);
+      const isSupportUser = request.user.roles?.includes('PartnerAdmin') ?? false;
+      const hasAccessToResourceViaGlobalTenantOnly =
+        isSupportUser && resourceTenant.isDescendant(sessionTenant);
+
+      // either the session tenant code and resource tenant code must match exactly, or the resource tenant must be a descendant of the session tenant
+      if (
+        (resource.tenantCode !== tenant.code && !resourceTenant.isDescendant(sessionTenant)) ||
+        resource.partnerId !== tenant.partnerId
+      ) {
+        if (!hasAccessToResourceViaGlobalTenantOnly) {
+          throw new ForbiddenException('Forbidden');
+        }
+      }
+
       return true;
     }
-
-    const request = context.switchToHttp().getRequest<Request>();
-    const tenant = request.user.tenant;
-    if (!tenant) {
-      throw new ForbiddenException('Forbidden'); // if there is no tenant, something is wrong with the session
-    }
-
-    // TODO: get some better typing around this
-    const resource = request[this.resourceKey];
-    const sessionTenant = tenant;
-    const resourceTenant = resource?.tenant;
-    const isSupportUser = request.user.roles?.includes('PartnerAdmin') ?? false;
-    const hasAccessToResourceViaGlobalTenantOnly =
-      isSupportUser && resourceTenant.isDescendant(sessionTenant);
-    //either the session tenant code abd resource tenant code must match exactly, or the resource tenant must be a descendant of the session tenant
-    if (
-      (!resource ||
-        (resource.tenantCode !== tenant.code && !resourceTenant.isDescendant(sessionTenant)) ||
-        resource.partnerId !== tenant.partnerId) &&
-      !hasAccessToResourceViaGlobalTenantOnly
-    ) {
-      throw new ForbiddenException('Forbidden');
-    }
-
-    return true;
   }
+
+  return TenantOwnershipGuard;
 }
