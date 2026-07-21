@@ -44,15 +44,15 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
         throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
       }
       const resourceTenant = toGetTenantDto(resourceTenantRow);
-      const isSupportUser = request.user.roles?.includes('PartnerAdmin') ?? false;
-      const hasAccessToResourceViaGlobalTenantOnly =
-        isSupportUser && resourceTenant.isDescendant(sessionTenant);
+      const isSupportUser = request.user.roles?.includes('SupportUser') ?? false;
+      const hasAccessToJobViaGlobalTenantOnly =
+        isSupportUser && resourceTenant.isDescendant(sessionTenant) && resourceKey === 'job';
 
       // either the session tenant code and resource tenant code must match exactly, or the
       // resource tenant must be a descendant of the session tenant AND the user must be a support user
       const isExactTenantMatch =
         resource.tenantCode === tenant.code && resource.partnerId === tenant.partnerId;
-      if (!isExactTenantMatch && !hasAccessToResourceViaGlobalTenantOnly) {
+      if (!isExactTenantMatch && !hasAccessToJobViaGlobalTenantOnly) {
         throw new ForbiddenException('Forbidden');
       }
 

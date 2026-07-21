@@ -242,25 +242,28 @@ describe('GET /jobs/:id', () => {
       expect(resB.status).toBe(403);
     });
 
-    it('should allow a PartnerAdmin logged into the global tenant to access jobs for any tenant under the partner', async () => {
-      const partnerAdminGlobalCookie = (
-        await authHelper.login(idpA, userA, tenantAGlobal, 'runway.test.partneradmin')
+    it('should allow a SupportUser logged into the global tenant to access jobs for any tenant under the partner', async () => {
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantAGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
       ).cookies;
 
       // tenantA and tenantB are both descendants of tenantAGlobal (same partner)
       const resA = await request(app.getHttpServer())
         .get(endpointA)
-        .set('Cookie', [partnerAdminGlobalCookie]);
+        .set('Cookie', [supportUserGlobalCookie]);
       const resB = await request(app.getHttpServer())
         .get(endpointB)
-        .set('Cookie', [partnerAdminGlobalCookie]);
+        .set('Cookie', [supportUserGlobalCookie]);
       expect(resA.status).toBe(200);
       expect(resA.body.id).toEqual(jobA.id);
       expect(resB.status).toBe(200);
       expect(resB.body.id).toEqual(jobB.id);
     });
 
-    it('should reject a non-PartnerAdmin user logged into the global tenant', async () => {
+    it('should reject a non-SupportUser logged into the global tenant', async () => {
       const globalUserCookie = (
         await authHelper.login(idpA, userA, tenantAGlobal, 'runway.test.user')
       ).cookies;
