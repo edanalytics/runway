@@ -41,7 +41,7 @@ Please note that descriptions, values, and available parameters may evolve over 
 - **DeploymentStrategy** - Beanstalk deployment strategy for platform updates and application versions.
 - **BeanstalkPlatformUpdateTime** - Beanstalk Platform update day and time (in UTC) using the format 'Day:HH:MM' (e.g., Wed:15:30). Platform updates will be disabled if no value is specified. 
 - **BundleBranch** - Name of the bundle branch in the [earthmover Ed-Fi bundles repository](https://github.com/edanalytics/earthmover_edfi_bundles).
-- **ExternalApiTokenIssuer** - URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function
+- **OAuth2Issuer** - URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function
 
 **S3 Cloudfront Information**
 - **S3FrontEndBucket** - Name of the S3 bucket containing the front end web files.
@@ -65,7 +65,8 @@ Please note that descriptions, values, and available parameters may evolve over 
 - **ViteAlternateMatomoSiteId** - Internal to EA. Not needed for open-source deployments. Leave blank. 
 - **ViteAlternateMatomoSubdomain** - Internal to EA. Not needed for open-source deployments. Leave blank. 
 
-**ECS Information**
+**Job Executor and ECS Information**
+- **CreateExecutorS3Bucket** - Choose whether to create S3 bucket named 'job-executor-codepipeline-artifact-store-{AWS::Region}-{AWS::AccountId}' in your AWS account. Only choose `Create the S3 bucket` for the very first deployment of Runway in your AWS account. Do not change this value if updating an existing stack.
 - **CreateEcsServiceLinkedRole** - Choose whether to create an ECS Service Linked Role in your AWS account. This role enables Amazon ECS to manage your cluster. If it already exists in your account, select False.
 
 **VPC Network Configuration**
