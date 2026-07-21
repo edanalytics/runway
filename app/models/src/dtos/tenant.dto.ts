@@ -17,6 +17,7 @@ export class GetTenantDto extends DtoGetBase implements Tenant {
   isGlobal: boolean;
 
   isDescendant(potentialParent: GetTenantDto): boolean {
+    //TODO: expand this when we have the full metatenancy hierarchy synced
     return !this.isGlobal && potentialParent.isGlobal && this.partnerId === potentialParent.partnerId;
   }
 }
