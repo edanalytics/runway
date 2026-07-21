@@ -76,16 +76,11 @@ Parameters:
     AllowedValues:
       - True
       - False
-  ResponseHeadersPolicy:
-    Description: Response Headers Policy
+  CspReportUrl:
+    Description: >-
+      URL that receives Content-Security-Policy violation reports (used in
+      Content-Security-Policy-Report-Only and Reporting-Endpoints).
     Type: String
-    Default: CORS-with-preflight-and-SecurityHeadersPolicy
-    AllowedValues:
-      - SimpleCORS
-      - CORS-With-Preflight
-      - SecurityHeadersPolicy
-      - CORS-and-SecurityHeadersPolicy
-      - CORS-with-preflight-and-SecurityHeadersPolicy
   SNSTopicArn:
     Description: ARN of SNS topic to publish Route53 HealthCheck Alarms
     Type: String
@@ -104,12 +99,22 @@ Parameters:
   PrivateSubnet2Id:
     Type: AWS::EC2::Subnet::Id
     Description: The Subnet ID of a Private Subnet in the other Availability Zone above
+  MatomoURL:
+    Description: Matomo URL
+    Type: String
+    Default: ''
+  TxMatomoURL:
+    Description: Texas Matomo URL
+    Type: String
+    Default: ''
 
 Conditions:
   DoCreateS3Bucket: !Equals [!Ref CreateS3Bucket, 'Create the S3 Bucket']
   DoWildcardDomain: !Equals [!Ref WildcardDomain, 'Yes']
   DoRedirectErrors: !Equals [!Ref RedirectErrors, 'Yes']
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
+  HasMatomoURL: !Not [!Equals [!Ref MatomoURL, '']]
+  HasTxMatomoURL: !Not [!Equals [!Ref TxMatomoURL, '']]
 
 Mappings:
   CachePolicyMap:
@@ -119,18 +124,81 @@ Mappings:
       ID: b2884449-e4de-46a7-ac36-70bc7f1ddd6d
     CachingDisabled:
       ID: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-  ResponseHeadersPolicyMap:
-    SimpleCORS:
-      ID: 60669652-455b-4ae9-85a4-c4c02393f86c
-    CORS-With-Preflight:
-      ID: 5cc3b908-e619-4b99-88e5-2cf7f45965bd
-    SecurityHeadersPolicy:
-      ID: 67f7725c-6f97-4210-82d7-5512b31e9d03
-    CORS-and-SecurityHeadersPolicy:
-      ID: e61eb60c-9c35-4d20-a928-2b84e02af89c
-    CORS-with-preflight-and-SecurityHeadersPolicy:
-      ID: eaab4381-ed33-4a86-88ca-d9558dc6cd63
 Resources:
+  CloudFrontResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${EnvLabel}-cors-security-csp-report-only'
+        Comment: !Sub '${EnvLabel} Managed Response Headers Policy'
+        CorsConfig:
+          AccessControlAllowCredentials: false
+          AccessControlAllowHeaders:
+            Items:
+              - '*'
+          AccessControlAllowMethods:
+            Items:
+              - DELETE
+              - GET
+              - HEAD
+              - OPTIONS
+              - PATCH
+              - POST
+              - PUT
+          AccessControlAllowOrigins:
+            Items:
+              - '*'
+          AccessControlExposeHeaders:
+            Items:
+              - '*'
+          AccessControlMaxAgeSec: 600
+          OriginOverride: false
+        SecurityHeadersConfig:
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: SAMEORIGIN
+            Override: false
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: false
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            Override: false
+          XSSProtection:
+            ModeBlock: true
+            Override: false
+            Protection: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Content-Security-Policy-Report-Only
+              Value: !Sub
+                - >-
+                  default-src 'self';
+                  style-src 'self' 'unsafe-inline' https://cdn.edanalytics.app;
+                  img-src 'self' data: https://cdn.edanalytics.app;
+                  connect-src https://api.${DomainName} https://cdn.edanalytics.app ${MatomoConnectSrc} ${TxMatomoConnectSrc};
+                  script-src-elem 'self' ${MatomoURL} ${TxMatomoURL};
+                  font-src 'self' data: https://cdn.edanalytics.app;
+                  report-uri ${CspReportUrl};
+                  report-to csp-endpoint
+                - MatomoConnectSrc: !If
+                    - HasMatomoURL
+                    - !Sub
+                      - 'https://${Host}'
+                      - Host: !Select [2, !Split ['/', !Ref MatomoURL]]
+                    - ''
+                  TxMatomoConnectSrc: !If
+                    - HasTxMatomoURL
+                    - !Sub
+                      - 'https://${Host}'
+                      - Host: !Select [2, !Split ['/', !Ref TxMatomoURL]]
+                    - ''
+              Override: true
+            - Header: Reporting-Endpoints
+              Value: !Sub 'csp-endpoint="${CspReportUrl}"'
+              Override: true
+
   S3Bucket:
     Type: AWS::S3::Bucket
     Condition: DoCreateS3Bucket
@@ -406,7 +474,7 @@ Resources:
           SmoothStreaming: false
           TargetOriginId: !Ref S3BucketName
           ViewerProtocolPolicy: !Ref ViewerProtocolPolicy
-          ResponseHeadersPolicyId: !FindInMap [ ResponseHeadersPolicyMap, !Ref ResponseHeadersPolicy, ID ]
+          ResponseHeadersPolicyId: !Ref CloudFrontResponseHeadersPolicy
         DefaultRootObject: !Ref DefaultRootObject
         Enabled: true
         HttpVersion: http2
