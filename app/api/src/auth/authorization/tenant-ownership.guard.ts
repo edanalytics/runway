@@ -48,14 +48,12 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
       const hasAccessToResourceViaGlobalTenantOnly =
         isSupportUser && resourceTenant.isDescendant(sessionTenant);
 
-      // either the session tenant code and resource tenant code must match exactly, or the resource tenant must be a descendant of the session tenant
-      if (
-        (resource.tenantCode !== tenant.code && !resourceTenant.isDescendant(sessionTenant)) ||
-        resource.partnerId !== tenant.partnerId
-      ) {
-        if (!hasAccessToResourceViaGlobalTenantOnly) {
-          throw new ForbiddenException('Forbidden');
-        }
+      // either the session tenant code and resource tenant code must match exactly, or the
+      // resource tenant must be a descendant of the session tenant AND the user must be a support user
+      const isExactTenantMatch =
+        resource.tenantCode === tenant.code && resource.partnerId === tenant.partnerId;
+      if (!isExactTenantMatch && !hasAccessToResourceViaGlobalTenantOnly) {
+        throw new ForbiddenException('Forbidden');
       }
 
       return true;
