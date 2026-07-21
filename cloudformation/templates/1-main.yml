@@ -56,7 +56,8 @@ Metadata:
           - CachedMethods
           - CachePolicy
           - Compress
-          - ResponseHeadersPolicy
+          - CspReportUrl
+          - MatomoURL
       - Label:
           default: App CodePipeline information
         Parameters: 
@@ -288,16 +289,14 @@ Parameters:
     AllowedValues:
       - True
       - False
-  ResponseHeadersPolicy:
-    Description: Response Headers Policy
+  CspReportUrl:
     Type: String
-    Default: CORS-with-preflight-and-SecurityHeadersPolicy
-    AllowedValues:
-      - SimpleCORS
-      - CORS-With-Preflight
-      - SecurityHeadersPolicy
-      - CORS-and-SecurityHeadersPolicy
-      - CORS-with-preflight-and-SecurityHeadersPolicy
+    Description: >-
+      URL for Content-Security-Policy-Report-Only reports (CloudFront response header).
+  MatomoURL:
+    Description: Matomo URL
+    Type: String
+    Default: https://cdn.matomo.cloud/edanalytics.matomo.cloud/container_X8WEZDEU.js
   CreateEcsServiceLinkedRole:
     Type: String
     Description: If an ECS Service Linked Role already exists in this account, select False.
@@ -450,13 +449,15 @@ Resources:
         CachedMethods: !Ref CachedMethods
         CachePolicy: !Ref CachePolicy
         Compress: !Ref Compress
-        ResponseHeadersPolicy: !Ref ResponseHeadersPolicy
+        CspReportUrl: !Ref CspReportUrl
         SNSTopicArn: !Ref SNSTopicArn
         East1AlarmLambdaArn: !If [EnableHealthCheck, !GetAtt 'LambdaFunctionsStack.Outputs.East1AlarmLambdaArn', '']
         CRHelperLambdaLayer: !GetAtt 'LambdaFunctionsStack.Outputs.CRHelperLambdaLayer'
         LambdaDefaultSG: !GetAtt 'LambdaFunctionsStack.Outputs.LambdaDefaultSG'
         PrivateSubnet1Id: !Ref PrivateSubnet1Id
         PrivateSubnet2Id: !Ref PrivateSubnet2Id
+        MatomoURL: !Ref MatomoURL
+        TxMatomoURL: !Ref ViteAlternateMatomoUrl
   AppCodePipelineStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
