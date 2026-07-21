@@ -28,10 +28,17 @@ export class TenantOwnership implements CanActivate {
 
     // TODO: get some better typing around this
     const resource = request[this.resourceKey];
+    const sessionTenant = tenant;
+    const resourceTenant = resource?.tenant;
+    const isSupportUser = request.user.roles?.includes('PartnerAdmin') ?? false;
+    const hasAccessToResourceViaGlobalTenantOnly =
+      isSupportUser && resourceTenant.isDescendant(sessionTenant);
+    //either the session tenant code abd resource tenant code must match exactly, or the resource tenant must be a descendant of the session tenant
     if (
-      !resource ||
-      resource.tenantCode !== tenant.code ||
-      resource.partnerId !== tenant.partnerId
+      (!resource ||
+        (resource.tenantCode !== tenant.code && !resourceTenant.isDescendant(sessionTenant)) ||
+        resource.partnerId !== tenant.partnerId) &&
+      !hasAccessToResourceViaGlobalTenantOnly
     ) {
       throw new ForbiddenException('Forbidden');
     }

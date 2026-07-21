@@ -15,6 +15,10 @@ export class GetTenantDto extends DtoGetBase implements Tenant {
 
   @Expose()
   isGlobal: boolean;
+
+  isDescendant(potentialParent: GetTenantDto): boolean {
+    return !this.isGlobal && potentialParent.isGlobal && this.partnerId === potentialParent.partnerId;
+  }
 }
 
 export const toGetTenantDto = makeSerializer<GetTenantDto>(GetTenantDto);

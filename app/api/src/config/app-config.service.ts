@@ -217,6 +217,7 @@ export class AppConfigService {
 
   async umConfig(): Promise<UmConfig | null> {
     const configSecret = this.get('UM_CONFIG_SECRET');
+    console.log({configSecret})
     if (configSecret) {
       const secret = await this.fetchAWSSecret(configSecret);
       if (typeof secret !== 'object') {
