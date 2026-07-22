@@ -1,7 +1,8 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
-import { toGetTenantDto } from '@edanalytics/models';
+import { GetSessionDataDto, toGetTenantDto } from '@edanalytics/models';
+import { plainToInstance } from 'class-transformer';
 import { Request } from 'express';
 import { PRISMA_READ_ONLY } from '../../database';
 import { SKIP_TENANT_OWNERSHIP } from './skip-tenant-ownership.decorator';
@@ -44,12 +45,14 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
         throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
       }
       const resourceTenant = toGetTenantDto(resourceTenantRow);
-      const isSupportUser = request.user.roles?.includes('SupportUser') ?? false;
+      const sessionData = plainToInstance(GetSessionDataDto, request.user);
+      const hasMetatenantJobReadPrivilege = sessionData.privileges.has('job.metatenant.read');
       const hasAccessToJobViaGlobalTenantOnly =
-        isSupportUser && resourceTenant.isDescendant(sessionTenant) && resourceKey === 'job';
+        hasMetatenantJobReadPrivilege && resourceTenant.isDescendant(sessionTenant) && resourceKey === 'job';
 
       // either the session tenant code and resource tenant code must match exactly, or the
-      // resource tenant must be a descendant of the session tenant AND the user must be a support user
+      // resource tenant must be a descendant of the session tenant AND the user must hold the
+      // job.metatenant.read privilege
       const isExactTenantMatch =
         resource.tenantCode === tenant.code && resource.partnerId === tenant.partnerId;
       if (!isExactTenantMatch && !hasAccessToJobViaGlobalTenantOnly) {

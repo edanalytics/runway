@@ -5,4 +5,5 @@ export type PrivilegeKey =
   | 'school-year-config.read'
   | 'school-year-config.update'
   | 'partner-config.read'
-  | 'partner-config.update';
+  | 'partner-config.update'
+  | 'job.metatenant.read';
