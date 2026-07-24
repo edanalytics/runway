@@ -16,6 +16,6 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
   ),
   User: Object.freeze(new Set<PrivilegeKey>(['school-year-config.read'])),
   SupportUser: Object.freeze(
-    new Set<PrivilegeKey>(['school-year-config.read', 'job.metatenant.read', 'job.metatenant.update', 'ods-config.metatenant.read', 'ods-config.metatenant.update'])
+    new Set<PrivilegeKey>(['school-year-config.read', 'job.metatenant.read', 'job.metatenant.update', 'ods-config.metatenant.read'])
   ),
 });
