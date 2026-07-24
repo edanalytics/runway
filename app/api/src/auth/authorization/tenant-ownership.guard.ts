@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
-import { GetSessionDataDto, PrivilegeKey, toGetTenantDto } from '@edanalytics/models';
+import { GetSessionDataDto, isDescendant, PrivilegeKey, toGetTenantDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { Request } from 'express';
 import { PRISMA_READ_ONLY } from '../../database';
@@ -69,7 +69,7 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
       }
       const resourceTenant = toGetTenantDto(resourceTenantRow);
       const resourceTenantIsDescendantOfSessionTenant =
-        resourceTenant.isDescendant(sessionTenant) &&
+        isDescendant(sessionTenant, resourceTenant) &&
         resourceKey === 'job';
 
       if (!resourceTenantIsDescendantOfSessionTenant) {
