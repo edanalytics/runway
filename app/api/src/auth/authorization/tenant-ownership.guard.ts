@@ -13,67 +13,67 @@ import { Request } from 'express';
 import { PRISMA_READ_ONLY } from '../../database';
 import { SKIP_TENANT_OWNERSHIP } from './skip-tenant-ownership.decorator';
 import { ALLOW_METATENANT } from './allow-metatenant.decorator';
+import { TENANT_RESOURCE_KEY } from './tenant-resource-key.decorator';
 
-export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
-  @Injectable()
-  class TenantOwnershipGuard implements CanActivate {
-    constructor(
-      private readonly reflector: Reflector,
-      @Inject(PRISMA_READ_ONLY) private readonly prisma: PrismaClient
-    ) {}
+@Injectable()
+export class TenantOwnershipGuard implements CanActivate {
+  constructor(
+    private readonly reflector: Reflector,
+    @Inject(PRISMA_READ_ONLY) private readonly prisma: PrismaClient
+  ) {}
 
-    async canActivate(context: ExecutionContext): Promise<boolean> {
-      const skipTenantOwnershipCheck = this.reflector.get<boolean>(
-        SKIP_TENANT_OWNERSHIP,
-        context.getHandler()
-      );
-      const allowMetatenantReadPrivilege = this.reflector.get<PrivilegeKey | null>(
-        ALLOW_METATENANT,
-        context.getHandler()
-      );
-      if (skipTenantOwnershipCheck) {
-        return true;
-      }
-
-      const request = context.switchToHttp().getRequest<Request>();
-      const tenant = request.user.tenant;
-      if (!tenant) {
-        throw new ForbiddenException('Forbidden'); // if there is no tenant, something is wrong with the session
-      }
-
-      // TODO: get some better typing around this
-      const resource = request[resourceKey];
-      const isExactTenantMatch =
-        resource.tenantCode === tenant.code && resource.partnerId === tenant.partnerId;
-
-      if (isExactTenantMatch) {
-        return true;
-      }
-      if (!allowMetatenantReadPrivilege) {
-        throw new ForbiddenException('Forbidden');
-      }
-      const sessionData = plainToInstance(GetSessionDataDto, request.user);
-      if (!sessionData.privileges.has(allowMetatenantReadPrivilege)) {
-        throw new ForbiddenException('Forbidden');
-      }
-      const sessionTenant = toGetTenantDto(tenant);
-    
-      const resourceTenantRow = await this.prisma.tenant.findUnique({
-        where: { code_partnerId: { code: resource.tenantCode, partnerId: resource.partnerId } },
-      });
-      if (!resourceTenantRow) {
-        throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
-      }
-      const resourceTenant = toGetTenantDto(resourceTenantRow);
-      const resourceTenantIsDescendantOfSessionTenant = isDescendant(sessionTenant, resourceTenant);
-
-      if (!resourceTenantIsDescendantOfSessionTenant) {
-        throw new ForbiddenException('Forbidden');
-      }
-
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const skipTenantOwnershipCheck = this.reflector.get<boolean>(
+      SKIP_TENANT_OWNERSHIP,
+      context.getHandler()
+    );
+    const allowMetatenantReadPrivilege = this.reflector.get<PrivilegeKey | null>(
+      ALLOW_METATENANT,
+      context.getHandler()
+    );
+    if (skipTenantOwnershipCheck) {
       return true;
     }
-  }
 
-  return TenantOwnershipGuard;
+    const resourceKey = this.reflector.get<keyof Request>(
+      TENANT_RESOURCE_KEY,
+      context.getClass()
+    );
+
+    const request = context.switchToHttp().getRequest<Request>();
+    const tenant = request.user.tenant;
+    if (!tenant) {
+      throw new ForbiddenException('Forbidden'); // if there is no tenant, something is wrong with the session
+    }
+
+    // TODO: get some better typing around this
+    const resource = request[resourceKey];
+    const isExactTenantMatch =
+      resource.tenantCode === tenant.code && resource.partnerId === tenant.partnerId;
+
+    if (isExactTenantMatch) {
+      return true;
+    }
+    if (!allowMetatenantReadPrivilege) {
+      throw new ForbiddenException('Forbidden');
+    }
+    const sessionData = plainToInstance(GetSessionDataDto, request.user);
+    if (!sessionData.privileges.has(allowMetatenantReadPrivilege)) {
+      throw new ForbiddenException('Forbidden');
+    }
+    const sessionTenant = toGetTenantDto(tenant);
+
+    const resourceTenantRow = await this.prisma.tenant.findUnique({
+      where: { code_partnerId: { code: resource.tenantCode, partnerId: resource.partnerId } },
+    });
+    if (!resourceTenantRow) {
+      throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
+    }
+    const resourceTenant = toGetTenantDto(resourceTenantRow);
+    const resourceTenantIsDescendantOfSessionTenant = isDescendant(sessionTenant, resourceTenant);
+    if (!resourceTenantIsDescendantOfSessionTenant) {
+      throw new ForbiddenException('Forbidden');
+    }
+    return true;
+  }
 }
