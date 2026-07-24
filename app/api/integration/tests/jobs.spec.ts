@@ -1,7 +1,12 @@
 import request from 'supertest';
 import { sessionCookie } from '../helpers/session/session-cookie';
 import sessionStore from '../helpers/session/session-store';
-import { tenantA, tenantB, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
+import {
+  tenantA,
+  tenantAGlobal,
+  tenantB,
+  tenantX,
+} from '../fixtures/context-fixtures/tenant-fixtures';
 import { userA, userB, userX } from '../fixtures/user-fixtures';
 import { sessionData } from '../helpers/session/session-factory';
 import {
@@ -235,6 +240,38 @@ describe('GET /jobs/:id', () => {
       const resB = await request(app.getHttpServer()).get(endpointB).set('Cookie', [cookieA]);
       expect(resA.status).toBe(403);
       expect(resB.status).toBe(403);
+    });
+
+    it('should allow a SupportUser logged into the global tenant to access jobs for any tenant under the partner', async () => {
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantAGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // tenantA and tenantB are both descendants of tenantAGlobal (same partner)
+      const resA = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Cookie', [supportUserGlobalCookie]);
+      const resB = await request(app.getHttpServer())
+        .get(endpointB)
+        .set('Cookie', [supportUserGlobalCookie]);
+      expect(resA.status).toBe(200);
+      expect(resA.body.id).toEqual(jobA.id);
+      expect(resB.status).toBe(200);
+      expect(resB.body.id).toEqual(jobB.id);
+    });
+
+    it('should reject a non-SupportUser logged into the global tenant', async () => {
+      const globalUserCookie = (
+        await authHelper.login(idpA, userA, tenantAGlobal, 'runway.test.user')
+      ).cookies;
+
+      const resA = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Cookie', [globalUserCookie]);
+      expect(resA.status).toBe(403);
     });
   });
 });
