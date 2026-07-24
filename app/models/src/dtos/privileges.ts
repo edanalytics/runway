@@ -7,5 +7,4 @@ export type PrivilegeKey =
   | 'partner-config.read'
   | 'partner-config.update'
   | 'job.metatenant.read'
-  | 'job.metatenant.update'
-  | 'ods-config.metatenant.read';
+  | 'job.metatenant.update';
