@@ -57,10 +57,7 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
         throw new ForbiddenException('Forbidden');
       }
       const sessionTenant = toGetTenantDto(tenant);
-      if (!resource) {
-        throw new ForbiddenException('Forbidden');
-      }
-
+    
       const resourceTenantRow = await this.prisma.tenant.findUnique({
         where: { code_partnerId: { code: resource.tenantCode, partnerId: resource.partnerId } },
       });
@@ -68,9 +65,7 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
         throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
       }
       const resourceTenant = toGetTenantDto(resourceTenantRow);
-      const resourceTenantIsDescendantOfSessionTenant =
-        isDescendant(sessionTenant, resourceTenant) &&
-        resourceKey === 'job';
+      const resourceTenantIsDescendantOfSessionTenant = isDescendant(sessionTenant, resourceTenant);
 
       if (!resourceTenantIsDescendantOfSessionTenant) {
         throw new ForbiddenException('Forbidden');
