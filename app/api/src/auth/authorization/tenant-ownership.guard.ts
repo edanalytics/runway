@@ -54,26 +54,23 @@ export class TenantOwnershipGuard implements CanActivate {
     if (isExactTenantMatch) {
       return true;
     }
-    console.log({isExactTenantMatch, resource, tenant, resourceKey, allowMetatenantPrivilege});
     if (!allowMetatenantPrivilege) {
       throw new ForbiddenException('Forbidden');
     }
     const sessionData = plainToInstance(GetSessionDataDto, request.user);
-    // if (!sessionData.privileges.has(allowMetatenantPrivilege)) {
-    //   throw new ForbiddenException('Forbidden');
-    // }
+    if (!sessionData.privileges.has(allowMetatenantPrivilege)) {
+      throw new ForbiddenException('Forbidden');
+    }
     const sessionTenant = toGetTenantDto(tenant);
 
     const resourceTenantRow = await this.prisma.tenant.findUnique({
       where: { code_partnerId: { code: resource.tenantCode, partnerId: resource.partnerId } },
     });
-    console.log({resourceTenantRow})
     if (!resourceTenantRow) {
       throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
     }
     const resourceTenant = toGetTenantDto(resourceTenantRow);
     const resourceTenantIsDescendantOfSessionTenant = isDescendant(sessionTenant, resourceTenant);
-        console.log(resourceTenantIsDescendantOfSessionTenant, sessionTenant, resourceTenant);
 
     if (!resourceTenantIsDescendantOfSessionTenant) {
       throw new ForbiddenException('Forbidden');
