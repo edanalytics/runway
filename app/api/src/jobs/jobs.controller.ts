@@ -34,6 +34,7 @@ import {
 import { plainToInstance } from 'class-transformer';
 import { makeTenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
+import { AllowMetatenant } from '../auth/authorization/allow-metatenant.decorator';
 
 @Controller()
 @ApiTags('Job')
@@ -66,6 +67,7 @@ export class JobsController {
   }
 
   @Get(':jobId')
+  @AllowMetatenant('job.metatenant.read')
   async findOne(
     @Param('jobId', new ParseIntPipe())
     jobId: number

@@ -1,11 +1,18 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
-import { GetSessionDataDto, toGetTenantDto } from '@edanalytics/models';
+import { GetSessionDataDto, PrivilegeKey, toGetTenantDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { Request } from 'express';
 import { PRISMA_READ_ONLY } from '../../database';
 import { SKIP_TENANT_OWNERSHIP } from './skip-tenant-ownership.decorator';
+import { ALLOW_METATENANT } from './allow-metatenant.decorator';
 
 export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
   @Injectable()
@@ -20,7 +27,10 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
         SKIP_TENANT_OWNERSHIP,
         context.getHandler()
       );
-
+      const allowMetatenantReadPrivilege = this.reflector.get<PrivilegeKey | null>(
+        ALLOW_METATENANT,
+        context.getHandler()
+      );
       if (skipTenantOwnershipCheck) {
         return true;
       }
@@ -33,6 +43,19 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
 
       // TODO: get some better typing around this
       const resource = request[resourceKey];
+      const isExactTenantMatch =
+        resource.tenantCode === tenant.code && resource.partnerId === tenant.partnerId;
+
+      if (isExactTenantMatch) {
+        return true;
+      }
+      if (!allowMetatenantReadPrivilege) {
+        throw new ForbiddenException('Forbidden');
+      }
+      const sessionData = plainToInstance(GetSessionDataDto, request.user);
+      if (!sessionData.privileges.has(allowMetatenantReadPrivilege)) {
+        throw new ForbiddenException('Forbidden');
+      }
       const sessionTenant = toGetTenantDto(tenant);
       if (!resource) {
         throw new ForbiddenException('Forbidden');
@@ -45,17 +68,11 @@ export function makeTenantOwnershipGuard(resourceKey: keyof Request) {
         throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
       }
       const resourceTenant = toGetTenantDto(resourceTenantRow);
-      const sessionData = plainToInstance(GetSessionDataDto, request.user);
-      const hasMetatenantJobReadPrivilege = sessionData.privileges.has('job.metatenant.read');
-      const hasAccessToJobViaGlobalTenantOnly =
-        hasMetatenantJobReadPrivilege && resourceTenant.isDescendant(sessionTenant) && resourceKey === 'job';
+      const resourceTenantIsDescendantOfSessionTenant =
+        resourceTenant.isDescendant(sessionTenant) &&
+        resourceKey === 'job';
 
-      // either the session tenant code and resource tenant code must match exactly, or the
-      // resource tenant must be a descendant of the session tenant AND the user must hold the
-      // job.metatenant.read privilege
-      const isExactTenantMatch =
-        resource.tenantCode === tenant.code && resource.partnerId === tenant.partnerId;
-      if (!isExactTenantMatch && !hasAccessToJobViaGlobalTenantOnly) {
+      if (!resourceTenantIsDescendantOfSessionTenant) {
         throw new ForbiddenException('Forbidden');
       }
 
