@@ -41,15 +41,15 @@ export class TenantOwnershipGuard implements CanActivate {
     );
 
     const request = context.switchToHttp().getRequest<Request>();
-    const tenant = request.user.tenant;
-    if (!tenant) {
+    const sessionTenant = request.user.tenant;
+    if (!sessionTenant) {
       throw new ForbiddenException('Forbidden'); // if there is no tenant, something is wrong with the session
     }
 
     // TODO: get some better typing around this
     const resource = request[resourceKey];
     const isExactTenantMatch =
-      resource.tenantCode === tenant.code && resource.partnerId === tenant.partnerId;
+      resource.tenantCode === sessionTenant.code && resource.partnerId === sessionTenant.partnerId;
 
     if (isExactTenantMatch) {
       return true;
@@ -61,15 +61,13 @@ export class TenantOwnershipGuard implements CanActivate {
     if (!sessionData.privileges.has(allowMetatenantPrivilege)) {
       throw new ForbiddenException('Forbidden');
     }
-    const sessionTenant = toGetTenantDto(tenant);
 
-    const resourceTenantRow = await this.prisma.tenant.findUnique({
+    const resourceTenant = await this.prisma.tenant.findUnique({
       where: { code_partnerId: { code: resource.tenantCode, partnerId: resource.partnerId } },
     });
-    if (!resourceTenantRow) {
+    if (!resourceTenant) {
       throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
     }
-    const resourceTenant = toGetTenantDto(resourceTenantRow);
     const resourceTenantIsDescendantOfSessionTenant = isDescendant(sessionTenant, resourceTenant);
 
     if (!resourceTenantIsDescendantOfSessionTenant) {
