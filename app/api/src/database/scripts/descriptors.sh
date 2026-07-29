@@ -1,7 +1,15 @@
 # This script assumes that runway, earthmover_edfi_bundles, and stadium_south_carolina
 # are all in the same parent directory. It will checkout the appropriate branches
-# for each repo, pull the latest changes, and then build the sql scripts to 
+# for each repo, pull the latest changes, and then build the sql scripts to
 # insert both bundle and custom descriptor mappings.
+#
+# Primary mode is one bundle at a time: pass --bundle-key to process a single
+# bundle listed in the bundle repo's registry.json. Omit it to process every
+# registered bundle. Either way, output is written per bundle:
+#   output/<bundle>_bundle_descriptor_mappings.sql
+#   output/<bundle>_custom_descriptor_mappings.sql
+# --force is only needed when the output files for the bundle(s) being processed
+# already exist.
 
 partner_id=""
 bundle_key=""
@@ -9,6 +17,8 @@ force=false
 
 usage() {
   echo "Usage: $0 -p|--partner-id <id> [-b|--bundle-key <key>] [--force]"
+  echo "  -b|--bundle-key   exact registry.json path (e.g. assessments/MAP_Growth)."
+  echo "                    If omitted, all bundles in registry.json are processed."
 }
 
 while [ $# -gt 0 ]; do
@@ -43,19 +53,6 @@ if [ -z "$partner_id" ]; then
   exit 1
 fi
 
-bundle_mapping_file="output/bundle_descriptor_mappings.sql"
-custom_mapping_file="output/custom_descriptor_mappings.sql"
-
-if [ -f "$bundle_mapping_file" ] || [ -f "$custom_mapping_file" ]; then
-  if [ "$force" = true ]; then
-    rm -f "$bundle_mapping_file"
-    rm -f "$custom_mapping_file"
-  else
-    echo "Error: $bundle_mapping_file and/or $custom_mapping_file already exists. Please remove them before running this script OR run with --force."
-    exit 1
-  fi
-fi
-
 repos_dir="../../../../../.."
 bundle_repo="$repos_dir/earthmover_edfi_bundles"
 bundle_branch="main"
@@ -70,17 +67,58 @@ git -C $sc_repo checkout $sc_branch
 git -C $sc_repo pull --ff-only
 sc_bundle_path="$sc_repo/airflow/dags/earthmover"
 
-
-# registry.json gives us all the bundles that suport a Runway integration.
-# Based on this, we get the default mappings from the each bundle in the bundle repo 
-# via the metadata.yaml file. We then look for a corresponding file in the SC repo 
-# (which has no registry.json or metadata.yaml files) and grab the corresponding mappings.
+# registry.json gives us all the bundles that support a Runway integration, and is
+# also how we validate the requested bundle key.
 registry_path="$bundle_repo/registry.json"
-transform_script="node desc-mapping-insert.js"
-for path in $(cat "$registry_path" | jq -r '.assessments[].path'); do
-  if [ -n "$bundle_key" ] && [ "$path" != "$bundle_key" ]; then
-    continue
+registry_paths=$(jq -r '.assessments[].path' "$registry_path")
+
+if [ -n "$bundle_key" ]; then
+  # The bundle key must exactly match a path in registry.json.
+  if ! echo "$registry_paths" | grep -qxF "$bundle_key"; then
+    echo "Error: bundle '$bundle_key' not found in $registry_path."
+    echo "Available bundles:"
+    echo "$registry_paths" | sed 's/^/  /'
+    exit 1
   fi
+  bundle_paths="$bundle_key"
+else
+  bundle_paths="$registry_paths"
+fi
+
+mkdir -p output
+
+# Check (and optionally clear) output files up front so we don't leave a half-written set behind.
+existing_files=""
+for path in $bundle_paths; do
+  bundle_name="${path##*/}"
+  for file in "output/${bundle_name}_bundle_descriptor_mappings.sql" "output/${bundle_name}_custom_descriptor_mappings.sql"; do
+    if [ -f "$file" ]; then
+      if [ "$force" = true ]; then
+        rm -f "$file"
+      else
+        existing_files="$existing_files
+  $file"
+      fi
+    fi
+  done
+done
+
+if [ -n "$existing_files" ]; then
+  echo "Error: the following output files already exist. Remove them before running this script OR run with --force:"
+  echo "$existing_files"
+  exit 1
+fi
+
+# For each bundle we get the default mappings from the bundle repo via the _metadata.yaml
+# file. We then look for a corresponding file in the SC repo (which has no registry.json
+# or _metadata.yaml files) and grab the corresponding mappings.
+transform_script="node desc-mapping-insert.js"
+for path in $bundle_paths; do
+  bundle_name="${path##*/}"
+  bundle_mapping_file="output/${bundle_name}_bundle_descriptor_mappings.sql"
+  custom_mapping_file="output/${bundle_name}_custom_descriptor_mappings.sql"
+
+  echo "Processing $path"
   for desc_file in $(cat "$bundle_repo/$path/_metadata.yaml" | yq -r '.descriptor_mapping_files // [] | .[]'); do
     desc_type="${desc_file%.csv}"
     if [ -f "$bundle_repo/$path/seeds/$desc_file" ]; then
@@ -98,4 +136,3 @@ for path in $(cat "$registry_path" | jq -r '.assessments[].path'); do
     fi
   done
 done
-
