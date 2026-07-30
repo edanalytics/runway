@@ -4,16 +4,19 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
-import { GetSessionDataDto, isDescendant, PrivilegeKey, toGetTenantDto } from '@edanalytics/models';
+import { GetSessionDataDto, PrivilegeKey } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { Request } from 'express';
 import { PRISMA_READ_ONLY } from '../../database';
 import { SKIP_TENANT_OWNERSHIP } from './skip-tenant-ownership.decorator';
 import { ALLOW_METATENANT } from './allow-metatenant.decorator';
 import { TENANT_RESOURCE_KEY } from './tenant-resource-key.decorator';
+import { isDescendant } from './helpers';
+
 
 @Injectable()
 export class TenantOwnershipGuard implements CanActivate {
@@ -27,18 +30,12 @@ export class TenantOwnershipGuard implements CanActivate {
       SKIP_TENANT_OWNERSHIP,
       context.getHandler()
     );
-    const allowMetatenantPrivilege = this.reflector.get<PrivilegeKey | null>(
-      ALLOW_METATENANT,
-      context.getHandler()
-    );
+    
     if (skipTenantOwnershipCheck) {
       return true;
     }
 
-    const resourceKey = this.reflector.get<keyof Request>(
-      TENANT_RESOURCE_KEY,
-      context.getClass()
-    );
+
 
     const request = context.switchToHttp().getRequest<Request>();
     const sessionTenant = request.user.tenant;
@@ -47,13 +44,24 @@ export class TenantOwnershipGuard implements CanActivate {
     }
 
     // TODO: get some better typing around this
+    const resourceKey = this.reflector.get<keyof Request>(
+      TENANT_RESOURCE_KEY,
+      context.getClass()
+    );
+
     const resource = request[resourceKey];
+        if (!resource || !resourceKey) {throw new InternalServerErrorException()}
     const isExactTenantMatch =
       resource.tenantCode === sessionTenant.code && resource.partnerId === sessionTenant.partnerId;
 
     if (isExactTenantMatch) {
       return true;
     }
+
+    const allowMetatenantPrivilege = this.reflector.get<PrivilegeKey | null>(
+      ALLOW_METATENANT,
+      context.getHandler()
+    );
     if (!allowMetatenantPrivilege) {
       throw new ForbiddenException('Forbidden');
     }
@@ -68,7 +76,10 @@ export class TenantOwnershipGuard implements CanActivate {
     if (!resourceTenant) {
       throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
     }
-    const resourceTenantIsDescendantOfSessionTenant = isDescendant(sessionTenant, resourceTenant);
+    const resourceTenantIsDescendantOfSessionTenant = isDescendant({
+      potentialParent: sessionTenant,
+      potentialChild: resourceTenant,
+    });
 
     if (!resourceTenantIsDescendantOfSessionTenant) {
       throw new ForbiddenException('Forbidden');

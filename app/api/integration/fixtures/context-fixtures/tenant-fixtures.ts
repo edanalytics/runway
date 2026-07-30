@@ -18,8 +18,8 @@ export const tenantB: WithoutAudit<Tenant> = {
 
 // Global tenant for partner A — support users (PartnerAdmin) logged in here
 // get access to any non-global tenant under partner A (tenantA, tenantB).
-export const tenantAGlobal: WithoutAudit<Tenant> = {
-  code: 'tenant-a-global',
+export const tenantDGlobal: WithoutAudit<Tenant> = {
+  code: 'tenant-d-global',
   partnerId: partnerA.id,
   isGlobal: true,
   deletedOn: null,

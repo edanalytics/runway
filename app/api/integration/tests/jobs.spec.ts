@@ -3,7 +3,7 @@ import { sessionCookie } from '../helpers/session/session-cookie';
 import sessionStore from '../helpers/session/session-store';
 import {
   tenantA,
-  tenantAGlobal,
+  tenantDGlobal,
   tenantB,
   tenantX,
 } from '../fixtures/context-fixtures/tenant-fixtures';
@@ -244,7 +244,7 @@ describe('GET /jobs/:id', () => {
 
     it('should allow a SupportUser logged into the global tenant to access jobs for any tenant under the partner', async () => {
       const supportUserGlobalCookie = (
-        await authHelper.login(idpA, userA, tenantAGlobal, [
+        await authHelper.login(idpA, userA, tenantDGlobal, [
           'runway.test.user',
           'runway.test.supportuser',
         ])
@@ -265,7 +265,7 @@ describe('GET /jobs/:id', () => {
 
     it('should reject a non-SupportUser logged into the global tenant', async () => {
       const globalUserCookie = (
-        await authHelper.login(idpA, userA, tenantAGlobal, 'runway.test.user')
+        await authHelper.login(idpA, userA, tenantDGlobal, 'runway.test.user')
       ).cookies;
 
       const resA = await request(app.getHttpServer())

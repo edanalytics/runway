@@ -18,7 +18,7 @@ import {
 } from '../../../fixtures/context-fixtures/idp-fixtures';
 import {
   tenantA,
-  tenantAGlobal,
+  tenantDGlobal,
   tenantB,
   tenantC,
   tenantX,
@@ -87,7 +87,7 @@ const load = async () => {
   // Depend on idp
   await Promise.all([
     prisma.tenant.createMany({
-      data: [tenantA, tenantAGlobal, tenantB, tenantC, tenantX],
+      data: [tenantA, tenantDGlobal, tenantB, tenantC, tenantX],
     }),
     prisma.user.createMany({
       data: [userA, userB, userX],
