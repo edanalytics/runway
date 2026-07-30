@@ -19,6 +19,7 @@ import {
 import {
   tenantA,
   tenantDGlobal,
+  tenantEGlobal,
   tenantB,
   tenantC,
   tenantX,
@@ -87,7 +88,7 @@ const load = async () => {
   // Depend on idp
   await Promise.all([
     prisma.tenant.createMany({
-      data: [tenantA, tenantDGlobal, tenantB, tenantC, tenantX],
+      data: [tenantA, tenantDGlobal, tenantEGlobal, tenantB, tenantC, tenantX],
     }),
     prisma.user.createMany({
       data: [userA, userB, userX],

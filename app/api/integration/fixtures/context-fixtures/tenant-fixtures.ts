@@ -25,6 +25,16 @@ export const tenantDGlobal: WithoutAudit<Tenant> = {
   deletedOn: null,
 };
 
+// A second global tenant for partner A, distinct from tenantDGlobal — used to
+// test that metatenant access is denied when the *resource's* tenant is itself
+// global (isDescendant requires the resource tenant to be non-global).
+export const tenantEGlobal: WithoutAudit<Tenant> = {
+  code: 'tenant-e-global',
+  partnerId: partnerA.id,
+  isGlobal: true,
+  deletedOn: null,
+};
+
 export const tenantC: WithoutAudit<Tenant> = {
   code: 'tenant-c',
   partnerId: partnerC.id, // shares idp with partner A

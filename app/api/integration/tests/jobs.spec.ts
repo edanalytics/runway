@@ -4,6 +4,7 @@ import sessionStore from '../helpers/session/session-store';
 import {
   tenantA,
   tenantDGlobal,
+  tenantEGlobal,
   tenantB,
   tenantX,
 } from '../fixtures/context-fixtures/tenant-fixtures';
@@ -182,9 +183,11 @@ describe('GET /jobs/:id', () => {
   let endpointB: string;
   let jobA: Job;
   let jobB: Job;
+  let jobDGlobal: Job;
+  let jobEGlobal: Job;
 
   beforeEach(async () => {
-    [jobA, jobB] = await Promise.all([
+    [jobA, jobB, jobDGlobal, jobEGlobal] = await Promise.all([
       seedJob({
         odsConfig: odsConfigA2425,
         bundle: bundleA,
@@ -194,6 +197,16 @@ describe('GET /jobs/:id', () => {
         odsConfig: odsConfigB2526,
         bundle: bundleA, // same bundle for both tenants is fine
         tenant: tenantB,
+      }),
+      seedJob({
+        odsConfig: odsConfigA2425, // same partner as tenantA/tenantB is fine
+        bundle: bundleA,
+        tenant: tenantDGlobal,
+      }),
+      seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantEGlobal,
       }),
     ]);
     endpointA = `/jobs/${jobA.id}`;
@@ -242,36 +255,84 @@ describe('GET /jobs/:id', () => {
       expect(resB.status).toBe(403);
     });
 
-    it('should allow a SupportUser logged into the global tenant to access jobs for any tenant under the partner', async () => {
-      const supportUserGlobalCookie = (
-        await authHelper.login(idpA, userA, tenantDGlobal, [
-          'runway.test.user',
-          'runway.test.supportuser',
-        ])
-      ).cookies;
+    describe('metatenant access (route has @AllowMetatenant)', () => {
+      const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
+      const USER_ROLE = 'runway.test.user';
 
-      // tenantA and tenantB are both descendants of tenantAGlobal (same partner)
-      const resA = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Cookie', [supportUserGlobalCookie]);
-      const resB = await request(app.getHttpServer())
-        .get(endpointB)
-        .set('Cookie', [supportUserGlobalCookie]);
-      expect(resA.status).toBe(200);
-      expect(resA.body.id).toEqual(jobA.id);
-      expect(resB.status).toBe(200);
-      expect(resB.body.id).toEqual(jobB.id);
-    });
+      it.each([
+        {
+          description:
+            'global session tenant + non-global resource tenant (same partner) + metatenant privilege -> allowed',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobB,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 200,
+        },
+        {
+          description:
+            'global session tenant + non-global resource tenant (same partner) + no metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobB,
+          roles: USER_ROLE,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'global session tenant + resource owned by a different global tenant + metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobEGlobal,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'global session tenant + resource owned by a different global tenant + no metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobEGlobal,
+          roles: USER_ROLE,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'non-global session tenant + non-global resource tenant (same partner) + metatenant privilege -> forbidden',
+          sessionTenant: tenantA,
+          resourceJob: () => jobB,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'non-global session tenant + non-global resource tenant (same partner) + no metatenant privilege -> forbidden',
+          sessionTenant: tenantA,
+          resourceJob: () => jobB,
+          roles: USER_ROLE,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'non-global session tenant + resource owned by a different global tenant + metatenant privilege -> forbidden',
+          sessionTenant: tenantA,
+          resourceJob: () => jobDGlobal,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'non-global session tenant + resource owned by a different global tenant + no metatenant privilege -> forbidden',
+          sessionTenant: tenantA,
+          resourceJob: () => jobDGlobal,
+          roles: USER_ROLE,
+          expectedStatus: 403,
+        },
+      ])('$description', async ({ sessionTenant, resourceJob, roles, expectedStatus }) => {
+        const cookie = (await authHelper.login(idpA, userA, sessionTenant, roles)).cookies;
 
-    it('should reject a non-SupportUser logged into the global tenant', async () => {
-      const globalUserCookie = (
-        await authHelper.login(idpA, userA, tenantDGlobal, 'runway.test.user')
-      ).cookies;
+        const res = await request(app.getHttpServer())
+          .get(`/jobs/${resourceJob().id}`)
+          .set('Cookie', [cookie]);
 
-      const resA = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Cookie', [globalUserCookie]);
-      expect(resA.status).toBe(403);
+        expect(res.status).toBe(expectedStatus);
+      });
     });
   });
 });
@@ -576,6 +637,23 @@ describe('PUT /jobs/:id/resolve', () => {
         .put(endpoint(jobB.id))
         .set('Cookie', [cookieA]);
       expect(resA.status).toBe(403);
+      expect(resB.status).toBe(403);
+    });
+
+    it('should reject a SupportUser logged into the global tenant, since this route has no @AllowMetatenant', async () => {
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal and this same session/privilege combo
+      // is sufficient to access GET /jobs/:id (which has @AllowMetatenant) — it
+      // should still be rejected here since this route lacks the decorator.
+      const resB = await request(app.getHttpServer())
+        .put(endpoint(jobB.id))
+        .set('Cookie', [supportUserGlobalCookie]);
       expect(resB.status).toBe(403);
     });
 
