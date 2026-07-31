@@ -457,7 +457,7 @@ Resources:
             default-src 'self';
             style-src 'self' 'unsafe-inline' https://cdn.edanalytics.app;
             img-src 'self' data: https://cdn.edanalytics.app;
-            connect-src https://api.${DomainName} https://cdn.edanalytics.app ${MatomoConnectSrc} ${TxMatomoConnectSrc} ${DataBucketName};
+            connect-src https://api.${DomainName} https://cdn.edanalytics.app ${MatomoConnectSrc} ${TxMatomoConnectSrc} ${DataBucketURL};
             script-src-elem 'self' ${MatomoURL} ${TxMatomoURL};
             font-src 'self' data: https://cdn.edanalytics.app;
             report-uri ${CspReportUrl};
@@ -476,7 +476,7 @@ Resources:
                 - 'https://${Host}'
                 - Host: !Select [2, !Split ['/', !Ref ViteAlternateMatomoUrl]]
               - ''
-            DataBucketName: !Sub '${EnvLabel}-${AWS::AccountId}-data-integration'
+            DataBucketURL: !Sub 'https://${EnvLabel}-${AWS::AccountId}-data-integration.s3.${AWS::Region}.amazonaws.com'
 
         SNSTopicArn: !Ref SNSTopicArn
         East1AlarmLambdaArn: !If [EnableHealthCheck, !GetAtt 'LambdaFunctionsStack.Outputs.East1AlarmLambdaArn', '']
