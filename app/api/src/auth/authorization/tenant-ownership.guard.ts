@@ -50,7 +50,7 @@ export class TenantOwnershipGuard implements CanActivate {
     );
 
     const resource = request[resourceKey];
-        if (!resource || !resourceKey) {throw new InternalServerErrorException()}
+        if (!resource || !resourceKey) {throw new InternalServerErrorException('resource or resourceKey is undefined')}
     const isExactTenantMatch =
       resource.tenantCode === sessionTenant.code && resource.partnerId === sessionTenant.partnerId;
 
@@ -74,7 +74,7 @@ export class TenantOwnershipGuard implements CanActivate {
       where: { code_partnerId: { code: resource.tenantCode, partnerId: resource.partnerId } },
     });
     if (!resourceTenant) {
-      throw new ForbiddenException('Forbidden'); // resource points at a tenant that doesn't exist
+      throw new InternalServerErrorException('resourceTenant is undefined'); // resource points at a tenant that doesn't exist
     }
     const resourceTenantIsDescendantOfSessionTenant = isDescendant({
       potentialParent: sessionTenant,
