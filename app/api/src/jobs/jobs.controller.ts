@@ -32,12 +32,15 @@ import {
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
-import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
+import { TenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
+import { TenantResourceKey } from '../auth/authorization/tenant-resource-key.decorator';
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
+import { AllowMetatenant } from '../auth/authorization/allow-metatenant.decorator';
 
 @Controller()
 @ApiTags('Job')
-@UseGuards(new TenantOwnership('job'))
+@TenantResourceKey('job')
+@UseGuards(TenantOwnershipGuard)
 export class JobsController {
   private logger = new Logger(JobsController.name);
   constructor(
@@ -66,6 +69,7 @@ export class JobsController {
   }
 
   @Get(':jobId')
+  @AllowMetatenant('job.metatenant.read')
   async findOne(
     @Param('jobId', new ParseIntPipe())
     jobId: number
@@ -92,6 +96,7 @@ export class JobsController {
   }
 
   @Get(':jobId/files/:templateKey')
+  @AllowMetatenant('job.metatenant.read')
   async downloadUrlForInputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number,
     @Param('templateKey') templateKey: string
@@ -106,6 +111,7 @@ export class JobsController {
   }
 
   @Get(':jobId/output-files/:fileName')
+  @AllowMetatenant('job.metatenant.read')
   async downloadUrlForOutputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number,
     @Param('fileName') fileName: string
@@ -119,6 +125,7 @@ export class JobsController {
   }
 
   @Get(':jobId/status-updates')
+  @AllowMetatenant('job.metatenant.read')
   async getStatusUpdates(
     @Param('jobId', new ParseIntPipe())
     jobId: number
@@ -128,6 +135,7 @@ export class JobsController {
   }
 
   @Get(':jobId/errors')
+  @AllowMetatenant('job.metatenant.read')
   async getErrors(
     @Param('jobId', new ParseIntPipe())
     jobId: number
@@ -275,6 +283,7 @@ export class JobsController {
   }
 
   @Get(':jobId/notes')
+  @AllowMetatenant('job.metatenant.read')
   async getNotes(@Param('jobId', ParseIntPipe) jobId: number) {
     const notes = await this.prisma.jobNote.findMany({
       where: { jobId },
