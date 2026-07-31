@@ -79,7 +79,10 @@ Parameters:
   CspReportUrl:
     Description: >-
       URL that receives Content-Security-Policy violation reports (used in
-      Content-Security-Policy-Report-Only and Reporting-Endpoints).
+      Reporting-Endpoints).
+    Type: String
+  ContentSecurityPolicy:
+    Description: Content-Security-Policy header value for CloudFront responses.
     Type: String
   SNSTopicArn:
     Description: ARN of SNS topic to publish Route53 HealthCheck Alarms
@@ -99,22 +102,12 @@ Parameters:
   PrivateSubnet2Id:
     Type: AWS::EC2::Subnet::Id
     Description: The Subnet ID of a Private Subnet in the other Availability Zone above
-  MatomoURL:
-    Description: Matomo URL
-    Type: String
-    Default: ''
-  TxMatomoURL:
-    Description: Texas Matomo URL
-    Type: String
-    Default: ''
 
 Conditions:
   DoCreateS3Bucket: !Equals [!Ref CreateS3Bucket, 'Create the S3 Bucket']
   DoWildcardDomain: !Equals [!Ref WildcardDomain, 'Yes']
   DoRedirectErrors: !Equals [!Ref RedirectErrors, 'Yes']
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
-  HasMatomoURL: !Not [!Equals [!Ref MatomoURL, '']]
-  HasTxMatomoURL: !Not [!Equals [!Ref TxMatomoURL, '']]
 
 Mappings:
   CachePolicyMap:
@@ -129,7 +122,7 @@ Resources:
     Type: AWS::CloudFront::ResponseHeadersPolicy
     Properties:
       ResponseHeadersPolicyConfig:
-        Name: !Sub '${EnvLabel}-cors-security-csp-report-only'
+        Name: !Sub '${EnvLabel}-ResponseHeadersPolicy'
         Comment: !Sub '${EnvLabel} Managed Response Headers Policy'
         CorsConfig:
           AccessControlAllowCredentials: false
@@ -169,32 +162,11 @@ Resources:
             ModeBlock: true
             Override: false
             Protection: true
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: !Ref ContentSecurityPolicy
+            Override: true
         CustomHeadersConfig:
           Items:
-            - Header: Content-Security-Policy-Report-Only
-              Value: !Sub
-                - >-
-                  default-src 'self';
-                  style-src 'self' 'unsafe-inline' https://cdn.edanalytics.app;
-                  img-src 'self' data: https://cdn.edanalytics.app;
-                  connect-src https://api.${DomainName} https://cdn.edanalytics.app ${MatomoConnectSrc} ${TxMatomoConnectSrc};
-                  script-src-elem 'self' ${MatomoURL} ${TxMatomoURL};
-                  font-src 'self' data: https://cdn.edanalytics.app;
-                  report-uri ${CspReportUrl};
-                  report-to csp-endpoint
-                - MatomoConnectSrc: !If
-                    - HasMatomoURL
-                    - !Sub
-                      - 'https://${Host}'
-                      - Host: !Select [2, !Split ['/', !Ref MatomoURL]]
-                    - ''
-                  TxMatomoConnectSrc: !If
-                    - HasTxMatomoURL
-                    - !Sub
-                      - 'https://${Host}'
-                      - Host: !Select [2, !Split ['/', !Ref TxMatomoURL]]
-                    - ''
-              Override: true
             - Header: Reporting-Endpoints
               Value: !Sub 'csp-endpoint="${CspReportUrl}"'
               Override: true

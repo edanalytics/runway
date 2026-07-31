@@ -292,7 +292,7 @@ Parameters:
   CspReportUrl:
     Type: String
     Description: >-
-      URL for Content-Security-Policy-Report-Only reports (CloudFront response header).
+      URL for Content-Security-Policy violation reports (CloudFront response header).
   MatomoURL:
     Description: Matomo URL
     Type: String
@@ -353,7 +353,9 @@ Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   EnableS3AccessLogging: !Not [!Equals [!Ref S3AccessLoggingBucket, '']]
   EnableSlackAlerting: !Not [!Equals [!Ref SlackWebhookURL, '']]
-  
+  HasMatomoURL: !Not [!Equals [!Ref MatomoURL, '']]
+  HasTxMatomoURL: !Not [!Equals [!Ref ViteAlternateMatomoUrl, '']]
+
 Resources: 
   RdsPostgresStack: 
     Type: AWS::CloudFormation::Stack
@@ -450,14 +452,38 @@ Resources:
         CachePolicy: !Ref CachePolicy
         Compress: !Ref Compress
         CspReportUrl: !Ref CspReportUrl
+        ContentSecurityPolicy: !Sub
+          - >-
+            default-src 'self';
+            style-src 'self' 'unsafe-inline' https://cdn.edanalytics.app;
+            img-src 'self' data: https://cdn.edanalytics.app;
+            connect-src https://api.${DomainName} https://cdn.edanalytics.app ${MatomoConnectSrc} ${TxMatomoConnectSrc} ${DataBucketName};
+            script-src-elem 'self' ${MatomoURL} ${TxMatomoURL};
+            font-src 'self' data: https://cdn.edanalytics.app;
+            report-uri ${CspReportUrl};
+            report-to csp-endpoint
+          - MatomoURL: !Ref MatomoURL
+            TxMatomoURL: !Ref ViteAlternateMatomoUrl
+            MatomoConnectSrc: !If
+              - HasMatomoURL
+              - !Sub
+                - 'https://${Host}'
+                - Host: !Select [2, !Split ['/', !Ref MatomoURL]]
+              - ''
+            TxMatomoConnectSrc: !If
+              - HasTxMatomoURL
+              - !Sub
+                - 'https://${Host}'
+                - Host: !Select [2, !Split ['/', !Ref ViteAlternateMatomoUrl]]
+              - ''
+            DataBucketName: !Sub '${EnvLabel}-${AWS::AccountId}-data-integration'
+
         SNSTopicArn: !Ref SNSTopicArn
         East1AlarmLambdaArn: !If [EnableHealthCheck, !GetAtt 'LambdaFunctionsStack.Outputs.East1AlarmLambdaArn', '']
         CRHelperLambdaLayer: !GetAtt 'LambdaFunctionsStack.Outputs.CRHelperLambdaLayer'
         LambdaDefaultSG: !GetAtt 'LambdaFunctionsStack.Outputs.LambdaDefaultSG'
         PrivateSubnet1Id: !Ref PrivateSubnet1Id
         PrivateSubnet2Id: !Ref PrivateSubnet2Id
-        MatomoURL: !Ref MatomoURL
-        TxMatomoURL: !Ref ViteAlternateMatomoUrl
   AppCodePipelineStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
