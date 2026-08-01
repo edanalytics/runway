@@ -292,7 +292,9 @@ Parameters:
   CspReportUrl:
     Type: String
     Description: >-
-      URL for Content-Security-Policy violation reports (CloudFront response header).
+      Optional URL for Content-Security-Policy violation reports (CloudFront
+      Reporting-Endpoints header and CSP report-uri / report-to). Leave blank to omit.
+    Default: ''
   MatomoURL:
     Description: Matomo URL
     Type: String
@@ -355,6 +357,7 @@ Conditions:
   EnableSlackAlerting: !Not [!Equals [!Ref SlackWebhookURL, '']]
   HasMatomoURL: !Not [!Equals [!Ref MatomoURL, '']]
   HasTxMatomoURL: !Not [!Equals [!Ref ViteAlternateMatomoUrl, '']]
+  HasCspReportUrl: !Not [!Equals [!Ref CspReportUrl, '']]
 
 Resources: 
   RdsPostgresStack: 
@@ -460,8 +463,7 @@ Resources:
             connect-src https://api.${DomainName} https://cdn.edanalytics.app ${MatomoConnectSrc} ${TxMatomoConnectSrc} ${DataBucketURL};
             script-src-elem 'self' ${MatomoURL} ${TxMatomoURL};
             font-src 'self' data: https://cdn.edanalytics.app;
-            report-uri ${CspReportUrl};
-            report-to csp-endpoint
+            ${CspReportDirectives}
           - MatomoURL: !Ref MatomoURL
             TxMatomoURL: !Ref ViteAlternateMatomoUrl
             MatomoConnectSrc: !If
@@ -477,6 +479,10 @@ Resources:
                 - Host: !Select [2, !Split ['/', !Ref ViteAlternateMatomoUrl]]
               - ''
             DataBucketURL: !Sub 'https://${EnvLabel}-${AWS::AccountId}-data-integration.s3.${AWS::Region}.amazonaws.com'
+            CspReportDirectives: !If
+              - HasCspReportUrl
+              - !Sub 'report-uri ${CspReportUrl}; report-to csp-endpoint'
+              - ''
 
         SNSTopicArn: !Ref SNSTopicArn
         East1AlarmLambdaArn: !If [EnableHealthCheck, !GetAtt 'LambdaFunctionsStack.Outputs.East1AlarmLambdaArn', '']

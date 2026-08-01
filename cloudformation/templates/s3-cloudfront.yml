@@ -78,9 +78,10 @@ Parameters:
       - False
   CspReportUrl:
     Description: >-
-      URL that receives Content-Security-Policy violation reports (used in
-      Reporting-Endpoints).
+      Optional URL that receives Content-Security-Policy violation reports
+      (used in Reporting-Endpoints). Leave blank to omit the header.
     Type: String
+    Default: ''
   ContentSecurityPolicy:
     Description: Content-Security-Policy header value for CloudFront responses.
     Type: String
@@ -108,6 +109,7 @@ Conditions:
   DoWildcardDomain: !Equals [!Ref WildcardDomain, 'Yes']
   DoRedirectErrors: !Equals [!Ref RedirectErrors, 'Yes']
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
+  HasCspReportUrl: !Not [!Equals [!Ref CspReportUrl, '']]
 
 Mappings:
   CachePolicyMap:
@@ -165,11 +167,13 @@ Resources:
           ContentSecurityPolicy:
             ContentSecurityPolicy: !Ref ContentSecurityPolicy
             Override: true
-        CustomHeadersConfig:
-          Items:
-            - Header: Reporting-Endpoints
-              Value: !Sub 'csp-endpoint="${CspReportUrl}"'
-              Override: true
+        CustomHeadersConfig: !If
+          - HasCspReportUrl
+          - Items:
+              - Header: Reporting-Endpoints
+                Value: !Sub 'csp-endpoint="${CspReportUrl}"'
+                Override: true
+          - !Ref 'AWS::NoValue'
 
   S3Bucket:
     Type: AWS::S3::Bucket
