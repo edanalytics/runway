@@ -90,7 +90,7 @@ Parameters:
       Optional URL that receives Content-Security-Policy violation reports
       (used in Reporting-Endpoints). Leave blank to omit the header.
     Type: String
-    Default: ''
+    Default: 'https://csp-reports.edanalytics.app/csp-report'
   ContentSecurityPolicy:
     Description: Content-Security-Policy header value for CloudFront responses.
     Type: String

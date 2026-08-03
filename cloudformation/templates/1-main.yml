@@ -304,7 +304,7 @@ Parameters:
     Description: >-
       Optional URL for Content-Security-Policy violation reports (CloudFront
       Reporting-Endpoints header and CSP report-uri / report-to). Leave blank to omit.
-    Default: ''
+    Default: 'https://csp-reports.edanalytics.app/csp-report'
   MatomoURL:
     Description: Matomo URL
     Type: String
