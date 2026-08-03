@@ -461,12 +461,10 @@ Resources:
             style-src 'self' 'unsafe-inline' https://cdn.edanalytics.app;
             img-src 'self' data: https://cdn.edanalytics.app;
             connect-src https://api.${DomainName} https://cdn.edanalytics.app ${MatomoConnectSrc} ${TxMatomoConnectSrc} ${DataBucketURL};
-            script-src-elem 'self' ${MatomoURL} ${TxMatomoURL};
+            script-src-elem 'self' ${MatomoURL} ${ViteAlternateMatomoUrl};
             font-src 'self' data: https://cdn.edanalytics.app;
             ${CspReportDirectives}
-          - MatomoURL: !Ref MatomoURL
-            TxMatomoURL: !Ref ViteAlternateMatomoUrl
-            MatomoConnectSrc: !If
+          - MatomoConnectSrc: !If
               - HasMatomoURL
               - !Sub
                 - 'https://${Host}'
