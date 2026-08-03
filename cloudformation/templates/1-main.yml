@@ -56,6 +56,7 @@ Metadata:
           - CachedMethods
           - CachePolicy
           - Compress
+          - CspMode
           - CspReportUrl
           - MatomoURL
       - Label:
@@ -289,6 +290,15 @@ Parameters:
     AllowedValues:
       - True
       - False
+  CspMode:
+    Type: String
+    Description: >-
+      Whether CloudFront serves Content-Security-Policy (enforcing) or
+      Content-Security-Policy-Report-Only (report-only).
+    Default: enforcing
+    AllowedValues:
+      - report-only
+      - enforcing
   CspReportUrl:
     Type: String
     Description: >-
@@ -454,6 +464,7 @@ Resources:
         CachedMethods: !Ref CachedMethods
         CachePolicy: !Ref CachePolicy
         Compress: !Ref Compress
+        CspMode: !Ref CspMode
         CspReportUrl: !Ref CspReportUrl
         ContentSecurityPolicy: !Sub
           - >-

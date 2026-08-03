@@ -76,6 +76,15 @@ Parameters:
     AllowedValues:
       - True
       - False
+  CspMode:
+    Description: >-
+      Whether to send Content-Security-Policy (enforcing) or
+      Content-Security-Policy-Report-Only (report-only).
+    Type: String
+    Default: enforcing
+    AllowedValues:
+      - report-only
+      - enforcing
   CspReportUrl:
     Description: >-
       Optional URL that receives Content-Security-Policy violation reports
@@ -110,6 +119,11 @@ Conditions:
   DoRedirectErrors: !Equals [!Ref RedirectErrors, 'Yes']
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   HasCspReportUrl: !Not [!Equals [!Ref CspReportUrl, '']]
+  IsCspEnforcing: !Equals [!Ref CspMode, 'enforcing']
+  IsCspReportOnly: !Equals [!Ref CspMode, 'report-only']
+  HasCustomHeaders: !Or
+    - !Equals [!Ref CspMode, 'report-only']
+    - !Not [!Equals [!Ref CspReportUrl, '']]
 
 Mappings:
   CachePolicyMap:
@@ -164,15 +178,26 @@ Resources:
             ModeBlock: true
             Override: false
             Protection: true
-          ContentSecurityPolicy:
-            ContentSecurityPolicy: !Ref ContentSecurityPolicy
-            Override: true
+          ContentSecurityPolicy: !If
+            - IsCspEnforcing
+            - ContentSecurityPolicy: !Ref ContentSecurityPolicy
+              Override: true
+            - !Ref 'AWS::NoValue'
         CustomHeadersConfig: !If
-          - HasCspReportUrl
+          - HasCustomHeaders
           - Items:
-              - Header: Reporting-Endpoints
-                Value: !Sub 'csp-endpoint="${CspReportUrl}"'
-                Override: true
+              - !If
+                - IsCspReportOnly
+                - Header: Content-Security-Policy-Report-Only
+                  Value: !Ref ContentSecurityPolicy
+                  Override: true
+                - !Ref 'AWS::NoValue'
+              - !If
+                - HasCspReportUrl
+                - Header: Reporting-Endpoints
+                  Value: !Sub 'csp-endpoint="${CspReportUrl}"'
+                  Override: true
+                - !Ref 'AWS::NoValue'
           - !Ref 'AWS::NoValue'
 
   S3Bucket:
