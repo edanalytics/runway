@@ -56,7 +56,9 @@ Metadata:
           - CachedMethods
           - CachePolicy
           - Compress
-          - ResponseHeadersPolicy
+          - CspMode
+          - CspReportUrl
+          - MatomoURL
       - Label:
           default: App CodePipeline information
         Parameters: 
@@ -288,16 +290,25 @@ Parameters:
     AllowedValues:
       - True
       - False
-  ResponseHeadersPolicy:
-    Description: Response Headers Policy
+  CspMode:
     Type: String
-    Default: CORS-with-preflight-and-SecurityHeadersPolicy
+    Description: >-
+      Whether CloudFront serves Content-Security-Policy (enforcing) or
+      Content-Security-Policy-Report-Only (report-only).
+    Default: enforcing
     AllowedValues:
-      - SimpleCORS
-      - CORS-With-Preflight
-      - SecurityHeadersPolicy
-      - CORS-and-SecurityHeadersPolicy
-      - CORS-with-preflight-and-SecurityHeadersPolicy
+      - report-only
+      - enforcing
+  CspReportUrl:
+    Type: String
+    Description: >-
+      Optional URL for Content-Security-Policy violation reports (CloudFront
+      Reporting-Endpoints header and CSP report-uri / report-to). Leave blank to omit.
+    Default: 'https://csp-reports.edanalytics.app/csp-report'
+  MatomoURL:
+    Description: Matomo URL
+    Type: String
+    Default: ''
   CreateEcsServiceLinkedRole:
     Type: String
     Description: If an ECS Service Linked Role already exists in this account, select False.
@@ -354,7 +365,10 @@ Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
   EnableS3AccessLogging: !Not [!Equals [!Ref S3AccessLoggingBucket, '']]
   EnableSlackAlerting: !Not [!Equals [!Ref SlackWebhookURL, '']]
-  
+  HasMatomoURL: !Not [!Equals [!Ref MatomoURL, '']]
+  HasTxMatomoURL: !Not [!Equals [!Ref ViteAlternateMatomoUrl, '']]
+  HasCspReportUrl: !Not [!Equals [!Ref CspReportUrl, '']]
+
 Resources: 
   RdsPostgresStack: 
     Type: AWS::CloudFormation::Stack
@@ -450,7 +464,35 @@ Resources:
         CachedMethods: !Ref CachedMethods
         CachePolicy: !Ref CachePolicy
         Compress: !Ref Compress
-        ResponseHeadersPolicy: !Ref ResponseHeadersPolicy
+        CspMode: !Ref CspMode
+        CspReportUrl: !Ref CspReportUrl
+        ContentSecurityPolicy: !Sub
+          - >-
+            default-src 'self';
+            style-src 'self' 'unsafe-inline' https://cdn.edanalytics.app;
+            img-src 'self' data: https://cdn.edanalytics.app;
+            connect-src https://api.${DomainName} https://cdn.edanalytics.app ${MatomoConnectSrc} ${TxMatomoConnectSrc} ${DataBucketURL};
+            script-src-elem 'self' ${MatomoURL} ${ViteAlternateMatomoUrl};
+            font-src 'self' data: https://cdn.edanalytics.app;
+            ${CspReportDirectives}
+          - MatomoConnectSrc: !If
+              - HasMatomoURL
+              - !Sub
+                - 'https://${Host}'
+                - Host: !Select [2, !Split ['/', !Ref MatomoURL]]
+              - ''
+            TxMatomoConnectSrc: !If
+              - HasTxMatomoURL
+              - !Sub
+                - 'https://${Host}'
+                - Host: !Select [2, !Split ['/', !Ref ViteAlternateMatomoUrl]]
+              - ''
+            DataBucketURL: !Sub 'https://${EnvLabel}-${AWS::AccountId}-data-integration.s3.${AWS::Region}.amazonaws.com'
+            CspReportDirectives: !If
+              - HasCspReportUrl
+              - !Sub 'report-uri ${CspReportUrl}; report-to csp-endpoint'
+              - ''
+
         SNSTopicArn: !Ref SNSTopicArn
         East1AlarmLambdaArn: !If [EnableHealthCheck, !GetAtt 'LambdaFunctionsStack.Outputs.East1AlarmLambdaArn', '']
         CRHelperLambdaLayer: !GetAtt 'LambdaFunctionsStack.Outputs.CRHelperLambdaLayer'
@@ -522,4 +564,4 @@ Resources:
 Outputs:
   TemplateVersion:
     Description: The version of the cloudformation template
-    Value: '2.0.9'
+    Value: '2.1.0'

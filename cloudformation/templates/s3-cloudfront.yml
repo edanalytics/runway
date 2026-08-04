@@ -76,16 +76,24 @@ Parameters:
     AllowedValues:
       - True
       - False
-  ResponseHeadersPolicy:
-    Description: Response Headers Policy
+  CspMode:
+    Description: >-
+      Whether to send Content-Security-Policy (enforcing) or
+      Content-Security-Policy-Report-Only (report-only).
     Type: String
-    Default: CORS-with-preflight-and-SecurityHeadersPolicy
+    Default: enforcing
     AllowedValues:
-      - SimpleCORS
-      - CORS-With-Preflight
-      - SecurityHeadersPolicy
-      - CORS-and-SecurityHeadersPolicy
-      - CORS-with-preflight-and-SecurityHeadersPolicy
+      - report-only
+      - enforcing
+  CspReportUrl:
+    Description: >-
+      Optional URL that receives Content-Security-Policy violation reports
+      (used in Reporting-Endpoints). Leave blank to omit the header.
+    Type: String
+    Default: 'https://csp-reports.edanalytics.app/csp-report'
+  ContentSecurityPolicy:
+    Description: Content-Security-Policy header value for CloudFront responses.
+    Type: String
   SNSTopicArn:
     Description: ARN of SNS topic to publish Route53 HealthCheck Alarms
     Type: String
@@ -110,6 +118,12 @@ Conditions:
   DoWildcardDomain: !Equals [!Ref WildcardDomain, 'Yes']
   DoRedirectErrors: !Equals [!Ref RedirectErrors, 'Yes']
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
+  HasCspReportUrl: !Not [!Equals [!Ref CspReportUrl, '']]
+  IsCspEnforcing: !Equals [!Ref CspMode, 'enforcing']
+  IsCspReportOnly: !Equals [!Ref CspMode, 'report-only']
+  HasCustomHeaders: !Or
+    - !Equals [!Ref CspMode, 'report-only']
+    - !Not [!Equals [!Ref CspReportUrl, '']]
 
 Mappings:
   CachePolicyMap:
@@ -119,18 +133,73 @@ Mappings:
       ID: b2884449-e4de-46a7-ac36-70bc7f1ddd6d
     CachingDisabled:
       ID: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-  ResponseHeadersPolicyMap:
-    SimpleCORS:
-      ID: 60669652-455b-4ae9-85a4-c4c02393f86c
-    CORS-With-Preflight:
-      ID: 5cc3b908-e619-4b99-88e5-2cf7f45965bd
-    SecurityHeadersPolicy:
-      ID: 67f7725c-6f97-4210-82d7-5512b31e9d03
-    CORS-and-SecurityHeadersPolicy:
-      ID: e61eb60c-9c35-4d20-a928-2b84e02af89c
-    CORS-with-preflight-and-SecurityHeadersPolicy:
-      ID: eaab4381-ed33-4a86-88ca-d9558dc6cd63
 Resources:
+  CloudFrontResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${EnvLabel}-ResponseHeadersPolicy'
+        Comment: !Sub '${EnvLabel} Managed Response Headers Policy'
+        CorsConfig:
+          AccessControlAllowCredentials: false
+          AccessControlAllowHeaders:
+            Items:
+              - '*'
+          AccessControlAllowMethods:
+            Items:
+              - DELETE
+              - GET
+              - HEAD
+              - OPTIONS
+              - PATCH
+              - POST
+              - PUT
+          AccessControlAllowOrigins:
+            Items:
+              - '*'
+          AccessControlExposeHeaders:
+            Items:
+              - '*'
+          AccessControlMaxAgeSec: 600
+          OriginOverride: false
+        SecurityHeadersConfig:
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: SAMEORIGIN
+            Override: false
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: false
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            Override: false
+          XSSProtection:
+            ModeBlock: true
+            Override: false
+            Protection: true
+          ContentSecurityPolicy: !If
+            - IsCspEnforcing
+            - ContentSecurityPolicy: !Ref ContentSecurityPolicy
+              Override: true
+            - !Ref 'AWS::NoValue'
+        CustomHeadersConfig: !If
+          - HasCustomHeaders
+          - Items:
+              - !If
+                - IsCspReportOnly
+                - Header: Content-Security-Policy-Report-Only
+                  Value: !Ref ContentSecurityPolicy
+                  Override: true
+                - !Ref 'AWS::NoValue'
+              - !If
+                - HasCspReportUrl
+                - Header: Reporting-Endpoints
+                  Value: !Sub 'csp-endpoint="${CspReportUrl}"'
+                  Override: true
+                - !Ref 'AWS::NoValue'
+          - !Ref 'AWS::NoValue'
+
   S3Bucket:
     Type: AWS::S3::Bucket
     Condition: DoCreateS3Bucket
@@ -406,7 +475,7 @@ Resources:
           SmoothStreaming: false
           TargetOriginId: !Ref S3BucketName
           ViewerProtocolPolicy: !Ref ViewerProtocolPolicy
-          ResponseHeadersPolicyId: !FindInMap [ ResponseHeadersPolicyMap, !Ref ResponseHeadersPolicy, ID ]
+          ResponseHeadersPolicyId: !Ref CloudFrontResponseHeadersPolicy
         DefaultRootObject: !Ref DefaultRootObject
         Enabled: true
         HttpVersion: http2
