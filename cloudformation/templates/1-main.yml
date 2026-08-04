@@ -308,7 +308,7 @@ Parameters:
   MatomoURL:
     Description: Matomo URL
     Type: String
-    Default: https://cdn.matomo.cloud/edanalytics.matomo.cloud/container_X8WEZDEU.js
+    Default: ''
   CreateEcsServiceLinkedRole:
     Type: String
     Description: If an ECS Service Linked Role already exists in this account, select False.
