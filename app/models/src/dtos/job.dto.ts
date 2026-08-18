@@ -140,7 +140,7 @@ export class GetJobDto
       return null;
     }
 
-    if (status === 'success' && (this.unmatchedStudentsFile || this.hasResourceErrors)) {
+    if (status === 'success' && (this.hasUnmatchedStudents || this.hasResourceErrors)) {
       return 'complete with errors';
     }
     return status;
@@ -151,8 +151,8 @@ export class GetJobDto
     return status === 'resolved' || status === 'complete with errors';
   }
 
-  get unmatchedStudentsFile() {
-    return this.lastRun?.unmatchedStudentsFile;
+  get hasUnmatchedStudents() {
+    return this.lastRun?.unmatchedStudentsInfo?.count !== undefined && this.lastRun?.unmatchedStudentsInfo?.count > 0;
   }
 
   get hasResourceErrors() {

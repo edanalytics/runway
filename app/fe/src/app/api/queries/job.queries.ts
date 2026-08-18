@@ -59,13 +59,11 @@ export const getInputFileDownloadUrl = async ({
 
 export const getOutputFileDownloadUrl = async ({
   jobId,
-  fileName,
 }: {
   jobId: GetJobDto['id'];
-  fileName: string;
 }) => {
   const url = await apiClient.get<string, string>(
-    `/jobs/${jobId}/output-files/${encodeURIComponent(fileName)}`
+    `/jobs/${jobId}/output-files/input_no_student_id_match.csv`
   );
   if (typeof url !== 'string') {
     throw new Error('Invalid download url');
