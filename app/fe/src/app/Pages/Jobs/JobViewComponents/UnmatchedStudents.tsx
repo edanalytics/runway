@@ -7,7 +7,6 @@ import { getOutputFileDownloadUrl } from '../../../api/queries/job.queries';
 import { IconExclamation } from '../../../../assets/icons';
 
 export const UnmatchedStudents = ({ job }: { job: GetJobDto }) => {
-
   const columnName = job.lastRun?.unmatchedStudentsInfo?.name;
   let displayIDType = job.lastRun?.unmatchedStudentsInfo?.type;
   const unmatchedStudentsCount = job.lastRun?.unmatchedStudentsInfo?.count;
