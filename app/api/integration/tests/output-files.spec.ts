@@ -8,6 +8,9 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { DtoableJob } from 'models/src/dtos/job.dto';
 
+const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
+const USER_ROLE = 'runway.test.user';
+
 describe('GET /output-files/:jobId', () => {
   let endpointA: string;
   let endpointB: string;
@@ -41,12 +44,14 @@ describe('GET /output-files/:jobId', () => {
   describe('authenticated requests', () => {
     let cookieA: string;
     let cookieB: string;
+    let nonSupportCookieA: string;
     beforeEach(async () => {
-      cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
-      cookieB = (await authHelper.login(idpA, userB, tenantB)).cookies;
+      cookieA = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+      cookieB = (await authHelper.login(idpA, userB, tenantB, SUPPORT_ROLES)).cookies;
+      nonSupportCookieA = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
     });
 
-    it('should return the output files for a job owned by the tenant', async () => {
+    it('should return the output files for a job owned by the tenant, for a SupportUser', async () => {
       const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
 
       expect(res.status).toBe(200);
@@ -54,6 +59,13 @@ describe('GET /output-files/:jobId', () => {
       expect(res.body.map((f: { name: string }) => f.name)).toEqual(
         expect.arrayContaining(expectedFiles.map((f) => f.name))
       );
+    });
+
+    it('should reject requests from a user without the SupportUser role, even for their own tenant', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Cookie', [nonSupportCookieA]);
+      expect(res.status).toBe(403);
     });
 
     it('should reject requests for jobs that are not associated with the tenant', async () => {

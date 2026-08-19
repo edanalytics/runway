@@ -4,6 +4,7 @@ import { toGetOutputFileDto } from '@edanalytics/models';
 import { OutputFilesService } from './output-files.service';
 import { TenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
 import { TenantResourceKey } from '../auth/authorization/tenant-resource-key.decorator';
+import { Authorize } from '../auth/helpers/authorize.decorator';
 
 @Controller()
 @ApiTags('Output Files')
@@ -13,6 +14,7 @@ export class OutputFilesController {
   constructor(private outputFilesService: OutputFilesService) {}
 
   @Get(':jobId')
+  @Authorize('job.metatenant.read')
   async findByJobId(@Param('jobId', new ParseIntPipe()) jobId: number) {
     const files = await this.outputFilesService.findByJobId(jobId);
     return toGetOutputFileDto(files);
