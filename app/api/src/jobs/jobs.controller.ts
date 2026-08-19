@@ -120,7 +120,7 @@ export class JobsController {
     }
     return url;
   }
-
+  
   @Get(':jobId/output-files/:fileName')
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForOutputFile(
