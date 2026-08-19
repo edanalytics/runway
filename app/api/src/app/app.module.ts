@@ -18,6 +18,7 @@ import { AuthorizedGuard } from '../auth/login/authorized.guard';
 import { PartnersModule } from '../partners/partners.module';
 import { SchoolYearConfigModule } from '../school-year-config/school-year-config.module';
 import { PartnerSyncModule } from '../partner-sync/partner-sync.module';
+import { OutputFilesModule } from '../output-files/output-files.module';
 
 const resourceModules = [
   UsersModule,
@@ -29,6 +30,7 @@ const resourceModules = [
   EarthbeamApiAuthModule,
   PartnersModule,
   SchoolYearConfigModule,
+  OutputFilesModule,
 ];
 
 @Module({

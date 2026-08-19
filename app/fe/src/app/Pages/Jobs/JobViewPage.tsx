@@ -18,6 +18,7 @@ import { GoBackLink } from '../../components/links';
 import { ResourceSummary } from './JobViewComponents/ResourceSummary';
 import { UnmatchedStudents } from './JobViewComponents/UnmatchedStudents';
 import { JobConfiguration } from './JobViewComponents/JobConfiguration';
+import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
@@ -157,6 +158,11 @@ export const JobViewPage = () => {
         <JobViewSection title="Configuration">
           <JobConfiguration job={job} />
         </JobViewSection>
+        {!!job.lastRun?.runOutputFile?.length && (
+          <JobViewSection title="Output Files">
+            <JobOutputFiles job={job} />
+          </JobViewSection>
+        )}
       </VStack>
     </VStack>
   );
