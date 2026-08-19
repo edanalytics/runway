@@ -109,7 +109,6 @@ export class JobsController {
     }
     return url;
   }
-
   @Get(':jobId/output-files/input_no_student_id_match.csv')
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForOutputFile(
@@ -118,6 +117,20 @@ export class JobsController {
     const url = await this.jobService.getDownloadUrlForOutputFile(jobId, 'input_no_student_id_match.csv');
     if (!url) {
       return new NotFoundException(`File not found for job ${jobId} and file input_no_student_id_match.csv`);
+    }
+    return url;
+  }
+  
+  @Get(':jobId/output-files/:fileName')
+  @AllowMetatenant('job.metatenant.read')
+  async downloadUrlForOutputFile(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('fileName') fileName: string
+  ) {
+    const decodedFilename = decodeURIComponent(fileName);
+    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, decodedFilename);
+    if (!url) {
+      return new NotFoundException(`File not found for job ${jobId} and file ${decodedFilename}`);
     }
     return url;
   }

@@ -38,7 +38,7 @@ export const UnmatchedStudents = ({ job }: { job: GetJobDto }) => {
             <Box>Download the list</Box>
             <DownloadFileButton
               fileName="input_no_student_id_match.csv"
-              getPresignedUrl={() => getOutputFileDownloadUrl({ jobId: job.id})}
+              getPresignedUrl={() => getOutputFileDownloadUrl({ jobId: job.id, fileName: 'input_no_student_id_match.csv' })}
               label="download list"
               textColor="green.100"
               minWidth="fit-content"
