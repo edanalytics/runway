@@ -111,7 +111,7 @@ export class JobsController {
   }
   @Get(':jobId/output-files/input_no_student_id_match.csv')
   @AllowMetatenant('job.metatenant.read')
-  async downloadUrlForOutputFile(
+  async downloadUrlForUnmatchedStudentsOutputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number,
   ) {
     const url = await this.jobService.getDownloadUrlForOutputFile(jobId, 'input_no_student_id_match.csv');
@@ -120,7 +120,7 @@ export class JobsController {
     }
     return url;
   }
-  
+
   @Get(':jobId/output-files/:fileName')
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForOutputFile(
