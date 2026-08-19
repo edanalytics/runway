@@ -90,6 +90,7 @@ export const JobViewPage = () => {
     >
       <Box>
         <GoBackLink to="/assessments" />
+        <Box textStyle="h5">{job.tenantCode}</Box>
         <Box textStyle="h5">{schoolYear?.displayName} school year</Box>
 
         <HStack gap="400" alignItems="center">
