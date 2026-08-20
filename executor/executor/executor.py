@@ -167,6 +167,8 @@ class JobExecutor:
             # e.g. deleting data from the container as a security measure
             self.logger.info("spinning down")
             self.send_update(action.DONE, status.SUCCESS if success else status.FAILURE)
+            if self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
+                self.match_candidates()
 
     def unpack_job(self, job):
         """Parse the job definition received from the app"""
@@ -611,6 +613,28 @@ class JobExecutor:
             sent_to_ods=False,
             em_results_path=artifact.EM_RESULTS_X_YEAR.path,
         )
+
+    def match_candidates(self):
+        '''run the match_candidates wrapper code to attempt id resolution for the records in the input file.'''
+
+        # Archive the active output dir as "pre-candidates". Create a new, empty output dir
+        pre_candidates_output_dir = os.path.abspath(config.PRE_CANDIDATES_DIR)
+        os.rename(self.output_dir, pre_candidates_output_dir)
+        os.mkdir(self.output_dir)
+
+        # Run earthmover 
+        self.logger.info('running match_candidates_wrapper...')
+        self.earthmover_run(self.candidate_wrapper_earthmover, artifact.CANDIDATES.path)
+        artifact.CANDIDATES.needs_upload=True
+        self.logger.info('uploading candidates.jsonl...')
+        self.upload_artifact(artifact.CANDIDATES)
+
+        # Return our output set
+        return OutputSet(
+                    local_dir=self.output_dir,
+                    s3_subdir="candidates",
+                    sent_to_ods=False
+                )
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""
