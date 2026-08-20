@@ -48,7 +48,7 @@ class JobExecutor:
         self.timeout_seconds = int(os.environ.get("TIMEOUT_SECONDS"))
         self.em_runtime = ""
 
-
+        # student_id_wrapper variables
         self.wrapper_project = os.path.join(
             config.BUNDLE_DIR, "packages", "student_id_wrapper"
         )
@@ -169,6 +169,7 @@ class JobExecutor:
             self.send_update(action.DONE, status.SUCCESS if success else status.FAILURE)
             if self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
                 self.match_candidates()
+                # TODO: How do we want to capture success/failure cases in here? Surely not just copy-paste the try/except from above ?
 
     def unpack_job(self, job):
         """Parse the job definition received from the app"""
