@@ -116,7 +116,7 @@ class JobExecutor:
 
             self.unpack_job(job)
             self.refresh_bundle_code()
-            self.earthmover_deps()
+            self.earthmover_deps(self.wrapper_earthmover)
 
             if self.send_to_ods and self.local_mode:
                 self.modify_local_lightbeam()
@@ -280,12 +280,12 @@ class JobExecutor:
 
         return em       
 
-    def earthmover_deps(self):
+    def earthmover_deps(self, wrapper):
         """Create the Earthmover runtime environment by installing bundle dependencies"""
         self.set_action(action.EARTHMOVER_DEPS)
 
         try:
-            cmd=["earthmover", "-c", self.wrapper_earthmover, "deps"]
+            cmd=["earthmover", "-c", wrapper, "deps"]
             self.earthmover_cmd(args=cmd, check=True)
         except subprocess.CalledProcessError:
             self.error = error.EarthmoverDepsError()
@@ -623,7 +623,11 @@ class JobExecutor:
         os.rename(self.output_dir, pre_candidates_output_dir)
         os.mkdir(self.output_dir)
 
-        # Run earthmover 
+        # Run earthmover deps 
+        self.logger.info('installing earthmover deps...')
+        self.earthmover_deps(self.candidate_wrapper_earthmover)
+
+        # Run the wrapper
         self.logger.info('running match_candidates_wrapper...')
         self.earthmover_run(self.candidate_wrapper_earthmover, artifact.CANDIDATES.path)
         artifact.CANDIDATES.needs_upload=True
