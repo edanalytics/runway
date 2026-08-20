@@ -55,6 +55,14 @@ class JobExecutor:
             self.wrapper_project, "earthmover.yaml"
         )
 
+        # match_candidates_wrapper variables
+        self.candidate_wrapper_project = os.path.join(
+            config.BUNDLE_DIR, "packages", "match_candidates_wrapper"
+        )
+        self.candidate_wrapper_earthmover = os.path.join(
+            self.candidate_wrapper_project, "earthmover.yaml"
+        )
+
         endpoint_url = os.environ.get("S3_ENDPOINT_URL")
         self.s3 = boto3.client("s3", **({"endpoint_url": endpoint_url} if endpoint_url else {}))
         self.local_mode = os.environ.get("DEPLOYMENT_MODE") == "LOCAL"
@@ -472,7 +480,7 @@ class JobExecutor:
 
         self.upload_artifact(artifact.MATCH_RATES)
 
-    def earthmover_run(self, results_path):
+    def earthmover_run(self, wrapper, results_path):
         """Compile and run Earthmover into the given results directory."""
         self.check_input_encoding()
         if self.input_sources["INPUT_FILE"]["is_plausible_non_utf8"]:
@@ -485,12 +493,12 @@ class JobExecutor:
 
         fatal = False
         try:
-            cmd = ["earthmover", "-c", self.wrapper_earthmover, "compile"]
+            cmd = ["earthmover", "-c", wrapper, "compile"]
             em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
             em.check_returncode()
 
             # attempt no. 1
-            cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path]
+            cmd = ["earthmover", "-c", wrapper, "run", "--results-file", results_path]
             cmd.extend(encoding_args)
             em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
             em.check_returncode()
@@ -505,7 +513,7 @@ class JobExecutor:
                 self.logger.error(f"Failed to read file with {encoding} encoding. Retrying with Latin1...")
                 try:
                     # attempt no. 2 - need a new em object to overwrite the decoding error
-                    cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"]
+                    cmd = ["earthmover", "-c", wrapper, "run", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"]
                     em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
                     em.check_returncode()
                     
@@ -567,7 +575,7 @@ class JobExecutor:
         else:
             self.logger.info("cross-year pass: first pass below threshold, running again against all ID types")
 
-        self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
+        self.earthmover_run(self.wrapper_earthmover, artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
         
