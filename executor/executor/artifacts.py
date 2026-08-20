@@ -50,5 +50,10 @@ LB_SEND_RESULTS = JobArtifact(
     "lightbeam_send_results",
     "lb-send-results.json"
 )
+CANDIDATES = JobArtifact(
+    "candidate_results",
+    "candidates.jsonl",
+    False
+)
 
-ALL = [ROSTER, CROSS_YEAR_ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS]
+ALL = [ROSTER, CROSS_YEAR_ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS, CANDIDATES]
