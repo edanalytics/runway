@@ -617,6 +617,7 @@ class JobExecutor:
 
     def match_candidates(self):
         '''run the match_candidates wrapper code to attempt id resolution for the records in the input file.'''
+        self.set_action(action.MATCH_CANDIDATES)
 
         # Archive the active output dir as "pre-candidates". Create a new, empty output dir
         pre_candidates_output_dir = os.path.abspath(config.PRE_CANDIDATES_DIR)
@@ -633,13 +634,7 @@ class JobExecutor:
         artifact.CANDIDATES.needs_upload=True
         self.logger.info('uploading candidates.jsonl...')
         self.upload_artifact(artifact.CANDIDATES)
-
-        # Return our output set
-        return OutputSet(
-                    local_dir=self.output_dir,
-                    s3_subdir="candidates",
-                    sent_to_ods=False
-                )
+        
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""
