@@ -46,6 +46,7 @@ class JobExecutor:
         self.error = None
         self.summary = {}
         self.timeout_seconds = int(os.environ.get("TIMEOUT_SECONDS"))
+        self.em_runtime = ""
 
 
         self.wrapper_project = os.path.join(
@@ -451,7 +452,10 @@ class JobExecutor:
         os.environ["EDFI_STUDENT_ID_TYPES"] = ",".join(self.distinct_id_types)
         self.logger.info(f"Student ID types in Ed-Fi roster: {os.environ['EDFI_STUDENT_ID_TYPES']}")
 
-        self.earthmover_run(artifact.EM_RESULTS.path)
+        start = time.monotonic()
+        self.earthmover_run(self.wrapper_earthmover, artifact.EM_RESULTS.path)
+        self.em_runtime = time.monotonic() - start
+        
         self.upload_artifact(artifact.EM_RESULTS)
         self.record_highest_match_rate()
 
