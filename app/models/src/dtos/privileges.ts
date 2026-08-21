@@ -7,4 +7,5 @@ export type PrivilegeKey =
   | 'partner-config.read'
   | 'partner-config.update'
   | 'job.metatenant.read'
-  | 'job.metatenant.update';
+  | 'job.metatenant.update'
+  | 'job.metatenant.output-files.read';

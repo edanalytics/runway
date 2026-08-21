@@ -1,20 +1,34 @@
 import { JobsController } from './jobs.controller';
-import { EXTERNAL_API_SCOPE_KEY } from '../external-api/auth/external-api-scope.decorator';
+import { ALLOW_METATENANT } from '../auth/authorization/allow-metatenant.decorator';
 
 describe('JobsController output-files routes', () => {
-  it('requires the read:jobs:output-files external API scope on the generic output-files handler', () => {
-    const scopes = Reflect.getMetadata(
-      EXTERNAL_API_SCOPE_KEY,
-      JobsController.prototype.downloadUrlForOutputFile
-    );
-    expect(scopes).toEqual(['read:jobs:output-files']);
-  });
-
-  it('does not require the read:jobs:output-files external API scope on the input_no_student_id_match.csv handler', () => {
-    const scopes = Reflect.getMetadata(
-      EXTERNAL_API_SCOPE_KEY,
+  it('does not require any privilege beyond basic job read for input_no_student_id_match.csv', () => {
+    const privilege = Reflect.getMetadata(
+      ALLOW_METATENANT,
       JobsController.prototype.downloadUrlForUnmatchedStudentsOutputFile
     );
-    expect(scopes).toBeUndefined();
+    // Same privilege as GET /jobs/:jobId (findOne) -- nothing extra is required
+    // to access this specific output file beyond being able to view the job at all.
+    expect(privilege).toBe('job.metatenant.read');
+  });
+
+  it('requires the dedicated output-files privilege on the generic output-files handler', () => {
+    const privilege = Reflect.getMetadata(
+      ALLOW_METATENANT,
+      JobsController.prototype.downloadUrlForOutputFile
+    );
+    expect(privilege).toBe('job.metatenant.output-files.read');
+  });
+
+  it('requires a stricter privilege for the generic output-files handler than for input_no_student_id_match.csv', () => {
+    const unmatchedPrivilege = Reflect.getMetadata(
+      ALLOW_METATENANT,
+      JobsController.prototype.downloadUrlForUnmatchedStudentsOutputFile
+    );
+    const outputFilesPrivilege = Reflect.getMetadata(
+      ALLOW_METATENANT,
+      JobsController.prototype.downloadUrlForOutputFile
+    );
+    expect(outputFilesPrivilege).not.toBe(unmatchedPrivilege);
   });
 });
