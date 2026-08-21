@@ -49,11 +49,11 @@ class JobExecutor:
         self.em_runtime = ""
 
         # student_id_wrapper variables
-        self.wrapper_project = os.path.join(
+        self.student_id_wrapper_project = os.path.join(
             config.BUNDLE_DIR, "packages", "student_id_wrapper"
         )
-        self.wrapper_earthmover = os.path.join(
-            self.wrapper_project, "earthmover.yaml"
+        self.student_id_wrapper_earthmover = os.path.join(
+            self.student_id_wrapper_project, "earthmover.yaml"
         )
 
         # match_candidates_wrapper variables
@@ -116,7 +116,7 @@ class JobExecutor:
 
             self.unpack_job(job)
             self.refresh_bundle_code()
-            self.earthmover_deps(self.wrapper_earthmover)
+            self.earthmover_deps(self.student_id_wrapper_earthmover)
 
             if self.send_to_ods and self.local_mode:
                 self.modify_local_lightbeam()
@@ -456,7 +456,7 @@ class JobExecutor:
         self.logger.info(f"Student ID types in Ed-Fi roster: {os.environ['EDFI_STUDENT_ID_TYPES']}")
 
         start = time.monotonic()
-        self.earthmover_run(self.wrapper_earthmover, artifact.EM_RESULTS.path)
+        self.earthmover_run(self.student_id_wrapper_earthmover, artifact.EM_RESULTS.path)
         self.em_runtime = time.monotonic() - start
         
         self.upload_artifact(artifact.EM_RESULTS)
@@ -582,7 +582,7 @@ class JobExecutor:
         else:
             self.logger.info("cross-year pass: first pass below threshold, running again against all ID types")
 
-        self.earthmover_run(self.wrapper_earthmover, artifact.EM_RESULTS_X_YEAR.path)
+        self.earthmover_run(self.student_id_wrapper_earthmover, artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
         
