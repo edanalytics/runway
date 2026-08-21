@@ -15,6 +15,6 @@ STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75
 PLAUSIBLE_NON_UTF8_ENCODINGS = ["UTF-8-SIG", "UTF-16", "ISO-8859-1", "Windows-1252"]
 
 # Set max thresholds for certain tasks in seconds
-# If task length exceeds these thresholds, we want to notify the app
+# Search for these in executor.py to see how they are used and the downstream implications.
 MAX_EM_RUNTIME_SECONDS = 6000
 MAX_ENCODING_DETECTION_SECONDS = 300
