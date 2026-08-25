@@ -457,6 +457,7 @@ class JobExecutor:
         start = time.monotonic()
         self.earthmover_run(self.student_id_wrapper_earthmover, artifact.EM_RESULTS.path)
         self.em_runtime = time.monotonic() - start
+        self.logger.info(f'em_runtime is set as: {self.em_runtime}')
         
         self.upload_artifact(artifact.EM_RESULTS)
         self.record_highest_match_rate()
