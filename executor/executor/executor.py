@@ -46,7 +46,7 @@ class JobExecutor:
         self.error = None
         self.summary = {}
         self.timeout_seconds = int(os.environ.get("TIMEOUT_SECONDS"))
-        self.em_runtime = ""
+        self.em_runtime = None
 
         # student_id_wrapper variables
         self.student_id_wrapper_project = os.path.join(
@@ -167,9 +167,8 @@ class JobExecutor:
             # e.g. deleting data from the container as a security measure
             self.logger.info("spinning down")
             self.send_update(action.DONE, status.SUCCESS if success else status.FAILURE)
-            if self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
+            if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
                 self.match_candidates()
-                # TODO: How do we want to capture success/failure cases in here? Surely not just copy-paste the try/except from above ?
 
     def unpack_job(self, job):
         """Parse the job definition received from the app"""
@@ -188,7 +187,7 @@ class JobExecutor:
                 self.cross_year_roster_url = job["appUrls"]["roster"]
 
             self.assessment_project = os.path.join(
-                self.wrapper_project, "packages", *job["bundle"]["path"].split("/")[1:]
+                self.student_id_wrapper_project, "packages", *job["bundle"]["path"].split("/")[1:]
             )
             self.seeds_dir = os.path.join(
                 self.assessment_project, "seeds"
