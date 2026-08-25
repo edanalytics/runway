@@ -620,6 +620,7 @@ class JobExecutor:
 
         # Archive the active output dir as "pre-candidates". Create a new, empty output dir
         pre_candidates_output_dir = os.path.abspath(config.PRE_CANDIDATES_DIR)
+        shutil.rmtree(pre_candidates_output_dir, ignore_errors=True)
         os.rename(self.output_dir, pre_candidates_output_dir)
         os.mkdir(self.output_dir)
 
