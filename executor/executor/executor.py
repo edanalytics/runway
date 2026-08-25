@@ -631,9 +631,8 @@ class JobExecutor:
         self.logger.info('running match_candidates_wrapper...')
         self.earthmover_run(self.candidate_wrapper_earthmover, artifact.CANDIDATES.path)
         artifact.CANDIDATES.needs_upload=True
-        self.logger.info('uploading candidates.jsonl...')
         self.upload_artifact(artifact.CANDIDATES)
-        
+        self.logger.info('candidates.jsonl uploaded!')
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""
