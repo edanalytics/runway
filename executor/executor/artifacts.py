@@ -50,9 +50,14 @@ LB_SEND_RESULTS = JobArtifact(
     "lightbeam_send_results",
     "lb-send-results.json"
 )
+CANDIDATES_EM_RESULTS = JobArtifact(
+    "candidates_em_results",
+    "candidates_em_results.json",
+    False
+)
 CANDIDATES = JobArtifact(
     "candidate_results",
-    "candidates.jsonl",
+    os.path.join(config.OUTPUT_DIR, "candidates.jsonl"),
     False
 )
 

@@ -629,7 +629,7 @@ class JobExecutor:
 
         # Run the wrapper
         self.logger.info('running match_candidates_wrapper...')
-        self.earthmover_run(self.candidate_wrapper_earthmover, artifact.CANDIDATES.path)
+        self.earthmover_run(self.candidate_wrapper_earthmover, artifact.CANDIDATES_EM_RESULTS.path)
         artifact.CANDIDATES.needs_upload=True
         self.upload_artifact(artifact.CANDIDATES)
         self.logger.info('candidates.jsonl uploaded!')
