@@ -42,6 +42,7 @@ class JobExecutor:
         self.logger.propagate = False
         self.logger.addHandler(handler)
 
+        self.success = False
         self.action = ""
         self.error = None
         self.summary = {}
@@ -100,7 +101,6 @@ class JobExecutor:
         signal.signal(signal.SIGALRM, self.timeout_handler)
         signal.alarm(self.timeout_seconds)
 
-        success = False
         try:
             self.logger.info("spinning up")
             init_resp = self.conn.get(
@@ -159,14 +159,14 @@ class JobExecutor:
             self.send_error()
         else:
             # success case
-            success = True
+            self.success = True
             # send a final 'success' update for whatever our final action was
             self.update_success()
         finally:
             # in the future we may wish to perform additional cleanup here,
             # e.g. deleting data from the container as a security measure
             self.logger.info("spinning down")
-            self.send_update(action.DONE, status.SUCCESS if success else status.FAILURE)
+            self.send_update(action.DONE, status.SUCCESS if self.success else status.FAILURE)
             if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
                 self.match_candidates()
 
@@ -948,11 +948,12 @@ class JobExecutor:
 
     def set_action(self, next_action):
         """Change the current action and mark the previous one as successful"""
-        if self.action:
-            self.update_success()
-        self.action = next_action
-        self.logger.info(f"beginning action: {next_action}")
-        self.update_begin()
+        if not self.success:
+            if self.action:
+                self.update_success()
+            self.action = next_action
+            self.logger.info(f"beginning action: {next_action}")
+            self.update_begin()
 
     def update_begin(self):
         """Send a message to the app indicating the beginning of an action"""
