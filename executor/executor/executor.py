@@ -449,6 +449,9 @@ class JobExecutor:
         """
         self.set_action(action.EARTHMOVER_RUN)
 
+        # capture path to original input file
+        self.original_input_path = self.input_sources["INPUT_FILE"]["path"]
+
         # first pass
         self.unpack_id_types()
         os.environ["EDFI_STUDENT_ID_TYPES"] = ",".join(self.distinct_id_types)
@@ -624,6 +627,10 @@ class JobExecutor:
         shutil.rmtree(pre_candidates_output_dir, ignore_errors=True)
         os.rename(self.output_dir, pre_candidates_output_dir)
         os.mkdir(self.output_dir)
+
+        # explicitly set our input file to the original input
+        os.environ["INPUT_FILE"] = self.original_input_path
+        self.input_sources["INPUT_FILE"]["path"] = self.original_input_path
 
         # Run earthmover deps 
         self.logger.info('installing earthmover deps...')
