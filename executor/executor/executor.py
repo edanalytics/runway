@@ -42,17 +42,27 @@ class JobExecutor:
         self.logger.propagate = False
         self.logger.addHandler(handler)
 
+        self.success = False
         self.action = ""
         self.error = None
         self.summary = {}
         self.timeout_seconds = int(os.environ.get("TIMEOUT_SECONDS"))
+        self.em_runtime = None
 
-
-        self.wrapper_project = os.path.join(
+        # student_id_wrapper variables
+        self.student_id_wrapper_project = os.path.join(
             config.BUNDLE_DIR, "packages", "student_id_wrapper"
         )
-        self.wrapper_earthmover = os.path.join(
-            self.wrapper_project, "earthmover.yaml"
+        self.student_id_wrapper_earthmover = os.path.join(
+            self.student_id_wrapper_project, "earthmover.yaml"
+        )
+
+        # match_candidates_wrapper variables
+        self.candidate_wrapper_project = os.path.join(
+            config.BUNDLE_DIR, "packages", "match_candidates_wrapper"
+        )
+        self.candidate_wrapper_earthmover = os.path.join(
+            self.candidate_wrapper_project, "earthmover.yaml"
         )
 
         endpoint_url = os.environ.get("S3_ENDPOINT_URL")
@@ -91,7 +101,6 @@ class JobExecutor:
         signal.signal(signal.SIGALRM, self.timeout_handler)
         signal.alarm(self.timeout_seconds)
 
-        success = False
         try:
             self.logger.info("spinning up")
             init_resp = self.conn.get(
@@ -107,7 +116,7 @@ class JobExecutor:
 
             self.unpack_job(job)
             self.refresh_bundle_code()
-            self.earthmover_deps()
+            self.earthmover_deps(self.student_id_wrapper_earthmover)
 
             if self.send_to_ods and self.local_mode:
                 self.modify_local_lightbeam()
@@ -150,14 +159,16 @@ class JobExecutor:
             self.send_error()
         else:
             # success case
-            success = True
+            self.success = True
             # send a final 'success' update for whatever our final action was
             self.update_success()
         finally:
             # in the future we may wish to perform additional cleanup here,
             # e.g. deleting data from the container as a security measure
             self.logger.info("spinning down")
-            self.send_update(action.DONE, status.SUCCESS if success else status.FAILURE)
+            self.send_update(action.DONE, status.SUCCESS if self.success else status.FAILURE)
+            if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
+                self.match_candidates()
 
     def unpack_job(self, job):
         """Parse the job definition received from the app"""
@@ -176,7 +187,7 @@ class JobExecutor:
                 self.cross_year_roster_url = job["appUrls"]["roster"]
 
             self.assessment_project = os.path.join(
-                self.wrapper_project, "packages", *job["bundle"]["path"].split("/")[1:]
+                self.student_id_wrapper_project, "packages", *job["bundle"]["path"].split("/")[1:]
             )
             self.seeds_dir = os.path.join(
                 self.assessment_project, "seeds"
@@ -268,12 +279,12 @@ class JobExecutor:
 
         return em       
 
-    def earthmover_deps(self):
+    def earthmover_deps(self, wrapper):
         """Create the Earthmover runtime environment by installing bundle dependencies"""
         self.set_action(action.EARTHMOVER_DEPS)
 
         try:
-            cmd=["earthmover", "-c", self.wrapper_earthmover, "deps"]
+            cmd=["earthmover", "-c", wrapper, "deps"]
             self.earthmover_cmd(args=cmd, check=True)
         except subprocess.CalledProcessError:
             self.error = error.EarthmoverDepsError()
@@ -438,12 +449,19 @@ class JobExecutor:
         """
         self.set_action(action.EARTHMOVER_RUN)
 
+        # capture path to original input file
+        self.original_input_path = self.input_sources["INPUT_FILE"]["path"]
+
         # first pass
         self.unpack_id_types()
         os.environ["EDFI_STUDENT_ID_TYPES"] = ",".join(self.distinct_id_types)
         self.logger.info(f"Student ID types in Ed-Fi roster: {os.environ['EDFI_STUDENT_ID_TYPES']}")
 
-        self.earthmover_run(artifact.EM_RESULTS.path)
+        start = time.monotonic()
+        self.earthmover_run(self.student_id_wrapper_earthmover, artifact.EM_RESULTS.path)
+        self.em_runtime = time.monotonic() - start
+        self.logger.info(f'em_runtime is set as: {self.em_runtime}')
+        
         self.upload_artifact(artifact.EM_RESULTS)
         self.record_highest_match_rate()
 
@@ -472,7 +490,7 @@ class JobExecutor:
 
         self.upload_artifact(artifact.MATCH_RATES)
 
-    def earthmover_run(self, results_path):
+    def earthmover_run(self, wrapper, results_path):
         """Compile and run Earthmover into the given results directory."""
         self.check_input_encoding()
         if self.input_sources["INPUT_FILE"]["is_plausible_non_utf8"]:
@@ -485,12 +503,12 @@ class JobExecutor:
 
         fatal = False
         try:
-            cmd = ["earthmover", "-c", self.wrapper_earthmover, "compile"]
+            cmd = ["earthmover", "-c", wrapper, "compile"]
             em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
             em.check_returncode()
 
             # attempt no. 1
-            cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path]
+            cmd = ["earthmover", "-c", wrapper, "run", "--results-file", results_path]
             cmd.extend(encoding_args)
             em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
             em.check_returncode()
@@ -505,7 +523,7 @@ class JobExecutor:
                 self.logger.error(f"Failed to read file with {encoding} encoding. Retrying with Latin1...")
                 try:
                     # attempt no. 2 - need a new em object to overwrite the decoding error
-                    cmd = ["earthmover", "-c", self.wrapper_earthmover, "run", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"]
+                    cmd = ["earthmover", "-c", wrapper, "run", "--results-file", results_path, "--set", "sources.input.encoding", "iso-8859-1"]
                     em = self.earthmover_cmd(args=cmd, capture_output=True, text=True)
                     em.check_returncode()
                     
@@ -567,7 +585,7 @@ class JobExecutor:
         else:
             self.logger.info("cross-year pass: first pass below threshold, running again against all ID types")
 
-        self.earthmover_run(artifact.EM_RESULTS_X_YEAR.path)
+        self.earthmover_run(self.student_id_wrapper_earthmover, artifact.EM_RESULTS_X_YEAR.path)
         artifact.EM_RESULTS_X_YEAR.needs_upload = True
         self.upload_artifact(artifact.EM_RESULTS_X_YEAR)
         
@@ -599,6 +617,31 @@ class JobExecutor:
             sent_to_ods=False,
             em_results_path=artifact.EM_RESULTS_X_YEAR.path,
         )
+
+    def match_candidates(self):
+        '''run the match_candidates wrapper code to attempt id resolution for the records in the input file.'''
+        self.set_action(action.MATCH_CANDIDATES)
+
+        # Archive the active output dir as "pre-candidates". Create a new, empty output dir
+        pre_candidates_output_dir = os.path.abspath(config.PRE_CANDIDATES_DIR)
+        shutil.rmtree(pre_candidates_output_dir, ignore_errors=True)
+        os.rename(self.output_dir, pre_candidates_output_dir)
+        os.mkdir(self.output_dir)
+
+        # explicitly set our input file to the original input
+        os.environ["INPUT_FILE"] = self.original_input_path
+        self.input_sources["INPUT_FILE"]["path"] = self.original_input_path
+
+        # Run earthmover deps 
+        self.logger.info('installing earthmover deps...')
+        self.earthmover_deps(self.candidate_wrapper_earthmover)
+
+        # Run the wrapper
+        self.logger.info('running match_candidates_wrapper...')
+        self.earthmover_run(self.candidate_wrapper_earthmover, artifact.CANDIDATES_EM_RESULTS.path)
+        artifact.CANDIDATES.needs_upload=True
+        self.upload_artifact(artifact.CANDIDATES)
+        self.logger.info('candidates.jsonl uploaded!')
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""
@@ -912,11 +955,12 @@ class JobExecutor:
 
     def set_action(self, next_action):
         """Change the current action and mark the previous one as successful"""
-        if self.action:
-            self.update_success()
-        self.action = next_action
-        self.logger.info(f"beginning action: {next_action}")
-        self.update_begin()
+        if not self.success:
+            if self.action:
+                self.update_success()
+            self.action = next_action
+            self.logger.info(f"beginning action: {next_action}")
+            self.update_begin()
 
     def update_begin(self):
         """Send a message to the app indicating the beginning of an action"""

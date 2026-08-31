@@ -4,6 +4,8 @@ OUTPUT_DIR = 'output'
 OUTPUT_DIR_FIRST_RUN = 'output-first-run'
 ROSTER_DOWNLOAD_DIR = 'roster-download-dir'
 CROSS_YEAR_ROSTER_PATH = 'cross_year_roster.jsonl'
+# when matching candidates with the ID Resolution Service: location to move previous output sets to
+PRE_CANDIDATES_DIR = 'pre-candidates'
 
 REQUIRED_ID_MATCH_RATE = 0.5
 STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75
@@ -11,4 +13,8 @@ STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75
 # set of alternate encodings we think are realistic for assessment files
 # python has no UTF-16-SIG encoding, and chardet does not distinguish between UTF-16 BE and LE
 PLAUSIBLE_NON_UTF8_ENCODINGS = ["UTF-8-SIG", "UTF-16", "ISO-8859-1", "Windows-1252"]
+
+# Set max thresholds for certain tasks in seconds
+# Search for these in executor.py to see how they are used and the downstream implications.
+MAX_EM_RUNTIME_SECONDS = 600
 MAX_ENCODING_DETECTION_SECONDS = 300
