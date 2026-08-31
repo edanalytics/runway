@@ -380,7 +380,7 @@ describe('GET /jobs/:id/output-files/*', () => {
     expect(resOther.status).toBe(401);
   });
 
-  describe('the unmatched-students file (no dedicated privilege beyond job read)', () => {
+  describe('the unmatched-students file', () => {
     it('is downloadable by a User in their login tenant', async () => {
       const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
       const res = await request(app.getHttpServer())
