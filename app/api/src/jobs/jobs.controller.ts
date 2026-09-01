@@ -28,6 +28,7 @@ import {
   PostJobResponseDto,
   PutJobResolveDto,
   toGetJobDto,
+  toGetOutputFileDto,
   toGetRunUpdateDto,
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
@@ -110,6 +111,17 @@ export class JobsController {
     }
     return url;
   }
+  @Get(':jobId/output-files')
+  @AllowMetatenant('job.metatenant.output-files.read')
+  @Authorize('job.output-files.read')
+  async getOutputFiles(@Param('jobId', new ParseIntPipe()) jobId: number) {
+    const files = await this.prisma.runOutputFile.findMany({
+      where: { run: { jobId } },
+      orderBy: { runId: 'desc' },
+    });
+    return toGetOutputFileDto(files);
+  }
+
   @Get(':jobId/output-files/input_no_student_id_match.csv')
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForUnmatchedStudentsOutputFile(

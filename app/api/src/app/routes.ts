@@ -13,7 +13,6 @@ import {
 import { ExternalApiV1Module } from '../external-api/v1/external-api.v1.module';
 import { PartnersModule } from '../partners/partners.module';
 import { SchoolYearConfigModule } from '../school-year-config/school-year-config.module';
-import { OutputFilesModule } from '../output-files/output-files.module';
 
 export const routes: Routes = [
   {
@@ -27,10 +26,6 @@ export const routes: Routes = [
   {
     path: 'jobs',
     module: JobsModule,
-  },
-  {
-    path: 'output-files',
-    module: OutputFilesModule,
   },
   {
     path: 'job-templates',
