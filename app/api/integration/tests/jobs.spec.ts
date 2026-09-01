@@ -136,9 +136,6 @@ describe('GET /jobs', () => {
             expect(r.status).toBe(originalRun.status);
             expect(r.createdOn.getTime()).toEqual(originalRun.createdOn.getTime());
             expect(r.summary).toEqual(originalRun.summary);
-            expect(r.runOutputFile?.map((f) => f.name)).toEqual(
-              expect.arrayContaining(originalRun.runOutputFile?.map((f) => f.name) ?? [])
-            );
             expect(r.unmatchedStudentsInfo ?? {}).toEqual(
               expect.objectContaining(originalRun.unmatchedStudentsInfo ?? {})
             );
@@ -386,9 +383,9 @@ describe('GET /jobs/:id/output-files', () => {
 
     it('should return the output files for a job owned by the tenant, for a SupportUser', async () => {
       const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieA]);
-
       expect(res.status).toBe(200);
-      const expectedFiles = jobA.runs?.flatMap((r) => r.runOutputFile ?? []) ?? [];
+
+      const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobA.id } } });
       expect(res.body.map((f: { name: string }) => f.name)).toEqual(
         expect.arrayContaining(expectedFiles.map((f) => f.name))
       );
@@ -465,7 +462,7 @@ describe('GET /jobs/:id/output-files', () => {
         const res = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookie]);
 
         expect(res.status).toBe(200);
-        const expectedFiles = jobB.runs?.flatMap((r) => r.runOutputFile ?? []) ?? [];
+        const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobB.id } } });
         expect(res.body.map((f: { name: string }) => f.name)).toEqual(
           expect.arrayContaining(expectedFiles.map((f) => f.name))
         );

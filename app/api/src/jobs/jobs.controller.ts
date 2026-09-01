@@ -57,11 +57,6 @@ export class JobsController {
       where: { tenantCode: tenant.code, partnerId: tenant.partnerId, runs: { some: {} } },
       include: {
         schoolYear: true,
-        runs: {
-          include: {
-            runOutputFile: true,
-          },
-        },
         files: true,
         createdBy: true,
       },
@@ -84,7 +79,6 @@ export class JobsController {
           include: {
             runError: true,
             runUpdate: true,
-            runOutputFile: true,
           },
         },
       },
@@ -282,11 +276,6 @@ export class JobsController {
           where: { id: jobId },
           include: {
             files: true,
-            runs: {
-              include: {
-                runOutputFile: true,
-              },
-            },
           },
         })
         .catch(() => {

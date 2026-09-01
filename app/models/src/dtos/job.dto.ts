@@ -4,7 +4,7 @@ import { makeSerializerCustomType } from '../utils/make-serializer';
 import { DtoPostBase, PostDto } from '../utils/post-base.dto';
 import { GetJobTemplateDto, GetJobTemplateInputParamDto } from './job-template.dto';
 import { GetFileDto, PostFileDto } from './file.dto';
-import { $Enums, Job, JobFile, Run, RunError, RunOutputFile } from '@prisma/client';
+import { $Enums, Job, JobFile, Run, RunError } from '@prisma/client';
 import {
   IsArray,
   IsBoolean,
@@ -36,7 +36,7 @@ export class JobInputParamDto extends GetJobTemplateInputParamDto {
 
 export type DtoableJob = Job & {
   files: JobFile[];
-  runs?: Array<Run & { runError?: RunError[]; runOutputFile?: RunOutputFile[] }>;
+  runs?: Array<Run & { runError?: RunError[]; }>;
 };
 export type TJobDisplayStatus =
   | Exclude<GetRunDto['status'], null>

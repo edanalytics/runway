@@ -3,12 +3,6 @@ import { DtoGetBase, GetDto } from '../utils/get-base.dto';
 import { Prisma, Run, RunStatus } from '@prisma/client';
 import { makeSerializer } from '../utils';
 import { IsOptional } from 'class-validator';
-
-export class RunOutputFileDto {
-  @Expose()
-  name: string;
-}
-
 export class GetRunDto
   extends DtoGetBase
   implements
@@ -34,10 +28,6 @@ export class GetRunDto
   @Expose()
   @Type(() => UnmatchedStudentsInfoDto)
   unmatchedStudentsInfo: UnmatchedStudentsInfoDto | null;
-
-  @Expose()
-  @Type(() => RunOutputFileDto)
-  runOutputFile: RunOutputFileDto[];
 }
 
 export class UnmatchedStudentsInfoDto {
