@@ -57,6 +57,7 @@ export class JobsController {
       where: { tenantCode: tenant.code, partnerId: tenant.partnerId, runs: { some: {} } },
       include: {
         schoolYear: true,
+        runs: true,
         files: true,
         createdBy: true,
       },
