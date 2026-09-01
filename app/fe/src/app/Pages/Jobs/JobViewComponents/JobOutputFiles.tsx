@@ -84,7 +84,7 @@ const FileTreeNodeView = ({ node, jobId }: { node: FileTreeNode; jobId: GetJobDt
 
 export const JobOutputFiles = ({ job }: { job: GetJobDto }) => {
   const outputFiles =  useQuery(getJobOutputFiles(job.id)).data ?? [];
-  const tree = buildFileTree(outputFiles.map((file) => file.nameFromUser));
+  const tree = buildFileTree(outputFiles.map((file) => file.name));
 
   return (
     <VStack width="100%" alignItems="flex-start" gap="200">
