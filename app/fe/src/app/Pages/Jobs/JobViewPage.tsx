@@ -161,7 +161,7 @@ export const JobViewPage = () => {
         <JobViewSection title="Configuration">
           <JobConfiguration job={job} />
         </JobViewSection>
-        {canViewOutputFiles && !!job.lastRun?.runOutputFile?.length && (
+        {canViewOutputFiles && (
           <JobViewSection title="Output Files">
             <JobOutputFiles job={job} />
           </JobViewSection>
