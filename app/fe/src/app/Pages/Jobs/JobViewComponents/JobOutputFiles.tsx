@@ -2,7 +2,8 @@ import { Box, HStack, VStack } from '@chakra-ui/react';
 import { GetJobDto } from '@edanalytics/models';
 import { useState } from 'react';
 import { DownloadFileButton } from '../SharedJobComponents/DownloadFileLink';
-import { getOutputFileDownloadUrl } from '../../../api/queries/job.queries';
+import { getJobOutputFiles, getOutputFileDownloadUrl } from '../../../api/queries/job.queries';
+import { useQuery } from '@tanstack/react-query';
 
 type FileTreeNode = {
   name: string;
@@ -82,8 +83,8 @@ const FileTreeNodeView = ({ node, jobId }: { node: FileTreeNode; jobId: GetJobDt
 };
 
 export const JobOutputFiles = ({ job }: { job: GetJobDto }) => {
-  const outputFiles = job.lastRun?.runOutputFile ?? [];
-  const tree = buildFileTree(outputFiles.map((file) => file.name));
+  const outputFiles =  useQuery(getJobOutputFiles(job.id)).data ?? [];
+  const tree = buildFileTree(outputFiles.map((file) => file.nameFromUser));
 
   return (
     <VStack width="100%" alignItems="flex-start" gap="200">

@@ -44,7 +44,7 @@ export const JobViewPage = () => {
   const { data: job } = useSuspenseQuery(jobQueries.getOne({ id: assessmentId }));
   const { data: errors } = useQuery(getJobErrors(assessmentId));
   const { data: me } = useMe();
-  const isSupportUser = me?.roles?.includes('SupportUser') ?? false;
+  const canViewOutputFiles = me?.privileges.has('job.output-files.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
   /**
@@ -161,7 +161,7 @@ export const JobViewPage = () => {
         <JobViewSection title="Configuration">
           <JobConfiguration job={job} />
         </JobViewSection>
-        {isSupportUser && !!job.lastRun?.runOutputFile?.length && (
+        {canViewOutputFiles && !!job.lastRun?.runOutputFile?.length && (
           <JobViewSection title="Output Files">
             <JobOutputFiles job={job} />
           </JobViewSection>
