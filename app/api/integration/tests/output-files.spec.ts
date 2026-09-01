@@ -1,5 +1,10 @@
 import request from 'supertest';
-import { tenantA, tenantB } from '../fixtures/context-fixtures/tenant-fixtures';
+import {
+  tenantA,
+  tenantB,
+  tenantDGlobal,
+  tenantEGlobal,
+} from '../fixtures/context-fixtures/tenant-fixtures';
 import { userA, userB } from '../fixtures/user-fixtures';
 import { odsConfigA2425, odsConfigB2526 } from '../fixtures/context-fixtures/ods-fixture';
 import { bundleA } from '../fixtures/em-bundle-fixtures';
@@ -16,9 +21,10 @@ describe('GET /output-files/:jobId', () => {
   let endpointB: string;
   let jobA: DtoableJob;
   let jobB: DtoableJob;
+  let jobEGlobal: DtoableJob;
 
   beforeEach(async () => {
-    [jobA, jobB] = await Promise.all([
+    [jobA, jobB, jobEGlobal] = await Promise.all([
       seedJob({
         odsConfig: odsConfigA2425,
         bundle: bundleA,
@@ -29,6 +35,12 @@ describe('GET /output-files/:jobId', () => {
         odsConfig: odsConfigB2526,
         bundle: bundleA,
         tenant: tenantB,
+        outputFiles: true,
+      }),
+      seedJob({
+        odsConfig: odsConfigA2425, // same partner as tenantA/tenantB is fine
+        bundle: bundleA,
+        tenant: tenantEGlobal,
         outputFiles: true,
       }),
     ]);
@@ -80,6 +92,65 @@ describe('GET /output-files/:jobId', () => {
         .get('/output-files/999999999')
         .set('Cookie', [cookieA]);
       expect(res.status).toBe(404);
+    });
+
+    describe('metatenant access (route has @AllowMetatenant)', () => {
+      it.each([
+        {
+          description:
+            'global session tenant + non-global resource tenant (same partner) + metatenant privilege -> allowed',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobB,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 200,
+        },
+        {
+          description:
+            'global session tenant + non-global resource tenant (same partner) + no metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobB,
+          roles: USER_ROLE,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'global session tenant + resource owned by a different global tenant + metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobEGlobal,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'non-global session tenant + non-global resource tenant (same partner) + metatenant privilege -> forbidden',
+          sessionTenant: tenantA,
+          resourceJob: () => jobB,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+      ])('$description', async ({ sessionTenant, resourceJob, roles, expectedStatus }) => {
+        const cookie = (await authHelper.login(idpA, userA, sessionTenant, roles)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(`/output-files/${resourceJob().id}`)
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(expectedStatus);
+      });
+
+      it('should return the output files for a job owned by a different tenant when the user is a SupportUser logged into a global tenant in the same partner', async () => {
+        const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(endpointB)
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(200);
+        const expectedFiles = jobB.runs?.flatMap((r) => r.runOutputFile ?? []) ?? [];
+        expect(res.body.map((f: { name: string }) => f.name)).toEqual(
+          expect.arrayContaining(expectedFiles.map((f) => f.name))
+        );
+      });
     });
   });
 });
