@@ -8,9 +8,6 @@ export class GetFileDto {
   nameFromUser: string;
 
   @Expose()
-  name: string;
-
-  @Expose()
   type: string;
 
   @Expose()

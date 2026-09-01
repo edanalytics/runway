@@ -7,6 +7,7 @@ import {
   GetRunUpdateDto,
   JobErrorWrapperDto,
   PutJobResolveDto,
+  GetOutputFileDto,
 } from '@edanalytics/models';
 import { EntityQueryBuilder } from './builder';
 import { apiClient, methods } from '../methods';
@@ -75,7 +76,7 @@ export const getOutputFileDownloadUrl = async ({
 
 export const getJobOutputFiles = (jobId: number) => ({
   queryKey: ['jobs', jobId, 'output-files'],
-  queryFn: () => methods.getMany(`/jobs/${jobId}/output-files`, GetFileDto),
+  queryFn: () => methods.getMany(`/jobs/${jobId}/output-files`, GetOutputFileDto),
 });
 
 export const useInvalidateJobQueries = (jobId: string | number) => {
