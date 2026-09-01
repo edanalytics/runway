@@ -337,6 +337,114 @@ describe('GET /jobs/:id', () => {
   });
 });
 
+describe('GET /jobs/:id/output-files/*', () => {
+  const USER_ROLE = 'runway.test.user';
+  const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
+  const OTHER_FILE_NAME = 'summary.csv';
+  const unmatchedEndpoint = (id: number) => `/jobs/${id}/output-files/input_no_student_id_match.csv`;
+  const otherFileEndpoint = (id: number, fileName: string) => `/jobs/${id}/output-files/${fileName}`;
+
+  // jobA belongs to tenantA, jobB to tenantB -- both non-global children of tenantDGlobal
+  let jobA: DtoableJob;
+  let jobB: DtoableJob;
+
+  beforeEach(async () => {
+    [jobA, jobB] = await Promise.all([
+      seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA }),
+      seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB }),
+    ]);
+
+    await Promise.all(
+      [jobA, jobB].flatMap((job) => {
+        const runId = job.runs![0].id;
+        return [
+          prisma.runOutputFile.create({
+            data: {
+              runId,
+              name: 'input_no_student_id_match.csv',
+              path: `output/${job.id}/input_no_student_id_match.csv`,
+            },
+          }),
+          prisma.runOutputFile.create({
+            data: { runId, name: OTHER_FILE_NAME, path: `output/${job.id}/${OTHER_FILE_NAME}` },
+          }),
+        ];
+      })
+    );
+  });
+
+  it('should reject unauthenticated requests', async () => {
+    const resUnmatched = await request(app.getHttpServer()).get(unmatchedEndpoint(jobA.id));
+    const resOther = await request(app.getHttpServer()).get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME));
+    expect(resUnmatched.status).toBe(401);
+    expect(resOther.status).toBe(401);
+  });
+
+  describe('the unmatched-students file', () => {
+    it('is downloadable by a User in their login tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(unmatchedEndpoint(jobA.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobA.id}/input_no_student_id_match.csv`);
+    });
+
+    it('is not downloadable by a User logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(unmatchedEndpoint(jobB.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(403);
+    });
+
+    it('is downloadable by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(unmatchedEndpoint(jobB.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`);
+    });
+  });
+
+  describe('other output files (dedicated job.output-files.read privilege required)', () => {
+    it('is not downloadable by a User in their login tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(403);
+    });
+
+    it('is not downloadable by a User logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobB.id, OTHER_FILE_NAME))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(403);
+    });
+
+    it('is downloadable by a SupportUser in their login tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobA.id}/${OTHER_FILE_NAME}`);
+    });
+
+    it('is downloadable by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobB.id, OTHER_FILE_NAME))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/${OTHER_FILE_NAME}`);
+    });
+  });
+});
+
 describe('POST /jobs', () => {
   const endpoint = '/jobs';
   it('should reject unauthenticated requests', async () => {

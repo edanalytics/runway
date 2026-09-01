@@ -38,10 +38,6 @@ export class GetRunDto
   @Expose()
   @Type(() => RunOutputFileDto)
   runOutputFile: RunOutputFileDto[];
-
-  get unmatchedStudentsFile() {
-    return this.runOutputFile.find((f) => f.name === 'input_no_student_id_match.csv');
-  }
 }
 
 export class UnmatchedStudentsInfoDto {

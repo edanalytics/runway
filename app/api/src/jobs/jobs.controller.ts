@@ -36,6 +36,7 @@ import { TenantOwnershipGuard } from '../auth/authorization/tenant-ownership.gua
 import { TenantResourceKey } from '../auth/authorization/tenant-resource-key.decorator';
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
 import { AllowMetatenant } from '../auth/authorization/allow-metatenant.decorator';
+import { Authorize } from '../auth/helpers/authorize.decorator';
 
 @Controller()
 @ApiTags('Job')
@@ -109,9 +110,21 @@ export class JobsController {
     }
     return url;
   }
-
-  @Get(':jobId/output-files/:fileName')
+  @Get(':jobId/output-files/input_no_student_id_match.csv')
   @AllowMetatenant('job.metatenant.read')
+  async downloadUrlForUnmatchedStudentsOutputFile(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+  ) {
+    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, 'input_no_student_id_match.csv');
+    if (!url) {
+      return new NotFoundException(`File not found for job ${jobId} and file input_no_student_id_match.csv`);
+    }
+    return url;
+  }
+  
+  @Get(':jobId/output-files/:fileName')
+  @AllowMetatenant('job.metatenant.output-files.read')
+  @Authorize('job.output-files.read')
   async downloadUrlForOutputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number,
     @Param('fileName') fileName: string
