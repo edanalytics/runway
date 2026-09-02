@@ -40,7 +40,7 @@
     "@chakra-ui/react-types": "^2.0.6",
     "@emotion/react": "11.11.1",
     "@emotion/styled": "11.11.0",
-    "@faker-js/faker": "^8.4.1",
+    "@faker-js/faker": "^10.5.0",
     "@fontsource/ibm-plex-sans": "^5.2.6",
     "@fontsource/ibm-plex-sans-condensed": "^5.2.6",
     "@fontsource/ibm-plex-serif": "^5.2.6",
