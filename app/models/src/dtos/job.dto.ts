@@ -101,6 +101,9 @@ export class GetJobDto
   @Expose()
   apiClientName: string | null;
 
+  @Expose()
+  tenantCode: string;
+
   /** Used internally to compute isApiInitiated - not included in serialized output */
   @Expose()
   @Exclude({ toPlainOnly: true })
@@ -211,7 +214,6 @@ export class GetJobDto
   // Intentionally not exposing
   previousJobId: number | null;
   apiIssuer: string | null;
-  tenantCode: string;
   partnerId: string;
   fileProtocol: $Enums.FileStorageProtocol | null;
   fileBucketOrHost: string | null;

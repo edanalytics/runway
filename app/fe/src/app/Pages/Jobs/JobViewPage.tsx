@@ -166,6 +166,14 @@ export const JobViewPage = () => {
             <JobOutputFiles job={job} />
           </JobViewSection>
         )}
+        {/* todo: hide for non supportusers */}
+        <JobViewSection title="Debug">
+          <HStack gap="400" alignItems="center">
+            <Box textStyle="h1" as="h1">
+              {job.tenantCode}
+            </Box>
+          </HStack>
+        </JobViewSection>
       </VStack>
     </VStack>
   );
