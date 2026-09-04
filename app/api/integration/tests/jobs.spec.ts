@@ -903,7 +903,8 @@ describe('PUT /jobs/:id/resolve', () => {
       // jobA's seeded run defaults to status 'new', which is not changeable
       const resA = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
-        .set('Cookie', [cookieA]);
+        .set('Cookie', [cookieA])
+        .send({ isResolved: true });
       expect(resA.status).toBe(400);
     });
 
