@@ -74,7 +74,7 @@ export const getOutputFileDownloadUrl = async ({
   return url;
 };
 
-export const getJobOutputFiles = (jobId: number) => ({
+export const getJobOutputFiles = (jobId: string) => ({
   queryKey: ['jobs', jobId, 'output-files'],
   queryFn: () => methods.getMany(`/jobs/${jobId}/output-files`, GetOutputFileDto),
 });

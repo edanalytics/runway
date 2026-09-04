@@ -900,22 +900,22 @@ describe('PUT /jobs/:id/resolve', () => {
     });
 
     it('should reject requests for jobs whose status is not changeable', async () => {
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(false);
-
+      // jobA's seeded run defaults to status 'new', which is not changeable
       const resA = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
         .set('Cookie', [cookieA]);
       expect(resA.status).toBe(400);
-
-      mock.mockRestore();
     });
 
     it('should mark jobs with a changeable status as resolved', async () => {
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(true);
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
 
       const resA = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
@@ -928,26 +928,35 @@ describe('PUT /jobs/:id/resolve', () => {
         throw new Error(`Job ${jobA.id} not found`);
       }
       expect(modifiedJob.isResolved).toBe(true);
-      mock.mockRestore();
     });
 
     it('should allow resolved jobs to revert to their original status', async () => {
-      const statusBefore = toGetJobDto(jobA).status;
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
+
+      const statusBefore = toGetJobDto(
+        await prisma.job.findUniqueOrThrow({
+          where: { id: jobA.id },
+          include: { runs: true, files: true },
+        })
+      ).status;
       if (!statusBefore) {
         // sanity check
         throw new Error(`Job ${jobA.id} has no status`);
       }
 
       // first mark resolved
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(true);
       const resAResolved = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
         .set('Cookie', [cookieA])
         .send({ isResolved: true });
       expect(resAResolved.status).toBe(200);
-      mock.mockRestore(); // we want to test without a mock for resetting the status
 
       // now revert
       const resAReverted = await request(app.getHttpServer())

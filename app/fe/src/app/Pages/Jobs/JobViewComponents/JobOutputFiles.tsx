@@ -43,6 +43,7 @@ const FileForDownload = ({ path, name, jobId }: { path: string; name: string; jo
         <DownloadFileButton
           textStyle="button"
           textColor="green.100"
+          fontFamily="IBM Plex Sans Condensed, sans-serif"
           fileName={name}
           getPresignedUrl={() => getOutputFileDownloadUrl({ jobId, fileName: path })}
           onError={() => setHasDownloadError(true)}
@@ -83,7 +84,7 @@ const FileTreeNodeView = ({ node, jobId }: { node: FileTreeNode; jobId: GetJobDt
 };
 
 export const JobOutputFiles = ({ job }: { job: GetJobDto }) => {
-  const outputFiles =  useQuery(getJobOutputFiles(job.id)).data ?? [];
+  const outputFiles =  useQuery(getJobOutputFiles(job.id.toString())).data ?? [];
   const tree = buildFileTree(outputFiles.map((file) => file.name));
 
   return (

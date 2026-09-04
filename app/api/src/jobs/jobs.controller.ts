@@ -277,6 +277,7 @@ export class JobsController {
           where: { id: jobId },
           include: {
             files: true,
+            runs: true,
           },
         })
         .catch(() => {
