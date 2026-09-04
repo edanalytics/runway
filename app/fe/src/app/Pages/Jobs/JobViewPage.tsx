@@ -44,7 +44,7 @@ export const JobViewPage = () => {
   const { data: job } = useSuspenseQuery(jobQueries.getOne({ id: assessmentId }));
   const { data: errors } = useQuery(getJobErrors(assessmentId));
   const { data: me } = useMe();
-  const canViewOutputFiles = me?.privileges.has('job.output-files.read') ?? false;
+  const canViewOutputFiles = me?.privileges?.has('job.output-files.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
   /**
