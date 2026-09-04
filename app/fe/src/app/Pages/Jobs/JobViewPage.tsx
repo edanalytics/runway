@@ -18,7 +18,9 @@ import { GoBackLink } from '../../components/links';
 import { ResourceSummary } from './JobViewComponents/ResourceSummary';
 import { UnmatchedStudents } from './JobViewComponents/UnmatchedStudents';
 import { JobConfiguration } from './JobViewComponents/JobConfiguration';
+import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
+import { useMe } from '../../api/queries/me.queries';
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
 const getStageFromUpdates = (updates: GetRunUpdateDto[] | undefined): JobStages => {
@@ -41,6 +43,8 @@ export const JobViewPage = () => {
   const { assessmentId } = useParams({ from: '/assessments/$assessmentId' });
   const { data: job } = useSuspenseQuery(jobQueries.getOne({ id: assessmentId }));
   const { data: errors } = useQuery(getJobErrors(assessmentId));
+  const { data: me } = useMe();
+  const canViewOutputFiles = me?.privileges.has('job.output-files.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
   /**
@@ -157,6 +161,11 @@ export const JobViewPage = () => {
         <JobViewSection title="Configuration">
           <JobConfiguration job={job} />
         </JobViewSection>
+        {canViewOutputFiles && (
+          <JobViewSection title="Output Files">
+            <JobOutputFiles job={job} />
+          </JobViewSection>
+        )}
       </VStack>
     </VStack>
   );

@@ -136,9 +136,6 @@ describe('GET /jobs', () => {
             expect(r.status).toBe(originalRun.status);
             expect(r.createdOn.getTime()).toEqual(originalRun.createdOn.getTime());
             expect(r.summary).toEqual(originalRun.summary);
-            expect(r.runOutputFile?.map((f) => f.name)).toEqual(
-              expect.arrayContaining(originalRun.runOutputFile?.map((f) => f.name) ?? [])
-            );
             expect(r.unmatchedStudentsInfo ?? {}).toEqual(
               expect.objectContaining(originalRun.unmatchedStudentsInfo ?? {})
             );
@@ -332,6 +329,143 @@ describe('GET /jobs/:id', () => {
           .set('Cookie', [cookie]);
 
         expect(res.status).toBe(expectedStatus);
+      });
+    });
+  });
+});
+
+describe('GET /jobs/:id/output-files', () => {
+  const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
+  const USER_ROLE = 'runway.test.user';
+  const endpoint = (id: number) => `/jobs/${id}/output-files`;
+
+  let jobA: DtoableJob;
+  let jobB: DtoableJob;
+  let jobEGlobal: DtoableJob;
+
+  beforeEach(async () => {
+    [jobA, jobB, jobEGlobal] = await Promise.all([
+      seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        outputFiles: true,
+      }),
+      seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+        outputFiles: true,
+      }),
+      seedJob({
+        odsConfig: odsConfigA2425, // same partner as tenantA/tenantB is fine
+        bundle: bundleA,
+        tenant: tenantEGlobal,
+        outputFiles: true,
+      }),
+    ]);
+  });
+
+  it('should reject unauthenticated requests', async () => {
+    const res = await request(app.getHttpServer()).get(endpoint(jobA.id));
+    expect(res.status).toBe(401);
+  });
+
+  describe('authenticated requests', () => {
+    let cookieA: string;
+    let cookieB: string;
+    let nonSupportCookieA: string;
+    beforeEach(async () => {
+      cookieA = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+      cookieB = (await authHelper.login(idpA, userB, tenantB, SUPPORT_ROLES)).cookies;
+      nonSupportCookieA = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+    });
+
+    it('should return the output files for a job owned by the tenant, for a SupportUser', async () => {
+      const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieA]);
+      expect(res.status).toBe(200);
+
+      const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobA.id } } });
+      expect(res.body.map((f: { name: string }) => f.name)).toEqual(
+        expect.arrayContaining(expectedFiles.map((f) => f.name))
+      );
+    });
+
+    it('should reject requests from a user without the SupportUser role, even for their own tenant', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [nonSupportCookieA]);
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject requests for jobs that are not associated with the tenant', async () => {
+      const resA = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieB]);
+      const resB = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookieA]);
+      expect(resA.status).toBe(403);
+      expect(resB.status).toBe(403);
+    });
+
+    it('should return 404 for a job that does not exist', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/jobs/999999999/output-files')
+        .set('Cookie', [cookieA]);
+      expect(res.status).toBe(404);
+    });
+
+    describe('metatenant access (route has @AllowMetatenant)', () => {
+      it.each([
+        {
+          description:
+            'global session tenant + non-global resource tenant (same partner) + metatenant privilege -> allowed',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobB,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 200,
+        },
+        {
+          description:
+            'global session tenant + non-global resource tenant (same partner) + no metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobB,
+          roles: USER_ROLE,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'global session tenant + resource owned by a different global tenant + metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobEGlobal,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'non-global session tenant + non-global resource tenant (same partner) + metatenant privilege -> forbidden',
+          sessionTenant: tenantA,
+          resourceJob: () => jobB,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+      ])('$description', async ({ sessionTenant, resourceJob, roles, expectedStatus }) => {
+        const cookie = (await authHelper.login(idpA, userA, sessionTenant, roles)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(endpoint(resourceJob().id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(expectedStatus);
+      });
+
+      it('should return the output files for a job owned by a different tenant when the user is a SupportUser logged into a global tenant in the same partner', async () => {
+        const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+
+        const res = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookie]);
+
+        expect(res.status).toBe(200);
+        const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobB.id } } });
+        expect(res.body.map((f: { name: string }) => f.name)).toEqual(
+          expect.arrayContaining(expectedFiles.map((f) => f.name))
+        );
       });
     });
   });
@@ -766,22 +900,23 @@ describe('PUT /jobs/:id/resolve', () => {
     });
 
     it('should reject requests for jobs whose status is not changeable', async () => {
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(false);
-
+      // jobA's seeded run defaults to status 'new', which is not changeable
       const resA = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
-        .set('Cookie', [cookieA]);
+        .set('Cookie', [cookieA])
+        .send({ isResolved: true });
       expect(resA.status).toBe(400);
-
-      mock.mockRestore();
     });
 
     it('should mark jobs with a changeable status as resolved', async () => {
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(true);
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
 
       const resA = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
@@ -794,26 +929,35 @@ describe('PUT /jobs/:id/resolve', () => {
         throw new Error(`Job ${jobA.id} not found`);
       }
       expect(modifiedJob.isResolved).toBe(true);
-      mock.mockRestore();
     });
 
     it('should allow resolved jobs to revert to their original status', async () => {
-      const statusBefore = toGetJobDto(jobA).status;
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
+
+      const statusBefore = toGetJobDto(
+        await prisma.job.findUniqueOrThrow({
+          where: { id: jobA.id },
+          include: { runs: true, files: true },
+        })
+      ).status;
       if (!statusBefore) {
         // sanity check
         throw new Error(`Job ${jobA.id} has no status`);
       }
 
       // first mark resolved
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(true);
       const resAResolved = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
         .set('Cookie', [cookieA])
         .send({ isResolved: true });
       expect(resAResolved.status).toBe(200);
-      mock.mockRestore(); // we want to test without a mock for resetting the status
 
       // now revert
       const resAReverted = await request(app.getHttpServer())
