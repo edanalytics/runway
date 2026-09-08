@@ -267,7 +267,7 @@ export class JobsController {
   }
 
   @Put(':jobId/resolve')
-  @AllowMetatenant('job.metatenant.read')
+  @AllowMetatenant('job.metatenant.update')
   async resolve(
     @Param('jobId', ParseIntPipe) jobId: GetJobDto['id'],
     @Body() resolveJobDto: PutJobResolveDto
