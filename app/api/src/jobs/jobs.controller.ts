@@ -311,7 +311,7 @@ export class JobsController {
   }
 
   @Post(':jobId/notes')
-  @AllowMetatenant('job.metatenant.read')
+  @AllowMetatenant('job.metatenant.update')
   async createNote(
     @Param('jobId', ParseIntPipe) jobId: number,
     @Body() createNoteDto: PostJobNoteDto
@@ -326,7 +326,7 @@ export class JobsController {
   }
 
   @Put(':jobId/notes/:noteId')
-  @AllowMetatenant('job.metatenant.read')
+  @AllowMetatenant('job.metatenant.update')
   async updateNote(
     @Param('jobId', ParseIntPipe) jobId: number,
     @Param('noteId', ParseIntPipe) noteId: number,
@@ -346,7 +346,7 @@ export class JobsController {
   }
 
   @Delete(':jobId/notes/:noteId')
-  @AllowMetatenant('job.metatenant.read')
+  @AllowMetatenant('job.metatenant.update')
   async deleteNote(
     @Param('jobId', ParseIntPipe) jobId: number,
     @Param('noteId', ParseIntPipe) noteId: number
