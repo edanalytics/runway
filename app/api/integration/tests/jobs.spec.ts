@@ -882,7 +882,7 @@ describe('PUT /jobs/:id/resolve', () => {
       expect(resB.status).toBe(403);
     });
 
-    it('should reject a SupportUser logged into the global tenant, since this route has no @AllowMetatenant', async () => {
+    it('should allow a SupportUser logged into the global tenant to resolve a job in a descendant tenant', async () => {
       const supportUserGlobalCookie = (
         await authHelper.login(idpA, userA, tenantDGlobal, [
           'runway.test.user',
@@ -890,13 +890,26 @@ describe('PUT /jobs/:id/resolve', () => {
         ])
       ).cookies;
 
-      // jobB is a descendant of tenantDGlobal and this same session/privilege combo
-      // is sufficient to access GET /jobs/:id (which has @AllowMetatenant) — it
-      // should still be rejected here since this route lacks the decorator.
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobB.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for GET /jobs/:id.
       const resB = await request(app.getHttpServer())
         .put(endpoint(jobB.id))
-        .set('Cookie', [supportUserGlobalCookie]);
-      expect(resB.status).toBe(403);
+        .set('Cookie', [supportUserGlobalCookie])
+        .send({ isResolved: true });
+      expect(resB.status).toBe(200);
+
+      const modifiedJob = await prisma.job.findUnique({ where: { id: jobB.id } });
+      expect(modifiedJob?.isResolved).toBe(true);
     });
 
     it('should reject requests for jobs whose status is not changeable', async () => {
