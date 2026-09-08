@@ -126,6 +126,11 @@ export const JobViewPage = () => {
         <Box textStyle="h6">
           {job.displayStartedOn ? `started ${job.displayStartedOn}` : 'not started'}
         </Box>
+        {isSupportUser && (
+          <Box textStyle="h6">
+            {job.tenantCode}
+          </Box>
+        )}
       </Box>
       <JobNotes job={job} />
       <VStack
@@ -136,15 +141,6 @@ export const JobViewPage = () => {
         gap="400"
         divider={<StackDivider borderColor="blue.50-40" />}
       >
-        {isSupportUser && (
-          <JobViewSection title="Tenant">
-            <HStack gap="400" alignItems="center">
-              <Box textStyle="bodyLargeBold">
-                {job.tenantCode}
-              </Box>
-            </HStack>
-          </JobViewSection>
-        )}
         <JobViewSection title="Progress">
           {currentStage === 'not started' ? (
             <HStack gap="300">
@@ -155,11 +151,6 @@ export const JobViewPage = () => {
             <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
               <JobProgressTracker statusUpdates={statusUpdates} sendToOds={job.sendToOds} />
             </Box>
-          )}
-          {errors && errors.length > 0 && (
-           <Box textStyle="bodyLargeBold">
-                {job.tenantCode}
-              </Box>
           )}
           {errors?.map(({ error }) => (
             // In theory, a job could have multiple errors, but in practice, any
@@ -181,7 +172,6 @@ export const JobViewPage = () => {
             <JobOutputFiles job={job} />
           </JobViewSection>
         )}
-        
       </VStack>
     </VStack>
   );
