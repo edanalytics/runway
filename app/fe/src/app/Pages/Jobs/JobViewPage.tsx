@@ -45,6 +45,7 @@ export const JobViewPage = () => {
   const { data: errors } = useQuery(getJobErrors(assessmentId));
   const { data: me } = useMe();
   const canViewOutputFiles = me?.privileges?.has('job.output-files.read') ?? false;
+  const isSupportUser = me?.roles?.includes('SupportUser') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
   /**
@@ -166,14 +167,15 @@ export const JobViewPage = () => {
             <JobOutputFiles job={job} />
           </JobViewSection>
         )}
-        {/* todo: hide for non supportusers */}
-        <JobViewSection title="Debug">
-          <HStack gap="400" alignItems="center">
-            <Box textStyle="h1" as="h1">
-              {job.tenantCode}
-            </Box>
-          </HStack>
-        </JobViewSection>
+        {isSupportUser && (
+          <JobViewSection title="Debug">
+            <HStack gap="400" alignItems="center">
+              <Box textStyle="h1" as="h1">
+                {job.tenantCode}
+              </Box>
+            </HStack>
+          </JobViewSection>
+        )}
       </VStack>
     </VStack>
   );
