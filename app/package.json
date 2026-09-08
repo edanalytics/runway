@@ -84,7 +84,7 @@
     "react-icons": "^5.2.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.0",
-    "snowflake-sdk": "^3.2.0",
+    "snowflake-sdk": "^3.3.0",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
