@@ -37,6 +37,39 @@ describe('ExternalApiV1', () => {
           .set('Authorization', `Bearer ${token}`);
         expect(res.status).toBe(201);
       });
+
+      it('should reflect a well-formed partner code back to the caller', async () => {
+        const token = await signExternalApiToken(tokenPayload);
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Authorization', `Bearer ${token}`);
+        // Hyphens are legitimate in partner IDs, so the filter must not drop them.
+        expect(res.text).toBe('Token is valid for partner: partner-a');
+      });
+
+      it('should serve the echoed response as text/plain', async () => {
+        const token = await signExternalApiToken(tokenPayload);
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Authorization', `Bearer ${token}`);
+        // Without the pinned header a string return is served as text/html.
+        expect(res.headers['content-type']).toMatch(/^text\/plain/);
+      });
+
+      it('should not echo a partner code that fails validation', async () => {
+        const token = await signExternalApiToken({
+          ...tokenPayload,
+          scope: 'create:jobs partner:<script>alert(1)</script>',
+        });
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Authorization', `Bearer ${token}`);
+        expect(res.status).toBe(201);
+        expect(res.text).not.toContain('<script>');
+        expect(res.text).toBe(
+          'Token is valid for no partners. No scope of the form "partner:partner-code" was found on the token.'
+        );
+      });
     });
     describe('Invalid Token', () => {
       it('should return 401 if there is no token', async () => {
