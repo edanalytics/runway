@@ -882,7 +882,7 @@ describe('PUT /jobs/:id/resolve', () => {
       expect(resB.status).toBe(403);
     });
 
-    it('should reject a SupportUser logged into the global tenant, since this route has no @AllowMetatenant', async () => {
+    it('should allow a SupportUser logged into the global tenant to resolve a job in a descendant tenant', async () => {
       const supportUserGlobalCookie = (
         await authHelper.login(idpA, userA, tenantDGlobal, [
           'runway.test.user',
@@ -890,13 +890,26 @@ describe('PUT /jobs/:id/resolve', () => {
         ])
       ).cookies;
 
-      // jobB is a descendant of tenantDGlobal and this same session/privilege combo
-      // is sufficient to access GET /jobs/:id (which has @AllowMetatenant) — it
-      // should still be rejected here since this route lacks the decorator.
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobB.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for GET /jobs/:id.
       const resB = await request(app.getHttpServer())
         .put(endpoint(jobB.id))
-        .set('Cookie', [supportUserGlobalCookie]);
-      expect(resB.status).toBe(403);
+        .set('Cookie', [supportUserGlobalCookie])
+        .send({ isResolved: true });
+      expect(resB.status).toBe(200);
+
+      const modifiedJob = await prisma.job.findUnique({ where: { id: jobB.id } });
+      expect(modifiedJob?.isResolved).toBe(true);
     });
 
     it('should reject requests for jobs whose status is not changeable', async () => {
@@ -1035,6 +1048,38 @@ describe('GET /jobs/:id/notes', () => {
       expect(resA.body[1].createdById).toBe(userA.id);
       expect(resA.body[1].createdOn).toBeDefined();
     });
+
+    it('should allow a SupportUser logged into the global tenant to view notes for a job in a descendant tenant', async () => {
+      const jobB = await seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      await prisma.jobNote.create({
+        data: {
+          jobId: jobB.id,
+          noteText: 'test note for job ' + jobB.id,
+          createdById: userB.id,
+          createdOn: new Date(),
+        },
+      });
+
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for PUT /jobs/:id/resolve.
+      const resB = await request(app.getHttpServer())
+        .get(endpoint(jobB.id))
+        .set('Cookie', [supportUserGlobalCookie]);
+      expect(resB.status).toBe(200);
+      expect(resB.body.length).toBe(1);
+    });
   });
 });
 
@@ -1124,6 +1169,34 @@ describe('POST /jobs/:id/notes', () => {
         .send({ noteText: 'test note for job ' + jobA.id });
 
       expect(resA.status).toBe(403);
+    });
+
+    it('should allow a SupportUser logged into the global tenant to create a note for a job in a descendant tenant', async () => {
+      const jobB = await seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for PUT /jobs/:id/resolve.
+      const noteText = 'test note for job ' + jobB.id;
+      const resB = await request(app.getHttpServer())
+        .post(endpoint(jobB.id))
+        .set('Cookie', [supportUserGlobalCookie])
+        .send({ noteText });
+
+      expect(resB.status).toBe(201);
+      const notes = await prisma.jobNote.findMany({ where: { jobId: jobB.id } });
+      expect(notes.length).toBe(1);
+      expect(notes[0].noteText).toBe(noteText);
     });
   });
 });
@@ -1231,6 +1304,41 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
         .send({ noteText: '' });
       expect(res.status).toBe(400);
     });
+
+    it('should allow a SupportUser logged into the global tenant to update a note for a job in a descendant tenant', async () => {
+      const jobB = await seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      const noteB = await prisma.jobNote.create({
+        data: {
+          jobId: jobB.id,
+          noteText: 'test note for job ' + jobB.id,
+          createdById: userB.id,
+          createdOn: new Date(),
+        },
+      });
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for PUT /jobs/:id/resolve.
+      const updatedNoteText = 'updated note for job ' + jobB.id;
+      const resB = await request(app.getHttpServer())
+        .put(endpoint(jobB.id, noteB.id))
+        .set('Cookie', [supportUserGlobalCookie])
+        .send({ noteText: updatedNoteText });
+
+      expect(resB.status).toBe(200);
+      const note = await prisma.jobNote.findUniqueOrThrow({ where: { id: noteB.id } });
+      expect(note.noteText).toBe(updatedNoteText);
+    });
   });
 });
 
@@ -1320,6 +1428,39 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
       const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
       expect(jobA2Notes.length).toBe(1);
       expect(jobA2Notes[0].id).toBe(noteA2.id);
+    });
+
+    it('should allow a SupportUser logged into the global tenant to delete a note for a job in a descendant tenant', async () => {
+      const jobB = await seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      const noteB = await prisma.jobNote.create({
+        data: {
+          jobId: jobB.id,
+          noteText: 'test note for job ' + jobB.id,
+          createdById: userB.id,
+          createdOn: new Date(),
+        },
+      });
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for PUT /jobs/:id/resolve.
+      const resB = await request(app.getHttpServer())
+        .delete(endpoint(jobB.id, noteB.id))
+        .set('Cookie', [supportUserGlobalCookie]);
+
+      expect(resB.status).toBe(200);
+      const notes = await prisma.jobNote.findMany({ where: { jobId: jobB.id } });
+      expect(notes.length).toBe(0);
     });
   });
 });
