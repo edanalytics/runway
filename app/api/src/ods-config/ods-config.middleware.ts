@@ -13,7 +13,7 @@ import { OdsConfigService } from './ods-config.service';
 @Injectable()
 export class AddOdsConfigMiddleware implements NestMiddleware {
   constructor(private odsConfigService: OdsConfigService) { }
-  async use(req: Request, res: Response, next: NextFunction) {
+  async use(req: Request<{ odsConfigId: string }>, res: Response, next: NextFunction) {
     if (!req.isAuthenticated()) {
       throw new UnauthorizedException()
     }

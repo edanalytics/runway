@@ -8,6 +8,7 @@ import {
   odsConfigA2425,
   odsConfigA2526,
   odsConfigB2526,
+  odsConnA2425,
 } from '../fixtures/context-fixtures/ods-fixture';
 import { schoolYear2324, schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixtures';
 import { EdfiService } from '../../src/edfi/edfi.service';
@@ -77,6 +78,19 @@ describe('GET /ods-configs/:id', () => {
       const res2 = await request(app.getHttpServer()).get(endpointB).set('Cookie', [cookieA]);
       expect(res1.status).toBe(403);
       expect(res2.status).toBe(403);
+    });
+
+    it('should fail loudly when the stored client secret cannot be decrypted', async () => {
+      // refreshSeed() in beforeEach restores this row for the next test.
+      await prisma.odsConnection.update({
+        where: { id: odsConnA2425.id },
+        data: { clientSecret: 'unreadable-value' },
+      });
+
+      const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
+
+      // This used to respond 200 with the stored value passed through untouched.
+      expect(res.status).toBe(500);
     });
   });
 });

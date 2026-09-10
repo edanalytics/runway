@@ -38,7 +38,7 @@ export class TenantOwnershipGuard implements CanActivate {
 
 
     const request = context.switchToHttp().getRequest<Request>();
-    const sessionTenant = request.user.tenant;
+    const sessionTenant = request.user?.tenant;
     if (!sessionTenant) {
       throw new ForbiddenException('Forbidden'); // if there is no tenant, something is wrong with the session
     }
