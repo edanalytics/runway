@@ -45,7 +45,7 @@ export const JobViewPage = () => {
   const { data: errors } = useQuery(getJobErrors(assessmentId));
   const { data: me } = useMe();
   const canViewOutputFiles = me?.privileges?.has('job.output-files.read') ?? false;
-  const isSupportUser = me?.roles?.includes('SupportUser') ?? false;
+  const canViewCrossTenantJobs = me?.privileges?.has('job.metatenant.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
   /**
@@ -126,8 +126,8 @@ export const JobViewPage = () => {
         <Box textStyle="h6">
           {job.displayStartedOn ? `started ${job.displayStartedOn}` : 'not started'}
         </Box>
-        {isSupportUser && (
-          <Box textStyle="h6">
+        {canViewCrossTenantJobs && (
+          <Box textStyle="h6" marginTop="100">
             {job.tenantCode}
           </Box>
         )}
