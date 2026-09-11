@@ -281,6 +281,15 @@ export class JobsService {
     });
 
     // ─── Create job ─────────────────────────────────────────────────────────
+    // Snapshot the partner's current matching mode onto the job. Read it
+    // explicitly rather than leaning on the column default: every run of this
+    // job must use the mode that was in effect when it was created, even if
+    // the partner setting changes afterwards.
+    const partner = await prisma.partner.findUniqueOrThrow({
+      where: { id: tenant.partnerId },
+      select: { idMatchingMode: true },
+    });
+
     const job = await prisma.job.create({
       data: {
         name: bundle.display_name,
@@ -290,6 +299,7 @@ export class JobsService {
         template: instanceToPlain(toGetJobTemplateDto(bundle)),
         inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
+        idMatchingMode: partner.idMatchingMode,
         tenantCode: tenant.code,
         partnerId: tenant.partnerId,
         apiIssuer: apiClient?.issuer,

@@ -153,6 +153,7 @@ sequenceDiagram
 
 - `app/api/src/earthbeam/api/earthbeam-api.controller.ts` — HTTP callback endpoints the executor calls
 - `app/api/src/earthbeam/api/earthbeam-api.service.ts` — Job payload assembly, run completion
+- `app/api/src/earthbeam/api/identity-service-token.service.ts` — IDRS OAuth token minting + per-partner cache
 - `app/models/src/dtos/earthbeam-api.dto.ts` — Job payload shape
 - `executor/executor/executor.py` — Main executor: S3 operations, HTTP callbacks, earthmover/lightbeam invocation
 
@@ -169,6 +170,8 @@ sequenceDiagram
 9. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
 10. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
 11. **Done**: POST status `{action: DONE, status: success|failure}`
+
+In the fuzzy matching modes the executor also calls `appUrls.identityService` immediately before using IDRS, exchanging its run-scoped bearer token for `{ token, url }`. See ID matching modes below. (Executor-side IDRS use is EDFIAL-481.)
 
 ### Cross-Year Matching Flow
 
@@ -195,6 +198,28 @@ A roster is the student lookup the executor matches input rows against. Source p
 3. **S3 roster file** — the fallback for no-ODS years when cross-year matching is unavailable (`__rosters/...jsonl`). The app omits `rosterFilePath` from the payload when `crossYearMatchAvailable` is true (it would be a dangling pointer).
 
 A no-ODS year is **selectable** at job creation, and shows **green** ("roster available") on the ODS-config page, when a roster file exists **OR** the partner has cross-year matching enabled. The executor payload's `crossYearMatchAvailable` is the same partner setting (`crossYearMatchingEnabled`) — there is no creds/connection check at run-prep time. The admin enable endpoint requires working EDU creds to turn the toggle on; once on, the EDU connection is an assumed dependency like postgres or S3: if EDU is unavailable mid-run, the run fails loudly at roster-fetch time rather than silently degrading to weaker matching. (In practice a tenant has either a roster file or an EDU connection, not both, so there is no fallback to preserve.)
+
+All of this applies to the `id_based` and `id_based_fuzzy_background` modes. Pure `fuzzy` does no roster matching at all, so the payload carries neither roster source — but the existing no-ODS selectability gate is unchanged, so a no-ODS fuzzy job is still only creatable when a roster file exists or cross-year matching is enabled. Widening that is follow-on work.
+
+### ID matching modes
+
+How student identities are resolved is a per-partner setting, `id_matching_mode`, snapshotted onto each job at creation (`JobsService.createJob` writes it explicitly; the column default is migration safety only). Every run of a job uses that snapshot, so changing the partner setting affects only jobs created afterwards. There is no configuration UI yet.
+
+| Mode | Authoritative path | Roster matching | `appUrls.identityService` |
+|---|---|---|---|
+| `id_based` | Existing ID-based processing | ODS / EDU / S3 as above | absent |
+| `id_based_fuzzy_background` | Existing ID-based processing | ODS / EDU / S3 as above | present |
+| `fuzzy` | IDRS fuzzy matching | none — `appUrls.roster` and `rosterFilePath` are both omitted | present |
+
+`crossYearMatchAvailable` still mirrors the live partner setting in every mode; in `fuzzy` it only tells the executor that IDRS results may span years.
+
+**Credential handoff.** The payload never carries an IDRS token. The executor calls `GET /earthbeam/jobs/:runId/identity-service` with its run-scoped bearer token, which is the whole trust boundary: it names the run, hence the partner whose connection info may be returned. The callback deliberately has no mode check, no run-status check (background fuzzy work continues after the run reports `done`) and no one-call limit.
+
+The app loads `{ENVLABEL}-idrs-connection-info-{partnerId}` from Secrets Manager uncached and bounded to 5s, then mints a client-credentials token from `IDRS_OAUTH_TOKEN_URL` (5s per attempt, one jittered sub-second retry on transient failures only) with `audience` set to the configured IDRS url verbatim and `scope` of `student:identity:read partner:<partner-id>`. Locally, `IDRS_CLIENT_ID` / `IDRS_CLIENT_SECRET` / `IDRS_URL` stand in for the secret. Tokens are cached per partner per app instance while more than ten minutes of life remain; shorter or unexpiring tokens are returned but not cached.
+
+Failures collapse to three responses — `500 identity_service_misconfigured`, `502 identity_service_auth_failed`, `503 identity_service_unavailable`. Diagnosis comes from the structured logs (run id, partner id, stage, cause category, elapsed time, safe upstream metadata); credentials, tokens, OAuth bodies and the callback response are never logged.
+
+Rollout order per partner: set `IDRS_OAUTH_TOKEN_URL`, provision the secret, then change the partner's mode. There is no enable-time preflight — an `id_based` executor calling the unadvertised callback gets a `500` and a `secret_not_found` log, which is expected and harmless.
 
 ### S3 Path Structure
 

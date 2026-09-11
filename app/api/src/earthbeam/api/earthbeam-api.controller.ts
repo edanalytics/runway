@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
   ConflictException,
@@ -14,6 +15,7 @@ import {
   Post,
   Req,
   Res,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -25,9 +27,14 @@ import {
   EarthbeamApiStatusPayloadDto,
   EarthbeamApiUnmatchedIdsPayloadDto,
   JsonValue,
+  toEarthbeamApiIdentityServiceResponseDto,
   toEarthbeamApiJobResponseDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
+import {
+  IdentityServiceTokenError,
+  IdentityServiceTokenService,
+} from './identity-service-token.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -45,7 +52,8 @@ export class EarthbeamApiController {
     private readonly earthbeamApiService: EarthbeamApiService,
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     private readonly fileService: FileService,
-    private readonly eduPool: EduSnowflakePoolService
+    private readonly eduPool: EduSnowflakePoolService,
+    private readonly identityServiceTokens: IdentityServiceTokenService
   ) {}
 
   @Get(':runId')
@@ -67,6 +75,62 @@ export class EarthbeamApiController {
     }
 
     return toEarthbeamApiJobResponseDto(result.data);
+  }
+
+  /**
+   * Just-in-time IDRS credentials for the executor. The run-scoped bearer
+   * token is the trust boundary: it names the run, which names the partner
+   * whose connection info may be returned.
+   *
+   * Deliberately unrestricted beyond that. There is no matching-mode check
+   * (the payload simply doesn't advertise the URL for id_based), no run-status
+   * check (background fuzzy work continues after the authoritative run reports
+   * done), and no one-call limit — the executor may call again while its
+   * 24-hour token is valid.
+   */
+  @Get(':runId/identity-service')
+  async identityService(@Param('runId', ParseIntPipe) runId: number) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      select: { job: { select: { partnerId: true } } },
+    });
+    if (!run) {
+      throw new NotFoundException(`Run not found: ${runId}`);
+    }
+    const { partnerId } = run.job;
+
+    const startedAt = Date.now();
+    try {
+      const credentials = await this.identityServiceTokens.getCredentials(partnerId);
+      // Never log the response or the token itself.
+      this.logger.log(
+        `identity service: runId=${runId} partnerId=${partnerId} result=success durationMs=${
+          Date.now() - startedAt
+        }`
+      );
+      return toEarthbeamApiIdentityServiceResponseDto(credentials);
+    } catch (err) {
+      if (!(err instanceof IdentityServiceTokenError)) {
+        throw err;
+      }
+      // An id_based executor calling this unadvertised endpoint lands here with
+      // secret_not_found. That's expected and harmless — its run is unaffected.
+      this.logger.error(
+        `identity service: runId=${runId} partnerId=${partnerId} stage=${
+          err.causeCategory.startsWith('secret_') ? 'secret' : 'oauth'
+        } cause=${err.causeCategory} durationMs=${Date.now() - startedAt}${
+          err.upstream ? ` upstream=${err.upstream}` : ''
+        }`
+      );
+      switch (err.kind) {
+        case 'misconfigured':
+          throw new InternalServerErrorException('identity_service_misconfigured');
+        case 'auth_failed':
+          throw new BadGatewayException('identity_service_auth_failed');
+        case 'unavailable':
+          throw new ServiceUnavailableException('identity_service_unavailable');
+      }
+    }
   }
 
   @Get(':runId/roster')

@@ -219,6 +219,7 @@ export class GetJobDto
   fileBucketOrHost: string | null;
   fileBasePath: string | null;
   configStatus: $Enums.JobConfigStatus; // TODO, remove prop and column, no longer needed
+  idMatchingMode: $Enums.IdMatchingMode; // snapshotted from the partner at creation; executor-only, no UI yet
 }
 
 export const toGetJobDto = makeSerializerCustomType<GetJobDto, DtoableJob>(GetJobDto);
