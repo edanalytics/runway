@@ -1,6 +1,7 @@
+import { Logger } from '@nestjs/common';
 import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-api-auth.service';
 import { EduSnowflakePoolService } from 'api/src/earthbeam/api/edu-snowflake-pool.service';
-import { AppConfigService } from 'api/src/config/app-config.service';
+import { AppConfigService, IdrsConnectionInfoError } from 'api/src/config/app-config.service';
 import { Readable } from 'node:stream';
 import request from 'supertest';
 import { seedJob } from '../factories/job-factory';
@@ -12,6 +13,7 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
+import { IdentityServiceTokenService } from 'api/src/earthbeam/api/identity-service-token.service';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -162,6 +164,137 @@ describe('Earthbeam API', () => {
         expect(res.body.crossYearMatchAvailable).toBe(true);
         expect(res.body.appUrls.roster).toBeDefined();
         expect(res.body.rosterFilePath).toBeUndefined();
+      });
+    });
+
+    describe('id matching mode', () => {
+      const payloadFor = async (idMatchingMode: 'fuzzy' | 'id_based_fuzzy_background') => {
+        const authService = app.get(EarthbeamApiAuthService);
+        const job = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          idMatchingMode,
+        });
+        const run = job.runs[0];
+        const token = await authService.createAccessToken({ runId: run.id });
+        const res = await request(app.getHttpServer())
+          .get(`/earthbeam/jobs/${run.id}`)
+          .set('Authorization', `Bearer ${token}`);
+        return { res, run };
+      };
+
+      it('reports id_based and omits the identity-service callback by default', async () => {
+        const res = await request(app.getHttpServer())
+          .get(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.idMatchingMode).toBe('id_based');
+        expect(res.body.appUrls.identityService).toBeUndefined();
+      });
+
+      it.each(['fuzzy', 'id_based_fuzzy_background'] as const)(
+        'advertises the identity-service callback for %s without minting a token',
+        async (idMatchingMode) => {
+          const tokenService = app.get(IdentityServiceTokenService);
+          const mintSpy = jest.spyOn(tokenService, 'getCredentials');
+
+          const { res, run } = await payloadFor(idMatchingMode);
+
+          expect(res.status).toBe(200);
+          expect(res.body.idMatchingMode).toBe(idMatchingMode);
+          expect(res.body.appUrls.identityService).toContain(
+            `/earthbeam/jobs/${run.id}/identity-service`
+          );
+          // The payload advertises the callback; it never carries a token.
+          expect(res.body.token).toBeUndefined();
+          expect(mintSpy).not.toHaveBeenCalled();
+
+          mintSpy.mockRestore();
+        }
+      );
+
+      it('serves the run the mode snapshotted on its job, not the partner\'s current setting', async () => {
+        const { res, run } = await payloadFor('fuzzy');
+        expect(res.body.idMatchingMode).toBe('fuzzy');
+
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { idMatchingMode: 'id_based' },
+        });
+
+        const authService = app.get(EarthbeamApiAuthService);
+        const token = await authService.createAccessToken({ runId: run.id });
+        const after = await request(app.getHttpServer())
+          .get(`/earthbeam/jobs/${run.id}`)
+          .set('Authorization', `Bearer ${token}`);
+
+        expect(after.body.idMatchingMode).toBe('fuzzy');
+
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { idMatchingMode: 'id_based' },
+        });
+      });
+
+      it('keeps the cross-year roster callback in background mode', async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+
+        const { res } = await payloadFor('id_based_fuzzy_background');
+
+        // Background mode still runs the authoritative ID-based pass.
+        expect(res.body.crossYearMatchAvailable).toBe(true);
+        expect(res.body.appUrls.roster).toBeDefined();
+
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: false },
+        });
+      });
+
+      it('omits both roster sources in pure fuzzy', async () => {
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: true },
+        });
+
+        const { res } = await payloadFor('fuzzy');
+
+        // crossYearMatchAvailable still mirrors the live partner setting —
+        // IDRS may return cross-year results — but nothing roster-matches.
+        expect(res.body.crossYearMatchAvailable).toBe(true);
+        expect(res.body.appUrls.roster).toBeUndefined();
+        expect(res.body.rosterFilePath).toBeUndefined();
+
+        await global.prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { crossYearMatchingEnabled: false },
+        });
+      });
+
+      it('omits the S3 roster path for a no-ODS fuzzy job', async () => {
+        const authService = app.get(EarthbeamApiAuthService);
+        const noOdsJob = await seedJob({
+          sendToOds: false,
+          schoolYearId: '2324',
+          bundle: bundleA,
+          tenant: tenantA,
+          idMatchingMode: 'fuzzy',
+        });
+        const noOdsRun = noOdsJob.runs[0];
+        const noOdsToken = await authService.createAccessToken({ runId: noOdsRun.id });
+
+        const res = await request(app.getHttpServer())
+          .get(`/earthbeam/jobs/${noOdsRun.id}`)
+          .set('Authorization', `Bearer ${noOdsToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.rosterFilePath).toBeUndefined();
+        expect(res.body.appUrls.roster).toBeUndefined();
       });
     });
 
@@ -450,6 +583,214 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(500);
 
       poolUseSpy.mockRestore();
+    });
+  });
+
+  describe('GET /:runId/identity-service', () => {
+    let runA: Run;
+    let endpointA: string;
+    let tokenA: string;
+    let runX: Run;
+    let tokenX: string;
+    let configService: AppConfigService;
+    let fetchSpy: jest.SpyInstance;
+
+    const tokenResponse = (body: unknown) =>
+      ({ ok: true, status: 200, json: async () => body } as Response);
+
+    beforeEach(async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+
+      const jobA = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        idMatchingMode: 'fuzzy',
+      });
+      runA = jobA.runs[0];
+      endpointA = `/earthbeam/jobs/${runA.id}/identity-service`;
+      tokenA = await authService.createAccessToken({ runId: runA.id });
+
+      const jobX = await seedJob({
+        odsConfig: odsConfigX2425,
+        bundle: bundleX,
+        tenant: tenantX,
+        idMatchingMode: 'fuzzy',
+      });
+      runX = jobX.runs[0];
+      tokenX = await authService.createAccessToken({ runId: runX.id });
+
+      // Tokens are cached per app instance, and the app is shared across tests.
+      const tokenService = app.get(IdentityServiceTokenService);
+      (tokenService as unknown as { cache: Map<string, unknown> }).cache.clear();
+
+      // Stub at the config boundary so the real token service, controller and
+      // error mapping all run; only AWS and the OAuth server are faked.
+      configService = app.get(AppConfigService);
+      jest
+        .spyOn(configService, 'idrsOauthTokenUrl')
+        .mockReturnValue('https://auth.example.test/oauth/token');
+      jest
+        .spyOn(configService, 'getIdrsConnectionInfo')
+        .mockImplementation(async (partnerId: string) => ({
+          clientId: `${partnerId}-client`,
+          clientSecret: `${partnerId}-secret`,
+          url: `https://idrs.example.test/${partnerId}`,
+        }));
+      fetchSpy = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValue(
+          tokenResponse({ access_token: 'issued-token', expires_in: 24 * 60 * 60 })
+        );
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('rejects unauthenticated requests', async () => {
+      const res = await request(app.getHttpServer()).get(endpointA);
+      expect(res.status).toBe(401);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects a token minted for a different run', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenX}`);
+      expect(res.status).toBe(403);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns the token and url for the run\'s partner', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        token: 'issued-token',
+        url: `https://idrs.example.test/${tenantA.partnerId}`,
+      });
+    });
+
+    it('resolves each run to its own partner', async () => {
+      const resX = await request(app.getHttpServer())
+        .get(`/earthbeam/jobs/${runX.id}/identity-service`)
+        .set('Authorization', `Bearer ${tokenX}`);
+
+      expect(resX.status).toBe(200);
+      expect(resX.body.url).toBe(`https://idrs.example.test/${tenantX.partnerId}`);
+      expect(configService.getIdrsConnectionInfo).toHaveBeenCalledWith(tenantX.partnerId);
+    });
+
+    it('remains available after the run reports done', async () => {
+      await global.prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it('serves an id_based run that calls the unadvertised endpoint anyway', async () => {
+      const authService = app.get(EarthbeamApiAuthService);
+      const idBasedJob = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+      const idBasedRun = idBasedJob.runs[0];
+      const idBasedToken = await authService.createAccessToken({ runId: idBasedRun.id });
+
+      const res = await request(app.getHttpServer())
+        .get(`/earthbeam/jobs/${idBasedRun.id}/identity-service`)
+        .set('Authorization', `Bearer ${idBasedToken}`);
+
+      // No mode check: the payload simply doesn't advertise the URL.
+      expect(res.status).toBe(200);
+    });
+
+    it('returns 500 identity_service_misconfigured when no secret is provisioned', async () => {
+      jest
+        .spyOn(configService, 'getIdrsConnectionInfo')
+        .mockRejectedValue(new IdrsConnectionInfoError('secret_not_found', 'nope'));
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(500);
+      expect(res.body.message).toBe('identity_service_misconfigured');
+    });
+
+    it('returns 500 identity_service_misconfigured when the token endpoint is unset', async () => {
+      jest.spyOn(configService, 'idrsOauthTokenUrl').mockReturnValue(null);
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(500);
+      expect(res.body.message).toBe('identity_service_misconfigured');
+    });
+
+    it('returns 502 identity_service_auth_failed when OAuth rejects the request', async () => {
+      fetchSpy.mockResolvedValue({ ok: false, status: 401, json: async () => ({}) } as Response);
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(502);
+      expect(res.body.message).toBe('identity_service_auth_failed');
+    });
+
+    it('returns 503 identity_service_unavailable when the dependency retries are exhausted', async () => {
+      jest
+        .spyOn(configService, 'getIdrsConnectionInfo')
+        .mockRejectedValue(new IdrsConnectionInfoError('secret_fetch_unavailable', 'timed out'));
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(503);
+      expect(res.body.message).toBe('identity_service_unavailable');
+    });
+
+    it('never writes the token or the callback response to the app log', async () => {
+      const logs: string[] = [];
+      const capture = (message: unknown) => {
+        logs.push(String(message));
+      };
+      jest.spyOn(Logger.prototype, 'log').mockImplementation(capture);
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(capture);
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(capture);
+
+      const ok = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+      expect(ok.status).toBe(200);
+
+      jest
+        .spyOn(configService, 'getIdrsConnectionInfo')
+        .mockRejectedValue(
+          new IdrsConnectionInfoError('secret_access_denied', 'denied', 'AccessDeniedException', 'req-9')
+        );
+      const failed = await request(app.getHttpServer())
+        .get(`/earthbeam/jobs/${runX.id}/identity-service`)
+        .set('Authorization', `Bearer ${tokenX}`);
+      expect(failed.status).toBe(500);
+
+      const combined = logs.join('\n');
+      expect(combined).toContain(`runId=${runA.id}`);
+      expect(combined).toContain('cause=secret_access_denied');
+      expect(combined).toContain('upstream=AccessDeniedException req-9');
+      expect(combined).not.toContain('issued-token');
+      expect(combined).not.toContain('-secret');
+      expect(combined).not.toContain('-client');
     });
   });
 

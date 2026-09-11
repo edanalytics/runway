@@ -1,4 +1,4 @@
-import { OdsConfig, RunStatus, Tenant } from '@prisma/client';
+import { IdMatchingMode, OdsConfig, RunStatus, Tenant } from '@prisma/client';
 import { WithoutAudit } from '../fixtures/utils/created-modified';
 import { IEarthmoverBundle, JsonArray } from '@edanalytics/models';
 import { makePostJobDto } from './job-input-factory';
@@ -11,6 +11,9 @@ export const seedJob = async (
     bundle: IEarthmoverBundle;
     tenant: WithoutAudit<Tenant>;
     runStatus?: RunStatus;
+    // Snapshotted onto the job at creation in real life; set it directly here
+    // so a test can exercise a fuzzy mode without changing global fixtures.
+    idMatchingMode?: IdMatchingMode;
     summary?: boolean;
     unmatchedStudentsInfo?: boolean;
     outputFiles?: boolean;
@@ -25,6 +28,7 @@ export const seedJob = async (
     bundle,
     tenant,
     runStatus = 'new',
+    idMatchingMode = 'id_based',
     summary = false,
     unmatchedStudentsInfo = false,
     outputFiles = false,
@@ -43,6 +47,7 @@ export const seedJob = async (
       ...postJobDto,
       odsId,
       sendToOds,
+      idMatchingMode,
       inputParams: postJobDto.inputParams as unknown as JsonArray,
       template: instanceToPlain(postJobDto.template),
       tenantCode: tenant.code,
