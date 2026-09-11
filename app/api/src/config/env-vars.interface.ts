@@ -41,6 +41,15 @@ export interface IEnvironmentVariables {
   LOCAL_EVENT_EMITTER?: 'log' | 'noop'; // default (unset) = EventBridge
   LOCAL_BUNDLE_CACHE_DISABLED?: 'true' | 'false';
 
+  // Identity Data Resolution Service (IDRS). The token endpoint is shared by
+  // every partner in a deployment; per-partner client credentials and base URL
+  // come from the AWS secret `<ENVLABEL>-idrs-connection-info-<partnerId>`.
+  // The IDRS_* credential vars are a local-development substitute for it.
+  IDRS_OAUTH_TOKEN_URL?: string;
+  IDRS_CLIENT_ID?: string;
+  IDRS_CLIENT_SECRET?: string;
+  IDRS_URL?: string;
+
   OAUTH2_ISSUER?: string; // token issuer for external API
   OAUTH2_AUDIENCE?: string; // token audience for external API
 

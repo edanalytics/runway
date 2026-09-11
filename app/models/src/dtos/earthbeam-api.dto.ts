@@ -1,4 +1,5 @@
 import { Expose } from 'class-transformer';
+import { $Enums } from '@prisma/client';
 import { makeSerializer } from '../utils';
 import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
@@ -45,6 +46,10 @@ export class EarthbeamApiJobResponseDto {
     unmatchedIds: string;
     outputFiles: string;
     roster?: string;
+    // Present only in the fuzzy modes. The executor calls this immediately
+    // before using IDRS to get a partner-scoped token; the payload itself
+    // never carries one.
+    identityService?: string;
   };
 
   @Expose()
@@ -52,6 +57,9 @@ export class EarthbeamApiJobResponseDto {
 
   @Expose()
   crossYearMatchAvailable: boolean;
+
+  @Expose()
+  idMatchingMode: $Enums.IdMatchingMode;
 
   @Expose()
   rosterFilePath?: string;
@@ -101,3 +109,15 @@ export class EarthbeamApiOutputFilesPayloadDto {
   @IsBoolean()
   sentToOds: boolean;
 }
+
+/** Response from the just-in-time identity-service callback. */
+export class EarthbeamApiIdentityServiceResponseDto {
+  @Expose()
+  token: string;
+
+  @Expose()
+  url: string;
+}
+export const toEarthbeamApiIdentityServiceResponseDto = makeSerializer(
+  EarthbeamApiIdentityServiceResponseDto
+);
