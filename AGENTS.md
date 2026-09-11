@@ -221,6 +221,8 @@ Failures collapse to three responses — `500 identity_service_misconfigured`, `
 
 Rollout order per partner: set `IDRS_OAUTH_TOKEN_URL`, provision the secret, then change the partner's mode. There is no enable-time preflight — an `id_based` executor calling the unadvertised callback gets a `500` and a `secret_not_found` log, which is expected and harmless.
 
+Both of those first two steps are owned by the cloud engineering team and happen outside this repo: `IDRS_OAUTH_TOKEN_URL` is not threaded through `cloudformation/` (unlike `OAUTH2_ISSUER` or `UM_CONFIG_SECRET`), and the per-partner `{ENVLABEL}-idrs-connection-info-{partnerId}` secrets are provisioned directly. Don't add the stack wiring here — coordinate with cloud eng instead.
+
 ### S3 Path Structure
 
 ```
