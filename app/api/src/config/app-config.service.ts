@@ -9,81 +9,13 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
 /**
- * Overall bound on one IDRS secret lookup, SDK retries included. Paired with
- * the OAuth budget in IdentityServiceTokenService, this keeps the callback
- * comfortably inside the executor's twenty-second request timeout.
+ * Overall bound on one IDRS secret lookup, SDK retries included, so a slow
+ * Secrets Manager can't eat the executor's twenty-second request timeout.
  */
 export const IDRS_SECRET_TIMEOUT_MS = 5000;
 
-/**
- * Why IDRS connection info couldn't be loaded. Deliberately coarse: these feed
- * the callback's three-way HTTP contract and the `cause` field of its logs
- * (named causeCategory on the error itself, to leave the standard Error.cause
- * option alone),
- * not per-error handling.
- */
-export type IdrsConnectionInfoErrorCause =
-  | 'secret_not_found'
-  | 'secret_access_denied'
-  | 'secret_invalid'
-  | 'secret_fetch_unavailable';
-
-export class IdrsConnectionInfoError extends Error {
-  constructor(
-    readonly causeCategory: IdrsConnectionInfoErrorCause,
-    message: string,
-    /** Safe upstream identifiers for diagnosis — never credential material. */
-    readonly awsErrorName?: string,
-    readonly awsRequestId?: string
-  ) {
-    super(message);
-    this.name = 'IdrsConnectionInfoError';
-  }
-
-  static fromAwsError(err: unknown, secretName: string): IdrsConnectionInfoError {
-    const name = err instanceof Error ? err.name : undefined;
-    const requestId =
-      typeof err === 'object' && err !== null && '$metadata' in err
-        ? (err as { $metadata?: { requestId?: string } }).$metadata?.requestId
-        : undefined;
-
-    // Anything unrecognized — network resets, DNS, an SDK error we haven't
-    // seen — is treated as transient. A 503 tells the executor it may retry,
-    // which is the safer default when we can't prove the config is wrong.
-    const causeCategory: IdrsConnectionInfoErrorCause =
-      name === 'ResourceNotFoundException'
-        ? 'secret_not_found'
-        : AWS_PERMISSION_ERROR_NAMES.has(name ?? '')
-        ? 'secret_access_denied'
-        : AWS_CONFIG_ERROR_NAMES.has(name ?? '')
-        ? 'secret_invalid'
-        : 'secret_fetch_unavailable';
-
-    return new IdrsConnectionInfoError(
-      causeCategory,
-      `failed to load IDRS connection info from ${secretName}`,
-      name,
-      requestId
-    );
-  }
-}
-
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0;
-
-const AWS_PERMISSION_ERROR_NAMES = new Set([
-  'AccessDeniedException',
-  'UnrecognizedClientException',
-  'InvalidSignatureException',
-  'ExpiredTokenException',
-  'CredentialsProviderError',
-]);
-
-const AWS_CONFIG_ERROR_NAMES = new Set([
-  'DecryptionFailure',
-  'InvalidParameterException',
-  'InvalidRequestException',
-]);
 
 export type UmConfig = {
   url: string;
@@ -273,43 +205,31 @@ export class AppConfigService {
   }
 
   /**
-   * Per-partner IDRS client credentials and base URL.
+   * Per-partner IDRS client credentials and base URL. Returns null when the
+   * config is missing or malformed and lets real AWS failures throw, matching
+   * getEduConnectionInfo above — the callback maps both to one response.
    *
-   * Deployed: the AWS secret `<ENVLABEL>-idrs-connection-info-<partnerId>`,
-   * fetched uncached and bounded to five seconds overall (SDK retries
-   * included) so a slow Secrets Manager can't eat the executor's timeout.
-   * The generic secret cache is permanent for the process, which would pin
-   * rotated credentials until a restart.
-   *
-   * Local development: lazily read IDRS_* environment variables instead.
-   *
-   * Throws IdrsConnectionInfoError with a cause category rather than
-   * returning null, because the callback needs to distinguish "never
-   * provisioned" (misconfigured) from "AWS is unhappy right now"
-   * (unavailable).
+   * Uncached, unlike the generic secret cache, which is permanent for the
+   * process and would pin rotated credentials until a restart. Bounded to five
+   * seconds via a per-request abort signal, so no other secret getter inherits
+   * the bound.
    */
   async getIdrsConnectionInfo(
     partnerId: string
-  ): Promise<{ clientId: string; clientSecret: string; url: string }> {
+  ): Promise<{ clientId: string; clientSecret: string; url: string } | null> {
     if (this.isDevEnvironment()) {
       const clientId = this.get('IDRS_CLIENT_ID');
       const clientSecret = this.get('IDRS_CLIENT_SECRET');
       const url = this.get('IDRS_URL');
       if (!clientId || !clientSecret || !url) {
-        throw new IdrsConnectionInfoError(
-          'secret_not_found',
-          'IDRS_CLIENT_ID, IDRS_CLIENT_SECRET and IDRS_URL must all be set in local development'
-        );
+        return null;
       }
-      return { clientId, clientSecret, url: this.validateIdrsUrl(url) };
+      return { clientId, clientSecret, url };
     }
 
     const envLabel = this.get('ENVLABEL');
     if (!envLabel) {
-      throw new IdrsConnectionInfoError(
-        'secret_not_found',
-        'ENVLABEL must be set in order to retrieve IDRS connection info'
-      );
+      throw new Error('ENVLABEL must be set in order to retrieve IDRS connection info');
     }
     const secretName = `${envLabel}-idrs-connection-info-${partnerId}`;
 
@@ -319,63 +239,32 @@ export class AppConfigService {
         abortSignal: AbortSignal.timeout(IDRS_SECRET_TIMEOUT_MS),
       });
     } catch (err) {
-      throw IdrsConnectionInfoError.fromAwsError(err, secretName);
+      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
+        return null;
+      }
+      throw err;
     }
 
-    // fetchAWSSecret's return type promises a string or a record, but it hands
-    // back whatever JSON.parse produced. `null` and arrays both satisfy
-    // `typeof === 'object'`, so a bare typeof check would let a malformed
-    // secret reach the destructuring below and throw a raw TypeError —
-    // escaping the callback's error contract entirely.
-    const parsed: unknown = secret;
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new IdrsConnectionInfoError(
-        'secret_invalid',
-        `Value for AWS secret ${secretName} must be an object`
-      );
-    }
-    // The secret spells it clientID; map to our clientId naming at the boundary
-    // so nothing downstream has to remember which casing applies where.
-    const { clientID, clientSecret, url } = parsed as Record<string, unknown>;
+    // fetchAWSSecret hands back whatever JSON.parse produced, and both null and
+    // arrays satisfy `typeof === 'object'` — normalize before reading fields.
+    const fields = (typeof secret === 'object' && secret !== null ? secret : {}) as Record<
+      string,
+      unknown
+    >;
+    // The secret spells it clientID; map to our clientId naming at the boundary.
+    const { clientID, clientSecret, url } = fields;
     // Secrets Manager content is untrusted at runtime whatever the type says.
-    // A numeric clientID would be silently coerced by URLSearchParams and
-    // surface later as an OAuth rejection, pointing diagnosis at the wrong
-    // dependency; catch it here as the provisioning error it is.
-    if (!isNonEmptyString(clientID) || !isNonEmptyString(clientSecret) || !isNonEmptyString(url)) {
-      throw new IdrsConnectionInfoError(
-        'secret_invalid',
-        `AWS secret ${secretName} must define clientID, clientSecret and url as non-empty strings`
-      );
+    // The url is preserved exactly, since it doubles as the OAuth audience.
+    if (
+      !isNonEmptyString(clientID) ||
+      !isNonEmptyString(clientSecret) ||
+      !isNonEmptyString(url) ||
+      !url.startsWith('https://')
+    ) {
+      this.logger.warn(`AWS secret ${secretName} is missing or malformed`);
+      return null;
     }
-    return { clientId: clientID, clientSecret, url: this.validateIdrsUrl(url) };
-  }
-
-  /**
-   * Returns the configured value unchanged on success — it doubles as the
-   * OAuth audience, so normalization (a trailing slash, a lowercased host)
-   * would silently break token issuance. EDFIAL-481 must use URL-aware path
-   * joining when building IDRS request paths from it.
-   */
-  private validateIdrsUrl(url: string): string {
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      throw new IdrsConnectionInfoError(
-        'secret_invalid',
-        'IDRS url must be an absolute http(s) URL'
-      );
-    }
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      throw new IdrsConnectionInfoError(
-        'secret_invalid',
-        'IDRS url must be an absolute http(s) URL'
-      );
-    }
-    if (parsed.protocol !== 'https:' && !this.isDevEnvironment()) {
-      throw new IdrsConnectionInfoError('secret_invalid', 'IDRS url must use https');
-    }
-    return url;
+    return { clientId: clientID, clientSecret, url };
   }
 
   bundleBranch(): string {

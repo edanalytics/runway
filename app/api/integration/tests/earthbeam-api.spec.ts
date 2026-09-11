@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-api-auth.service';
 import { EduSnowflakePoolService } from 'api/src/earthbeam/api/edu-snowflake-pool.service';
-import { AppConfigService, IdrsConnectionInfoError } from 'api/src/config/app-config.service';
+import { AppConfigService } from 'api/src/config/app-config.service';
 import { Readable } from 'node:stream';
 import request from 'supertest';
 import { seedJob } from '../factories/job-factory';
@@ -712,51 +712,41 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(200);
     });
 
-    it('returns 500 identity_service_misconfigured when no secret is provisioned', async () => {
-      jest
-        .spyOn(configService, 'getIdrsConnectionInfo')
-        .mockRejectedValue(new IdrsConnectionInfoError('secret_not_found', 'nope'));
+    // Every failure is one response; humans diagnose from the log, not the
+    // status. Exercise each distinct upstream failure reaches it.
+    it.each([
+      [
+        'the partner has no connection info',
+        () => jest.spyOn(configService, 'getIdrsConnectionInfo').mockResolvedValue(null),
+      ],
+      [
+        'the token endpoint is unset',
+        () => jest.spyOn(configService, 'idrsOauthTokenUrl').mockReturnValue(null),
+      ],
+      [
+        'OAuth rejects the request',
+        () =>
+          fetchSpy.mockResolvedValue({
+            ok: false,
+            status: 401,
+            json: async () => ({}),
+          } as Response),
+      ],
+      [
+        'Secrets Manager is unavailable',
+        () =>
+          jest
+            .spyOn(configService, 'getIdrsConnectionInfo')
+            .mockRejectedValue(new Error('ThrottlingException')),
+      ],
+    ])('returns 500 identity_service_unavailable when %s', async (_label, arrange) => {
+      arrange();
 
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenA}`);
 
       expect(res.status).toBe(500);
-      expect(res.body.message).toBe('identity_service_misconfigured');
-    });
-
-    it('returns 500 identity_service_misconfigured when the token endpoint is unset', async () => {
-      jest.spyOn(configService, 'idrsOauthTokenUrl').mockReturnValue(null);
-
-      const res = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`);
-
-      expect(res.status).toBe(500);
-      expect(res.body.message).toBe('identity_service_misconfigured');
-    });
-
-    it('returns 502 identity_service_auth_failed when OAuth rejects the request', async () => {
-      fetchSpy.mockResolvedValue({ ok: false, status: 401, json: async () => ({}) } as Response);
-
-      const res = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`);
-
-      expect(res.status).toBe(502);
-      expect(res.body.message).toBe('identity_service_auth_failed');
-    });
-
-    it('returns 503 identity_service_unavailable when the dependency retries are exhausted', async () => {
-      jest
-        .spyOn(configService, 'getIdrsConnectionInfo')
-        .mockRejectedValue(new IdrsConnectionInfoError('secret_fetch_unavailable', 'timed out'));
-
-      const res = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`);
-
-      expect(res.status).toBe(503);
       expect(res.body.message).toBe('identity_service_unavailable');
     });
 
@@ -774,20 +764,18 @@ describe('Earthbeam API', () => {
         .set('Authorization', `Bearer ${tokenA}`);
       expect(ok.status).toBe(200);
 
-      jest
-        .spyOn(configService, 'getIdrsConnectionInfo')
-        .mockRejectedValue(
-          new IdrsConnectionInfoError('secret_access_denied', 'denied', 'AccessDeniedException', 'req-9')
-        );
+      fetchSpy.mockResolvedValue({ ok: false, status: 401, json: async () => ({}) } as Response);
       const failed = await request(app.getHttpServer())
         .get(`/earthbeam/jobs/${runX.id}/identity-service`)
         .set('Authorization', `Bearer ${tokenX}`);
       expect(failed.status).toBe(500);
 
       const combined = logs.join('\n');
+      // The log is where diagnosis happens, so it must carry the identifiers...
       expect(combined).toContain(`runId=${runA.id}`);
-      expect(combined).toContain('cause=secret_access_denied');
-      expect(combined).toContain('upstream=AccessDeniedException req-9');
+      expect(combined).toContain(`partnerId=${tenantX.partnerId}`);
+      expect(combined).toContain('upstream=status=401');
+      // ...and none of the credential material.
       expect(combined).not.toContain('issued-token');
       expect(combined).not.toContain('-secret');
       expect(combined).not.toContain('-client');

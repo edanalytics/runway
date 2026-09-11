@@ -1,5 +1,4 @@
 import {
-  BadGatewayException,
   BadRequestException,
   Body,
   ConflictException,
@@ -15,7 +14,6 @@ import {
   Post,
   Req,
   Res,
-  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -87,6 +85,9 @@ export class EarthbeamApiController {
    * check (background fuzzy work continues after the authoritative run reports
    * done), and no one-call limit — the executor may call again while its
    * 24-hour token is valid.
+   *
+   * Every failure is one response: the executor only distinguishes 200 from
+   * non-200, so humans diagnose from the log below rather than the status.
    */
   @Get(':runId/identity-service')
   async identityService(@Param('runId', ParseIntPipe) runId: number) {
@@ -110,26 +111,18 @@ export class EarthbeamApiController {
       );
       return toEarthbeamApiIdentityServiceResponseDto(credentials);
     } catch (err) {
-      if (!(err instanceof IdentityServiceTokenError)) {
-        throw err;
-      }
       // An id_based executor calling this unadvertised endpoint lands here with
-      // secret_not_found. That's expected and harmless — its run is unaffected.
+      // no connection info. That's expected and harmless — its run is
+      // unaffected.
+      const upstream = err instanceof IdentityServiceTokenError ? err.upstream : undefined;
       this.logger.error(
-        `identity service: runId=${runId} partnerId=${partnerId} stage=${
-          err.causeCategory.startsWith('secret_') ? 'secret' : 'oauth'
-        } cause=${err.causeCategory} durationMs=${Date.now() - startedAt}${
-          err.upstream ? ` upstream=${err.upstream}` : ''
+        `identity service: runId=${runId} partnerId=${partnerId} durationMs=${
+          Date.now() - startedAt
+        } cause=${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}${
+          upstream ? ` upstream=${upstream}` : ''
         }`
       );
-      switch (err.kind) {
-        case 'misconfigured':
-          throw new InternalServerErrorException('identity_service_misconfigured');
-        case 'auth_failed':
-          throw new BadGatewayException('identity_service_auth_failed');
-        case 'unavailable':
-          throw new ServiceUnavailableException('identity_service_unavailable');
-      }
+      throw new InternalServerErrorException('identity_service_unavailable');
     }
   }
 
