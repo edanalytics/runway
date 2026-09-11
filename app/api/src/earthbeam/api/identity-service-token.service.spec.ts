@@ -2,6 +2,8 @@ import { AppConfigService, IdrsConnectionInfoError } from 'api/src/config/app-co
 import {
   IdentityServiceTokenError,
   IdentityServiceTokenService,
+  OAUTH_RETRY_MAX_BACKOFF_MS,
+  OAUTH_TIMEOUT_MS,
   TOKEN_REUSE_BUFFER_MS,
 } from './identity-service-token.service';
 
@@ -188,6 +190,77 @@ describe('IdentityServiceTokenService', () => {
         kind: 'auth_failed',
         causeCategory: 'oauth_invalid_response',
       });
+    });
+
+    // `null` and arrays are valid JSON and both pass `typeof === 'object'`;
+    // reading through them would throw a raw TypeError that the callback
+    // can't map to the documented contract.
+    it.each([[null], [[]], [['access_token']]])(
+      'rejects the response body %p rather than throwing',
+      async (body) => {
+        fetchMock.mockResolvedValue(okResponse(body));
+
+        const err = await service.getCredentials('partner-a').catch((e) => e);
+
+        expect(err).toBeInstanceOf(IdentityServiceTokenError);
+        expect(err.kind).toBe('auth_failed');
+        expect(err.causeCategory).toBe('oauth_invalid_response');
+      }
+    );
+
+    it('rejects a body that is not JSON at all', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('Unexpected token');
+        },
+      } as unknown as Response);
+
+      await expect(service.getCredentials('partner-a')).rejects.toMatchObject({
+        kind: 'auth_failed',
+        causeCategory: 'oauth_invalid_response',
+      });
+    });
+  });
+
+  // These two bounds are what keep the callback inside the executor's
+  // twenty-second timeout, so pin them rather than trusting the constants.
+  describe('latency budget', () => {
+    it('gives every OAuth attempt a five-second abort signal', async () => {
+      const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
+      fetchMock
+        .mockResolvedValueOnce(errorResponse(503))
+        .mockResolvedValueOnce(okResponse({ access_token: 'x', expires_in: DAY_SECONDS }));
+
+      await service.getCredentials('partner-a');
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(timeoutSpy).toHaveBeenCalledTimes(2);
+      expect(timeoutSpy.mock.calls).toEqual([[OAUTH_TIMEOUT_MS], [OAUTH_TIMEOUT_MS]]);
+      expect(OAUTH_TIMEOUT_MS).toBe(5000);
+    });
+
+    it('caps the retry backoff at one second even at maximum jitter', async () => {
+      // Math.random() never returns 1, but pinning it there proves the ceiling.
+      (Math.random as jest.Mock).mockReturnValue(0.999999);
+      const delays: number[] = [];
+      jest.spyOn(global, 'setTimeout').mockImplementation(((cb: () => void, ms: number) => {
+        delays.push(ms);
+        cb();
+        return 0 as unknown as NodeJS.Timeout;
+      }) as never);
+
+      fetchMock
+        .mockResolvedValueOnce(errorResponse(429))
+        .mockResolvedValueOnce(okResponse({ access_token: 'x', expires_in: DAY_SECONDS }));
+
+      await service.getCredentials('partner-a');
+
+      expect(delays).toHaveLength(1);
+      expect(delays[0]).toBeGreaterThan(0);
+      expect(delays[0]).toBeLessThanOrEqual(OAUTH_RETRY_MAX_BACKOFF_MS);
+      expect(OAUTH_RETRY_MAX_BACKOFF_MS).toBe(1000);
     });
   });
 

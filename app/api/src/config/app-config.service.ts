@@ -68,6 +68,9 @@ export class IdrsConnectionInfoError extends Error {
   }
 }
 
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0;
+
 const AWS_PERMISSION_ERROR_NAMES = new Set([
   'AccessDeniedException',
   'UnrecognizedClientException',
@@ -319,7 +322,13 @@ export class AppConfigService {
       throw IdrsConnectionInfoError.fromAwsError(err, secretName);
     }
 
-    if (typeof secret !== 'object') {
+    // fetchAWSSecret's return type promises a string or a record, but it hands
+    // back whatever JSON.parse produced. `null` and arrays both satisfy
+    // `typeof === 'object'`, so a bare typeof check would let a malformed
+    // secret reach the destructuring below and throw a raw TypeError —
+    // escaping the callback's error contract entirely.
+    const parsed: unknown = secret;
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new IdrsConnectionInfoError(
         'secret_invalid',
         `Value for AWS secret ${secretName} must be an object`
@@ -327,11 +336,15 @@ export class AppConfigService {
     }
     // The secret spells it clientID; map to our clientId naming at the boundary
     // so nothing downstream has to remember which casing applies where.
-    const { clientID, clientSecret, url } = secret;
-    if (!clientID || !clientSecret || !url) {
+    const { clientID, clientSecret, url } = parsed as Record<string, unknown>;
+    // Secrets Manager content is untrusted at runtime whatever the type says.
+    // A numeric clientID would be silently coerced by URLSearchParams and
+    // surface later as an OAuth rejection, pointing diagnosis at the wrong
+    // dependency; catch it here as the provisioning error it is.
+    if (!isNonEmptyString(clientID) || !isNonEmptyString(clientSecret) || !isNonEmptyString(url)) {
       throw new IdrsConnectionInfoError(
         'secret_invalid',
-        `AWS secret ${secretName} must define clientID, clientSecret and url`
+        `AWS secret ${secretName} must define clientID, clientSecret and url as non-empty strings`
       );
     }
     return { clientId: clientID, clientSecret, url: this.validateIdrsUrl(url) };

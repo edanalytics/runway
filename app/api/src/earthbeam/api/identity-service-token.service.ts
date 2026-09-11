@@ -208,9 +208,9 @@ export class IdentityServiceTokenService {
       );
     }
 
-    let payload: { access_token?: unknown; expires_in?: unknown };
+    let parsedBody: unknown;
     try {
-      payload = (await response.json()) as typeof payload;
+      parsedBody = await response.json();
     } catch {
       throw new IdentityServiceTokenError(
         'auth_failed',
@@ -218,6 +218,18 @@ export class IdentityServiceTokenService {
         'IDRS token response was not JSON'
       );
     }
+
+    // `null` and arrays are valid JSON and both pass `typeof === 'object'`.
+    // Reading through them would throw a raw TypeError that the callback
+    // can't classify, so reject them as the malformed responses they are.
+    if (parsedBody === null || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+      throw new IdentityServiceTokenError(
+        'auth_failed',
+        'oauth_invalid_response',
+        'IDRS token response was not a JSON object'
+      );
+    }
+    const payload = parsedBody as { access_token?: unknown; expires_in?: unknown };
 
     const token = payload.access_token;
     if (typeof token !== 'string' || token.length === 0) {

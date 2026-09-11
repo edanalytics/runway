@@ -180,6 +180,35 @@ describe('AppConfigService IDRS connection info', () => {
       });
     });
 
+    // `null` and arrays are valid JSON and both pass `typeof === 'object'`;
+    // without an explicit guard they reach the destructuring and throw a raw
+    // TypeError the callback can't classify.
+    it.each([['null'], ['[]'], ['["clientID"]']])(
+      'treats the secret body %s as invalid rather than throwing',
+      async (secretString) => {
+        send.mockResolvedValue({ SecretString: secretString });
+
+        const err = await service.getIdrsConnectionInfo('partner-a').catch((e) => e);
+
+        expect(err).toBeInstanceOf(IdrsConnectionInfoError);
+        expect(err.causeCategory).toBe('secret_invalid');
+      }
+    );
+
+    it.each([
+      ['clientID', 12345],
+      ['clientSecret', { nested: true }],
+      ['url', ['https://idrs.example.test']],
+      ['clientID', ''],
+    ])('treats a %s of %p as invalid', async (field, value) => {
+      send.mockResolvedValue(secretValue({ [field]: value }));
+
+      const err = await service.getIdrsConnectionInfo('partner-a').catch((e) => e);
+
+      expect(err).toBeInstanceOf(IdrsConnectionInfoError);
+      expect(err.causeCategory).toBe('secret_invalid');
+    });
+
     it('reports a missing ENVLABEL as not-found rather than calling AWS', async () => {
       delete env.ENVLABEL;
 
