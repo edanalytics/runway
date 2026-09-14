@@ -42,6 +42,7 @@ describe('AppConfigService IDRS connection info', () => {
     expect(send.mock.calls[0][0].input.SecretId).toBe('stage-idrs-connection-info-partner-a');
   });
 
+  // Wiring only: that a five-second signal is built and reaches the SDK call.
   it('bounds the lookup with a five-second abort signal', async () => {
     const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
 
@@ -49,6 +50,7 @@ describe('AppConfigService IDRS connection info', () => {
 
     expect(timeoutSpy).toHaveBeenCalledWith(IDRS_SECRET_TIMEOUT_MS);
     expect(IDRS_SECRET_TIMEOUT_MS).toBe(5000);
+    expect(send.mock.calls[0][1].abortSignal).toBeInstanceOf(AbortSignal);
   });
 
   it('does not apply that bound to unrelated secret getters', async () => {
@@ -141,5 +143,35 @@ describe('AppConfigService IDRS connection info', () => {
     expect((await service.getIdrsConnectionInfo('partner-a'))?.url).toBe(
       'https://IDRS.Example.test/base/'
     );
+  });
+
+  // The client secret travels in the token request body, so a plaintext
+  // endpoint exposes the credential rather than merely failing a job.
+  describe('idrsOauthTokenUrl', () => {
+    it('returns a configured https endpoint', () => {
+      env.IDRS_OAUTH_TOKEN_URL = 'https://auth.example.test/oauth/token';
+
+      expect(service.idrsOauthTokenUrl()).toBe('https://auth.example.test/oauth/token');
+    });
+
+    it('returns null when unset', () => {
+      expect(service.idrsOauthTokenUrl()).toBeNull();
+    });
+
+    it.each([
+      ['http', 'http://auth.example.test/oauth/token'],
+      ['no scheme', 'auth.example.test/oauth/token'],
+    ])('refuses a deployed %s endpoint', (_label, url) => {
+      env.IDRS_OAUTH_TOKEN_URL = url;
+
+      expect(service.idrsOauthTokenUrl()).toBeNull();
+    });
+
+    it('allows http locally', () => {
+      env.NODE_ENV = 'development';
+      env.IDRS_OAUTH_TOKEN_URL = 'http://localhost:8080/oauth/token';
+
+      expect(service.idrsOauthTokenUrl()).toBe('http://localhost:8080/oauth/token');
+    });
   });
 });

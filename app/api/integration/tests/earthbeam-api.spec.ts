@@ -219,9 +219,11 @@ describe('Earthbeam API', () => {
         const { res, run } = await payloadFor('fuzzy');
         expect(res.body.idMatchingMode).toBe('fuzzy');
 
+        // A real change of setting, away from both the fixture default and the
+        // job's snapshot, so the second request can only come from the job.
         await global.prisma.partner.update({
           where: { id: partnerA.id },
-          data: { idMatchingMode: 'id_based' },
+          data: { idMatchingMode: 'id_based_fuzzy_background' },
         });
 
         const authService = app.get(EarthbeamApiAuthService);
@@ -231,11 +233,6 @@ describe('Earthbeam API', () => {
           .set('Authorization', `Bearer ${token}`);
 
         expect(after.body.idMatchingMode).toBe('fuzzy');
-
-        await global.prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { idMatchingMode: 'id_based' },
-        });
       });
 
       it('keeps the cross-year roster callback in background mode', async () => {
@@ -249,11 +246,6 @@ describe('Earthbeam API', () => {
         // Background mode still runs the authoritative ID-based pass.
         expect(res.body.crossYearMatchAvailable).toBe(true);
         expect(res.body.appUrls.roster).toBeDefined();
-
-        await global.prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { crossYearMatchingEnabled: false },
-        });
       });
 
       it('omits both roster sources in pure fuzzy', async () => {
@@ -269,11 +261,6 @@ describe('Earthbeam API', () => {
         expect(res.body.crossYearMatchAvailable).toBe(true);
         expect(res.body.appUrls.roster).toBeUndefined();
         expect(res.body.rosterFilePath).toBeUndefined();
-
-        await global.prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { crossYearMatchingEnabled: false },
-        });
       });
 
       it('omits the S3 roster path for a no-ODS fuzzy job', async () => {
@@ -713,15 +700,14 @@ describe('Earthbeam API', () => {
     });
 
     // Every failure is one response; humans diagnose from the log, not the
-    // status. Exercise each distinct upstream failure reaches it.
+    // status. One case per distinct path to it: unusable config, a rejecting
+    // OAuth server, and a thrown AWS error (the only foreign error type the
+    // controller's catch sees). The rest of the config and OAuth failure
+    // surface is covered at the unit level.
     it.each([
       [
         'the partner has no connection info',
         () => jest.spyOn(configService, 'getIdrsConnectionInfo').mockResolvedValue(null),
-      ],
-      [
-        'the token endpoint is unset',
-        () => jest.spyOn(configService, 'idrsOauthTokenUrl').mockReturnValue(null),
       ],
       [
         'OAuth rejects the request',

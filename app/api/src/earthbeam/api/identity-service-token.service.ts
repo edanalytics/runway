@@ -4,18 +4,15 @@ import { AppConfigService } from 'api/src/config/app-config.service';
 /** Bound on the OAuth token request. */
 export const OAUTH_TIMEOUT_MS = 5000;
 /**
- * Reuse threshold, not a minimum token lifetime. A cached token is only handed
- * out while more than this much life remains, and a freshly minted token is
- * only worth caching if it clears the same bar — otherwise the next caller
- * would immediately have to mint another one anyway.
+ * Reuse threshold, not a minimum token lifetime: a token is only served — or
+ * worth caching — while more than this much life remains.
  */
 export const TOKEN_REUSE_BUFFER_MS = 10 * 60 * 1000;
 
 export type IdentityServiceCredentials = { token: string; url: string };
 
 /** Anything that stopped us handing back credentials. The callback maps every
- * one of these to the same response; the message and `upstream` exist for the
- * humans reading the log. */
+ * one of these to the same response; the message and `upstream` are for the log. */
 export class IdentityServiceTokenError extends Error {
   constructor(message: string, readonly upstream?: string) {
     super(message);
@@ -27,12 +24,9 @@ type CacheEntry = { token: string; url: string; expiresAt: number };
 
 /**
  * Mints and caches partner-scoped IDRS access tokens for the just-in-time
- * executor callback.
- *
- * The cache is per app instance and per partner. Horizontally scaled
- * instances each mint their own token and can observe a secret rotation at
- * different times; that was an accepted tradeoff over shared cache
- * infrastructure for the first rollout.
+ * executor callback. The cache is per app instance and per partner, so scaled
+ * instances each mint their own and observe a rotation at different times —
+ * an accepted tradeoff over shared cache infrastructure.
  */
 @Injectable()
 export class IdentityServiceTokenService {
@@ -50,7 +44,7 @@ export class IdentityServiceTokenService {
 
     const tokenUrl = this.appConfig.idrsOauthTokenUrl();
     if (!tokenUrl) {
-      throw new IdentityServiceTokenError('IDRS_OAUTH_TOKEN_URL is not configured');
+      throw new IdentityServiceTokenError('IDRS_OAUTH_TOKEN_URL is not configured or not https');
     }
 
     const connectionInfo = await this.appConfig.getIdrsConnectionInfo(partnerId);
@@ -72,12 +66,11 @@ export class IdentityServiceTokenService {
       });
     } else {
       // Production tokens carry a 24h expires_in; anything else still works,
-      // it just can't be reused. Worth a line so nobody wonders why we're
-      // minting on every call.
+      // it just can't be reused. Log the lifetime we derived, never the raw
+      // expires_in — that is untrusted response content, and 0 already
+      // distinguishes "unusable" from "short but valid".
       this.logger.warn(
-        `identity service token: partnerId=${partnerId} not cacheable (expires_in=${String(
-          expiresIn
-        )})`
+        `identity service token: partnerId=${partnerId} not cacheable (lifetimeMs=${lifetimeMs})`
       );
     }
 

@@ -196,23 +196,30 @@ export class AppConfigService {
   }
 
   /**
-   * Shared OAuth2 token endpoint for IDRS. Resolved lazily so an unset value
-   * only fails an identity-service callback, never startup or unrelated
-   * ID-based behavior. All partners in a deployment use the same endpoint.
+   * Shared OAuth2 token endpoint for IDRS — one per deployment, resolved
+   * lazily so an unset value only fails an identity-service callback rather
+   * than startup.
    */
   idrsOauthTokenUrl(): string | null {
-    return this.get('IDRS_OAUTH_TOKEN_URL') ?? null;
+    const url = this.get('IDRS_OAUTH_TOKEN_URL');
+    if (!url) {
+      return null;
+    }
+    // The client secret travels in this request's body, so a plaintext
+    // endpoint exposes the credential rather than merely failing a job.
+    if (!this.isDevEnvironment() && !url.startsWith('https://')) {
+      this.logger.warn('IDRS_OAUTH_TOKEN_URL must be https');
+      return null;
+    }
+    return url;
   }
 
   /**
-   * Per-partner IDRS client credentials and base URL. Returns null when the
-   * config is missing or malformed and lets real AWS failures throw, matching
-   * getEduConnectionInfo above — the callback maps both to one response.
-   *
-   * Uncached, unlike the generic secret cache, which is permanent for the
-   * process and would pin rotated credentials until a restart. Bounded to five
-   * seconds via a per-request abort signal, so no other secret getter inherits
-   * the bound.
+   * Per-partner IDRS client credentials and base URL. Null for missing or
+   * malformed config, real AWS failures thrown, matching getEduConnectionInfo
+   * above. Uncached — the generic secret cache is permanent for the process
+   * and would pin rotated credentials until a restart — and bounded by a
+   * per-request abort signal, so no other getter inherits the bound.
    */
   async getIdrsConnectionInfo(
     partnerId: string
@@ -253,8 +260,8 @@ export class AppConfigService {
     >;
     // The secret spells it clientID; map to our clientId naming at the boundary.
     const { clientID, clientSecret, url } = fields;
-    // Secrets Manager content is untrusted at runtime whatever the type says.
-    // The url is preserved exactly, since it doubles as the OAuth audience.
+    // Secret content is untrusted at runtime whatever the type says. The url is
+    // preserved exactly, since it doubles as the OAuth audience.
     if (
       !isNonEmptyString(clientID) ||
       !isNonEmptyString(clientSecret) ||

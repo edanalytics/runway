@@ -77,17 +77,10 @@ export class EarthbeamApiController {
 
   /**
    * Just-in-time IDRS credentials for the executor. The run-scoped bearer
-   * token is the trust boundary: it names the run, which names the partner
-   * whose connection info may be returned.
-   *
-   * Deliberately unrestricted beyond that. There is no matching-mode check
-   * (the payload simply doesn't advertise the URL for id_based), no run-status
-   * check (background fuzzy work continues after the authoritative run reports
-   * done), and no one-call limit — the executor may call again while its
-   * 24-hour token is valid.
-   *
-   * Every failure is one response: the executor only distinguishes 200 from
-   * non-200, so humans diagnose from the log below rather than the status.
+   * token is the whole trust boundary: it names the run, hence the partner
+   * whose connection info may be returned. No matching-mode check, no
+   * run-status check (background fuzzy work continues past `done`) and no
+   * one-call limit — see AGENTS.md for why.
    */
   @Get(':runId/identity-service')
   async identityService(@Param('runId', ParseIntPipe) runId: number) {
@@ -103,7 +96,6 @@ export class EarthbeamApiController {
     const startedAt = Date.now();
     try {
       const credentials = await this.identityServiceTokens.getCredentials(partnerId);
-      // Never log the response or the token itself.
       this.logger.log(
         `identity service: runId=${runId} partnerId=${partnerId} result=success durationMs=${
           Date.now() - startedAt
@@ -111,9 +103,10 @@ export class EarthbeamApiController {
       );
       return toEarthbeamApiIdentityServiceResponseDto(credentials);
     } catch (err) {
-      // An id_based executor calling this unadvertised endpoint lands here with
-      // no connection info. That's expected and harmless — its run is
-      // unaffected.
+      // Every mode and every failure lands here, including an id_based
+      // executor calling the unadvertised endpoint with no secret provisioned.
+      // The single response is deliberate: the executor only distinguishes 200
+      // from non-200, so diagnosis comes from this log, never the status.
       const upstream = err instanceof IdentityServiceTokenError ? err.upstream : undefined;
       this.logger.error(
         `identity service: runId=${runId} partnerId=${partnerId} durationMs=${

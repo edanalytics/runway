@@ -28,10 +28,12 @@ describe('IdentityServiceTokenService', () => {
     };
     service = new IdentityServiceTokenService(appConfig as unknown as AppConfigService);
 
+    // spyOn rather than assignment: restoreAllMocks only undoes the former.
     fetchMock = jest
-      .fn()
-      .mockResolvedValue(okResponse({ access_token: 'access-token', expires_in: DAY_SECONDS }));
-    global.fetch = fetchMock as unknown as typeof fetch;
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(
+        okResponse({ access_token: 'access-token', expires_in: DAY_SECONDS })
+      ) as unknown as jest.Mock;
 
     logs = [];
     const capture = (message: unknown) => {
@@ -64,13 +66,16 @@ describe('IdentityServiceTokenService', () => {
     expect(body.get('scope')).toBe('student:identity:read partner:partner-a');
   });
 
-  it('bounds the token request at five seconds', async () => {
+  // Wiring only: that a five-second signal is built and reaches fetch. Whether
+  // the runtime actually aborts a stalled socket is AbortSignal's job.
+  it('wires a five-second abort signal into the token request', async () => {
     const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
 
     await service.getCredentials('partner-a');
 
     expect(timeoutSpy).toHaveBeenCalledWith(OAUTH_TIMEOUT_MS);
     expect(OAUTH_TIMEOUT_MS).toBe(5000);
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 
   it('does no dependency work until credentials are actually requested', () => {
@@ -89,17 +94,26 @@ describe('IdentityServiceTokenService', () => {
   });
 
   it('mints a new token once the cached one enters the reuse window', async () => {
+    const mintedAt = Date.parse('2026-09-14T00:00:00Z');
+    const now = jest.spyOn(Date, 'now').mockReturnValue(mintedAt);
+
     await service.getCredentials('partner-a');
     fetchMock.mockResolvedValue(okResponse({ access_token: 'fresh', expires_in: DAY_SECONDS }));
 
-    const cached = (service as any).cache.get('partner-a');
-    jest.spyOn(Date, 'now').mockReturnValue(cached.expiresAt - TOKEN_REUSE_BUFFER_MS);
+    // Still outside the window by a second: the cached token is served.
+    now.mockReturnValue(mintedAt + DAY_SECONDS * 1000 - TOKEN_REUSE_BUFFER_MS - 1000);
+    expect((await service.getCredentials('partner-a')).token).toBe('access-token');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // Inside it: a replacement is minted.
+    now.mockReturnValue(mintedAt + DAY_SECONDS * 1000 - TOKEN_REUSE_BUFFER_MS);
     expect((await service.getCredentials('partner-a')).token).toBe('fresh');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps tokens separate per partner', async () => {
+  // Sequential rather than concurrent: two calls racing an empty cache would
+  // still pass if the cache returned any partner's entry to any caller.
+  it('keeps tokens separate per partner, on both the miss and the reuse path', async () => {
     appConfig.getIdrsConnectionInfo.mockImplementation(async (partnerId: string) => ({
       clientId: `${partnerId}-id`,
       clientSecret: `${partnerId}-secret`,
@@ -109,13 +123,16 @@ describe('IdentityServiceTokenService', () => {
       .mockResolvedValueOnce(okResponse({ access_token: 'token-a', expires_in: DAY_SECONDS }))
       .mockResolvedValueOnce(okResponse({ access_token: 'token-b', expires_in: DAY_SECONDS }));
 
-    const [a, b] = await Promise.all([
-      service.getCredentials('partner-a'),
-      service.getCredentials('partner-b'),
-    ]);
+    const credentialsFor = (partnerId: string) => ({
+      token: partnerId === 'partner-a' ? 'token-a' : 'token-b',
+      url: `https://idrs.example.test/${partnerId}`,
+    });
 
-    expect(a).toEqual({ token: 'token-a', url: 'https://idrs.example.test/partner-a' });
-    expect(b).toEqual({ token: 'token-b', url: 'https://idrs.example.test/partner-b' });
+    // A and B mint; the second round must come from each partner's own entry.
+    for (const partnerId of ['partner-a', 'partner-b', 'partner-a', 'partner-b']) {
+      expect(await service.getCredentials(partnerId)).toEqual(credentialsFor(partnerId));
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   // Production tokens carry a 24h expires_in. Anything else still works, it
@@ -199,16 +216,23 @@ describe('IdentityServiceTokenService', () => {
     });
   });
 
-  it('never logs credentials or tokens', async () => {
+  it('never logs credentials, tokens, or foreign response values', async () => {
     // Distinctive values so a leak can't hide inside ordinary log vocabulary.
-    fetchMock.mockResolvedValue(okResponse({ access_token: 'SECRET-TOKEN', expires_in: 60 }));
+    // expires_in is attacker-shaped input: whatever the OAuth server put there
+    // must not reach the log, even though we tolerate the value itself.
+    fetchMock.mockResolvedValue(
+      okResponse({ access_token: 'SECRET-TOKEN', expires_in: 'OAUTH-BODY-SENTINEL' })
+    );
     await service.getCredentials('partner-a');
-    fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({}) } as Response);
+    fetchMock.mockRejectedValue(new Error('UPSTREAM-MESSAGE-SENTINEL'));
     await service.getCredentials('partner-b').catch(() => undefined);
 
     expect(logs.length).toBeGreaterThan(0);
     const combined = logs.join('\n');
+    expect(combined).toContain('not cacheable');
     expect(combined).not.toContain('SECRET-TOKEN');
+    expect(combined).not.toContain('OAUTH-BODY-SENTINEL');
+    expect(combined).not.toContain('UPSTREAM-MESSAGE-SENTINEL');
     expect(combined).not.toContain('client-secret');
     expect(combined).not.toContain('client-id');
   });

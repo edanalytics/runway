@@ -219,9 +219,11 @@ The app loads `{ENVLABEL}-idrs-connection-info-{partnerId}` from Secrets Manager
 
 Every failure is the same response, `500 identity_service_unavailable`: the executor only distinguishes 200 from non-200, so a finer taxonomy would have bought nothing it could act on. Diagnosis comes from the log line at the callback boundary (run id, partner id, elapsed time, upstream error name or status); credentials, tokens, OAuth bodies and the callback response are never logged. `AppConfigService.getIdrsConnectionInfo` follows the adjacent EDU getter — null for missing or malformed config, real AWS failures thrown.
 
-Rollout order per partner: set `IDRS_OAUTH_TOKEN_URL`, provision the secret, then change the partner's mode. There is no enable-time preflight — an `id_based` executor calling the unadvertised callback gets a `500` and a "missing or malformed" log, which is expected and harmless.
+Rollout order per partner: set `IDRS_OAUTH_TOKEN_URL`, provision the secret, deploy an executor that implements EDFIAL-481, then change the partner's mode. There is no enable-time preflight — an `id_based` executor calling the unadvertised callback gets a `500` and a "missing or malformed" log, which is expected and harmless.
 
-Both of those first two steps are owned by the cloud engineering team and happen outside this repo: `IDRS_OAUTH_TOKEN_URL` is not threaded through `cloudformation/` (unlike `OAUTH2_ISSUER` or `UM_CONFIG_SECRET`), and the per-partner `{ENVLABEL}-idrs-connection-info-{partnerId}` secrets are provisioned directly. Don't add the stack wiring here — coordinate with cloud eng instead.
+The executor step is a hard prerequisite, not an ordering preference. An executor that predates EDFIAL-481 ignores `idMatchingMode` and `appUrls.identityService` entirely, so a partner switched to either fuzzy mode gets the old roster-based path against a payload built for the new one: pure fuzzy omits both roster sources the old executor unconditionally reads. Deploying the app itself is safe at any time while every partner is still `id_based`.
+
+The first two steps are owned by the cloud engineering team and happen outside this repo: `IDRS_OAUTH_TOKEN_URL` is not threaded through `cloudformation/` (unlike `OAUTH2_ISSUER` or `UM_CONFIG_SECRET`), and the per-partner `{ENVLABEL}-idrs-connection-info-{partnerId}` secrets are provisioned directly. Don't add the stack wiring here — coordinate with cloud eng instead.
 
 ### S3 Path Structure
 

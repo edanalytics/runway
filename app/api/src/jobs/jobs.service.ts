@@ -281,10 +281,9 @@ export class JobsService {
     });
 
     // ─── Create job ─────────────────────────────────────────────────────────
-    // Snapshot the partner's current matching mode onto the job. Read it
-    // explicitly rather than leaning on the column default: every run of this
-    // job must use the mode that was in effect when it was created, even if
-    // the partner setting changes afterwards.
+    // Snapshot the partner's matching mode so every run of this job uses the
+    // mode in effect at creation. Read explicitly — the column default is
+    // migration safety, not the creation path.
     const partner = await prisma.partner.findUniqueOrThrow({
       where: { id: tenant.partnerId },
       select: { idMatchingMode: true },
