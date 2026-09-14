@@ -25,6 +25,7 @@ import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
 import { Job, JobNote } from '@prisma/client';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
+import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
 
@@ -615,6 +616,51 @@ describe('POST /jobs', () => {
       const job = await prisma.job.findUnique({ where: { id: res.body.id } });
       expect(job?.odsId).toBe(odsConfigA2425.id);
       expect(job?.sendToOds).toBe(true);
+    });
+
+    describe('id matching mode', () => {
+      afterEach(async () => {
+        await prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { idMatchingMode: 'id_based' },
+        });
+      });
+
+      it.each(['fuzzy', 'id_based_fuzzy_background'] as const)(
+        "snapshots the partner's %s setting onto the job",
+        async (idMatchingMode) => {
+          await prisma.partner.update({
+            where: { id: partnerA.id },
+            data: { idMatchingMode },
+          });
+
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Cookie', [sessionA.cookie])
+            .send(postJobDto);
+          expect(res.status).toBe(201);
+
+          // Written explicitly at creation, not left to the column default.
+          const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+          expect(job?.idMatchingMode).toBe(idMatchingMode);
+        }
+      );
+
+      it('leaves an existing job alone when the partner setting later changes', async () => {
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send(postJobDto);
+        expect(res.status).toBe(201);
+
+        await prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { idMatchingMode: 'fuzzy' },
+        });
+
+        const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+        expect(job?.idMatchingMode).toBe('id_based');
+      });
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {

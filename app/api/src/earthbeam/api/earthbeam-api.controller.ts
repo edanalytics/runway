@@ -25,9 +25,14 @@ import {
   EarthbeamApiStatusPayloadDto,
   EarthbeamApiUnmatchedIdsPayloadDto,
   JsonValue,
+  toEarthbeamApiIdentityServiceResponseDto,
   toEarthbeamApiJobResponseDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
+import {
+  IdentityServiceTokenError,
+  IdentityServiceTokenService,
+} from './identity-service-token.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -45,7 +50,8 @@ export class EarthbeamApiController {
     private readonly earthbeamApiService: EarthbeamApiService,
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     private readonly fileService: FileService,
-    private readonly eduPool: EduSnowflakePoolService
+    private readonly eduPool: EduSnowflakePoolService,
+    private readonly identityServiceTokens: IdentityServiceTokenService
   ) {}
 
   @Get(':runId')
@@ -67,6 +73,50 @@ export class EarthbeamApiController {
     }
 
     return toEarthbeamApiJobResponseDto(result.data);
+  }
+
+  /**
+   * Just-in-time IDRS credentials for the executor. The run-scoped bearer
+   * token is the whole trust boundary: it names the run, hence the partner
+   * whose connection info may be returned. No matching-mode check, no
+   * run-status check (background fuzzy work continues past `done`) and no
+   * one-call limit — see AGENTS.md for why.
+   */
+  @Get(':runId/identity-service')
+  async identityService(@Param('runId', ParseIntPipe) runId: number) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      select: { job: { select: { partnerId: true } } },
+    });
+    if (!run) {
+      throw new NotFoundException(`Run not found: ${runId}`);
+    }
+    const { partnerId } = run.job;
+
+    const startedAt = Date.now();
+    try {
+      const credentials = await this.identityServiceTokens.getCredentials(partnerId);
+      this.logger.log(
+        `identity service: runId=${runId} partnerId=${partnerId} result=success durationMs=${
+          Date.now() - startedAt
+        }`
+      );
+      return toEarthbeamApiIdentityServiceResponseDto(credentials);
+    } catch (err) {
+      // Every mode and every failure lands here, including an id_based
+      // executor calling the unadvertised endpoint with no secret provisioned.
+      // The single response is deliberate: the executor only distinguishes 200
+      // from non-200, so diagnosis comes from this log, never the status.
+      const upstream = err instanceof IdentityServiceTokenError ? err.upstream : undefined;
+      this.logger.error(
+        `identity service: runId=${runId} partnerId=${partnerId} durationMs=${
+          Date.now() - startedAt
+        } cause=${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}${
+          upstream ? ` upstream=${upstream}` : ''
+        }`
+      );
+      throw new InternalServerErrorException('identity_service_unavailable');
+    }
   }
 
   @Get(':runId/roster')

@@ -16,6 +16,7 @@ import { EncryptionService } from 'api/src/encryption/encryption.service';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
+  earthbeamIdentityServiceEndpoint,
   earthbeamOutputFilesEndpoint,
   earthbeamRosterEndpoint,
   earthbeamStatusUpdateEndpoint,
@@ -148,6 +149,17 @@ export class EarthbeamApiService {
     // to weaker matching.
     const crossYearMatchAvailable = job.tenant.partner.crossYearMatchingEnabled;
 
+    // The job's snapshot, not the partner's current setting — see
+    // JobsService.createJob.
+    const idMatchingMode = job.idMatchingMode;
+    // Pure fuzzy does no roster matching at all, so neither roster source is
+    // worth handing over. Background mode still runs the authoritative
+    // ID-based pass and keeps them.
+    const usesRosterMatching = idMatchingMode !== 'fuzzy';
+    // Advertised only where the executor needs it. The callback itself has no
+    // mode check — a correctly authenticated executor may always call it.
+    const needsIdentityService = idMatchingMode !== 'id_based';
+
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
@@ -166,18 +178,22 @@ export class EarthbeamApiService {
         summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
-        ...(crossYearMatchAvailable
+        ...(crossYearMatchAvailable && usesRosterMatching
           ? { roster: `${executorBaseUrl}/${earthbeamRosterEndpoint(runId)}` }
+          : {}),
+        ...(needsIdentityService
+          ? { identityService: `${executorBaseUrl}/${earthbeamIdentityServiceEndpoint(runId)}` }
           : {}),
       },
       crossYearMatchAvailable,
+      idMatchingMode,
       sendToOds: job.sendToOds,
       // When cross-year matching is available, the executor pulls the roster
       // from EDU via appUrls.roster, so the S3 file path would be a dangling
       // (often nonexistent) pointer — omit it. The executor only reads
       // rosterFilePath in its non-cross-year branch.
       rosterFilePath:
-        job.sendToOds || crossYearMatchAvailable
+        job.sendToOds || crossYearMatchAvailable || !usesRosterMatching
           ? undefined
           : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
       // odsConnection check narrows the type — the early guard ensures it's present when sendToOds

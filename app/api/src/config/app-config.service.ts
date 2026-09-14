@@ -8,6 +8,15 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
+/**
+ * Overall bound on one IDRS secret lookup, SDK retries included, so a slow
+ * Secrets Manager can't eat the executor's twenty-second request timeout.
+ */
+export const IDRS_SECRET_TIMEOUT_MS = 5000;
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0;
+
 export type UmConfig = {
   url: string;
   auth0Domain: string;
@@ -186,6 +195,85 @@ export class AppConfigService {
     };
   }
 
+  /**
+   * Shared OAuth2 token endpoint for IDRS — one per deployment, resolved
+   * lazily so an unset value only fails an identity-service callback rather
+   * than startup.
+   */
+  idrsOauthTokenUrl(): string | null {
+    const url = this.get('IDRS_OAUTH_TOKEN_URL');
+    if (!url) {
+      return null;
+    }
+    // The client secret travels in this request's body, so a plaintext
+    // endpoint exposes the credential rather than merely failing a job.
+    if (!this.isDevEnvironment() && !url.startsWith('https://')) {
+      this.logger.warn('IDRS_OAUTH_TOKEN_URL must be https');
+      return null;
+    }
+    return url;
+  }
+
+  /**
+   * Per-partner IDRS client credentials and base URL. Null for missing or
+   * malformed config, real AWS failures thrown, matching getEduConnectionInfo
+   * above. Uncached — the generic secret cache is permanent for the process
+   * and would pin rotated credentials until a restart — and bounded by a
+   * per-request abort signal, so no other getter inherits the bound.
+   */
+  async getIdrsConnectionInfo(
+    partnerId: string
+  ): Promise<{ clientId: string; clientSecret: string; url: string } | null> {
+    if (this.isDevEnvironment()) {
+      const clientId = this.get('IDRS_CLIENT_ID');
+      const clientSecret = this.get('IDRS_CLIENT_SECRET');
+      const url = this.get('IDRS_URL');
+      if (!clientId || !clientSecret || !url) {
+        return null;
+      }
+      return { clientId, clientSecret, url };
+    }
+
+    const envLabel = this.get('ENVLABEL');
+    if (!envLabel) {
+      throw new Error('ENVLABEL must be set in order to retrieve IDRS connection info');
+    }
+    const secretName = `${envLabel}-idrs-connection-info-${partnerId}`;
+
+    let secret: string | Record<string, string>;
+    try {
+      secret = await this.fetchAWSSecret(secretName, {
+        abortSignal: AbortSignal.timeout(IDRS_SECRET_TIMEOUT_MS),
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
+        return null;
+      }
+      throw err;
+    }
+
+    // fetchAWSSecret hands back whatever JSON.parse produced, and both null and
+    // arrays satisfy `typeof === 'object'` — normalize before reading fields.
+    const fields = (typeof secret === 'object' && secret !== null ? secret : {}) as Record<
+      string,
+      unknown
+    >;
+    // The secret spells it clientID; map to our clientId naming at the boundary.
+    const { clientID, clientSecret, url } = fields;
+    // Secret content is untrusted at runtime whatever the type says. The url is
+    // preserved exactly, since it doubles as the OAuth audience.
+    if (
+      !isNonEmptyString(clientID) ||
+      !isNonEmptyString(clientSecret) ||
+      !isNonEmptyString(url) ||
+      !url.startsWith('https://')
+    ) {
+      this.logger.warn(`AWS secret ${secretName} is missing or malformed`);
+      return null;
+    }
+    return { clientId: clientID, clientSecret, url };
+  }
+
   bundleBranch(): string {
     return this.get('BUNDLE_BRANCH') ?? 'main';
   }
@@ -342,9 +430,18 @@ export class AppConfigService {
     return secretValue;
   }
 
-  private async fetchAWSSecret(secretName: string): Promise<string | Record<string, string>> {
+  /**
+   * `options` is per-request, so a caller can bound one lookup (including SDK
+   * retries) with an abort signal without changing the shared client's
+   * behavior for everyone else.
+   */
+  private async fetchAWSSecret(
+    secretName: string,
+    options?: { abortSignal?: AbortSignal }
+  ): Promise<string | Record<string, string>> {
     const secretValueRaw = await this.secretsClient.send(
-      new GetSecretValueCommand({ SecretId: secretName })
+      new GetSecretValueCommand({ SecretId: secretName }),
+      options
     );
 
     if (secretValueRaw.SecretString === undefined) {
