@@ -15,7 +15,7 @@ import { PrismaClient } from '@prisma/client';
 export class AddJobToReqMiddleware implements NestMiddleware {
 
   constructor(@Inject(PRISMA_READ_ONLY) private prisma: PrismaClient) { }
-  async use(req: Request, res: Response, next: NextFunction) {
+  async use(req: Request<{ jobId: string }>, res: Response, next: NextFunction) {
     if (!req.isAuthenticated()) {
       throw new UnauthorizedException()
     }

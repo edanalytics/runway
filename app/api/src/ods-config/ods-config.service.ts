@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { OdsConfig, OdsConnection, Prisma, PrismaClient, Tenant } from '@prisma/client';
 import { PRISMA_READ_ONLY } from '../database';
 import { PostOdsConfigDto, PutOdsConfigDto } from '@edanalytics/models';
@@ -33,13 +33,22 @@ export class OdsConfigService {
     if (!odsConfig || !odsConfig.activeConnection) {
       return;
     }
+    // Throw rather than swallow. This mutates in place, so a swallowed failure
+    // would leave the stored value untouched and callers would go on to use it
+    // as the credential. A failure here means a corrupt row or the wrong key,
+    // and there is nothing sensible a caller can do with a config whose secret
+    // cannot be read. Matches the decrypt call in earthbeam-api.service.
     try {
       const decryptedSecret = this.encryptionService.decrypt(
         odsConfig.activeConnection.clientSecret
       );
       odsConfig.activeConnection.clientSecret = decryptedSecret;
     } catch (e) {
-      Logger.error(`Failed to decrypt client secret for ODS config: ${odsConfig.id}`);
+      throw new Error(
+        `Failed to decrypt client secret for ODS config ${odsConfig.id}: ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
     }
   }
 

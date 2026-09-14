@@ -136,9 +136,6 @@ describe('GET /jobs', () => {
             expect(r.status).toBe(originalRun.status);
             expect(r.createdOn.getTime()).toEqual(originalRun.createdOn.getTime());
             expect(r.summary).toEqual(originalRun.summary);
-            expect(r.runOutputFile?.map((f) => f.name)).toEqual(
-              expect.arrayContaining(originalRun.runOutputFile?.map((f) => f.name) ?? [])
-            );
             expect(r.unmatchedStudentsInfo ?? {}).toEqual(
               expect.objectContaining(originalRun.unmatchedStudentsInfo ?? {})
             );
@@ -333,6 +330,251 @@ describe('GET /jobs/:id', () => {
 
         expect(res.status).toBe(expectedStatus);
       });
+    });
+  });
+});
+
+describe('GET /jobs/:id/output-files', () => {
+  const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
+  const USER_ROLE = 'runway.test.user';
+  const endpoint = (id: number) => `/jobs/${id}/output-files`;
+
+  let jobA: DtoableJob;
+  let jobB: DtoableJob;
+  let jobEGlobal: DtoableJob;
+
+  beforeEach(async () => {
+    [jobA, jobB, jobEGlobal] = await Promise.all([
+      seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        outputFiles: true,
+      }),
+      seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+        outputFiles: true,
+      }),
+      seedJob({
+        odsConfig: odsConfigA2425, // same partner as tenantA/tenantB is fine
+        bundle: bundleA,
+        tenant: tenantEGlobal,
+        outputFiles: true,
+      }),
+    ]);
+  });
+
+  it('should reject unauthenticated requests', async () => {
+    const res = await request(app.getHttpServer()).get(endpoint(jobA.id));
+    expect(res.status).toBe(401);
+  });
+
+  describe('authenticated requests', () => {
+    let cookieA: string;
+    let cookieB: string;
+    let nonSupportCookieA: string;
+    beforeEach(async () => {
+      cookieA = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+      cookieB = (await authHelper.login(idpA, userB, tenantB, SUPPORT_ROLES)).cookies;
+      nonSupportCookieA = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+    });
+
+    it('should return the output files for a job owned by the tenant, for a SupportUser', async () => {
+      const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieA]);
+      expect(res.status).toBe(200);
+
+      const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobA.id } } });
+      expect(res.body.map((f: { name: string }) => f.name)).toEqual(
+        expect.arrayContaining(expectedFiles.map((f) => f.name))
+      );
+    });
+
+    it('should reject requests from a user without the SupportUser role, even for their own tenant', async () => {
+      const res = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [nonSupportCookieA]);
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject requests for jobs that are not associated with the tenant', async () => {
+      const resA = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieB]);
+      const resB = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookieA]);
+      expect(resA.status).toBe(403);
+      expect(resB.status).toBe(403);
+    });
+
+    it('should return 404 for a job that does not exist', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/jobs/999999999/output-files')
+        .set('Cookie', [cookieA]);
+      expect(res.status).toBe(404);
+    });
+
+    describe('metatenant access (route has @AllowMetatenant)', () => {
+      it.each([
+        {
+          description:
+            'global session tenant + non-global resource tenant (same partner) + metatenant privilege -> allowed',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobB,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 200,
+        },
+        {
+          description:
+            'global session tenant + non-global resource tenant (same partner) + no metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobB,
+          roles: USER_ROLE,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'global session tenant + resource owned by a different global tenant + metatenant privilege -> forbidden',
+          sessionTenant: tenantDGlobal,
+          resourceJob: () => jobEGlobal,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+        {
+          description:
+            'non-global session tenant + non-global resource tenant (same partner) + metatenant privilege -> forbidden',
+          sessionTenant: tenantA,
+          resourceJob: () => jobB,
+          roles: SUPPORT_ROLES,
+          expectedStatus: 403,
+        },
+      ])('$description', async ({ sessionTenant, resourceJob, roles, expectedStatus }) => {
+        const cookie = (await authHelper.login(idpA, userA, sessionTenant, roles)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(endpoint(resourceJob().id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(expectedStatus);
+      });
+
+      it('should return the output files for a job owned by a different tenant when the user is a SupportUser logged into a global tenant in the same partner', async () => {
+        const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+
+        const res = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookie]);
+
+        expect(res.status).toBe(200);
+        const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobB.id } } });
+        expect(res.body.map((f: { name: string }) => f.name)).toEqual(
+          expect.arrayContaining(expectedFiles.map((f) => f.name))
+        );
+      });
+    });
+  });
+});
+
+describe('GET /jobs/:id/output-files/*', () => {
+  const USER_ROLE = 'runway.test.user';
+  const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
+  const OTHER_FILE_NAME = 'summary.csv';
+  const unmatchedEndpoint = (id: number) => `/jobs/${id}/output-files/input_no_student_id_match.csv`;
+  const otherFileEndpoint = (id: number, fileName: string) => `/jobs/${id}/output-files/${fileName}`;
+
+  // jobA belongs to tenantA, jobB to tenantB -- both non-global children of tenantDGlobal
+  let jobA: DtoableJob;
+  let jobB: DtoableJob;
+
+  beforeEach(async () => {
+    [jobA, jobB] = await Promise.all([
+      seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA }),
+      seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB }),
+    ]);
+
+    await Promise.all(
+      [jobA, jobB].flatMap((job) => {
+        const runId = job.runs![0].id;
+        return [
+          prisma.runOutputFile.create({
+            data: {
+              runId,
+              name: 'input_no_student_id_match.csv',
+              path: `output/${job.id}/input_no_student_id_match.csv`,
+            },
+          }),
+          prisma.runOutputFile.create({
+            data: { runId, name: OTHER_FILE_NAME, path: `output/${job.id}/${OTHER_FILE_NAME}` },
+          }),
+        ];
+      })
+    );
+  });
+
+  it('should reject unauthenticated requests', async () => {
+    const resUnmatched = await request(app.getHttpServer()).get(unmatchedEndpoint(jobA.id));
+    const resOther = await request(app.getHttpServer()).get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME));
+    expect(resUnmatched.status).toBe(401);
+    expect(resOther.status).toBe(401);
+  });
+
+  describe('the unmatched-students file', () => {
+    it('is downloadable by a User in their login tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(unmatchedEndpoint(jobA.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobA.id}/input_no_student_id_match.csv`);
+    });
+
+    it('is not downloadable by a User logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(unmatchedEndpoint(jobB.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(403);
+    });
+
+    it('is downloadable by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(unmatchedEndpoint(jobB.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`);
+    });
+  });
+
+  describe('other output files (dedicated job.output-files.read privilege required)', () => {
+    it('is not downloadable by a User in their login tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(403);
+    });
+
+    it('is not downloadable by a User logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobB.id, OTHER_FILE_NAME))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(403);
+    });
+
+    it('is downloadable by a SupportUser in their login tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobA.id}/${OTHER_FILE_NAME}`);
+    });
+
+    it('is downloadable by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobB.id, OTHER_FILE_NAME))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/${OTHER_FILE_NAME}`);
     });
   });
 });
@@ -640,7 +882,7 @@ describe('PUT /jobs/:id/resolve', () => {
       expect(resB.status).toBe(403);
     });
 
-    it('should reject a SupportUser logged into the global tenant, since this route has no @AllowMetatenant', async () => {
+    it('should allow a SupportUser logged into the global tenant to resolve a job in a descendant tenant', async () => {
       const supportUserGlobalCookie = (
         await authHelper.login(idpA, userA, tenantDGlobal, [
           'runway.test.user',
@@ -648,32 +890,46 @@ describe('PUT /jobs/:id/resolve', () => {
         ])
       ).cookies;
 
-      // jobB is a descendant of tenantDGlobal and this same session/privilege combo
-      // is sufficient to access GET /jobs/:id (which has @AllowMetatenant) — it
-      // should still be rejected here since this route lacks the decorator.
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobB.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for GET /jobs/:id.
       const resB = await request(app.getHttpServer())
         .put(endpoint(jobB.id))
-        .set('Cookie', [supportUserGlobalCookie]);
-      expect(resB.status).toBe(403);
+        .set('Cookie', [supportUserGlobalCookie])
+        .send({ isResolved: true });
+      expect(resB.status).toBe(200);
+
+      const modifiedJob = await prisma.job.findUnique({ where: { id: jobB.id } });
+      expect(modifiedJob?.isResolved).toBe(true);
     });
 
     it('should reject requests for jobs whose status is not changeable', async () => {
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(false);
-
+      // jobA's seeded run defaults to status 'new', which is not changeable
       const resA = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
-        .set('Cookie', [cookieA]);
+        .set('Cookie', [cookieA])
+        .send({ isResolved: true });
       expect(resA.status).toBe(400);
-
-      mock.mockRestore();
     });
 
     it('should mark jobs with a changeable status as resolved', async () => {
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(true);
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
 
       const resA = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
@@ -686,26 +942,35 @@ describe('PUT /jobs/:id/resolve', () => {
         throw new Error(`Job ${jobA.id} not found`);
       }
       expect(modifiedJob.isResolved).toBe(true);
-      mock.mockRestore();
     });
 
     it('should allow resolved jobs to revert to their original status', async () => {
-      const statusBefore = toGetJobDto(jobA).status;
+      // 'success' + unmatched students yields a 'complete with errors' status, which is changeable
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: {
+          status: 'success',
+          unmatchedStudentsInfo: { name: 'unmatched-students', type: 'test', count: 1 },
+        },
+      });
+
+      const statusBefore = toGetJobDto(
+        await prisma.job.findUniqueOrThrow({
+          where: { id: jobA.id },
+          include: { runs: true, files: true },
+        })
+      ).status;
       if (!statusBefore) {
         // sanity check
         throw new Error(`Job ${jobA.id} has no status`);
       }
 
       // first mark resolved
-      const mock = jest
-        .spyOn(GetJobDto.prototype, 'isStatusChangeable', 'get')
-        .mockReturnValue(true);
       const resAResolved = await request(app.getHttpServer())
         .put(endpoint(jobA.id))
         .set('Cookie', [cookieA])
         .send({ isResolved: true });
       expect(resAResolved.status).toBe(200);
-      mock.mockRestore(); // we want to test without a mock for resetting the status
 
       // now revert
       const resAReverted = await request(app.getHttpServer())
@@ -782,6 +1047,38 @@ describe('GET /jobs/:id/notes', () => {
       expect(resA.body[1].noteText).toBe(noteA2.noteText);
       expect(resA.body[1].createdById).toBe(userA.id);
       expect(resA.body[1].createdOn).toBeDefined();
+    });
+
+    it('should allow a SupportUser logged into the global tenant to view notes for a job in a descendant tenant', async () => {
+      const jobB = await seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      await prisma.jobNote.create({
+        data: {
+          jobId: jobB.id,
+          noteText: 'test note for job ' + jobB.id,
+          createdById: userB.id,
+          createdOn: new Date(),
+        },
+      });
+
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for PUT /jobs/:id/resolve.
+      const resB = await request(app.getHttpServer())
+        .get(endpoint(jobB.id))
+        .set('Cookie', [supportUserGlobalCookie]);
+      expect(resB.status).toBe(200);
+      expect(resB.body.length).toBe(1);
     });
   });
 });
@@ -872,6 +1169,34 @@ describe('POST /jobs/:id/notes', () => {
         .send({ noteText: 'test note for job ' + jobA.id });
 
       expect(resA.status).toBe(403);
+    });
+
+    it('should allow a SupportUser logged into the global tenant to create a note for a job in a descendant tenant', async () => {
+      const jobB = await seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for PUT /jobs/:id/resolve.
+      const noteText = 'test note for job ' + jobB.id;
+      const resB = await request(app.getHttpServer())
+        .post(endpoint(jobB.id))
+        .set('Cookie', [supportUserGlobalCookie])
+        .send({ noteText });
+
+      expect(resB.status).toBe(201);
+      const notes = await prisma.jobNote.findMany({ where: { jobId: jobB.id } });
+      expect(notes.length).toBe(1);
+      expect(notes[0].noteText).toBe(noteText);
     });
   });
 });
@@ -979,6 +1304,41 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
         .send({ noteText: '' });
       expect(res.status).toBe(400);
     });
+
+    it('should allow a SupportUser logged into the global tenant to update a note for a job in a descendant tenant', async () => {
+      const jobB = await seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      const noteB = await prisma.jobNote.create({
+        data: {
+          jobId: jobB.id,
+          noteText: 'test note for job ' + jobB.id,
+          createdById: userB.id,
+          createdOn: new Date(),
+        },
+      });
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for PUT /jobs/:id/resolve.
+      const updatedNoteText = 'updated note for job ' + jobB.id;
+      const resB = await request(app.getHttpServer())
+        .put(endpoint(jobB.id, noteB.id))
+        .set('Cookie', [supportUserGlobalCookie])
+        .send({ noteText: updatedNoteText });
+
+      expect(resB.status).toBe(200);
+      const note = await prisma.jobNote.findUniqueOrThrow({ where: { id: noteB.id } });
+      expect(note.noteText).toBe(updatedNoteText);
+    });
   });
 });
 
@@ -1068,6 +1428,39 @@ describe('DELETE /jobs/:id/notes/:noteId', () => {
       const jobA2Notes = await prisma.jobNote.findMany({ where: { jobId: jobA2.id } });
       expect(jobA2Notes.length).toBe(1);
       expect(jobA2Notes[0].id).toBe(noteA2.id);
+    });
+
+    it('should allow a SupportUser logged into the global tenant to delete a note for a job in a descendant tenant', async () => {
+      const jobB = await seedJob({
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      const noteB = await prisma.jobNote.create({
+        data: {
+          jobId: jobB.id,
+          noteText: 'test note for job ' + jobB.id,
+          createdById: userB.id,
+          createdOn: new Date(),
+        },
+      });
+      const supportUserGlobalCookie = (
+        await authHelper.login(idpA, userA, tenantDGlobal, [
+          'runway.test.user',
+          'runway.test.supportuser',
+        ])
+      ).cookies;
+
+      // jobB is a descendant of tenantDGlobal (same partner) and this route has
+      // @AllowMetatenant, so this session/privilege combo should be sufficient
+      // to resolve it, same as it is for PUT /jobs/:id/resolve.
+      const resB = await request(app.getHttpServer())
+        .delete(endpoint(jobB.id, noteB.id))
+        .set('Cookie', [supportUserGlobalCookie]);
+
+      expect(resB.status).toBe(200);
+      const notes = await prisma.jobNote.findMany({ where: { jobId: jobB.id } });
+      expect(notes.length).toBe(0);
     });
   });
 });

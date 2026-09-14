@@ -15,6 +15,7 @@ export * from './file.dto';
 export * from './earthbeam-api.dto';
 export * from './job-error.dto';
 export * from './run.dto';
+export * from './output-file.dto';
 export * from './job-note.dto';
 export * from './tenant.dto';
 export * from './external-api/job.v1.dto';
