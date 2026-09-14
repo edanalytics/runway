@@ -180,12 +180,19 @@ describe('IdentityServiceTokenService', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('fails on a network error', async () => {
-      fetchMock.mockRejectedValue(new Error('socket hang up'));
+    // The transport error's own message is foreign text; carry the name only,
+    // so whatever reaches a log downstream is a message we wrote.
+    it('fails on a network error without carrying its message', async () => {
+      const transport = new Error('UPSTREAM-MESSAGE-SENTINEL');
+      transport.name = 'TypeError';
+      fetchMock.mockRejectedValue(transport);
 
-      await expect(service.getCredentials('partner-a')).rejects.toBeInstanceOf(
-        IdentityServiceTokenError
-      );
+      const err = await service.getCredentials('partner-a').catch((e) => e);
+
+      expect(err).toBeInstanceOf(IdentityServiceTokenError);
+      expect(err.message).toBe('IDRS token request failed');
+      expect(err.upstream).toBe('TypeError');
+      expect(JSON.stringify(err)).not.toContain('UPSTREAM-MESSAGE-SENTINEL');
     });
 
     // `null` and arrays are valid JSON and both pass `typeof === 'object'`;
@@ -216,23 +223,22 @@ describe('IdentityServiceTokenService', () => {
     });
   });
 
-  it('never logs credentials, tokens, or foreign response values', async () => {
-    // Distinctive values so a leak can't hide inside ordinary log vocabulary.
+  // Scope: this service's own logger. The callback boundary logs separately —
+  // see the integration spec. Distinctive values so a leak can't hide inside
+  // ordinary log vocabulary.
+  it('never logs credentials, the token, or the raw expires_in', async () => {
     // expires_in is attacker-shaped input: whatever the OAuth server put there
-    // must not reach the log, even though we tolerate the value itself.
+    // must stay out of the log, even though we tolerate the value itself.
     fetchMock.mockResolvedValue(
       okResponse({ access_token: 'SECRET-TOKEN', expires_in: 'OAUTH-BODY-SENTINEL' })
     );
-    await service.getCredentials('partner-a');
-    fetchMock.mockRejectedValue(new Error('UPSTREAM-MESSAGE-SENTINEL'));
-    await service.getCredentials('partner-b').catch(() => undefined);
 
-    expect(logs.length).toBeGreaterThan(0);
+    await service.getCredentials('partner-a');
+
     const combined = logs.join('\n');
     expect(combined).toContain('not cacheable');
     expect(combined).not.toContain('SECRET-TOKEN');
     expect(combined).not.toContain('OAUTH-BODY-SENTINEL');
-    expect(combined).not.toContain('UPSTREAM-MESSAGE-SENTINEL');
     expect(combined).not.toContain('client-secret');
     expect(combined).not.toContain('client-id');
   });
