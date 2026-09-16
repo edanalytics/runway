@@ -190,7 +190,8 @@ class JobExecutor:
             self.idrs_url = job["appUrls"]["identityService"]
             self.output_files_url = job["appUrls"]["outputFiles"]
 
-            self.id_matching_mode = job.get("idMatchingMode", True)
+            self.idrs_url = job.get("appUrls", {}).get("identityService", '')
+            self.id_matching_mode = job.get("idMatchingMode", "id_based")
             self.send_to_ods = job.get("sendToOds", True)
             self.cross_year_match_available = job.get("crossYearMatchAvailable", False)
             if self.cross_year_match_available:
