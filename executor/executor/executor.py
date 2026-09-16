@@ -133,7 +133,7 @@ class JobExecutor:
             if self.id_matching_mode in ['fuzzy', 'id_based_fuzzy_background']:
                 if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
                     self.match_candidates()
-                    self.get_id_matches(artifact.CANDIDATES.path)
+                    self.handle_idrs_matches(artifact.CANDIDATES.path)
             
             self.lightbeam_send()
 
@@ -654,8 +654,8 @@ class JobExecutor:
         self.upload_artifact(artifact.CANDIDATES)
         self.logger.info('candidates.jsonl uploaded!')
 
-    def get_id_matches(self, candidates):
-        '''wrapper function to encapsulate the IDRS client and write results to file'''
+    def handle_idrs_matches(self, candidates):
+        '''wrapper method encapsulating IDRS client orchestration and handle API outputs'''
 
         # Instantiate the IDRS Client
         idrs = IDRSClient(self.logger, self.conn, self.idrs_url)
