@@ -9,7 +9,7 @@ describe('AppConfigService IDRS connection info', () => {
 
   const secretValue = (overrides: Record<string, unknown> = {}) => ({
     SecretString: JSON.stringify({
-      clientID: 'idrs-client-id',
+      clientId: 'idrs-client-id',
       clientSecret: 'idrs-client-secret',
       url: 'https://idrs.example.test/base',
       ...overrides,
@@ -31,7 +31,7 @@ describe('AppConfigService IDRS connection info', () => {
     jest.restoreAllMocks();
   });
 
-  it('reads the partner secret and maps clientID to clientId', async () => {
+  it('reads the partner secret', async () => {
     const info = await service.getIdrsConnectionInfo('partner-a');
 
     expect(info).toEqual({
@@ -101,14 +101,14 @@ describe('AppConfigService IDRS connection info', () => {
   });
 
   // Secrets Manager content is untrusted at runtime whatever the type says. A
-  // numeric clientID would be coerced by URLSearchParams and come back as an
+  // numeric clientId would be coerced by URLSearchParams and come back as an
   // OAuth rejection, pointing diagnosis at the wrong dependency. `null`
   // additionally passes `typeof === 'object'`.
   it.each([
     ['null', 'null'],
-    ['a numeric clientID', JSON.stringify({ clientID: 1, clientSecret: 's', url: 'https://a.test' })],
-    ['a missing url', JSON.stringify({ clientID: 'a', clientSecret: 's' })],
-    ['a non-https url', JSON.stringify({ clientID: 'a', clientSecret: 's', url: 'http://a.test' })],
+    ['a numeric clientId', JSON.stringify({ clientId: 1, clientSecret: 's', url: 'https://a.test' })],
+    ['a missing url', JSON.stringify({ clientId: 'a', clientSecret: 's' })],
+    ['a non-https url', JSON.stringify({ clientId: 'a', clientSecret: 's', url: 'http://a.test' })],
   ])('returns null for a secret body that is %s', async (_label, secretString) => {
     send.mockResolvedValue({ SecretString: secretString });
 

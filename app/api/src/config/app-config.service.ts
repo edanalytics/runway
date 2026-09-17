@@ -258,12 +258,11 @@ export class AppConfigService {
       string,
       unknown
     >;
-    // The secret spells it clientID; map to our clientId naming at the boundary.
-    const { clientID, clientSecret, url } = fields;
+    const { clientId, clientSecret, url } = fields;
     // Secret content is untrusted at runtime whatever the type says. The url is
     // preserved exactly, since it doubles as the OAuth audience.
     if (
-      !isNonEmptyString(clientID) ||
+      !isNonEmptyString(clientId) ||
       !isNonEmptyString(clientSecret) ||
       !isNonEmptyString(url) ||
       !url.startsWith('https://')
@@ -271,7 +270,7 @@ export class AppConfigService {
       this.logger.warn(`AWS secret ${secretName} is missing or malformed`);
       return null;
     }
-    return { clientId: clientID, clientSecret, url };
+    return { clientId, clientSecret, url };
   }
 
   bundleBranch(): string {
