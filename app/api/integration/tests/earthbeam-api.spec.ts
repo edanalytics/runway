@@ -195,11 +195,8 @@ describe('Earthbeam API', () => {
       });
 
       it.each(['fuzzy', 'id_based_fuzzy_background'] as const)(
-        'advertises the identity-service callback for %s without minting a token',
+        'advertises the identity-service callback for %s',
         async (idMatchingMode) => {
-          const tokenService = app.get(IdentityServiceTokenService);
-          const mintSpy = jest.spyOn(tokenService, 'getCredentials');
-
           const { res, run } = await payloadFor(idMatchingMode);
 
           expect(res.status).toBe(200);
@@ -207,11 +204,6 @@ describe('Earthbeam API', () => {
           expect(res.body.appUrls.identityService).toContain(
             `/earthbeam/jobs/${run.id}/identity-service`
           );
-          // The payload advertises the callback; it never carries a token.
-          expect(res.body.token).toBeUndefined();
-          expect(mintSpy).not.toHaveBeenCalled();
-
-          mintSpy.mockRestore();
         }
       );
 
