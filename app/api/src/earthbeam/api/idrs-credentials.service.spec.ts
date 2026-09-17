@@ -1,18 +1,18 @@
 import { AppConfigService } from 'api/src/config/app-config.service';
 import {
-  IdentityServiceTokenService,
+  IdrsCredentialsService,
   OAUTH_TIMEOUT_MS,
   TOKEN_REUSE_BUFFER_MS,
-} from './identity-service-token.service';
+} from './idrs-credentials.service';
 
 const DAY_SECONDS = 24 * 60 * 60;
 
 const okResponse = (body: unknown) =>
   ({ ok: true, status: 200, json: async () => body } as unknown as Response);
 
-describe('IdentityServiceTokenService', () => {
+describe('IdrsCredentialsService', () => {
   let appConfig: jest.Mocked<Pick<AppConfigService, 'idrsOauthTokenUrl' | 'getIdrsConnectionInfo'>>;
-  let service: IdentityServiceTokenService;
+  let service: IdrsCredentialsService;
   let fetchMock: jest.Mock;
   let logs: string[];
 
@@ -25,7 +25,7 @@ describe('IdentityServiceTokenService', () => {
         url: 'https://idrs.example.test/base',
       }),
     };
-    service = new IdentityServiceTokenService(appConfig as unknown as AppConfigService);
+    service = new IdrsCredentialsService(appConfig as unknown as AppConfigService);
 
     // spyOn rather than assignment: restoreAllMocks only undoes the former.
     fetchMock = jest

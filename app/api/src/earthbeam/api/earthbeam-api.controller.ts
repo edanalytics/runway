@@ -29,7 +29,7 @@ import {
   toEarthbeamApiJobResponseDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
-import { IdentityServiceTokenService } from './identity-service-token.service';
+import { IdrsCredentialsService } from './idrs-credentials.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -48,7 +48,7 @@ export class EarthbeamApiController {
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     private readonly fileService: FileService,
     private readonly eduPool: EduSnowflakePoolService,
-    private readonly identityServiceTokens: IdentityServiceTokenService
+    private readonly idrs: IdrsCredentialsService
   ) {}
 
   @Get(':runId')
@@ -92,7 +92,7 @@ export class EarthbeamApiController {
 
     const startedAt = Date.now();
     try {
-      const credentials = await this.identityServiceTokens.getCredentials(partnerId);
+      const credentials = await this.idrs.getCredentials(partnerId);
       this.logger.log(
         `identity service: runId=${runId} partnerId=${partnerId} result=success durationMs=${
           Date.now() - startedAt

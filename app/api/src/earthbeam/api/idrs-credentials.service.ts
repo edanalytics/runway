@@ -9,25 +9,26 @@ export const OAUTH_TIMEOUT_MS = 5000;
  */
 export const TOKEN_REUSE_BUFFER_MS = 10 * 60 * 1000;
 
-export type IdentityServiceCredentials = { token: string; url: string };
+export type IdrsCredentials = { token: string; url: string };
 
 type CacheEntry = { token: string; url: string; expiresAt: number };
 
 /**
- * Mints and caches partner-scoped IDRS access tokens for the just-in-time
- * executor callback. The cache is per app instance and per partner, so scaled
- * instances each mint their own and observe a rotation at different times —
- * an accepted tradeoff over shared cache infrastructure.
+ * Resolves what the executor needs to reach IDRS on a partner's behalf: the
+ * partner's base url and a freshly minted access token, cached together for
+ * the just-in-time callback. The cache is per app instance and per partner, so
+ * scaled instances each mint their own and observe a rotation at different
+ * times — an accepted tradeoff over shared cache infrastructure.
  */
 @Injectable()
-export class IdentityServiceTokenService {
-  private readonly logger = new Logger(IdentityServiceTokenService.name);
+export class IdrsCredentialsService {
+  private readonly logger = new Logger(IdrsCredentialsService.name);
 
   private readonly cache = new Map<string, CacheEntry>();
 
   constructor(private readonly appConfig: AppConfigService) {}
 
-  async getCredentials(partnerId: string): Promise<IdentityServiceCredentials> {
+  async getCredentials(partnerId: string): Promise<IdrsCredentials> {
     const cached = this.cache.get(partnerId);
     if (cached && cached.expiresAt - Date.now() > TOKEN_REUSE_BUFFER_MS) {
       return { token: cached.token, url: cached.url };

@@ -153,7 +153,7 @@ sequenceDiagram
 
 - `app/api/src/earthbeam/api/earthbeam-api.controller.ts` — HTTP callback endpoints the executor calls
 - `app/api/src/earthbeam/api/earthbeam-api.service.ts` — Job payload assembly, run completion
-- `app/api/src/earthbeam/api/identity-service-token.service.ts` — IDRS OAuth token minting + per-partner cache
+- `app/api/src/earthbeam/api/idrs-credentials.service.ts` — IDRS OAuth token minting + per-partner cache
 - `app/models/src/dtos/earthbeam-api.dto.ts` — Job payload shape
 - `executor/executor/executor.py` — Main executor: S3 operations, HTTP callbacks, earthmover/lightbeam invocation
 

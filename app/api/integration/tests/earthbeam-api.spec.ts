@@ -13,7 +13,7 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
-import { IdentityServiceTokenService } from 'api/src/earthbeam/api/identity-service-token.service';
+import { IdrsCredentialsService } from 'api/src/earthbeam/api/idrs-credentials.service';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -585,8 +585,8 @@ describe('Earthbeam API', () => {
       tokenX = await authService.createAccessToken({ runId: runX.id });
 
       // Tokens are cached per app instance, and the app is shared across tests.
-      const tokenService = app.get(IdentityServiceTokenService);
-      (tokenService as unknown as { cache: Map<string, unknown> }).cache.clear();
+      const idrsCredentials = app.get(IdrsCredentialsService);
+      (idrsCredentials as unknown as { cache: Map<string, unknown> }).cache.clear();
 
       // Stub at the config boundary so the real token service, controller and
       // error mapping all run; only AWS and the OAuth server are faked.
