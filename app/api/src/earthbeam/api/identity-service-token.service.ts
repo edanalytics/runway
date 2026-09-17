@@ -12,9 +12,11 @@ export const TOKEN_REUSE_BUFFER_MS = 10 * 60 * 1000;
 export type IdentityServiceCredentials = { token: string; url: string };
 
 /** Anything that stopped us handing back credentials. The callback maps every
- * one of these to the same response; the message and `upstream` are for the log. */
+ * one of these to the same response; the message is for the log, and is always
+ * text we wrote — foreign values are reduced to something safe before they
+ * reach it. */
 export class IdentityServiceTokenError extends Error {
-  constructor(message: string, readonly upstream?: string) {
+  constructor(message: string) {
     super(message);
     this.name = 'IdentityServiceTokenError';
   }
@@ -101,17 +103,16 @@ export class IdentityServiceTokenService {
         signal: AbortSignal.timeout(OAUTH_TIMEOUT_MS),
       });
     } catch (err) {
+      // The transport error's own message is foreign text; name it only.
       throw new IdentityServiceTokenError(
-        'IDRS token request failed',
-        err instanceof Error ? err.name : undefined
+        `IDRS token request failed (${err instanceof Error ? err.name : 'unknown error'})`
       );
     }
 
     if (!response.ok) {
+      // Status only — an OAuth error body can echo back credentials.
       throw new IdentityServiceTokenError(
-        'IDRS token request was not successful',
-        // Status only — an OAuth error body can echo back credentials.
-        `status=${response.status}`
+        `IDRS token request rejected with status ${response.status}`
       );
     }
 

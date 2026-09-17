@@ -709,7 +709,7 @@ describe('Earthbeam API', () => {
       // The log is where diagnosis happens, so it must carry the identifiers...
       expect(combined).toContain(`runId=${runA.id}`);
       expect(combined).toContain(`partnerId=${tenantX.partnerId}`);
-      expect(combined).toContain('upstream=status=401');
+      expect(combined).toContain('rejected with status 401');
       // ...and none of the credential material.
       expect(combined).not.toContain('issued-token');
       expect(combined).not.toContain('-secret');

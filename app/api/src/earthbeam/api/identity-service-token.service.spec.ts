@@ -168,8 +168,7 @@ describe('IdentityServiceTokenService', () => {
       const err = await service.getCredentials('partner-a').catch((e) => e);
 
       expect(err).toBeInstanceOf(IdentityServiceTokenError);
-      expect(err.message).toBe('IDRS token request failed');
-      expect(err.upstream).toBe('TypeError');
+      expect(err.message).toBe('IDRS token request failed (TypeError)');
       expect(JSON.stringify(err)).not.toContain('UPSTREAM-MESSAGE-SENTINEL');
     });
 

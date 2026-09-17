@@ -29,10 +29,7 @@ import {
   toEarthbeamApiJobResponseDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
-import {
-  IdentityServiceTokenError,
-  IdentityServiceTokenService,
-} from './identity-service-token.service';
+import { IdentityServiceTokenService } from './identity-service-token.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -109,17 +106,12 @@ export class EarthbeamApiController {
       )}/tenants/${encodeURIComponent(tenantCode)}/students/search`;
       return toEarthbeamApiIdentityServiceResponseDto({ token: credentials.token, url });
     } catch (err) {
-      // Every mode and every failure lands here, including an id_based
-      // executor calling the unadvertised endpoint with no secret provisioned.
-      // The single response is deliberate: the executor only distinguishes 200
+      // Every mode and every failure lands here. The executor only distinguishes 200
       // from non-200, so diagnosis comes from this log, never the status.
-      const upstream = err instanceof IdentityServiceTokenError ? err.upstream : undefined;
       this.logger.error(
         `identity service: runId=${runId} partnerId=${partnerId} durationMs=${
           Date.now() - startedAt
-        } cause=${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}${
-          upstream ? ` upstream=${upstream}` : ''
-        }`
+        } cause=${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
       );
       throw new InternalServerErrorException('identity_service_unavailable');
     }
