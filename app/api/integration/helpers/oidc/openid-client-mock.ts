@@ -41,7 +41,12 @@ export const getClaimsMocker = (issuer: string) => {
 };
 
 export const prepareMockOIDC = () => {
-  jest.spyOn(Issuer, 'discover').mockImplementation(async (wellKnownEndpoint: string) => {
+  // Assigned rather than jest.spyOn: this stands in for every IdP for the life
+  // of the test file, and registration is not a bootstrap-only event — a pg
+  // notification re-runs refreshRegistrations, which calls Issuer.discover
+  // again. A jest.restoreAllMocks() in any test would hand that call the real
+  // implementation, which tries to reach the fixture URL over the network.
+  Issuer.discover = jest.fn(async (wellKnownEndpoint: string) => {
     const issuerUrl = wellKnownEndpoint.split('/.well-known/openid-configuration')[0];
     const issuer = new Issuer({
       issuer: wellKnownEndpoint,
@@ -94,7 +99,7 @@ export const prepareMockOIDC = () => {
     return {
       Client: MockClient,
     } as unknown as Issuer; //  Issuer.Client is readonly, so we pass our mock in a new object rather than modifying the original
-  });
+  }) as unknown as typeof Issuer.discover;
 
   return claimsMockers;
 };
