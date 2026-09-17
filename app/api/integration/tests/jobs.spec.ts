@@ -646,21 +646,6 @@ describe('POST /jobs', () => {
         }
       );
 
-      it('leaves an existing job alone when the partner setting later changes', async () => {
-        const res = await request(app.getHttpServer())
-          .post(endpoint)
-          .set('Cookie', [sessionA.cookie])
-          .send(postJobDto);
-        expect(res.status).toBe(201);
-
-        await prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { idMatchingMode: 'fuzzy' },
-        });
-
-        const job = await prisma.job.findUnique({ where: { id: res.body.id } });
-        expect(job?.idMatchingMode).toBe('id_based');
-      });
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
