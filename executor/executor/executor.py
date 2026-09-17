@@ -130,10 +130,6 @@ class JobExecutor:
             # Conditionally run matching processes based on the job matching mode
             if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
                 self.orchestrate_earthmover()
-            if self.id_matching_mode in ['fuzzy', 'id_based_fuzzy_background']:
-                if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
-                    self.match_candidates()
-                    self.handle_idrs_matches(artifact.CANDIDATES.path)
             
             self.lightbeam_send()
 
@@ -175,8 +171,10 @@ class JobExecutor:
             # e.g. deleting data from the container as a security measure
             self.logger.info("spinning down")
             self.send_update(action.DONE, status.SUCCESS if self.success else status.FAILURE)
-            # if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
-            #     self.match_candidates()
+            if self.id_matching_mode in ['fuzzy', 'id_based_fuzzy_background']:
+                if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
+                    self.match_candidates()
+                    self.handle_idrs_matches(artifact.CANDIDATES.path)
 
     def unpack_job(self, job):
         """Parse the job definition received from the app"""
