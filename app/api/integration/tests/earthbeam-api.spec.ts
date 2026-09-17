@@ -557,9 +557,10 @@ describe('Earthbeam API', () => {
     const tokenResponse = (body: unknown) =>
       ({ ok: true, status: 200, json: async () => body } as Response);
 
-    // The stubbed base embeds the partner id, so credentials fetched for the
-    // wrong partner show up in the url rather than passing silently.
-    const idrsBaseUrl = (partnerId: string) => `https://idrs.example.test/${partnerId}`;
+    // Each partner gets its own host, so credentials fetched for the wrong
+    // partner show up in the url rather than passing silently — and the
+    // partner id in the route below reads as the separate thing it is.
+    const idrsBaseUrl = (partnerId: string) => `https://${partnerId}.idrs.example.test`;
 
     // The executor calls the returned URL as-is, so it is the full search
     // route under the partner's configured IDRS base.
@@ -682,8 +683,8 @@ describe('Earthbeam API', () => {
             .spyOn(configService, 'getIdrsConnectionInfo')
             .mockRejectedValue(new Error('ThrottlingException')),
       ],
-    ])('returns 500 identity_service_unavailable when %s', async (_label, induceFailure) => {
-      induceFailure();
+    ])('returns 500 identity_service_unavailable when %s', async (_label, mockConnectionInfo) => {
+      mockConnectionInfo();
 
       const res = await request(app.getHttpServer())
         .get(endpointA)
