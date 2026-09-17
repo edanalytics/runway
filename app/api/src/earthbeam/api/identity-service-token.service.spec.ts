@@ -1,6 +1,5 @@
 import { AppConfigService } from 'api/src/config/app-config.service';
 import {
-  IdentityServiceTokenError,
   IdentityServiceTokenService,
   OAUTH_TIMEOUT_MS,
   TOKEN_REUSE_BUFFER_MS,
@@ -151,8 +150,8 @@ describe('IdentityServiceTokenService', () => {
     it('fails when the token endpoint is unset, before touching anything else', async () => {
       appConfig.idrsOauthTokenUrl.mockReturnValue(null);
 
-      await expect(service.getCredentials('partner-a')).rejects.toBeInstanceOf(
-        IdentityServiceTokenError
+      await expect(service.getCredentials('partner-a')).rejects.toThrow(
+        'IDRS_OAUTH_TOKEN_URL is not configured or not https'
       );
       expect(appConfig.getIdrsConnectionInfo).not.toHaveBeenCalled();
       expect(fetchMock).not.toHaveBeenCalled();
@@ -167,23 +166,17 @@ describe('IdentityServiceTokenService', () => {
 
       const err = await service.getCredentials('partner-a').catch((e) => e);
 
-      expect(err).toBeInstanceOf(IdentityServiceTokenError);
       expect(err.message).toBe('IDRS token request failed (TypeError)');
       expect(JSON.stringify(err)).not.toContain('UPSTREAM-MESSAGE-SENTINEL');
     });
 
     // `null` is valid JSON and passes `typeof === 'object'`; reading through it
     // would throw a raw TypeError instead.
-    it.each([[null], [{ access_token: '' }]])(
-      'rejects the response body %p',
-      async (body) => {
-        fetchMock.mockResolvedValue(okResponse(body));
+    it.each([[null], [{ access_token: '' }]])('rejects the response body %p', async (body) => {
+      fetchMock.mockResolvedValue(okResponse(body));
 
-        await expect(service.getCredentials('partner-a')).rejects.toBeInstanceOf(
-          IdentityServiceTokenError
-        );
-      }
-    );
+      await expect(service.getCredentials('partner-a')).rejects.toThrow(/^IDRS token response /);
+    });
 
     it('rejects a body that is not JSON at all', async () => {
       fetchMock.mockResolvedValue({
@@ -194,8 +187,8 @@ describe('IdentityServiceTokenService', () => {
         },
       } as unknown as Response);
 
-      await expect(service.getCredentials('partner-a')).rejects.toBeInstanceOf(
-        IdentityServiceTokenError
+      await expect(service.getCredentials('partner-a')).rejects.toThrow(
+        'IDRS token response was not JSON'
       );
     });
   });

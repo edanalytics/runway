@@ -11,17 +11,6 @@ export const TOKEN_REUSE_BUFFER_MS = 10 * 60 * 1000;
 
 export type IdentityServiceCredentials = { token: string; url: string };
 
-/** Anything that stopped us handing back credentials. The callback maps every
- * one of these to the same response; the message is for the log, and is always
- * text we wrote — foreign values are reduced to something safe before they
- * reach it. */
-export class IdentityServiceTokenError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'IdentityServiceTokenError';
-  }
-}
-
 type CacheEntry = { token: string; url: string; expiresAt: number };
 
 /**
@@ -46,12 +35,12 @@ export class IdentityServiceTokenService {
 
     const tokenUrl = this.appConfig.idrsOauthTokenUrl();
     if (!tokenUrl) {
-      throw new IdentityServiceTokenError('IDRS_OAUTH_TOKEN_URL is not configured or not https');
+      throw new Error('IDRS_OAUTH_TOKEN_URL is not configured or not https');
     }
 
     const connectionInfo = await this.appConfig.getIdrsConnectionInfo(partnerId);
     if (!connectionInfo) {
-      throw new IdentityServiceTokenError(`no IDRS connection info for partner ${partnerId}`);
+      throw new Error(`no IDRS connection info for partner ${partnerId}`);
     }
 
     const { token, expiresIn } = await this.requestToken(tokenUrl, partnerId, connectionInfo);
@@ -104,27 +93,25 @@ export class IdentityServiceTokenService {
       });
     } catch (err) {
       // The transport error's own message is foreign text; name it only.
-      throw new IdentityServiceTokenError(
+      throw new Error(
         `IDRS token request failed (${err instanceof Error ? err.name : 'unknown error'})`
       );
     }
 
     if (!response.ok) {
       // Status only — an OAuth error body can echo back credentials.
-      throw new IdentityServiceTokenError(
-        `IDRS token request rejected with status ${response.status}`
-      );
+      throw new Error(`IDRS token request rejected with status ${response.status}`);
     }
 
     let parsed: unknown;
     try {
       parsed = await response.json();
     } catch {
-      throw new IdentityServiceTokenError('IDRS token response was not JSON');
+      throw new Error('IDRS token response was not JSON');
     }
     // `null` and arrays are valid JSON and both pass `typeof === 'object'`.
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new IdentityServiceTokenError('IDRS token response was not a JSON object');
+      throw new Error('IDRS token response was not a JSON object');
     }
 
     const { access_token: token, expires_in: expiresIn } = parsed as {
@@ -132,7 +119,7 @@ export class IdentityServiceTokenService {
       expires_in?: unknown;
     };
     if (typeof token !== 'string' || token.length === 0) {
-      throw new IdentityServiceTokenError('IDRS token response had no access_token');
+      throw new Error('IDRS token response had no access_token');
     }
     return { token, expiresIn };
   }
