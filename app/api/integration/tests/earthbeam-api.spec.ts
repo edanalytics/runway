@@ -557,10 +557,16 @@ describe('Earthbeam API', () => {
     const tokenResponse = (body: unknown) =>
       ({ ok: true, status: 200, json: async () => body } as Response);
 
+    // The stubbed base embeds the partner id, so credentials fetched for the
+    // wrong partner show up in the url rather than passing silently.
+    const idrsBaseUrl = (partnerId: string) => `https://idrs.example.test/${partnerId}`;
+
     // The executor calls the returned URL as-is, so it is the full search
     // route under the partner's configured IDRS base.
-    const searchUrl = (partnerId: string, tenantCode: string) =>
-      `https://idrs.example.test/${partnerId}/partners/${partnerId}/tenants/${tenantCode}/students/search`;
+    const searchUrl = (tenant: typeof tenantA) =>
+      `${idrsBaseUrl(tenant.partnerId)}/partners/${tenant.partnerId}/tenants/${
+        tenant.code
+      }/students/search`;
 
     beforeEach(async () => {
       const authService = app.get(EarthbeamApiAuthService);
@@ -599,7 +605,7 @@ describe('Earthbeam API', () => {
         .mockImplementation(async (partnerId: string) => ({
           clientId: `${partnerId}-client`,
           clientSecret: `${partnerId}-secret`,
-          url: `https://idrs.example.test/${partnerId}`,
+          url: idrsBaseUrl(partnerId),
         }));
       fetchSpy = jest
         .spyOn(global, 'fetch')
@@ -618,15 +624,19 @@ describe('Earthbeam API', () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it('rejects a token minted for a different run', async () => {
+    // runX belongs to tenantX, under a different partner than tenantA — the
+    // case the run-scoped token exists to stop, since a token that travelled
+    // between runs of one partner would leak nothing new.
+    it("rejects a token minted for another partner's run", async () => {
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenX}`);
       expect(res.status).toBe(403);
+      expect(configService.getIdrsConnectionInfo).not.toHaveBeenCalled();
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it('returns the token and url for the run\'s partner', async () => {
+    it("returns the token and url for the run's partner", async () => {
       const res = await request(app.getHttpServer())
         .get(endpointA)
         .set('Authorization', `Bearer ${tokenA}`);
@@ -634,7 +644,7 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         token: 'issued-token',
-        url: searchUrl(tenantA.partnerId, tenantA.code),
+        url: searchUrl(tenantA),
       });
     });
 
@@ -646,7 +656,7 @@ describe('Earthbeam API', () => {
         .mockImplementation(async (partnerId: string) => ({
           clientId: `${partnerId}-client`,
           clientSecret: `${partnerId}-secret`,
-          url: `https://idrs.example.test/${partnerId}/`,
+          url: `${idrsBaseUrl(partnerId)}/`,
         }));
 
       const res = await request(app.getHttpServer())
@@ -654,7 +664,7 @@ describe('Earthbeam API', () => {
         .set('Authorization', `Bearer ${tokenA}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.url).toBe(searchUrl(tenantA.partnerId, tenantA.code));
+      expect(res.body.url).toBe(searchUrl(tenantA));
     });
 
     // Every failure is one response; humans diagnose from the log, not the
@@ -672,8 +682,8 @@ describe('Earthbeam API', () => {
             .spyOn(configService, 'getIdrsConnectionInfo')
             .mockRejectedValue(new Error('ThrottlingException')),
       ],
-    ])('returns 500 identity_service_unavailable when %s', async (_label, arrange) => {
-      arrange();
+    ])('returns 500 identity_service_unavailable when %s', async (_label, induceFailure) => {
+      induceFailure();
 
       const res = await request(app.getHttpServer())
         .get(endpointA)
