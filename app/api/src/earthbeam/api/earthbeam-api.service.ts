@@ -149,15 +149,12 @@ export class EarthbeamApiService {
     // to weaker matching.
     const crossYearMatchAvailable = job.tenant.partner.crossYearMatchingEnabled;
 
-    // The job's snapshot, not the partner's current setting — see
-    // JobsService.createJob.
+    // The job's snapshot, not the partner's current setting
     const idMatchingMode = job.idMatchingMode;
     // Pure fuzzy does no roster matching at all, so neither roster source is
-    // worth handing over. Background mode still runs the authoritative
-    // ID-based pass and keeps them.
-    const usesRosterMatching = idMatchingMode !== 'fuzzy';
-    // Advertised only where the executor needs it. The callback itself has no
-    // mode check — a correctly authenticated executor may always call it.
+    // handed over. id_based_fuzzy_background still needs them.
+    const usesIdBasedMatching = idMatchingMode !== 'fuzzy';
+    // Share identity service only if the executor needs it
     const needsIdentityService = idMatchingMode !== 'id_based';
 
     const payload: EarthbeamApiJobResponseDto = {
@@ -178,7 +175,7 @@ export class EarthbeamApiService {
         summary: `${executorBaseUrl}/${earthbeamSummaryEndpoint(runId)}`,
         unmatchedIds: `${executorBaseUrl}/${earthbeamUnmatchedIdsEndpoint(runId)}`,
         outputFiles: `${executorBaseUrl}/${earthbeamOutputFilesEndpoint(runId)}`,
-        ...(crossYearMatchAvailable && usesRosterMatching
+        ...(crossYearMatchAvailable && usesIdBasedMatching
           ? { roster: `${executorBaseUrl}/${earthbeamRosterEndpoint(runId)}` }
           : {}),
         ...(needsIdentityService
@@ -193,7 +190,7 @@ export class EarthbeamApiService {
       // (often nonexistent) pointer — omit it. The executor only reads
       // rosterFilePath in its non-cross-year branch.
       rosterFilePath:
-        job.sendToOds || crossYearMatchAvailable || !usesRosterMatching
+        job.sendToOds || crossYearMatchAvailable || !usesIdBasedMatching
           ? undefined
           : `s3://${this.configService.rosterBucket()}/${rosterFileKey(job, job.schoolYear)}`,
       // odsConnection check narrows the type — the early guard ensures it's present when sendToOds
