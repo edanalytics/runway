@@ -618,30 +618,26 @@ describe('POST /jobs', () => {
       expect(job?.sendToOds).toBe(true);
     });
 
-    describe('id matching mode', () => {
-      afterEach(async () => {
-        await prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { idMatchingMode: 'id_based' },
-        });
+    it("snapshots the partner's matching mode onto the job", async () => {
+      // The seeded partner is id_based, so the fuzzy value asserted below can
+      // only have come from the update. Seed data is refreshed before each
+      // test, so no reset is needed afterwards.
+      const seeded = await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
+      expect(seeded.idMatchingMode).toBe('id_based');
+
+      await prisma.partner.update({
+        where: { id: partnerA.id },
+        data: { idMatchingMode: 'fuzzy' },
       });
 
-      it("snapshots the partner's matching mode onto the job", async () => {
-        await prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { idMatchingMode: 'fuzzy' },
-        });
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send(postJobDto);
+      expect(res.status).toBe(201);
 
-        const res = await request(app.getHttpServer())
-          .post(endpoint)
-          .set('Cookie', [sessionA.cookie])
-          .send(postJobDto);
-        expect(res.status).toBe(201);
-
-        // A non-default value proves creation copied the partner setting.
-        const job = await prisma.job.findUnique({ where: { id: res.body.id } });
-        expect(job?.idMatchingMode).toBe('fuzzy');
-      });
+      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+      expect(job?.idMatchingMode).toBe('fuzzy');
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
