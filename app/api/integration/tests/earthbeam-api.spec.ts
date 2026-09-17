@@ -758,6 +758,7 @@ describe('Earthbeam API', () => {
 
       expect(res.status).toBe(500);
       expect(res.body.message).toBe('identity_service_unavailable');
+      expect(fetchSpy).toHaveBeenCalledTimes(_label === 'OAuth rejects the request' ? 1 : 0);
     });
 
     it('never writes the token or the callback response to the app log', async () => {

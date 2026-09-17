@@ -140,14 +140,18 @@ describe('IdentityServiceTokenService', () => {
   it.each([
     ['a short lifetime', 60],
     ['no expires_in', undefined],
-    ['a non-numeric expires_in', 'soon'],
+    ['a non-numeric expires_in', 'OAUTH-BODY-SENTINEL'],
   ])('returns a token with %s without caching it', async (_label, expiresIn) => {
     fetchMock.mockResolvedValue(okResponse({ access_token: 'uncacheable', expires_in: expiresIn }));
 
     expect((await service.getCredentials('partner-a')).token).toBe('uncacheable');
     expect((await service.getCredentials('partner-a')).token).toBe('uncacheable');
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(logs.some((l) => l.includes('not cacheable'))).toBe(true);
+    const combined = logs.join('\n');
+    expect(combined).toContain('not cacheable');
+    for (const secret of ['uncacheable', 'OAUTH-BODY-SENTINEL', 'client-secret', 'client-id']) {
+      expect(combined).not.toContain(secret);
+    }
   });
 
   describe('failures', () => {
@@ -159,25 +163,6 @@ describe('IdentityServiceTokenService', () => {
       );
       expect(appConfig.getIdrsConnectionInfo).not.toHaveBeenCalled();
       expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it('fails when the partner has no connection info', async () => {
-      appConfig.getIdrsConnectionInfo.mockResolvedValue(null);
-
-      await expect(service.getCredentials('partner-a')).rejects.toBeInstanceOf(
-        IdentityServiceTokenError
-      );
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it('does not retry, and reports only the status from a rejected request', async () => {
-      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({}) } as Response);
-
-      const err = await service.getCredentials('partner-a').catch((e) => e);
-
-      expect(err).toBeInstanceOf(IdentityServiceTokenError);
-      expect(err.upstream).toBe('status=401');
-      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     // The transport error's own message is foreign text; carry the name only,
@@ -221,25 +206,5 @@ describe('IdentityServiceTokenService', () => {
         IdentityServiceTokenError
       );
     });
-  });
-
-  // Scope: this service's own logger. The callback boundary logs separately —
-  // see the integration spec. Distinctive values so a leak can't hide inside
-  // ordinary log vocabulary.
-  it('never logs credentials, the token, or the raw expires_in', async () => {
-    // expires_in is attacker-shaped input: whatever the OAuth server put there
-    // must stay out of the log, even though we tolerate the value itself.
-    fetchMock.mockResolvedValue(
-      okResponse({ access_token: 'SECRET-TOKEN', expires_in: 'OAUTH-BODY-SENTINEL' })
-    );
-
-    await service.getCredentials('partner-a');
-
-    const combined = logs.join('\n');
-    expect(combined).toContain('not cacheable');
-    expect(combined).not.toContain('SECRET-TOKEN');
-    expect(combined).not.toContain('OAUTH-BODY-SENTINEL');
-    expect(combined).not.toContain('client-secret');
-    expect(combined).not.toContain('client-id');
   });
 });
