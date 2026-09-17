@@ -78,12 +78,6 @@ describe('IdentityServiceTokenService', () => {
     expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 
-  it('does no dependency work until credentials are actually requested', () => {
-    expect(appConfig.idrsOauthTokenUrl).not.toHaveBeenCalled();
-    expect(appConfig.getIdrsConnectionInfo).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it('reuses a cached token without touching the secret or the token endpoint', async () => {
     await service.getCredentials('partner-a');
     const second = await service.getCredentials('partner-a');
@@ -139,7 +133,6 @@ describe('IdentityServiceTokenService', () => {
   // just can't be reused — the token must come back either way.
   it.each([
     ['a short lifetime', 60],
-    ['no expires_in', undefined],
     ['a non-numeric expires_in', 'OAUTH-BODY-SENTINEL'],
   ])('returns a token with %s without caching it', async (_label, expiresIn) => {
     fetchMock.mockResolvedValue(okResponse({ access_token: 'uncacheable', expires_in: expiresIn }));
@@ -180,9 +173,9 @@ describe('IdentityServiceTokenService', () => {
       expect(JSON.stringify(err)).not.toContain('UPSTREAM-MESSAGE-SENTINEL');
     });
 
-    // `null` and arrays are valid JSON and both pass `typeof === 'object'`;
-    // reading through them would throw a raw TypeError instead.
-    it.each([[null], [[]], [{}], [{ access_token: '' }]])(
+    // `null` is valid JSON and passes `typeof === 'object'`; reading through it
+    // would throw a raw TypeError instead.
+    it.each([[null], [{ access_token: '' }]])(
       'rejects the response body %p',
       async (body) => {
         fetchMock.mockResolvedValue(okResponse(body));

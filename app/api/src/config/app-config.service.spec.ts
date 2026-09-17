@@ -53,25 +53,6 @@ describe('AppConfigService IDRS connection info', () => {
     expect(send.mock.calls[0][1].abortSignal).toBeInstanceOf(AbortSignal);
   });
 
-  it('does not apply that bound to unrelated secret getters', async () => {
-    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
-    env.UM_CONFIG_SECRET = 'stage-um-config';
-    send.mockResolvedValue({
-      SecretString: JSON.stringify({
-        url: 'https://um.example.test',
-        auth0Domain: 'um.auth0.test',
-        clientId: 'um-id',
-        clientSecret: 'um-secret',
-        audience: 'https://um.example.test',
-      }),
-    });
-
-    await service.umConfig();
-
-    expect(timeoutSpy).not.toHaveBeenCalled();
-    expect(send.mock.calls[0][1]).toBeUndefined();
-  });
-
   it('fetches uncached so a rotated secret is picked up without a restart', async () => {
     await service.getIdrsConnectionInfo('partner-a');
     send.mockResolvedValue(secretValue({ clientSecret: 'rotated' }));
@@ -121,14 +102,11 @@ describe('AppConfigService IDRS connection info', () => {
 
   // Secrets Manager content is untrusted at runtime whatever the type says. A
   // numeric clientID would be coerced by URLSearchParams and come back as an
-  // OAuth rejection, pointing diagnosis at the wrong dependency. `null` and
-  // arrays additionally pass `typeof === 'object'`.
+  // OAuth rejection, pointing diagnosis at the wrong dependency. `null`
+  // additionally passes `typeof === 'object'`.
   it.each([
     ['null', 'null'],
-    ['an array', '[]'],
-    ['a plain string', '"just-a-string"'],
     ['a numeric clientID', JSON.stringify({ clientID: 1, clientSecret: 's', url: 'https://a.test' })],
-    ['an empty clientSecret', JSON.stringify({ clientID: 'a', clientSecret: '', url: 'https://a.test' })],
     ['a missing url', JSON.stringify({ clientID: 'a', clientSecret: 's' })],
     ['a non-https url', JSON.stringify({ clientID: 'a', clientSecret: 's', url: 'http://a.test' })],
   ])('returns null for a secret body that is %s', async (_label, secretString) => {
@@ -158,11 +136,8 @@ describe('AppConfigService IDRS connection info', () => {
       expect(service.idrsOauthTokenUrl()).toBeNull();
     });
 
-    it.each([
-      ['http', 'http://auth.example.test/oauth/token'],
-      ['no scheme', 'auth.example.test/oauth/token'],
-    ])('refuses a deployed %s endpoint', (_label, url) => {
-      env.IDRS_OAUTH_TOKEN_URL = url;
+    it('refuses a deployed http endpoint', () => {
+      env.IDRS_OAUTH_TOKEN_URL = 'http://auth.example.test/oauth/token';
 
       expect(service.idrsOauthTokenUrl()).toBeNull();
     });

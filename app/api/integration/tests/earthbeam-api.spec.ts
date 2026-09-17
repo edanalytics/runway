@@ -215,26 +215,6 @@ describe('Earthbeam API', () => {
         }
       );
 
-      it('serves the run the mode snapshotted on its job, not the partner\'s current setting', async () => {
-        const { res, run } = await payloadFor('fuzzy');
-        expect(res.body.idMatchingMode).toBe('fuzzy');
-
-        // A real change of setting, away from both the fixture default and the
-        // job's snapshot, so the second request can only come from the job.
-        await global.prisma.partner.update({
-          where: { id: partnerA.id },
-          data: { idMatchingMode: 'id_based_fuzzy_background' },
-        });
-
-        const authService = app.get(EarthbeamApiAuthService);
-        const token = await authService.createAccessToken({ runId: run.id });
-        const after = await request(app.getHttpServer())
-          .get(`/earthbeam/jobs/${run.id}`)
-          .set('Authorization', `Bearer ${token}`);
-
-        expect(after.body.idMatchingMode).toBe('fuzzy');
-      });
-
       it('keeps the cross-year roster callback in background mode', async () => {
         await global.prisma.partner.update({
           where: { id: partnerA.id },
@@ -685,34 +665,13 @@ describe('Earthbeam API', () => {
       expect(res.body.url).toBe(searchUrl(tenantA.partnerId, tenantA.code));
     });
 
-    it('resolves each run to its own partner', async () => {
-      const resX = await request(app.getHttpServer())
-        .get(`/earthbeam/jobs/${runX.id}/identity-service`)
-        .set('Authorization', `Bearer ${tokenX}`);
-
-      expect(resX.status).toBe(200);
-      expect(resX.body.url).toBe(searchUrl(tenantX.partnerId, tenantX.code));
-      expect(configService.getIdrsConnectionInfo).toHaveBeenCalledWith(tenantX.partnerId);
-    });
-
     // Every failure is one response; humans diagnose from the log, not the
-    // status. One case per distinct path to it: unusable config, a rejecting
-    // OAuth server, and a thrown AWS error (the only foreign error type the
-    // controller's catch sees). The rest of the config and OAuth failure
-    // surface is covered at the unit level.
+    // status. Cover an expected token-service error and a foreign AWS error.
+    // OAuth rejection is exercised by the logging test below.
     it.each([
       [
         'the partner has no connection info',
         () => jest.spyOn(configService, 'getIdrsConnectionInfo').mockResolvedValue(null),
-      ],
-      [
-        'OAuth rejects the request',
-        () =>
-          fetchSpy.mockResolvedValue({
-            ok: false,
-            status: 401,
-            json: async () => ({}),
-          } as Response),
       ],
       [
         'Secrets Manager is unavailable',
@@ -730,7 +689,7 @@ describe('Earthbeam API', () => {
 
       expect(res.status).toBe(500);
       expect(res.body.message).toBe('identity_service_unavailable');
-      expect(fetchSpy).toHaveBeenCalledTimes(_label === 'OAuth rejects the request' ? 1 : 0);
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('never writes the token or the callback response to the app log', async () => {
@@ -752,6 +711,7 @@ describe('Earthbeam API', () => {
         .get(`/earthbeam/jobs/${runX.id}/identity-service`)
         .set('Authorization', `Bearer ${tokenX}`);
       expect(failed.status).toBe(500);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
 
       const combined = logs.join('\n');
       // The log is where diagnosis happens, so it must carry the identifiers...

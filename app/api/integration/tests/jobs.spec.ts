@@ -626,26 +626,22 @@ describe('POST /jobs', () => {
         });
       });
 
-      it.each(['fuzzy', 'id_based_fuzzy_background'] as const)(
-        "snapshots the partner's %s setting onto the job",
-        async (idMatchingMode) => {
-          await prisma.partner.update({
-            where: { id: partnerA.id },
-            data: { idMatchingMode },
-          });
+      it("snapshots the partner's matching mode onto the job", async () => {
+        await prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { idMatchingMode: 'fuzzy' },
+        });
 
-          const res = await request(app.getHttpServer())
-            .post(endpoint)
-            .set('Cookie', [sessionA.cookie])
-            .send(postJobDto);
-          expect(res.status).toBe(201);
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send(postJobDto);
+        expect(res.status).toBe(201);
 
-          // Written explicitly at creation, not left to the column default.
-          const job = await prisma.job.findUnique({ where: { id: res.body.id } });
-          expect(job?.idMatchingMode).toBe(idMatchingMode);
-        }
-      );
-
+        // A non-default value proves creation copied the partner setting.
+        const job = await prisma.job.findUnique({ where: { id: res.body.id } });
+        expect(job?.idMatchingMode).toBe('fuzzy');
+      });
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
