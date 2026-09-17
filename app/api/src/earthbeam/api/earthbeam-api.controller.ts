@@ -86,12 +86,12 @@ export class EarthbeamApiController {
   async identityService(@Param('runId', ParseIntPipe) runId: number) {
     const run = await this.prisma.run.findUnique({
       where: { id: runId },
-      select: { job: { select: { partnerId: true } } },
+      select: { job: { select: { partnerId: true, tenantCode: true } } },
     });
     if (!run) {
       throw new NotFoundException(`Run not found: ${runId}`);
     }
-    const { partnerId } = run.job;
+    const { partnerId, tenantCode } = run.job;
 
     const startedAt = Date.now();
     try {
@@ -101,7 +101,13 @@ export class EarthbeamApiController {
           Date.now() - startedAt
         }`
       );
-      return toEarthbeamApiIdentityServiceResponseDto(credentials);
+      // The executor uses this URL as-is, so hand over the full search route
+      // rather than the base. The configured base stays untouched elsewhere —
+      // it also serves as the OAuth audience, which must match verbatim.
+      const url = `${credentials.url.replace(/\/+$/, '')}/partners/${encodeURIComponent(
+        partnerId
+      )}/tenants/${encodeURIComponent(tenantCode)}/students/search`;
+      return toEarthbeamApiIdentityServiceResponseDto({ token: credentials.token, url });
     } catch (err) {
       // Every mode and every failure lands here, including an id_based
       // executor calling the unadvertised endpoint with no secret provisioned.

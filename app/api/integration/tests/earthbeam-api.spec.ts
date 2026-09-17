@@ -585,6 +585,11 @@ describe('Earthbeam API', () => {
     const tokenResponse = (body: unknown) =>
       ({ ok: true, status: 200, json: async () => body } as Response);
 
+    // The executor calls the returned URL as-is, so it is the full search
+    // route under the partner's configured IDRS base.
+    const searchUrl = (partnerId: string, tenantCode: string) =>
+      `https://idrs.example.test/${partnerId}/partners/${partnerId}/tenants/${tenantCode}/students/search`;
+
     beforeEach(async () => {
       const authService = app.get(EarthbeamApiAuthService);
 
@@ -657,8 +662,27 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         token: 'issued-token',
-        url: `https://idrs.example.test/${tenantA.partnerId}`,
+        url: searchUrl(tenantA.partnerId, tenantA.code),
       });
+    });
+
+    // The base URL is stored verbatim (it doubles as the OAuth audience), so
+    // it may or may not carry a trailing slash.
+    it('joins the search route cleanly onto a base url with a trailing slash', async () => {
+      jest
+        .spyOn(configService, 'getIdrsConnectionInfo')
+        .mockImplementation(async (partnerId: string) => ({
+          clientId: `${partnerId}-client`,
+          clientSecret: `${partnerId}-secret`,
+          url: `https://idrs.example.test/${partnerId}/`,
+        }));
+
+      const res = await request(app.getHttpServer())
+        .get(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.url).toBe(searchUrl(tenantA.partnerId, tenantA.code));
     });
 
     it('resolves each run to its own partner', async () => {
@@ -667,7 +691,7 @@ describe('Earthbeam API', () => {
         .set('Authorization', `Bearer ${tokenX}`);
 
       expect(resX.status).toBe(200);
-      expect(resX.body.url).toBe(`https://idrs.example.test/${tenantX.partnerId}`);
+      expect(resX.body.url).toBe(searchUrl(tenantX.partnerId, tenantX.code));
       expect(configService.getIdrsConnectionInfo).toHaveBeenCalledWith(tenantX.partnerId);
     });
 
