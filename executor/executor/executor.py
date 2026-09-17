@@ -21,7 +21,7 @@ import executor.action_statuses as status
 import executor.artifacts as artifact
 import executor.config as config
 import executor.errors as error
-from executor.executor.idrs_client import IDRSClient
+from executor.idrs_client import IDRSClient
 from executor.output_sets import OutputSet
  
 handler = logging.StreamHandler()
