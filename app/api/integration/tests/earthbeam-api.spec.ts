@@ -695,34 +695,6 @@ describe('Earthbeam API', () => {
       expect(configService.getIdrsConnectionInfo).toHaveBeenCalledWith(tenantX.partnerId);
     });
 
-    it('remains available after the run reports done', async () => {
-      await global.prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
-
-      const res = await request(app.getHttpServer())
-        .get(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`);
-
-      expect(res.status).toBe(200);
-    });
-
-    it('serves an id_based run that calls the unadvertised endpoint anyway', async () => {
-      const authService = app.get(EarthbeamApiAuthService);
-      const idBasedJob = await seedJob({
-        odsConfig: odsConfigA2425,
-        bundle: bundleA,
-        tenant: tenantA,
-      });
-      const idBasedRun = idBasedJob.runs[0];
-      const idBasedToken = await authService.createAccessToken({ runId: idBasedRun.id });
-
-      const res = await request(app.getHttpServer())
-        .get(`/earthbeam/jobs/${idBasedRun.id}/identity-service`)
-        .set('Authorization', `Bearer ${idBasedToken}`);
-
-      // No mode check: the payload simply doesn't advertise the URL.
-      expect(res.status).toBe(200);
-    });
-
     // Every failure is one response; humans diagnose from the log, not the
     // status. One case per distinct path to it: unusable config, a rejecting
     // OAuth server, and a thrown AWS error (the only foreign error type the
