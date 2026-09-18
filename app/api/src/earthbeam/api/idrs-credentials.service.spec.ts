@@ -151,7 +151,7 @@ describe('IdrsCredentialsService', () => {
       const err = await service.getCredentials('partner-a').catch((e) => e);
 
       expect(err.message).toBe('IDRS token request failed (TypeError)');
-      expect(JSON.stringify(err)).not.toContain('UPSTREAM-MESSAGE-SENTINEL');
+      expect(String(err)).not.toContain('UPSTREAM-MESSAGE-SENTINEL');
     });
 
     // `null` is valid JSON and passes `typeof === 'object'`; reading through it
@@ -162,18 +162,19 @@ describe('IdrsCredentialsService', () => {
       await expect(service.getCredentials('partner-a')).rejects.toThrow(/^IDRS token response /);
     });
 
-    it('rejects a body that is not JSON at all', async () => {
+    it('replaces a parse failure, whose message would quote the body', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => {
-          throw new SyntaxError('Unexpected token');
+          throw new SyntaxError(`Unexpected token '<', "OAUTH-BODY-SENTINEL" is not valid JSON`);
         },
       } as unknown as Response);
 
-      await expect(service.getCredentials('partner-a')).rejects.toThrow(
-        'IDRS token response was not JSON'
-      );
+      const err = await service.getCredentials('partner-a').catch((e) => e);
+
+      expect(err.message).toBe('IDRS token response was not JSON');
+      expect(String(err)).not.toContain('OAUTH-BODY-SENTINEL');
     });
   });
 });
