@@ -259,15 +259,15 @@ export class AppConfigService {
     // Secret content is untrusted at runtime whatever the type says. The url is
     // preserved exactly, since it doubles as the OAuth audience.
     if (
-      !isNonEmptyString(clientId) ||
-      !isNonEmptyString(clientSecret) ||
-      !isNonEmptyString(url) ||
-      !url.startsWith('https://')
+      isNonEmptyString(clientId) &&
+      isNonEmptyString(clientSecret) &&
+      isNonEmptyString(url) &&
+      url.startsWith('https://')
     ) {
-      this.logger.warn(`AWS secret ${secretName} is missing or malformed`);
-      return null;
+      return { clientId, clientSecret, url };
     }
-    return { clientId, clientSecret, url };
+    this.logger.warn(`AWS secret ${secretName} is missing or malformed`);
+    return null;
   }
 
   bundleBranch(): string {
