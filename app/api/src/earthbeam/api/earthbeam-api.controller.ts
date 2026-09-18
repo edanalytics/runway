@@ -25,9 +25,11 @@ import {
   EarthbeamApiStatusPayloadDto,
   EarthbeamApiUnmatchedIdsPayloadDto,
   JsonValue,
+  toEarthbeamApiIdentityServiceResponseDto,
   toEarthbeamApiJobResponseDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
+import { IdrsCredentialsService } from './idrs-credentials.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -45,7 +47,8 @@ export class EarthbeamApiController {
     private readonly earthbeamApiService: EarthbeamApiService,
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     private readonly fileService: FileService,
-    private readonly eduPool: EduSnowflakePoolService
+    private readonly eduPool: EduSnowflakePoolService,
+    private readonly idrs: IdrsCredentialsService
   ) {}
 
   @Get(':runId')
@@ -67,6 +70,51 @@ export class EarthbeamApiController {
     }
 
     return toEarthbeamApiJobResponseDto(result.data);
+  }
+
+  /**
+   * Just-in-time IDRS credentials for the executor. The run-scoped bearer
+   * token is the whole trust boundary: it names the run, hence the partner
+   * whose connection info may be returned. No matching-mode check, no
+   * run-status check (background fuzzy work continues past `done`) and no
+   * one-call limit — see AGENTS.md for why.
+   */
+  @Get(':runId/identity-service')
+  async identityService(@Param('runId', ParseIntPipe) runId: number) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      select: { job: { select: { partnerId: true, tenantCode: true } } },
+    });
+    if (!run) {
+      throw new NotFoundException(`Run not found: ${runId}`);
+    }
+    const { partnerId, tenantCode } = run.job;
+
+    const startedAt = Date.now();
+    try {
+      const credentials = await this.idrs.getCredentials(partnerId);
+      this.logger.log(
+        `identity service: runId=${runId} partnerId=${partnerId} result=success durationMs=${
+          Date.now() - startedAt
+        }`
+      );
+      // The executor uses this URL as-is, so hand over the full search route
+      // rather than the base. The configured base stays untouched elsewhere —
+      // it also serves as the OAuth audience, which must match verbatim.
+      const url = `${credentials.url.replace(/\/+$/, '')}/partners/${encodeURIComponent(
+        partnerId
+      )}/tenants/${encodeURIComponent(tenantCode)}/students/search`;
+      return toEarthbeamApiIdentityServiceResponseDto({ token: credentials.token, url });
+    } catch (err) {
+      // Every mode and every failure lands here. The executor only distinguishes 200
+      // from non-200, so diagnosis comes from this log, never the status.
+      this.logger.error(
+        `identity service: runId=${runId} partnerId=${partnerId} durationMs=${
+          Date.now() - startedAt
+        } cause=${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
+      );
+      throw new InternalServerErrorException('identity_service_unavailable');
+    }
   }
 
   @Get(':runId/roster')
