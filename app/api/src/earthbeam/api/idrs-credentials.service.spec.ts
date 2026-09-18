@@ -70,19 +70,19 @@ describe('IdrsCredentialsService', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('mints a new token once the cached one enters the reuse window', async () => {
+  it('mints a new token once the cached one has less life left than the buffer', async () => {
     const mintedAt = Date.parse('2026-09-14T00:00:00Z');
     const now = jest.spyOn(Date, 'now').mockReturnValue(mintedAt);
 
     await service.getCredentials('partner-a');
     fetchMock.mockResolvedValue(okResponse({ access_token: 'fresh', expires_in: DAY_SECONDS }));
 
-    // Still outside the window by a second: the cached token is served.
+    // A second more than the buffer left: the cached token is served.
     now.mockReturnValue(mintedAt + DAY_SECONDS * 1000 - TOKEN_REUSE_BUFFER_MS - 1000);
     expect((await service.getCredentials('partner-a')).token).toBe('access-token');
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // Inside it: a replacement is minted.
+    // Exactly the buffer left, which is not more than it: a replacement is minted.
     now.mockReturnValue(mintedAt + DAY_SECONDS * 1000 - TOKEN_REUSE_BUFFER_MS);
     expect((await service.getCredentials('partner-a')).token).toBe('fresh');
     expect(fetchMock).toHaveBeenCalledTimes(2);
