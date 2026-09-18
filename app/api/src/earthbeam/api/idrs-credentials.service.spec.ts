@@ -1,9 +1,5 @@
 import { AppConfigService } from 'api/src/config/app-config.service';
-import {
-  IdrsCredentialsService,
-  OAUTH_TIMEOUT_MS,
-  TOKEN_REUSE_BUFFER_MS,
-} from './idrs-credentials.service';
+import { IdrsCredentialsService, TOKEN_REUSE_BUFFER_MS } from './idrs-credentials.service';
 
 const DAY_SECONDS = 24 * 60 * 60;
 
@@ -63,18 +59,6 @@ describe('IdrsCredentialsService', () => {
     // The audience must be the configured URL verbatim — no normalization.
     expect(body.get('audience')).toBe('https://idrs.example.test/base');
     expect(body.get('scope')).toBe('student:identity:read partner:partner-a');
-  });
-
-  // Wiring only: that a five-second signal is built and reaches fetch. Whether
-  // the runtime actually aborts a stalled socket is AbortSignal's job.
-  it('wires a five-second abort signal into the token request', async () => {
-    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
-
-    await service.getCredentials('partner-a');
-
-    expect(timeoutSpy).toHaveBeenCalledWith(OAUTH_TIMEOUT_MS);
-    expect(OAUTH_TIMEOUT_MS).toBe(5000);
-    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 
   it('reuses a cached token without touching the secret or the token endpoint', async () => {

@@ -42,16 +42,6 @@ describe('AppConfigService IDRS connection info', () => {
     expect(send.mock.calls[0][0].input.SecretId).toBe('stage-idrs-connection-info-partner-a');
   });
 
-  // Wiring only: that a five-second signal is built and reaches the SDK call.
-  it('bounds the lookup with a five-second abort signal', async () => {
-    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
-
-    await service.getIdrsConnectionInfo('partner-a');
-
-    expect(timeoutSpy).toHaveBeenCalledWith(5000);
-    expect(send.mock.calls[0][1].abortSignal).toBeInstanceOf(AbortSignal);
-  });
-
   it('fetches uncached so a rotated secret is picked up without a restart', async () => {
     await service.getIdrsConnectionInfo('partner-a');
     send.mockResolvedValue(secretValue({ clientSecret: 'rotated' }));

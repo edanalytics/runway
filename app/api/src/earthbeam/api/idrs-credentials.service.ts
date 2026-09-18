@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from 'api/src/config/app-config.service';
 
-/** Bound on the OAuth token request. */
-export const OAUTH_TIMEOUT_MS = 5000;
 /**
  * Reuse threshold, not a minimum token lifetime: a token is only served — or
  * worth caching — while more than this much life remains.
@@ -90,7 +88,7 @@ export class IdrsCredentialsService {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
-        signal: AbortSignal.timeout(OAUTH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(5000),
       });
     } catch (err) {
       // The transport error's own message is foreign text; name it only.
