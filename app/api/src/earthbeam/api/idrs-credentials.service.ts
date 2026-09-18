@@ -55,10 +55,10 @@ export class IdrsCredentialsService {
         expiresAt: Date.now() + lifetimeMs,
       });
     } else {
-      // Production tokens carry a 24h expires_in; anything else still works,
-      // it just can't be reused. Log the lifetime we derived, never the raw
-      // expires_in — that is untrusted response content, and 0 already
-      // distinguishes "unusable" from "short but valid".
+      // Tokens with expiration less then the buffer still work, but will not
+      // be cached. Same for tokens without expiration or malformed expiration.
+      // Log the lifetime we derived, never the raw expires_in — that is untrusted
+      // response content, and 0 already distinguishes "unusable" from "short but valid".
       this.logger.warn(
         `identity service token: partnerId=${partnerId} not cacheable (lifetimeMs=${lifetimeMs})`
       );
@@ -72,6 +72,10 @@ export class IdrsCredentialsService {
     partnerId: string,
     connectionInfo: { clientId: string; clientSecret: string; url: string }
   ): Promise<{ token: string; expiresIn: unknown }> {
+    // Form-encoded, not JSON: RFC 6749 §4.4.2 specifies the token endpoint
+    // takes its parameters as application/x-www-form-urlencoded. JSON is the
+    // response format. URLSearchParams also escapes the client secret, which
+    // is arbitrary text.
     const body = new URLSearchParams({
       grant_type: 'client_credentials',
       client_id: connectionInfo.clientId,
