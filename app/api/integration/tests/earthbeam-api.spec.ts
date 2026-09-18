@@ -557,17 +557,14 @@ describe('Earthbeam API', () => {
     const tokenResponse = (body: unknown) =>
       ({ ok: true, status: 200, json: async () => body } as Response);
 
-    // Each partner gets its own host, so credentials fetched for the wrong
-    // partner show up in the url rather than passing silently — and the
-    // partner id in the route below reads as the separate thing it is.
-    const idrsBaseUrl = (partnerId: string) => `https://${partnerId}.idrs.example.test`;
+    // One base for the whole deployment; partners are addressed within it by
+    // the path segments below.
+    const idrsBaseUrl = 'https://idrs.example.test';
 
     // The executor calls the returned URL as-is, so it is the full search
-    // route under the partner's configured IDRS base.
+    // route under that base.
     const searchUrl = (tenant: typeof tenantA) =>
-      `${idrsBaseUrl(tenant.partnerId)}/partners/${tenant.partnerId}/tenants/${
-        tenant.code
-      }/students/search`;
+      `${idrsBaseUrl}/partners/${tenant.partnerId}/tenants/${tenant.code}/students/search`;
 
     beforeEach(async () => {
       const authService = app.get(EarthbeamApiAuthService);
@@ -601,12 +598,12 @@ describe('Earthbeam API', () => {
       jest
         .spyOn(configService, 'idrsOauthTokenUrl')
         .mockReturnValue('https://auth.example.test/oauth/token');
+      jest.spyOn(configService, 'idrsUrl').mockReturnValue(idrsBaseUrl);
       jest
         .spyOn(configService, 'getIdrsConnectionInfo')
         .mockImplementation(async (partnerId: string) => ({
           clientId: `${partnerId}-client`,
           clientSecret: `${partnerId}-secret`,
-          url: idrsBaseUrl(partnerId),
         }));
       fetchSpy = jest
         .spyOn(global, 'fetch')
@@ -647,18 +644,21 @@ describe('Earthbeam API', () => {
         token: 'issued-token',
         url: searchUrl(tenantA),
       });
+
+      // The response url is built from the run, so only the OAuth request
+      // shows whose credentials minted the token: the callback has to have
+      // resolved the run to partner A to reach partner A's client.
+      expect(configService.getIdrsConnectionInfo).toHaveBeenCalledWith(tenantA.partnerId);
+      const body = new URLSearchParams(fetchSpy.mock.calls[0][1].body.toString());
+      expect(body.get('client_id')).toBe(`${tenantA.partnerId}-client`);
+      expect(body.get('scope')).toBe(`student:identity:read partner:${tenantA.partnerId}`);
+      expect(body.get('audience')).toBe(idrsBaseUrl);
     });
 
-    // The base URL is stored verbatim (it doubles as the OAuth audience), so
-    // it may or may not carry a trailing slash.
+    // The base URL is configured verbatim (it doubles as the OAuth audience),
+    // so it may or may not carry a trailing slash.
     it('joins the search route cleanly onto a base url with a trailing slash', async () => {
-      jest
-        .spyOn(configService, 'getIdrsConnectionInfo')
-        .mockImplementation(async (partnerId: string) => ({
-          clientId: `${partnerId}-client`,
-          clientSecret: `${partnerId}-secret`,
-          url: `${idrsBaseUrl(partnerId)}/`,
-        }));
+      jest.spyOn(configService, 'idrsUrl').mockReturnValue(`${idrsBaseUrl}/`);
 
       const res = await request(app.getHttpServer())
         .get(endpointA)

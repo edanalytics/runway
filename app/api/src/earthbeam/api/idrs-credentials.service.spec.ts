@@ -7,7 +7,9 @@ const okResponse = (body: unknown) =>
   ({ ok: true, status: 200, json: async () => body } as unknown as Response);
 
 describe('IdrsCredentialsService', () => {
-  let appConfig: jest.Mocked<Pick<AppConfigService, 'idrsOauthTokenUrl' | 'getIdrsConnectionInfo'>>;
+  let appConfig: jest.Mocked<
+    Pick<AppConfigService, 'idrsOauthTokenUrl' | 'idrsUrl' | 'getIdrsConnectionInfo'>
+  >;
   let service: IdrsCredentialsService;
   let fetchMock: jest.Mock;
   let logs: string[];
@@ -15,10 +17,10 @@ describe('IdrsCredentialsService', () => {
   beforeEach(() => {
     appConfig = {
       idrsOauthTokenUrl: jest.fn().mockReturnValue('https://auth.example.test/oauth/token'),
+      idrsUrl: jest.fn().mockReturnValue('https://idrs.example.test/base'),
       getIdrsConnectionInfo: jest.fn().mockResolvedValue({
         clientId: 'client-id',
         clientSecret: 'client-secret',
-        url: 'https://idrs.example.test/base',
       }),
     };
     service = new IdrsCredentialsService(appConfig as unknown as AppConfigService);
@@ -94,15 +96,15 @@ describe('IdrsCredentialsService', () => {
     appConfig.getIdrsConnectionInfo.mockImplementation(async (partnerId: string) => ({
       clientId: `${partnerId}-id`,
       clientSecret: `${partnerId}-secret`,
-      url: `https://idrs.example.test/${partnerId}`,
     }));
     fetchMock
       .mockResolvedValueOnce(okResponse({ access_token: 'token-a', expires_in: DAY_SECONDS }))
       .mockResolvedValueOnce(okResponse({ access_token: 'token-b', expires_in: DAY_SECONDS }));
 
+    // The url is deployment-wide, so the token is the per-partner part.
     const credentialsFor = (partnerId: string) => ({
       token: partnerId === 'partner-a' ? 'token-a' : 'token-b',
-      url: `https://idrs.example.test/${partnerId}`,
+      url: 'https://idrs.example.test/base',
     });
 
     // A and B mint; the second round must come from each partner's own entry.
@@ -131,15 +133,21 @@ describe('IdrsCredentialsService', () => {
   });
 
   describe('failures', () => {
-    it('fails when the token endpoint is unset, before touching anything else', async () => {
-      appConfig.idrsOauthTokenUrl.mockReturnValue(null);
+    // Both urls are deployment config, so a missing one is not worth a secret
+    // lookup to discover.
+    it.each([
+      ['token endpoint', 'idrsOauthTokenUrl', 'IDRS_OAUTH_TOKEN_URL is not configured or not https'],
+      ['base url', 'idrsUrl', 'IDRS_URL is not configured or not https'],
+    ] as const)(
+      'fails when the %s is unset, before touching anything else',
+      async (_label, getter, message) => {
+        appConfig[getter].mockReturnValue(null);
 
-      await expect(service.getCredentials('partner-a')).rejects.toThrow(
-        'IDRS_OAUTH_TOKEN_URL is not configured or not https'
-      );
-      expect(appConfig.getIdrsConnectionInfo).not.toHaveBeenCalled();
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
+        await expect(service.getCredentials('partner-a')).rejects.toThrow(message);
+        expect(appConfig.getIdrsConnectionInfo).not.toHaveBeenCalled();
+        expect(fetchMock).not.toHaveBeenCalled();
+      }
+    );
 
     // The transport error's own message is foreign text; carry the name only,
     // so whatever reaches a log downstream is a message we wrote.

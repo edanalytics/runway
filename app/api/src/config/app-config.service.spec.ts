@@ -11,7 +11,6 @@ describe('AppConfigService IDRS connection info', () => {
     SecretString: JSON.stringify({
       clientId: 'idrs-client-id',
       clientSecret: 'idrs-client-secret',
-      url: 'https://idrs.example.test/base',
       ...overrides,
     }),
   });
@@ -37,7 +36,6 @@ describe('AppConfigService IDRS connection info', () => {
     expect(info).toEqual({
       clientId: 'idrs-client-id',
       clientSecret: 'idrs-client-secret',
-      url: 'https://idrs.example.test/base',
     });
     expect(send.mock.calls[0][0].input.SecretId).toBe('stage-idrs-connection-info-partner-a');
   });
@@ -54,16 +52,10 @@ describe('AppConfigService IDRS connection info', () => {
     env.NODE_ENV = 'development';
     env.IDRS_CLIENT_ID = 'local-id';
     env.IDRS_CLIENT_SECRET = 'local-secret';
-    // http is fine locally; the https requirement applies to deployed envs.
-    env.IDRS_URL = 'http://localhost:8080';
 
     const info = await service.getIdrsConnectionInfo('partner-a');
 
-    expect(info).toEqual({
-      clientId: 'local-id',
-      clientSecret: 'local-secret',
-      url: 'http://localhost:8080',
-    });
+    expect(info).toEqual({ clientId: 'local-id', clientSecret: 'local-secret' });
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -96,24 +88,38 @@ describe('AppConfigService IDRS connection info', () => {
   // additionally passes `typeof === 'object'`.
   it.each([
     ['null', 'null'],
-    [
-      'a numeric clientId',
-      JSON.stringify({ clientId: 1, clientSecret: 's', url: 'https://a.test' }),
-    ],
-    ['a missing url', JSON.stringify({ clientId: 'a', clientSecret: 's' })],
-    ['a non-https url', JSON.stringify({ clientId: 'a', clientSecret: 's', url: 'http://a.test' })],
+    ['a numeric clientId', JSON.stringify({ clientId: 1, clientSecret: 's' })],
+    ['missing a clientSecret', JSON.stringify({ clientId: 'a' })],
   ])('returns null for a secret body that is %s', async (_label, secretString) => {
     send.mockResolvedValue({ SecretString: secretString });
 
     expect(await service.getIdrsConnectionInfo('partner-a')).toBeNull();
   });
 
-  it('preserves the configured url exactly, since it doubles as the OAuth audience', async () => {
-    send.mockResolvedValue(secretValue({ url: 'https://IDRS.Example.test/base/' }));
+  describe('idrsUrl', () => {
+    it('preserves the configured url exactly, since it doubles as the OAuth audience', () => {
+      env.IDRS_URL = 'https://IDRS.Example.test/base/';
 
-    expect((await service.getIdrsConnectionInfo('partner-a'))?.url).toBe(
-      'https://IDRS.Example.test/base/'
-    );
+      expect(service.idrsUrl()).toBe('https://IDRS.Example.test/base/');
+    });
+
+    it('returns null when unset', () => {
+      expect(service.idrsUrl()).toBeNull();
+    });
+
+    // Student identity data comes back over this connection.
+    it('refuses a deployed http url', () => {
+      env.IDRS_URL = 'http://idrs.example.test';
+
+      expect(service.idrsUrl()).toBeNull();
+    });
+
+    it('allows http locally', () => {
+      env.NODE_ENV = 'development';
+      env.IDRS_URL = 'http://localhost:8080';
+
+      expect(service.idrsUrl()).toBe('http://localhost:8080');
+    });
   });
 
   // The client secret travels in the token request body, so a plaintext

@@ -209,24 +209,41 @@ export class AppConfigService {
   }
 
   /**
-   * Per-partner IDRS client credentials and base URL. Null for missing or
-   * malformed config, real AWS failures thrown, matching getEduConnectionInfo
-   * above. Uncached — the generic secret cache is permanent for the process
-   * and would pin rotated credentials until a restart — and bounded by a
-   * per-request abort signal, so no other getter inherits the bound. Local
-   * development reads IDRS_* env vars instead.
+   * IDRS base URL — one per deployment, like the token endpoint above, with
+   * each partner addressed within the service by request path. Also the OAuth
+   * audience, so it is returned exactly as configured and never normalized.
+   */
+  idrsUrl(): string | null {
+    const url = this.get('IDRS_URL');
+    if (!url) {
+      return null;
+    }
+    // Student identity data comes back over this connection.
+    if (!this.isDevEnvironment() && !url.startsWith('https://')) {
+      this.logger.warn('IDRS_URL must be https');
+      return null;
+    }
+    return url;
+  }
+
+  /**
+   * Per-partner IDRS OAuth client credentials. Null for missing or malformed
+   * config, real AWS failures thrown, matching getEduConnectionInfo above.
+   * Uncached — the generic secret cache is permanent for the process and would
+   * pin rotated credentials until a restart — and bounded by a per-request
+   * abort signal, so no other getter inherits the bound. Local development
+   * reads IDRS_CLIENT_ID / IDRS_CLIENT_SECRET instead.
    */
   async getIdrsConnectionInfo(
     partnerId: string
-  ): Promise<{ clientId: string; clientSecret: string; url: string } | null> {
+  ): Promise<{ clientId: string; clientSecret: string } | null> {
     if (this.isDevEnvironment()) {
       const clientId = this.get('IDRS_CLIENT_ID');
       const clientSecret = this.get('IDRS_CLIENT_SECRET');
-      const url = this.get('IDRS_URL');
-      if (!clientId || !clientSecret || !url) {
+      if (!clientId || !clientSecret) {
         return null;
       }
-      return { clientId, clientSecret, url };
+      return { clientId, clientSecret };
     }
 
     const envLabel = this.get('ENVLABEL');
@@ -255,16 +272,10 @@ export class AppConfigService {
       string,
       unknown
     >;
-    const { clientId, clientSecret, url } = fields;
-    // Secret content is untrusted at runtime whatever the type says. The url is
-    // preserved exactly, since it doubles as the OAuth audience.
-    if (
-      isNonEmptyString(clientId) &&
-      isNonEmptyString(clientSecret) &&
-      isNonEmptyString(url) &&
-      url.startsWith('https://')
-    ) {
-      return { clientId, clientSecret, url };
+    const { clientId, clientSecret } = fields;
+    // Secret content is untrusted at runtime whatever the type says.
+    if (isNonEmptyString(clientId) && isNonEmptyString(clientSecret)) {
+      return { clientId, clientSecret };
     }
     this.logger.warn(`AWS secret ${secretName} is missing or malformed`);
     return null;

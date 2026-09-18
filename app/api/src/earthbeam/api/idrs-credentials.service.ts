@@ -9,14 +9,14 @@ export const TOKEN_REUSE_BUFFER_MS = 10 * 60 * 1000;
 
 export type IdrsCredentials = { token: string; url: string };
 
-type CacheEntry = { token: string; url: string; expiresAt: number };
+type CacheEntry = { token: string; expiresAt: number };
 
 /**
  * Resolves what the executor needs to reach IDRS on a partner's behalf: the
- * partner's base url and a freshly minted access token, cached together for
- * the just-in-time callback. The cache is per app instance and per partner, so
- * scaled instances each mint their own and observe a rotation at different
- * times — an accepted tradeoff over shared cache infrastructure.
+ * deployment's IDRS base url and an access token minted with that partner's
+ * own OAuth client. Tokens are cached per app instance and per partner, so
+ * scaled instances each mint their own and observe a credential rotation at
+ * different times — an accepted tradeoff over shared cache infrastructure.
  */
 @Injectable()
 export class IdrsCredentialsService {
@@ -27,9 +27,14 @@ export class IdrsCredentialsService {
   constructor(private readonly appConfig: AppConfigService) {}
 
   async getCredentials(partnerId: string): Promise<IdrsCredentials> {
+    const url = this.appConfig.idrsUrl();
+    if (!url) {
+      throw new Error('IDRS_URL is not configured or not https');
+    }
+
     const cached = this.cache.get(partnerId);
     if (cached && cached.expiresAt - Date.now() > TOKEN_REUSE_BUFFER_MS) {
-      return { token: cached.token, url: cached.url };
+      return { token: cached.token, url };
     }
 
     const tokenUrl = this.appConfig.idrsOauthTokenUrl();
@@ -42,18 +47,12 @@ export class IdrsCredentialsService {
       throw new Error(`no IDRS connection info for partner ${partnerId}`);
     }
 
-    const { token, expiresIn } = await this.requestToken(tokenUrl, partnerId, connectionInfo);
+    const { token, expiresIn } = await this.requestToken(tokenUrl, partnerId, url, connectionInfo);
 
     const lifetimeMs =
       typeof expiresIn === 'number' && Number.isFinite(expiresIn) ? expiresIn * 1000 : 0;
     if (lifetimeMs > TOKEN_REUSE_BUFFER_MS) {
-      // The URL is only refreshed alongside a new token, so a rotated base URL
-      // can stay in use until the cached token enters the refresh window.
-      this.cache.set(partnerId, {
-        token,
-        url: connectionInfo.url,
-        expiresAt: Date.now() + lifetimeMs,
-      });
+      this.cache.set(partnerId, { token, expiresAt: Date.now() + lifetimeMs });
     } else {
       // Tokens with expiration less then the buffer still work, but will not
       // be cached. Same for tokens without expiration or malformed expiration.
@@ -64,13 +63,14 @@ export class IdrsCredentialsService {
       );
     }
 
-    return { token, url: connectionInfo.url };
+    return { token, url };
   }
 
   private async requestToken(
     tokenUrl: string,
     partnerId: string,
-    connectionInfo: { clientId: string; clientSecret: string; url: string }
+    idrsUrl: string,
+    connectionInfo: { clientId: string; clientSecret: string }
   ): Promise<{ token: string; expiresIn: unknown }> {
     // Form-encoded, not JSON: RFC 6749 §4.4.2 specifies the token endpoint
     // takes its parameters as application/x-www-form-urlencoded. JSON is the
@@ -82,7 +82,7 @@ export class IdrsCredentialsService {
       client_secret: connectionInfo.clientSecret,
       // The configured IDRS url doubles as the OAuth audience and must be sent
       // exactly as configured.
-      audience: connectionInfo.url,
+      audience: idrsUrl,
       scope: `student:identity:read partner:${partnerId}`,
     });
 
