@@ -185,7 +185,6 @@ class JobExecutor:
             self.error_url = job["appUrls"]["error"]
             self.matches_url = job["appUrls"]["unmatchedIds"]
             self.summary_url = job["appUrls"]["summary"]
-            self.idrs_url = job["appUrls"]["identityService"]
             self.output_files_url = job["appUrls"]["outputFiles"]
 
             self.idrs_url = job.get("appUrls", {}).get("identityService", '')
