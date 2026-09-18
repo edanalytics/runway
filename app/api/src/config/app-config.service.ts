@@ -8,12 +8,6 @@ import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm'
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
-/**
- * Overall bound on one IDRS secret lookup, SDK retries included, so a slow
- * Secrets Manager can't eat the executor's twenty-second request timeout.
- */
-export const IDRS_SECRET_TIMEOUT_MS = 5000;
-
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0;
 
@@ -219,7 +213,8 @@ export class AppConfigService {
    * malformed config, real AWS failures thrown, matching getEduConnectionInfo
    * above. Uncached — the generic secret cache is permanent for the process
    * and would pin rotated credentials until a restart — and bounded by a
-   * per-request abort signal, so no other getter inherits the bound.
+   * per-request abort signal, so no other getter inherits the bound. Local
+   * development reads IDRS_* env vars instead.
    */
   async getIdrsConnectionInfo(
     partnerId: string
@@ -242,8 +237,10 @@ export class AppConfigService {
 
     let secret: string | Record<string, string>;
     try {
+      // Bound the whole lookup, SDK retries included, so a slow Secrets
+      // Manager can't eat the executor's twenty-second request timeout.
       secret = await this.fetchAWSSecret(secretName, {
-        abortSignal: AbortSignal.timeout(IDRS_SECRET_TIMEOUT_MS),
+        abortSignal: AbortSignal.timeout(5000),
       });
     } catch (err) {
       if (err instanceof Error && err.name === 'ResourceNotFoundException') {

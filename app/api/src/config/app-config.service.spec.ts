@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { AppConfigService, IDRS_SECRET_TIMEOUT_MS } from './app-config.service';
+import { AppConfigService } from './app-config.service';
 import { IEnvironmentVariables } from './env-vars.interface';
 
 describe('AppConfigService IDRS connection info', () => {
@@ -48,8 +48,7 @@ describe('AppConfigService IDRS connection info', () => {
 
     await service.getIdrsConnectionInfo('partner-a');
 
-    expect(timeoutSpy).toHaveBeenCalledWith(IDRS_SECRET_TIMEOUT_MS);
-    expect(IDRS_SECRET_TIMEOUT_MS).toBe(5000);
+    expect(timeoutSpy).toHaveBeenCalledWith(5000);
     expect(send.mock.calls[0][1].abortSignal).toBeInstanceOf(AbortSignal);
   });
 
@@ -82,6 +81,7 @@ describe('AppConfigService IDRS connection info', () => {
     env.NODE_ENV = 'development';
 
     expect(await service.getIdrsConnectionInfo('partner-a')).toBeNull();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('returns null when no secret is provisioned', async () => {
@@ -106,7 +106,10 @@ describe('AppConfigService IDRS connection info', () => {
   // additionally passes `typeof === 'object'`.
   it.each([
     ['null', 'null'],
-    ['a numeric clientId', JSON.stringify({ clientId: 1, clientSecret: 's', url: 'https://a.test' })],
+    [
+      'a numeric clientId',
+      JSON.stringify({ clientId: 1, clientSecret: 's', url: 'https://a.test' }),
+    ],
     ['a missing url', JSON.stringify({ clientId: 'a', clientSecret: 's' })],
     ['a non-https url', JSON.stringify({ clientId: 'a', clientSecret: 's', url: 'http://a.test' })],
   ])('returns null for a secret body that is %s', async (_label, secretString) => {
