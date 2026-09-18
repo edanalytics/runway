@@ -21,8 +21,9 @@ import executor.action_statuses as status
 import executor.artifacts as artifact
 import executor.config as config
 import executor.errors as error
+from executor.idrs_client import IDRSClient
 from executor.output_sets import OutputSet
-
+ 
 handler = logging.StreamHandler()
 _formatter = logging.Formatter(
     "%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S"
@@ -125,8 +126,11 @@ class JobExecutor:
             self.get_input_files()
 
             self.map_descriptors()
-            self.orchestrate_earthmover()
 
+            # Conditionally run matching processes based on the job matching mode
+            if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
+                self.orchestrate_earthmover()
+            
             self.lightbeam_send()
 
             self.report_unmatched_students()
@@ -167,8 +171,10 @@ class JobExecutor:
             # e.g. deleting data from the container as a security measure
             self.logger.info("spinning down")
             self.send_update(action.DONE, status.SUCCESS if self.success else status.FAILURE)
-            if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
-                self.match_candidates()
+            if self.id_matching_mode in ['fuzzy', 'id_based_fuzzy_background']:
+                if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
+                    self.match_candidates()
+                    self.handle_idrs_matches(artifact.CANDIDATES.path)
 
     def unpack_job(self, job):
         """Parse the job definition received from the app"""
@@ -181,6 +187,8 @@ class JobExecutor:
             self.summary_url = job["appUrls"]["summary"]
             self.output_files_url = job["appUrls"]["outputFiles"]
 
+            self.idrs_url = job.get("appUrls", {}).get("identityService", '')
+            self.id_matching_mode = job.get("idMatchingMode", "id_based")
             self.send_to_ods = job.get("sendToOds", True)
             self.cross_year_match_available = job.get("crossYearMatchAvailable", False)
             if self.cross_year_match_available:
@@ -619,7 +627,7 @@ class JobExecutor:
         )
 
     def match_candidates(self):
-        '''run the match_candidates wrapper code to attempt id resolution for the records in the input file.'''
+        '''run the match_candidates wrapper to generate candidates from the records in the input file.'''
         self.set_action(action.MATCH_CANDIDATES)
 
         # Archive the active output dir as "pre-candidates". Create a new, empty output dir
@@ -642,6 +650,31 @@ class JobExecutor:
         artifact.CANDIDATES.needs_upload=True
         self.upload_artifact(artifact.CANDIDATES)
         self.logger.info('candidates.jsonl uploaded!')
+
+    def handle_idrs_matches(self, candidates):
+        '''wrapper method encapsulating IDRS client orchestration and handle API outputs'''
+
+        # Instantiate the IDRS Client
+        idrs = IDRSClient(self.logger, self.conn, self.idrs_url)
+
+        try:
+            # Hit the IDRS and capture the JSON output
+            matches=idrs.query_idrs(candidates)
+            # Write the IDRS matches to disk at the artifact output dir
+            with open(artifact.IDRS_MATCHES.path, 'w', encoding='utf-8') as file:
+                json.dump(matches, file)
+    
+            self.logger.info('matches written!')
+
+        except Exception:
+            # If something goes wrong, raise an IDRS error type
+            self.error = error.IDRSQueryError()
+            raise
+
+        # Upload IDRS Matches to S3
+        artifact.IDRS_MATCHES.needs_upload=True
+        self.upload_artifact(artifact.IDRS_MATCHES)
+        self.logger.info('matches.json uploaded!')
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""

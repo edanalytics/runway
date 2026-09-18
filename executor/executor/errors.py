@@ -48,6 +48,10 @@ class LightbeamSendError(ExecutorError):
     def __init__(self, stacktrace=None):
         super().__init__("lightbeam_send", stacktrace)
 
+class IDRSQueryError(ExecutorError):
+    def __init__(self, stacktrace=None):
+        super().__init__("idrs_query", stacktrace)
+
 class InputS3DownloadError(ExecutorError):
     def __init__(self, name, path, stacktrace=None):
         super().__init__("input_s3_download", stacktrace)
