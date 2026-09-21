@@ -7,10 +7,6 @@ import { getOutputFileDownloadUrl } from '../../../api/queries/job.queries';
 import { IconExclamation } from '../../../../assets/icons';
 
 export const UnmatchedStudents = ({ job }: { job: GetJobDto }) => {
-  if (!job.unmatchedStudentsFile) {
-    return null;
-  }
-  const fileName = job.unmatchedStudentsFile.name;
   const columnName = job.lastRun?.unmatchedStudentsInfo?.name;
   let displayIDType = job.lastRun?.unmatchedStudentsInfo?.type;
   const unmatchedStudentsCount = job.lastRun?.unmatchedStudentsInfo?.count;
@@ -41,8 +37,8 @@ export const UnmatchedStudents = ({ job }: { job: GetJobDto }) => {
           <UnmatchedStudentStep>
             <Box>Download the list</Box>
             <DownloadFileButton
-              fileName={fileName}
-              getPresignedUrl={() => getOutputFileDownloadUrl({ jobId: job.id, fileName })}
+              fileName="input_no_student_id_match.csv"
+              getPresignedUrl={() => getOutputFileDownloadUrl({ jobId: job.id, fileName: 'input_no_student_id_match.csv' })}
               label="download list"
               textColor="green.100"
               minWidth="fit-content"

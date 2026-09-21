@@ -28,16 +28,21 @@ import {
   PostJobResponseDto,
   PutJobResolveDto,
   toGetJobDto,
+  toGetOutputFileDto,
   toGetRunUpdateDto,
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
-import { TenantOwnership } from '../auth/authorization/tenant-ownership.guard';
+import { TenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
+import { TenantResourceKey } from '../auth/authorization/tenant-resource-key.decorator';
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
+import { AllowMetatenant } from '../auth/authorization/allow-metatenant.decorator';
+import { Authorize } from '../auth/helpers/authorize.decorator';
 
 @Controller()
 @ApiTags('Job')
-@UseGuards(new TenantOwnership('job'))
+@TenantResourceKey('job')
+@UseGuards(TenantOwnershipGuard)
 export class JobsController {
   private logger = new Logger(JobsController.name);
   constructor(
@@ -52,11 +57,7 @@ export class JobsController {
       where: { tenantCode: tenant.code, partnerId: tenant.partnerId, runs: { some: {} } },
       include: {
         schoolYear: true,
-        runs: {
-          include: {
-            runOutputFile: true,
-          },
-        },
+        runs: true,
         files: true,
         createdBy: true,
       },
@@ -66,6 +67,7 @@ export class JobsController {
   }
 
   @Get(':jobId')
+  @AllowMetatenant('job.metatenant.read')
   async findOne(
     @Param('jobId', new ParseIntPipe())
     jobId: number
@@ -78,7 +80,6 @@ export class JobsController {
           include: {
             runError: true,
             runUpdate: true,
-            runOutputFile: true,
           },
         },
       },
@@ -92,6 +93,7 @@ export class JobsController {
   }
 
   @Get(':jobId/files/:templateKey')
+  @AllowMetatenant('job.metatenant.read')
   async downloadUrlForInputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number,
     @Param('templateKey') templateKey: string
@@ -104,8 +106,32 @@ export class JobsController {
     }
     return url;
   }
+  @Get(':jobId/output-files')
+  @AllowMetatenant('job.metatenant.output-files.read')
+  @Authorize('job.output-files.read')
+  async getOutputFiles(@Param('jobId', new ParseIntPipe()) jobId: number) {
+    const files = await this.prisma.runOutputFile.findMany({
+      where: { run: { jobId } },
+      orderBy: { runId: 'desc' },
+    });
+    return toGetOutputFileDto(files);
+  }
 
+  @Get(':jobId/output-files/input_no_student_id_match.csv')
+  @AllowMetatenant('job.metatenant.read')
+  async downloadUrlForUnmatchedStudentsOutputFile(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+  ) {
+    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, 'input_no_student_id_match.csv');
+    if (!url) {
+      return new NotFoundException(`File not found for job ${jobId} and file input_no_student_id_match.csv`);
+    }
+    return url;
+  }
+  
   @Get(':jobId/output-files/:fileName')
+  @AllowMetatenant('job.metatenant.output-files.read')
+  @Authorize('job.output-files.read')
   async downloadUrlForOutputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number,
     @Param('fileName') fileName: string
@@ -119,6 +145,7 @@ export class JobsController {
   }
 
   @Get(':jobId/status-updates')
+  @AllowMetatenant('job.metatenant.read')
   async getStatusUpdates(
     @Param('jobId', new ParseIntPipe())
     jobId: number
@@ -128,6 +155,7 @@ export class JobsController {
   }
 
   @Get(':jobId/errors')
+  @AllowMetatenant('job.metatenant.read')
   async getErrors(
     @Param('jobId', new ParseIntPipe())
     jobId: number
@@ -239,6 +267,7 @@ export class JobsController {
   }
 
   @Put(':jobId/resolve')
+  @AllowMetatenant('job.metatenant.update')
   async resolve(
     @Param('jobId', ParseIntPipe) jobId: GetJobDto['id'],
     @Body() resolveJobDto: PutJobResolveDto
@@ -249,11 +278,7 @@ export class JobsController {
           where: { id: jobId },
           include: {
             files: true,
-            runs: {
-              include: {
-                runOutputFile: true,
-              },
-            },
+            runs: true,
           },
         })
         .catch(() => {
@@ -275,6 +300,7 @@ export class JobsController {
   }
 
   @Get(':jobId/notes')
+  @AllowMetatenant('job.metatenant.read')
   async getNotes(@Param('jobId', ParseIntPipe) jobId: number) {
     const notes = await this.prisma.jobNote.findMany({
       where: { jobId },
@@ -285,6 +311,7 @@ export class JobsController {
   }
 
   @Post(':jobId/notes')
+  @AllowMetatenant('job.metatenant.update')
   async createNote(
     @Param('jobId', ParseIntPipe) jobId: number,
     @Body() createNoteDto: PostJobNoteDto
@@ -299,6 +326,7 @@ export class JobsController {
   }
 
   @Put(':jobId/notes/:noteId')
+  @AllowMetatenant('job.metatenant.update')
   async updateNote(
     @Param('jobId', ParseIntPipe) jobId: number,
     @Param('noteId', ParseIntPipe) noteId: number,
@@ -318,6 +346,7 @@ export class JobsController {
   }
 
   @Delete(':jobId/notes/:noteId')
+  @AllowMetatenant('job.metatenant.update')
   async deleteNote(
     @Param('jobId', ParseIntPipe) jobId: number,
     @Param('noteId', ParseIntPipe) noteId: number

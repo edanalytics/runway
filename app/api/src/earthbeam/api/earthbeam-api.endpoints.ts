@@ -24,3 +24,6 @@ export const earthbeamOutputFilesEndpoint = (runId: number | ':runId') =>
 
 export const earthbeamRosterEndpoint = (runId: number | ':runId') =>
   `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/roster`;
+
+export const earthbeamIdentityServiceEndpoint = (runId: number | ':runId') =>
+  `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/identity-service`;

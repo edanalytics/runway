@@ -4,7 +4,7 @@ import { makeSerializerCustomType } from '../utils/make-serializer';
 import { DtoPostBase, PostDto } from '../utils/post-base.dto';
 import { GetJobTemplateDto, GetJobTemplateInputParamDto } from './job-template.dto';
 import { GetFileDto, PostFileDto } from './file.dto';
-import { $Enums, Job, JobFile, Run, RunError, RunOutputFile } from '@prisma/client';
+import { $Enums, Job, JobFile, Run, RunError } from '@prisma/client';
 import {
   IsArray,
   IsBoolean,
@@ -36,7 +36,7 @@ export class JobInputParamDto extends GetJobTemplateInputParamDto {
 
 export type DtoableJob = Job & {
   files: JobFile[];
-  runs?: Array<Run & { runError?: RunError[]; runOutputFile?: RunOutputFile[] }>;
+  runs?: Array<Run & { runError?: RunError[]; }>;
 };
 export type TJobDisplayStatus =
   | Exclude<GetRunDto['status'], null>
@@ -101,6 +101,9 @@ export class GetJobDto
   @Expose()
   apiClientName: string | null;
 
+  @Expose()
+  tenantCode: string;
+
   /** Used internally to compute isApiInitiated - not included in serialized output */
   @Expose()
   @Exclude({ toPlainOnly: true })
@@ -140,7 +143,7 @@ export class GetJobDto
       return null;
     }
 
-    if (status === 'success' && (this.unmatchedStudentsFile || this.hasResourceErrors)) {
+    if (status === 'success' && (this.hasUnmatchedStudents || this.hasResourceErrors)) {
       return 'complete with errors';
     }
     return status;
@@ -151,8 +154,8 @@ export class GetJobDto
     return status === 'resolved' || status === 'complete with errors';
   }
 
-  get unmatchedStudentsFile() {
-    return this.lastRun?.unmatchedStudentsFile;
+  get hasUnmatchedStudents() {
+    return this.lastRun?.unmatchedStudentsInfo?.count !== undefined && this.lastRun?.unmatchedStudentsInfo?.count > 0;
   }
 
   get hasResourceErrors() {
@@ -211,12 +214,12 @@ export class GetJobDto
   // Intentionally not exposing
   previousJobId: number | null;
   apiIssuer: string | null;
-  tenantCode: string;
   partnerId: string;
   fileProtocol: $Enums.FileStorageProtocol | null;
   fileBucketOrHost: string | null;
   fileBasePath: string | null;
   configStatus: $Enums.JobConfigStatus; // TODO, remove prop and column, no longer needed
+  idMatchingMode: $Enums.IdMatchingMode; // snapshotted from the partner at creation; executor-only, no UI yet
 }
 
 export const toGetJobDto = makeSerializerCustomType<GetJobDto, DtoableJob>(GetJobDto);
