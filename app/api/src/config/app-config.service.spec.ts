@@ -6,6 +6,7 @@ describe('AppConfigService IDRS connection info', () => {
   let env: Record<string, string | undefined>;
   let service: AppConfigService;
   let send: jest.Mock;
+  let logs: string[];
 
   const secretValue = (overrides: Record<string, unknown> = {}) => ({
     SecretString: JSON.stringify({
@@ -23,7 +24,10 @@ describe('AppConfigService IDRS connection info', () => {
 
     send = jest.fn().mockResolvedValue(secretValue());
     (service as unknown as { secretsClient: { send: jest.Mock } }).secretsClient.send = send;
-    jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+    logs = [];
+    jest
+      .spyOn((service as any).logger, 'warn')
+      .mockImplementation((message: unknown) => void logs.push(String(message)));
   });
 
   afterEach(() => {
@@ -90,10 +94,31 @@ describe('AppConfigService IDRS connection info', () => {
     ['null', 'null'],
     ['a numeric clientId', JSON.stringify({ clientId: 1, clientSecret: 's' })],
     ['missing a clientSecret', JSON.stringify({ clientId: 'a' })],
+    // fetchAWSSecret treats an unparseable body as a plain-text secret and
+    // hands back the raw string, which has no fields to read.
+    ['not JSON at all', 'plaintext-secret'],
   ])('returns null for a secret body that is %s', async (_label, secretString) => {
     send.mockResolvedValue({ SecretString: secretString });
 
     expect(await service.getIdrsConnectionInfo('partner-a')).toBeNull();
+  });
+
+  // The malformed branch is the one that logs, and the one where quoting the
+  // body to explain what was wrong would be most tempting. Only the secret
+  // name belongs on that line.
+  it('names the secret without quoting its contents when it is malformed', async () => {
+    // Numeric so the pair is rejected and reaches the warn, with both values
+    // still present in the body the logger could have reached for.
+    send.mockResolvedValue({
+      SecretString: JSON.stringify({ clientId: 1234, clientSecret: 'SECRET-SENTINEL' }),
+    });
+
+    expect(await service.getIdrsConnectionInfo('partner-a')).toBeNull();
+    const combined = logs.join('\n');
+    expect(combined).toContain('stage-idrs-connection-info-partner-a');
+    for (const value of ['SECRET-SENTINEL', '1234']) {
+      expect(combined).not.toContain(value);
+    }
   });
 
   describe('idrsUrl', () => {
