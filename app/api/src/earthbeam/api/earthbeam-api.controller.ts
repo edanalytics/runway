@@ -350,8 +350,9 @@ export class EarthbeamApiController {
    * Job, partner and tenant come from the authenticated run, never from the
    * body. The whole batch commits or none of it does, and a retry is a
    * successful no-op: within a run the first report of a group wins, and new
-   * evidence arrives as a new run. Delivery failure is the Executor's to act
-   * on — this endpoint never touches run state.
+   * evidence arrives as a new run. A later run may only re-report groups the
+   * job's first run established, never create new ones. Delivery failure is the
+   * Executor's to act on — this endpoint never touches run state.
    */
   @Post(':runId/unmatched-student-records')
   @HttpCode(200)
@@ -368,8 +369,22 @@ export class EarthbeamApiController {
       throw new InternalServerErrorException('Failed to save unmatched student records');
     }
 
-    if (result.status === 'ERROR' && result.code === 'NOT_FOUND') {
-      throw new NotFoundException(`Run not found: ${runId}`);
+    if (result.status === 'ERROR') {
+      // Exhaustive on purpose: a non-success response is what fails the run in
+      // fuzzy mode, so an unmapped outcome must not fall through to 200. Adding
+      // an IngestionOutcome without a case here is a compile error.
+      switch (result.code) {
+        case 'NOT_FOUND':
+          throw new NotFoundException(`Run not found: ${runId}`);
+        case 'MULTIPLE_EXTRACTION_RUNS':
+          throw new ConflictException(
+            "This job's input details were established by a different run"
+          );
+        default: {
+          const unhandled: never = result.code;
+          throw new InternalServerErrorException(`Unhandled ingestion outcome: ${unhandled}`);
+        }
+      }
     }
   }
 }

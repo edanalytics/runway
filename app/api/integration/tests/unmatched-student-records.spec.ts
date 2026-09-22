@@ -6,6 +6,7 @@ import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { Job, Run } from '@prisma/client';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
+import { Logger } from '@nestjs/common';
 
 /**
  * A student value that must never appear in a response body. Validation errors
@@ -281,7 +282,7 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
     });
   });
 
-  describe('atomicity', () => {
+  describe('missing run', () => {
     it('returns 404 for a token naming a run that does not exist', async () => {
       const ghost = 2147483000;
       const ghostToken = await app
@@ -295,7 +296,9 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
 
       expect(res.status).toBe(404);
     });
+  });
 
+  describe('atomicity', () => {
     // Atomicity is the only reason this endpoint uses a transaction, so it is
     // worth pinning down. No payload can reach it — the pipe and the schema
     // constraints agree, which is the point — so the failure is injected at the
@@ -305,6 +308,11 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
     // since a retry inserts nothing.
     it('writes nothing when the suggestion insert fails mid-transaction', async () => {
       /* eslint-disable @typescript-eslint/no-explicit-any */
+      let writtenBeforeFailure: { inputs: number; results: number } | undefined;
+      const logs: string[] = [];
+      const capture = (message: unknown) => logs.push(String(message));
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(capture);
+
       const client = app.get(PRISMA_ANONYMOUS) as any;
       const realTransaction = client.$transaction.bind(client);
       const spy = jest
@@ -318,12 +326,27 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
                   return Reflect.get(target, prop, receiver);
                 }
                 // 1st is the input insert, 2nd the suggestions.
-                return (...callArgs: any[]) => {
+                return async (...callArgs: any[]) => {
                   executeRawCalls += 1;
-                  if (executeRawCalls === 2) {
-                    throw new Error('injected suggestion insert failure');
+                  if (executeRawCalls !== 2) {
+                    return target.$executeRaw(...callArgs);
                   }
-                  return target.$executeRaw(...callArgs);
+                  // Prove the injection landed where the test claims, rather
+                  // than trusting a positional counter: every assertion below
+                  // is a zero count, which a failure at the FIRST statement
+                  // would satisfy just as well. Read through the same
+                  // transaction, so these are its own uncommitted rows.
+                  const [{ inputs, results }] = await target.$queryRaw<
+                    { inputs: number; results: number }[]
+                  >`
+                    SELECT
+                      (SELECT count(*)::int FROM public.student_input_details
+                        WHERE job_id = ${jobA.id}) AS inputs,
+                      (SELECT count(*)::int FROM public.student_match_result
+                        WHERE job_id = ${jobA.id}) AS results
+                  `;
+                  writtenBeforeFailure = { inputs, results };
+                  throw new Error('injected suggestion insert failure');
                 };
               },
             });
@@ -342,6 +365,15 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
         ]);
 
         expect(res.status).toBe(500);
+        // The failure happened after both rows existed, so the zero counts
+        // below are rollback rather than an injection that fired too early.
+        expect(writtenBeforeFailure).toEqual({ inputs: 1, results: 1 });
+        // An unexpected failure must not quote the payload back, in the
+        // response or the log.
+        expect(JSON.stringify(res.body)).not.toContain('Ada');
+        expect(logs.join('\n')).toContain(`runId=${runA.id}`);
+        expect(logs.join('\n')).not.toContain('Ada');
+        expect(logs.join('\n')).not.toContain('corr-atomic');
       } finally {
         spy.mockRestore();
       }
@@ -510,6 +542,23 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and 
 
   // Input details are extracted only on a job's first run, so a later run
   // re-sends candidates that already exist and adds only its own result.
+  it('rejects a later run that tries to establish new input details', async () => {
+    expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+    const before = await snapshot();
+
+    const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+    const tokenB = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runB.id });
+
+    // A correlation id the job's first run never reported: a fresh extraction
+    // belongs to a new job, so this is either that or a bug.
+    const res = await post(runB.id, tokenB, [
+      record({ correlation_id: 'corr-never-extracted' }),
+    ]);
+
+    expect(res.status).toBe(409);
+    expect(await snapshot()).toEqual(before);
+  });
+
   it('records a later run as new history', async () => {
     expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
     const before = await snapshot();
