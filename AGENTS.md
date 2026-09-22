@@ -237,9 +237,11 @@ Three tables hold the result. `student_input_details` is keyed by `(job_id, corr
 
 | Status | Meaning |
 |---|---|
-| 200 | Committed, or an identical retry that changed nothing. Empty body |
+| 200 | Committed, or a retry that changed nothing. Empty body |
 | 400 | Malformed payload, or duplicate correlation ids within one request |
+| 401 / 403 | Missing token, or a token issued for a different run |
 | 404 | No such run |
+| 500 | Persistence failed; nothing was written |
 
 Retries are expected and may be rebatched differently, and are no-ops: within a run, **the first report of a group wins**. A re-send is accepted and ignored, including one carrying different suggestions under the same correlation id — it is not rejected, and nothing already stored is rewritten. New evidence for the same input is expected to arrive as a *new run*, which gets its own result row; that is how history is recorded.
 

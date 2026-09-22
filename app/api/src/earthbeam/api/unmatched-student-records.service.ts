@@ -5,7 +5,9 @@ import {
   UnmatchedStudentRecordsRepository,
 } from './unmatched-student-records.repository';
 
-export type IngestResult = { status: 'SUCCESS' } | { status: 'ERROR'; code: IngestionOutcome };
+export type IngestResult =
+  | { status: 'SUCCESS' }
+  | { status: 'ERROR'; code: Exclude<IngestionOutcome, 'SUCCESS'> };
 
 @Injectable()
 export class UnmatchedStudentRecordsService {

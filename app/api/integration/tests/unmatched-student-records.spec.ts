@@ -5,6 +5,7 @@ import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods-fixture';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { Job, Run } from '@prisma/client';
+import { PRISMA_ANONYMOUS } from 'api/src/database';
 
 /**
  * A student value that must never appear in a response body. Validation errors
@@ -207,7 +208,6 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
 
     it.each([
       ['a top-level object instead of an array', { correlation_id: 'c', candidate, matches: [] }],
-      ['a top-level string', JSON.stringify([])],
       ['a null candidate', [{ correlation_id: 'c', candidate: null, matches: [] }]],
       ['an array candidate', [{ correlation_id: 'c', candidate: [], matches: [] }]],
       ['a missing candidate', [{ correlation_id: 'c', matches: [] }]],
@@ -248,6 +248,20 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
     });
 
+    // Sent explicitly as JSON: superagent defaults a string body to
+    // x-www-form-urlencoded, which Express would parse into an object and so
+    // never exercise the pipe's "a JSON string is not an array" branch.
+    it('rejects a JSON string body rather than iterating its characters', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointFor(runA.id))
+        .set('Authorization', `Bearer ${tokenA}`)
+        .set('Content-Type', 'application/json')
+        .send('"[]"');
+
+      expect(res.status).toBe(400);
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+    });
+
     it('accepts a 128-character correlation id and rejects 129 characters', async () => {
       // Multibyte on purpose: PostgreSQL's length() counts characters, so the
       // boundary must be measured in code points, not UTF-16 units or bytes.
@@ -264,6 +278,81 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       expect(tooLong.status).toBe(400);
 
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
+    });
+  });
+
+  describe('atomicity', () => {
+    it('returns 404 for a token naming a run that does not exist', async () => {
+      const ghost = 2147483000;
+      const ghostToken = await app
+        .get(EarthbeamApiAuthService)
+        .createAccessToken({ runId: ghost });
+
+      const res = await request(app.getHttpServer())
+        .post(endpointFor(ghost))
+        .set('Authorization', `Bearer ${ghostToken}`)
+        .send([{ correlation_id: 'c', candidate: { first_name: 'Ada' }, matches: [] }]);
+
+      expect(res.status).toBe(404);
+    });
+
+    // Atomicity is the only reason this endpoint uses a transaction, so it is
+    // worth pinning down. No payload can reach it — the pipe and the schema
+    // constraints agree, which is the point — so the failure is injected at the
+    // database client, after the input and result rows are already written.
+    // Without a transaction those two would survive as a result with no
+    // suggestions: indistinguishable from a genuine no-match, and permanent,
+    // since a retry inserts nothing.
+    it('writes nothing when the suggestion insert fails mid-transaction', async () => {
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const client = app.get(PRISMA_ANONYMOUS) as any;
+      const realTransaction = client.$transaction.bind(client);
+      const spy = jest
+        .spyOn(client, '$transaction')
+        .mockImplementation((...args: any[]) =>
+          realTransaction(async (tx: any) => {
+            let executeRawCalls = 0;
+            const failing = new Proxy(tx, {
+              get(target, prop, receiver) {
+                if (prop !== '$executeRaw') {
+                  return Reflect.get(target, prop, receiver);
+                }
+                // 1st is the input insert, 2nd the suggestions.
+                return (...callArgs: any[]) => {
+                  executeRawCalls += 1;
+                  if (executeRawCalls === 2) {
+                    throw new Error('injected suggestion insert failure');
+                  }
+                  return target.$executeRaw(...callArgs);
+                };
+              },
+            });
+            return args[0](failing);
+          }, args[1])
+        );
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+
+      try {
+        const res = await post(runA.id, tokenA, [
+          {
+            correlation_id: 'corr-atomic',
+            candidate: { first_name: 'Ada' },
+            matches: [{ score: 1, student_unique_id: 'SUID-1' }],
+          },
+        ]);
+
+        expect(res.status).toBe(500);
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(
+        await prisma.studentMatchSuggestion.count({
+          where: { studentMatchResult: { jobId: jobA.id } },
+        })
+      ).toBe(0);
     });
   });
 
@@ -337,9 +426,15 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and 
   });
 
   const snapshot = async () => {
-    const inputs = await prisma.studentInputDetails.findMany({ where: { jobId: jobA.id } });
+    // Ordered explicitly: these snapshots are compared elementwise, so relying
+    // on incidental row order would make the comparison pass by luck.
+    const inputs = await prisma.studentInputDetails.findMany({
+      where: { jobId: jobA.id },
+      orderBy: { correlationId: 'asc' },
+    });
     const results = await prisma.studentMatchResult.findMany({
       where: { jobId: jobA.id },
+      orderBy: [{ correlationId: 'asc' }, { runId: 'asc' }],
       include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
     });
     return { inputs, results };

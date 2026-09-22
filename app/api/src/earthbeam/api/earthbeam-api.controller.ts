@@ -368,7 +368,7 @@ export class EarthbeamApiController {
       throw new InternalServerErrorException('Failed to save unmatched student records');
     }
 
-    if (result.status === 'ERROR') {
+    if (result.status === 'ERROR' && result.code === 'NOT_FOUND') {
       throw new NotFoundException(`Run not found: ${runId}`);
     }
   }
