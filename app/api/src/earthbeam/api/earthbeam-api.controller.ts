@@ -29,6 +29,11 @@ import {
   toEarthbeamApiJobResponseDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
+import {
+  NormalizedRecord,
+  UnmatchedStudentRecordsPipe,
+} from './unmatched-student-records.pipe';
+import { UnmatchedStudentRecordsService } from './unmatched-student-records.service';
 import { IdrsCredentialsService } from './idrs-credentials.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
@@ -48,7 +53,8 @@ export class EarthbeamApiController {
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     private readonly fileService: FileService,
     private readonly eduPool: EduSnowflakePoolService,
-    private readonly idrs: IdrsCredentialsService
+    private readonly idrs: IdrsCredentialsService,
+    private readonly unmatchedStudentRecords: UnmatchedStudentRecordsService
   ) {}
 
   @Get(':runId')
@@ -335,5 +341,40 @@ export class EarthbeamApiController {
       });
 
     return { uid: outputFileSet.uid };
+  }
+
+  /**
+   * Students the Executor could not auto-match, with the evidence behind each
+   * search, for later human review.
+   *
+   * Job, partner and tenant come from the authenticated run, never from the
+   * body. The whole batch commits or none of it does: an identical retry is a
+   * successful no-op, while content that disagrees with what was already
+   * accepted is a 409 that changes nothing. Delivery failure is the Executor's
+   * to act on — this endpoint never touches run state.
+   */
+  @Post(':runId/unmatched-student-records')
+  @HttpCode(200)
+  async reportUnmatchedStudentRecords(
+    @Param('runId', ParseIntPipe) runId: number,
+    @Body(UnmatchedStudentRecordsPipe) records: NormalizedRecord[]
+  ) {
+    let result;
+    try {
+      result = await this.unmatchedStudentRecords.ingest(runId, records);
+    } catch {
+      // The service has already logged this safely. Anything more specific
+      // risks quoting student details back to the caller.
+      throw new InternalServerErrorException('Failed to save unmatched student records');
+    }
+
+    if (result.status === 'ERROR') {
+      if (result.code === 'NOT_FOUND') {
+        throw new NotFoundException(`Run not found: ${runId}`);
+      }
+      throw new ConflictException(
+        'Unmatched student records conflict with records already accepted for this run'
+      );
+    }
   }
 }
