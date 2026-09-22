@@ -397,52 +397,25 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and 
     ).toMatchObject({ first_name: 'Ada', last_name: 'Lovelace', student_ids: ['local-1'] });
   });
 
-  it.each([
-    [
-      'input details that differ beyond case',
-      [record({ candidate: { ...candidate, first_name: 'Adelaide' } })],
-    ],
-    ['a changed score', [record({ matches: [{ ...match, score: 0.5 }] })]],
-    [
-      'changed roster details',
-      [record({ matches: [{ ...match, middle_name: 'Byron' }] })],
-    ],
-    [
-      'a changed suggestion count',
-      [record({ matches: [match, { ...match, student_unique_id: 'SUID-2' }] })],
-    ],
-    [
-      'reordered suggestions',
-      [
-        {
-          correlation_id: 'corr-1',
-          candidate,
-          matches: [{ ...match, student_unique_id: 'SUID-0' }, match],
-        },
-      ],
-    ],
-    ['an emptied suggestion set', [record({ matches: [] })]],
-  ])('rejects %s with 409 and rolls the whole batch back', async (_label, conflicting) => {
-    const first = await post(runA.id, tokenA, [record()]);
-    expect(first.status).toBe(200);
+  // Within a run the first report of a group wins. A re-send carrying
+  // different suggestions is accepted and ignored rather than rejected: new
+  // evidence for the same input is expected to arrive as a new run, which gets
+  // its own result row.
+  it('keeps the first report when a run re-sends a group with different suggestions', async () => {
+    expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
     const before = await snapshot();
 
-    // The conflicting group travels with a brand-new one, which must not
-    // survive either.
     const res = await post(runA.id, tokenA, [
-      ...(conflicting as object[]),
-      { correlation_id: 'corr-new', candidate: { first_name: 'Grace' }, matches: [] },
+      record({ matches: [{ ...match, score: 0.5, student_unique_id: 'SUID-OTHER' }] }),
     ]);
 
-    expect(res.status).toBe(409);
-    const after = await snapshot();
-    expect(after).toEqual(before);
-    expect(after.inputs.some((i) => i.correlationId === 'corr-new')).toBe(false);
+    expect(res.status).toBe(200);
+    expect(await snapshot()).toEqual(before);
   });
 
   // Input details are extracted only on a job's first run, so a later run
   // re-sends candidates that already exist and adds only its own result.
-  it('records a later run as new history rather than a conflict', async () => {
+  it('records a later run as new history', async () => {
     expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
     const before = await snapshot();
 

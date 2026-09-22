@@ -348,10 +348,10 @@ export class EarthbeamApiController {
    * search, for later human review.
    *
    * Job, partner and tenant come from the authenticated run, never from the
-   * body. The whole batch commits or none of it does: an identical retry is a
-   * successful no-op, while content that disagrees with what was already
-   * accepted is a 409 that changes nothing. Delivery failure is the Executor's
-   * to act on — this endpoint never touches run state.
+   * body. The whole batch commits or none of it does, and a retry is a
+   * successful no-op: within a run the first report of a group wins, and new
+   * evidence arrives as a new run. Delivery failure is the Executor's to act
+   * on — this endpoint never touches run state.
    */
   @Post(':runId/unmatched-student-records')
   @HttpCode(200)
@@ -369,12 +369,7 @@ export class EarthbeamApiController {
     }
 
     if (result.status === 'ERROR') {
-      if (result.code === 'NOT_FOUND') {
-        throw new NotFoundException(`Run not found: ${runId}`);
-      }
-      throw new ConflictException(
-        'Unmatched student records conflict with records already accepted for this run'
-      );
+      throw new NotFoundException(`Run not found: ${runId}`);
     }
   }
 }

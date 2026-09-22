@@ -240,9 +240,10 @@ Three tables hold the result. `student_input_details` is keyed by `(job_id, corr
 | 200 | Committed, or an identical retry that changed nothing. Empty body |
 | 400 | Malformed payload, or duplicate correlation ids within one request |
 | 404 | No such run |
-| 409 | Content disagrees with what was already accepted for this run; nothing was written |
 
-Retries are expected and may be rebatched differently. A retry is a no-op when its projected input details match after lowercasing the JSON text — the Executor derives correlation ids from lowercased details, so this keeps a case-variant retry harmless while the first accepted spelling survives — and when its complete ordered suggestion set matches. Anything else is a 409 that rolls back the whole request, including groups in the same batch that were fine. A *different* run reporting different suggestions for the same input is new history, not a conflict.
+Retries are expected and may be rebatched differently, and are no-ops: within a run, **the first report of a group wins**. A re-send is accepted and ignored, including one carrying different suggestions under the same correlation id — it is not rejected, and nothing already stored is rewritten. New evidence for the same input is expected to arrive as a *new run*, which gets its own result row; that is how history is recorded.
+
+This is worth knowing when debugging. If the Executor ever re-queried IDRS on retry rather than re-sending what it had buffered, a genuinely different set of matches would be silently discarded, and a reviewer would see the first set with no signal anywhere. That was judged not worth detecting: the correlation id is already an MD5 of the lowercased input details, so the input half cannot disagree without a hash collision, and an order-sensitive check on the suggestion half would raise false conflicts whenever IDRS broke scoring ties differently — failing the run in `fuzzy` mode over semantically identical content.
 
 Each request commits in one transaction. That is there for atomicity, not concurrency: the three bulk inserts are individually atomic, but a failure between them would leave a result row with no suggestions — indistinguishable from a genuine no-match, and permanent, since a retry inserts nothing. The Executor sends a run's batches sequentially, and input details are extracted only on a job's first run, so no two requests insert the same input or result row concurrently and no row lock is taken; uniqueness constraints carry the rest.
 
