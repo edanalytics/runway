@@ -288,3 +288,269 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
     });
   });
 });
+
+describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and history', () => {
+  let jobA: Job;
+  let runA: Run;
+  let tokenA: string;
+
+  const candidate = {
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    birth_date: '1815-12-10',
+    student_ids: ['local-1'],
+  };
+  const match = {
+    score: 0.97,
+    student_unique_id: 'SUID-1',
+    first_name: 'Ada',
+    middle_name: null,
+    last_name: 'Lovelace',
+    birth_date: '1815-12-10',
+    student_ids: [{ id_type: 'state', id_value: 'ST-1' }],
+    school_years: [2025],
+  };
+
+  beforeEach(async () => {
+    const seeded = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+    });
+    jobA = seeded;
+    runA = seeded.runs[0];
+    tokenA = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runA.id });
+  });
+
+  const post = (runId: number, token: string, body: unknown) =>
+    request(app.getHttpServer())
+      .post(endpointFor(runId))
+      .set('Authorization', `Bearer ${token}`)
+      .send(body as object);
+
+  const record = (overrides: Record<string, unknown> = {}) => ({
+    correlation_id: 'corr-1',
+    candidate,
+    matches: [match],
+    ...overrides,
+  });
+
+  const snapshot = async () => {
+    const inputs = await prisma.studentInputDetails.findMany({ where: { jobId: jobA.id } });
+    const results = await prisma.studentMatchResult.findMany({
+      where: { jobId: jobA.id },
+      include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
+    });
+    return { inputs, results };
+  };
+
+  it('treats a rebatched, reordered, case-variant retry as a no-op', async () => {
+    const first = await post(runA.id, tokenA, [
+      record(),
+      { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
+    ]);
+    expect(first.status).toBe(200);
+    const before = await snapshot();
+
+    // Same content, but: split across two requests, object keys in a different
+    // order, candidate details in different case, and a roster field that was
+    // explicitly null now simply absent.
+    const retryA = await post(runA.id, tokenA, [
+      {
+        matches: [
+          {
+            student_unique_id: 'SUID-1',
+            school_years: [2025],
+            score: 0.97,
+            last_name: 'Lovelace',
+            first_name: 'Ada',
+            birth_date: '1815-12-10',
+            student_ids: [{ id_value: 'ST-1', id_type: 'state' }],
+          },
+        ],
+        candidate: {
+          last_name: 'LOVELACE',
+          first_name: 'ADA',
+          student_ids: ['LOCAL-1'],
+          birth_date: '1815-12-10',
+        },
+        correlation_id: 'corr-1',
+      },
+    ]);
+    expect(retryA.status).toBe(200);
+
+    const retryB = await post(runA.id, tokenA, [
+      { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
+    ]);
+    expect(retryB.status).toBe(200);
+
+    const after = await snapshot();
+    expect(after.inputs).toHaveLength(2);
+    expect(after.results).toHaveLength(2);
+    // Nothing was rewritten: ids, timestamps and the first accepted spelling
+    // all survive the retry.
+    expect(after.inputs).toEqual(before.inputs);
+    expect(after.results).toEqual(before.results);
+    expect(
+      after.inputs.find((i) => i.correlationId === 'corr-1')?.inputDetails
+    ).toMatchObject({ first_name: 'Ada', last_name: 'Lovelace', student_ids: ['local-1'] });
+  });
+
+  it.each([
+    [
+      'input details that differ beyond case',
+      [record({ candidate: { ...candidate, first_name: 'Adelaide' } })],
+    ],
+    ['a changed score', [record({ matches: [{ ...match, score: 0.5 }] })]],
+    [
+      'changed roster details',
+      [record({ matches: [{ ...match, middle_name: 'Byron' }] })],
+    ],
+    [
+      'a changed suggestion count',
+      [record({ matches: [match, { ...match, student_unique_id: 'SUID-2' }] })],
+    ],
+    [
+      'reordered suggestions',
+      [
+        {
+          correlation_id: 'corr-1',
+          candidate,
+          matches: [{ ...match, student_unique_id: 'SUID-0' }, match],
+        },
+      ],
+    ],
+    ['an emptied suggestion set', [record({ matches: [] })]],
+  ])('rejects %s with 409 and rolls the whole batch back', async (_label, conflicting) => {
+    const first = await post(runA.id, tokenA, [record()]);
+    expect(first.status).toBe(200);
+    const before = await snapshot();
+
+    // The conflicting group travels with a brand-new one, which must not
+    // survive either.
+    const res = await post(runA.id, tokenA, [
+      ...(conflicting as object[]),
+      { correlation_id: 'corr-new', candidate: { first_name: 'Grace' }, matches: [] },
+    ]);
+
+    expect(res.status).toBe(409);
+    const after = await snapshot();
+    expect(after).toEqual(before);
+    expect(after.inputs.some((i) => i.correlationId === 'corr-new')).toBe(false);
+  });
+
+  it('records a later run as new history rather than a conflict', async () => {
+    expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+    const before = await snapshot();
+
+    const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+    const tokenB = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runB.id });
+
+    // Same input, different suggestions: a new search, not a disagreement.
+    const res = await post(runB.id, tokenB, [
+      record({ matches: [{ ...match, score: 0.1, student_unique_id: 'SUID-9' }] }),
+    ]);
+    expect(res.status).toBe(200);
+
+    const after = await snapshot();
+    expect(after.inputs).toHaveLength(1);
+    // The input row keeps the run that first established it.
+    expect(after.inputs[0].sourceRunId).toBe(runA.id);
+    expect(after.inputs[0].createdOn).toEqual(before.inputs[0].createdOn);
+
+    expect(after.results).toHaveLength(2);
+    expect(after.results.find((r) => r.runId === runA.id)).toEqual(before.results[0]);
+    expect(
+      after.results.find((r) => r.runId === runB.id)?.studentMatchSuggestion.map((s) => s.studentUniqueId)
+    ).toEqual(['SUID-9']);
+  });
+
+  it('accepts two concurrent identical requests as one dataset', async () => {
+    const [first, second] = await Promise.all([
+      post(runA.id, tokenA, [record()]),
+      post(runA.id, tokenA, [record()]),
+    ]);
+
+    expect([first.status, second.status]).toEqual([200, 200]);
+    const after = await snapshot();
+    expect(after.inputs).toHaveLength(1);
+    expect(after.results).toHaveLength(1);
+    expect(after.results[0].studentMatchSuggestion).toHaveLength(1);
+  });
+
+  it('lets exactly one of two concurrent conflicting requests win', async () => {
+    const [first, second] = await Promise.all([
+      post(runA.id, tokenA, [record()]),
+      post(runA.id, tokenA, [record({ matches: [{ ...match, score: 0.5 }] })]),
+    ]);
+
+    expect([first.status, second.status].sort()).toEqual([200, 409]);
+
+    const after = await snapshot();
+    expect(after.results).toHaveLength(1);
+    // One writer's suggestions, never a blend of both.
+    const scores = after.results[0].studentMatchSuggestion.map((s) => s.score.toString());
+    expect(scores).toHaveLength(1);
+    expect(['0.97', '0.5']).toContain(scores[0]);
+  });
+
+  it('keeps another tenant’s identical ids in a separate graph', async () => {
+    const seededX = await seedJob({
+      odsConfig: odsConfigX2425,
+      bundle: bundleX,
+      tenant: tenantX,
+      idMatchingMode: 'fuzzy',
+    });
+    const runX = seededX.runs[0];
+    const tokenX = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runX.id });
+
+    expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+    // Same correlation id, same canonical student id, different tenant: a
+    // canonical id is only unique within its partner/tenant scope.
+    expect((await post(runX.id, tokenX, [record()])).status).toBe(200);
+
+    expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
+    expect(await prisma.studentInputDetails.count({ where: { jobId: seededX.id } })).toBe(1);
+    expect(await prisma.studentMatchResult.count({ where: { jobId: seededX.id } })).toBe(1);
+  });
+
+  describe('schema-level ownership', () => {
+    // These assert the composite foreign keys directly, independently of the
+    // endpoint, since they are the last defence if ownership is ever derived
+    // from something other than the authenticated run.
+    it('refuses an input row whose source run belongs to another job', async () => {
+      const otherJob = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+      const foreignRun = otherJob.runs[0];
+
+      await expect(
+        prisma.$executeRaw`
+          INSERT INTO public.student_input_details
+            (job_id, correlation_id, source_run_id, input_details)
+          VALUES (${jobA.id}, 'corr-bad', ${foreignRun.id}, '{}'::jsonb)
+        `
+      ).rejects.toThrow();
+    });
+
+    it('refuses a result row whose run belongs to another job', async () => {
+      const otherJob = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+      const foreignRun = otherJob.runs[0];
+      expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+
+      await expect(
+        prisma.$executeRaw`
+          INSERT INTO public.student_match_result (job_id, correlation_id, run_id)
+          VALUES (${jobA.id}, 'corr-1', ${foreignRun.id})
+        `
+      ).rejects.toThrow();
+    });
+  });
+});
