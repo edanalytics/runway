@@ -50,6 +50,9 @@ export class EarthbeamApiJobResponseDto {
     // before using IDRS to get a partner-scoped token; the payload itself
     // never carries one.
     identityService?: string;
+    // Present only in the fuzzy modes, where IDRS may leave students
+    // unresolved. The executor posts those records here for later review.
+    unmatchedStudentRecords?: string;
   };
 
   @Expose()
