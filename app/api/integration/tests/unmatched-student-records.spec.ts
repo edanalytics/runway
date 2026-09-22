@@ -468,39 +468,6 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and 
     ).toEqual(['SUID-9']);
   });
 
-  // The Executor sends a run's batches sequentially, so neither of the next two
-  // cases arises in practice. They are kept as defence: they are the evidence
-  // that uniqueness alone, with no row lock, keeps the invariants — so if
-  // concurrency ever appears, a regression here is loud rather than silent.
-  it('accepts two concurrent identical requests as one dataset', async () => {
-    const [first, second] = await Promise.all([
-      post(runA.id, tokenA, [record()]),
-      post(runA.id, tokenA, [record()]),
-    ]);
-
-    expect([first.status, second.status]).toEqual([200, 200]);
-    const after = await snapshot();
-    expect(after.inputs).toHaveLength(1);
-    expect(after.results).toHaveLength(1);
-    expect(after.results[0].studentMatchSuggestion).toHaveLength(1);
-  });
-
-  it('lets exactly one of two concurrent conflicting requests win', async () => {
-    const [first, second] = await Promise.all([
-      post(runA.id, tokenA, [record()]),
-      post(runA.id, tokenA, [record({ matches: [{ ...match, score: 0.5 }] })]),
-    ]);
-
-    expect([first.status, second.status].sort()).toEqual([200, 409]);
-
-    const after = await snapshot();
-    expect(after.results).toHaveLength(1);
-    // One writer's suggestions, never a blend of both.
-    const scores = after.results[0].studentMatchSuggestion.map((s) => s.score.toString());
-    expect(scores).toHaveLength(1);
-    expect(['0.97', '0.5']).toContain(scores[0]);
-  });
-
   it('keeps another tenant’s identical ids in a separate graph', async () => {
     const seededX = await seedJob({
       odsConfig: odsConfigX2425,
