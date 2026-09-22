@@ -311,7 +311,7 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       let writtenBeforeFailure: { inputs: number; results: number } | undefined;
       const logs: string[] = [];
       const capture = (message: unknown) => logs.push(String(message));
-      jest.spyOn(Logger.prototype, 'error').mockImplementation(capture);
+      const logSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(capture);
 
       const client = app.get(PRISMA_ANONYMOUS) as any;
       const realTransaction = client.$transaction.bind(client);
@@ -376,6 +376,7 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
         expect(logs.join('\n')).not.toContain('corr-atomic');
       } finally {
         spy.mockRestore();
+        logSpy.mockRestore();
       }
 
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
@@ -542,21 +543,33 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and 
 
   // Input details are extracted only on a job's first run, so a later run
   // re-sends candidates that already exist and adds only its own result.
-  it('rejects a later run that tries to establish new input details', async () => {
+  // A run that fails partway leaves groups undelivered, and restarting the job
+  // creates a new run on it (JobsService.startJob). That later run must be able
+  // to fill the gap, so input rows carry per-row provenance rather than a
+  // single establishing run for the whole job.
+  it('lets a later run deliver groups an earlier run never reported', async () => {
     expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
-    const before = await snapshot();
 
     const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
     const tokenB = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runB.id });
 
-    // A correlation id the job's first run never reported: a fresh extraction
-    // belongs to a new job, so this is either that or a bug.
     const res = await post(runB.id, tokenB, [
-      record({ correlation_id: 'corr-never-extracted' }),
+      record(),
+      record({ correlation_id: 'corr-undelivered' }),
     ]);
+    expect(res.status).toBe(200);
 
-    expect(res.status).toBe(409);
-    expect(await snapshot()).toEqual(before);
+    const { inputs, results } = await snapshot();
+    expect(inputs.map((i) => [i.correlationId, i.sourceRunId])).toEqual([
+      ['corr-1', runA.id],
+      ['corr-undelivered', runB.id],
+    ]);
+    // Run B reports on both groups; run A only on the one it delivered.
+    expect(results.map((r) => [r.correlationId, r.runId])).toEqual([
+      ['corr-1', runA.id],
+      ['corr-1', runB.id],
+      ['corr-undelivered', runB.id],
+    ]);
   });
 
   it('records a later run as new history', async () => {
