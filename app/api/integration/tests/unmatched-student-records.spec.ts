@@ -440,6 +440,8 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and 
     expect(after.inputs.some((i) => i.correlationId === 'corr-new')).toBe(false);
   });
 
+  // Input details are extracted only on a job's first run, so a later run
+  // re-sends candidates that already exist and adds only its own result.
   it('records a later run as new history rather than a conflict', async () => {
     expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
     const before = await snapshot();
@@ -466,6 +468,10 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and 
     ).toEqual(['SUID-9']);
   });
 
+  // The Executor sends a run's batches sequentially, so neither of the next two
+  // cases arises in practice. They are kept as defence: they are the evidence
+  // that uniqueness alone, with no row lock, keeps the invariants — so if
+  // concurrency ever appears, a regression here is loud rather than silent.
   it('accepts two concurrent identical requests as one dataset', async () => {
     const [first, second] = await Promise.all([
       post(runA.id, tokenA, [record()]),

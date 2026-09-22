@@ -42,7 +42,7 @@ export class UnmatchedStudentRecordsRepository {
    * Ingest one batch atomically.
    *
    * Uniqueness and the transaction do the enforcing; a read-then-insert check
-   * would not survive concurrent retries. `ON CONFLICT DO NOTHING` here only
+   * could not tell a retry from a conflict. `ON CONFLICT DO NOTHING` here only
    * means "do not insert twice" — it is never permission to accept differing
    * content, which the explicit SQL comparisons below reject.
    */
@@ -51,16 +51,17 @@ export class UnmatchedStudentRecordsRepository {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        // 1. Lock the job for the duration. Every ingestion for a job takes this
-        // lock first, so concurrent batches for one job serialize while
-        // different jobs proceed independently. Ownership comes from the
-        // authenticated run — never from a body field.
+        // 1. Resolve the owning job. Ownership comes from the authenticated
+        // run — never from a body field. No row lock: the Executor sends a
+        // run's batches sequentially, and input details are extracted only on a
+        // job's first run, so no two requests ever insert the same input or
+        // result row concurrently. Uniqueness and this transaction carry the
+        // rest.
         const owner = await tx.$queryRaw<{ job_id: number }[]>`
           SELECT j.id AS job_id
           FROM public.run r
           JOIN public.job j ON j.id = r.job_id
           WHERE r.id = ${runId}
-          FOR UPDATE OF j
         `;
         if (owner.length === 0) {
           return 'NOT_FOUND';
@@ -129,16 +130,30 @@ export class UnmatchedStudentRecordsRepository {
           `;
         }
 
-        // 6. Compare every submitted group's complete ordered suggestion set
-        // against what is persisted for this run — ordinal, canonical id,
-        // roster details and score, including count and order. Aggregating in
-        // SQL avoids JS key-order and Decimal round trips, and coalescing to an
-        // empty array catches empty-to-nonempty and nonempty-to-empty retries
-        // rather than silently ignoring a result with no children.
+        // 6. Compare the complete ordered suggestion set of every group whose
+        // result this request did NOT create — ordinal, canonical id, roster
+        // details and score, including count and order. Groups just inserted
+        // would only be compared against what we ourselves wrote a statement
+        // ago, so they are excluded: what remains is the case this check exists
+        // for, a sequential retry within a run re-sending a group whose result
+        // is already accepted. Suggestions are not part of the correlation id,
+        // so this is the only way that disagreement surfaces.
+        //
+        // Aggregating in SQL avoids JS key-order and Decimal round trips, and
+        // coalescing to an empty array catches empty-to-nonempty and
+        // nonempty-to-empty retries rather than silently ignoring a result with
+        // no children.
+        const insertedIds = JSON.stringify(
+          inserted.map((r) => ({ correlation_id: r.correlation_id }))
+        );
         const suggestionMismatches = await tx.$queryRaw<{ mismatches: number }[]>`
           WITH e AS (
             SELECT * FROM jsonb_to_recordset(${payload}::jsonb)
               AS x(correlation_id text, suggestions jsonb)
+            WHERE x.correlation_id NOT IN (
+              SELECT n.correlation_id
+              FROM jsonb_to_recordset(${insertedIds}::jsonb) AS n(correlation_id text)
+            )
           ),
           incoming AS (
             SELECT e.correlation_id,
