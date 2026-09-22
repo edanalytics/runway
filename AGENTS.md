@@ -205,7 +205,7 @@ All of this applies to the `id_based` and `id_based_fuzzy_background` modes. Pur
 
 How student identities are resolved is a per-partner setting, `id_matching_mode`, snapshotted onto each job at creation (`JobsService.createJob` writes it explicitly; the column default is migration safety only). Every run of a job uses that snapshot, so changing the partner setting affects only jobs created afterwards. There is no configuration UI yet.
 
-| Mode | Authoritative path | Roster matching | `appUrls.identityService` |
+| Mode | Authoritative path | Roster matching | `appUrls.identityService` / `appUrls.unmatchedStudentRecords` |
 |---|---|---|---|
 | `id_based` | Existing ID-based processing | ODS / EDU / S3 as above | absent |
 | `id_based_fuzzy_background` | Existing ID-based processing | ODS / EDU / S3 as above | present |
@@ -224,6 +224,29 @@ Rollout order: set `IDRS_OAUTH_TOKEN_URL` and `IDRS_URL` and deploy an executor 
 The executor step is a hard prerequisite, not an ordering preference. An executor that predates EDFIAL-481 ignores `idMatchingMode` and `appUrls.identityService` entirely, so a partner switched to either fuzzy mode gets the old roster-based path against a payload built for the new one: pure fuzzy omits both roster sources the old executor unconditionally reads. Deploying the app itself is safe at any time while every partner is still `id_based`.
 
 The config and secret steps are owned by the cloud engineering team and happen outside this repo: neither `IDRS_OAUTH_TOKEN_URL` nor `IDRS_URL` is threaded through `cloudformation/` (unlike `OAUTH2_ISSUER` or `UM_CONFIG_SECRET`), and the per-partner `{ENVLABEL}-idrs-connection-info-{partnerId}` secrets are provisioned directly. Don't add the stack wiring here — coordinate with cloud eng instead.
+
+#### Unmatched student records
+
+Students IDRS could not resolve are reported to `POST /api/earthbeam/jobs/:runId/unmatched-student-records`, advertised as `appUrls.unmatchedStudentRecords` in the same branch as the identity service — a mode that uses IDRS is a mode that can leave students unresolved. The older `unmatchedIds` callback is unrelated and unchanged.
+
+The body is a JSON array. Each entry is one input-details group: a `correlation_id` (opaque to the app, 1–128 characters), a `candidate` object of input details, and a `matches` array of possible matches, which may be empty. Recognized candidate fields are `first_name`, `last_name`, `birth_date`, `school_ids` and `student_ids`; recognized match fields are `score`, `student_unique_id`, `first_name`, `middle_name`, `last_name`, `birth_date`, `student_ids` and `school_years`. Unknown keys are accepted and discarded, including nested correlation ids.
+
+Only structure is validated — the array shape, correlation id length, a nonempty `student_unique_id` and a numeric `score`. Names and dates are stored verbatim, because malformed details may be exactly why a record needs review. Candidate fields keep missing distinct from null; roster fields normalize missing to null, since IDRS gives roster absence no separate meaning.
+
+Three tables hold the result. `student_input_details` is keyed by `(job_id, correlation_id)`; `student_match_result` is one row per input group per run, and exists even when that run returned no suggestions; `student_match_suggestion` is keyed by `(result_id, ordinal)`, an immutable position within one result rather than a student identity. Job, partner and tenant always come from the authenticated run, never from the body — composite `(run_id, job_id)` foreign keys enforce that at the schema level.
+
+| Status | Meaning |
+|---|---|
+| 200 | Committed, or an identical retry that changed nothing. Empty body |
+| 400 | Malformed payload, or duplicate correlation ids within one request |
+| 404 | No such run |
+| 409 | Content disagrees with what was already accepted for this run; nothing was written |
+
+Retries are expected and may be rebatched differently. A retry is a no-op when its projected input details match after lowercasing the JSON text — the Executor derives correlation ids from lowercased details, so this keeps a case-variant retry harmless while the first accepted spelling survives — and when its complete ordered suggestion set matches. Anything else is a 409 that rolls back the whole request, including groups in the same batch that were fine. A *different* run reporting different suggestions for the same input is new history, not a conflict. Requests are committed in one transaction under a lock on the job row, so concurrent batches for a job serialize.
+
+Callback failure is the Executor's to act on; this endpoint never changes run state. In `fuzzy` the Executor fails the run; in `id_based_fuzzy_background` it stops background processing only, leaving the ID-based run alone. That mode is operated with deliberate manual analysis, and app and Executor logs are the accepted detection mechanism — there is no background-failure UI or status protocol. Logs and error bodies carry run ids, counts and outcomes only, never student details or body fragments.
+
+**Outstanding:** the request byte limit is not yet set. The endpoint currently runs under Nest's default JSON parser, so a large batch is rejected by that default rather than by an agreed limit. Confirm the cap and any record cap with cloud engineering and the Executor, then register a route-scoped parser for this route only — check the `SizeRestrictions_BODY` rule in `cloudformation/templates/0-waf.yml` against deployed behavior rather than assuming the app-side constant is sufficient.
 
 ### S3 Path Structure
 
