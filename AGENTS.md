@@ -267,7 +267,7 @@ __rosters/{partnerId}/{tenantCode}/{schoolYearEndYear}/*
 ## Development Conventions
 
 - **Commits**: lowercase subject + body explaining the "why"
-- **API**: NestJS controller → service → repository pattern
+- **API**: NestJS controller → service. Services use Prisma directly, including for transactions and raw SQL; there is no separate repository layer
 - **Error handling**: Services return result objects (`{ status: 'SUCCESS', data }` / `{ status: 'ERROR', code }`) for expected failure modes; unexpected errors throw. Controllers map error results to HTTP exceptions. Services should not import or throw HTTP exceptions.
 - **FE**: Chakra UI v2 with custom design tokens; prefer inline readable code over extracted helpers for short logic
 - **Icons**: `app/fe/src/assets/icons/`
