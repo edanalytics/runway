@@ -8,7 +8,6 @@ import { EarthbeamApiService } from './earthbeam-api.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { IdrsCredentialsService } from './idrs-credentials.service';
 import { UnmatchedStudentRecordsService } from './unmatched-student-records.service';
-import { UnmatchedStudentRecordsRepository } from './unmatched-student-records.repository';
 import { FileModule } from 'api/src/files/file.module';
 import { EventEmitterModule } from 'api/src/event-emitter/event-emitter.module';
 
@@ -26,7 +25,6 @@ import { EventEmitterModule } from 'api/src/event-emitter/event-emitter.module';
     EduSnowflakePoolService,
     IdrsCredentialsService,
     UnmatchedStudentRecordsService,
-    UnmatchedStudentRecordsRepository,
   ],
   controllers: [EarthbeamApiController],
   exports: [EduSnowflakePoolService],

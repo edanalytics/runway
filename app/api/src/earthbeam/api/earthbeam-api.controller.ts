@@ -373,7 +373,7 @@ export class EarthbeamApiController {
     if (result.status === 'ERROR') {
       // Exhaustive on purpose: a non-success response is what fails the run in
       // fuzzy mode, so an unmapped outcome must not fall through to 200. Adding
-      // an IngestionOutcome without a case here is a compile error.
+      // an IngestResult error code without a case here is a compile error.
       switch (result.code) {
         case 'NOT_FOUND':
           throw new NotFoundException(`Run not found: ${runId}`);
