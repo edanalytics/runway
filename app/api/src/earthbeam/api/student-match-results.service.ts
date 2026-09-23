@@ -66,19 +66,12 @@ export class StudentMatchResultsService {
     const payload = JSON.stringify(records);
 
     return this.prisma.$transaction(async (tx): Promise<IngestResult> => {
-      // 1. The owning job comes from the authenticated run, never the body.
-      // No row lock: only a job's first run reports match results, and its
-      // batches arrive in sequence.
-      const owner = await tx.$queryRaw<{ job_id: number }[]>`
-        SELECT j.id AS job_id
-        FROM public.run r
-        JOIN public.job j ON j.id = r.job_id
-        WHERE r.id = ${runId}
-      `;
-      if (owner.length === 0) {
+      // 1. The job comes from the authenticated run, never the body.
+      const run = await tx.run.findUnique({ where: { id: runId }, select: { jobId: true } });
+      if (!run) {
         return { status: 'ERROR', code: 'NOT_FOUND' };
       }
-      const jobId = owner[0].job_id;
+      const { jobId } = run;
 
       // 2. Insert input details for groups this job has not seen before.
       const inputs = await tx.$executeRaw`
