@@ -53,8 +53,9 @@ export class StudentMatchResultsService {
    * inserts would otherwise leave a result with no suggestions, which looks
    * like a genuine no-match and which a retry cannot repair.
    *
-   * Within a run the first report of a group wins, so a retry is a no-op even
-   * if its content differs; new evidence arrives as a new run. See AGENTS.md.
+   * A retry re-sends what is already stored, so the first report of a group
+   * wins and the retry is a no-op. Results are per run, so a later search adds
+   * history instead of overwriting. See AGENTS.md.
    */
   private persist(
     runId: number,
@@ -66,8 +67,8 @@ export class StudentMatchResultsService {
 
     return this.prisma.$transaction(async (tx): Promise<IngestResult> => {
       // 1. The owning job comes from the authenticated run, never the body.
-      // No row lock: a run's batches arrive in sequence, and the unique
-      // constraints keep overlapping runs consistent.
+      // No row lock: only a job's first run reports match results, and its
+      // batches arrive in sequence.
       const owner = await tx.$queryRaw<{ job_id: number }[]>`
         SELECT j.id AS job_id
         FROM public.run r
