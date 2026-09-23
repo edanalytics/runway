@@ -255,7 +255,19 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
 
       expect(res.status).toBe(400);
       await expectNothingWrittenOrLeaked(res);
-      expect(logs.join('\n')).toContain('rejected payload');
+    });
+
+    // The app does not log a rejection; the 400 body is the diagnosis, for the
+    // Executor to log. It names the record and the rule, never the values.
+    it('explains a rejection in the response body by record and field', async () => {
+      const res = await post(runA.id, tokenA, [
+        { correlation_id: 'ok', candidate, matches: [] },
+        { correlation_id: 'bad', candidate },
+      ]);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('[1] matches must be an array');
+      await expectNothingWrittenOrLeaked(res);
     });
 
     // Duplicates span records, which a per-record DTO cannot see, and need no

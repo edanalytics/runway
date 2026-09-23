@@ -242,7 +242,7 @@ Three tables hold the result. `student_input_details` is keyed by `(job_id, corr
 | Status | Meaning |
 |---|---|
 | 201 | Committed, or a retry that changed nothing. Empty body. The same code as every other Executor callback: the Executor has checked for exactly 201 before (`update_failure`) |
-| 400 | Payload does not match `EarthbeamApiStudentMatchResultDto`, or body is not a JSON object or array |
+| 400 | Payload does not match `EarthbeamApiStudentMatchResultDto`, or body is not a JSON object or array. The body's `message` names each failing record by index and the rule it broke, e.g. `[3] matches must be an array`, never a value. The app does not log 400s, so this body is the diagnosis: the Executor should log it if it wants to know why |
 | 401 / 403 | Missing token, or a token issued for a different run |
 | 404 | No such run |
 | 413 | Body exceeded the JSON parser limit — currently Nest's default, pending the agreed cap (see below) |
