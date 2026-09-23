@@ -231,7 +231,7 @@ The config and secret steps are owned by the cloud engineering team and happen o
 
 Students IDRS could not resolve are reported to `POST /api/earthbeam/jobs/:runId/unmatched-student-records`, advertised as `appUrls.unmatchedStudentRecords` in the same branch as the identity service — a mode that uses IDRS is a mode that can leave students unresolved. The older `unmatchedIds` callback is unrelated and unchanged.
 
-The body is a JSON array. Each entry is one input-details group: a `correlation_id` (opaque to the app, 1–128 characters), a `candidate` object of input details, and a `matches` array of possible matches, which may be empty. Each match carries a `student_unique_id` and a numeric `score`, plus roster details. `UnmatchedStudentRecordDto` (`app/models`) describes and validates this shape; the stored JSON is typed by `StudentInputDetailsJson` and `StudentRosterDetailsJson`.
+The body is a JSON array. Each entry is one input-details group: a `correlation_id` (opaque to the app, 1–128 characters), a `candidate` object of input details, and a `matches` array of possible matches, which may be empty. Each match carries a `student_unique_id` and a numeric `score`, plus roster details. `EarthbeamApiStudentMatchResultDto` (`app/models`) describes and validates this shape; the stored JSON is typed by `StudentInputDetailsJson` and `StudentRosterDetailsJson`.
 
 **Everything is stored exactly as the Executor sent it**, including keys the app does not read yet, so a field IDRS adds later is already stored when the app starts using it. Nothing is normalized: names and dates are kept verbatim, since malformed details may be exactly why a record needs review, and a field the Executor omits stays omitted.
 
@@ -242,7 +242,7 @@ Three tables hold the result. `student_input_details` is keyed by `(job_id, corr
 | Status | Meaning |
 |---|---|
 | 200 | Committed, or a retry that changed nothing. Empty body |
-| 400 | Payload does not match `UnmatchedStudentRecordDto`, or body is not a JSON object or array |
+| 400 | Payload does not match `EarthbeamApiStudentMatchResultDto`, or body is not a JSON object or array |
 | 401 / 403 | Missing token, or a token issued for a different run |
 | 404 | No such run |
 | 413 | Body exceeded the JSON parser limit — currently Nest's default, pending the agreed cap (see below) |

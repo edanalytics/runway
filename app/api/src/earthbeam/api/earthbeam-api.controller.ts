@@ -27,7 +27,7 @@ import {
   JsonValue,
   toEarthbeamApiIdentityServiceResponseDto,
   toEarthbeamApiJobResponseDto,
-  UnmatchedStudentRecordDto,
+  EarthbeamApiStudentMatchResultDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
 import { UnmatchedStudentRecordsPipe } from './unmatched-student-records.pipe';
@@ -357,7 +357,7 @@ export class EarthbeamApiController {
   @HttpCode(200)
   async reportUnmatchedStudentRecords(
     @Param('runId', ParseIntPipe) runId: number,
-    @Body(UnmatchedStudentRecordsPipe) records: UnmatchedStudentRecordDto[]
+    @Body(UnmatchedStudentRecordsPipe) records: EarthbeamApiStudentMatchResultDto[]
   ) {
     let result;
     try {

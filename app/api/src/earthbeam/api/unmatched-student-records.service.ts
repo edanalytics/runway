@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
-import { UnmatchedStudentRecordDto } from '@edanalytics/models';
+import { EarthbeamApiStudentMatchResultDto } from '@edanalytics/models';
 
 type Written = { inputs: number; results: number; suggestions: number };
 
@@ -15,7 +15,7 @@ export class UnmatchedStudentRecordsService {
 
   constructor(@Inject(PRISMA_ANONYMOUS) private readonly prisma: PrismaClient) {}
 
-  async ingest(runId: number, records: UnmatchedStudentRecordDto[]): Promise<IngestResult> {
+  async ingest(runId: number, records: EarthbeamApiStudentMatchResultDto[]): Promise<IngestResult> {
     const startedAt = Date.now();
 
     try {
@@ -37,8 +37,7 @@ export class UnmatchedStudentRecordsService {
       // meta.message: a constraint violation's detail quotes the failing row,
       // which is student data.
       const sqlstate =
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        typeof err.meta?.code === 'string'
+        err instanceof Prisma.PrismaClientKnownRequestError && typeof err.meta?.code === 'string'
           ? ` sqlstate=${err.meta.code}`
           : '';
       this.logger.error(
@@ -53,7 +52,7 @@ export class UnmatchedStudentRecordsService {
 
   /**
    * Write one batch atomically, exactly as the Executor sent it — including
-   * keys the app does not read yet. UnmatchedStudentRecordDto has already
+   * keys the app does not read yet. EarthbeamApiStudentMatchResultDto has already
    * checked its shape; the columns' constraints back that up, and any
    * violation rolls the whole request back.
    *
@@ -69,7 +68,10 @@ export class UnmatchedStudentRecordsService {
    * ignored rather than rejected — see AGENTS.md for why that is not worth
    * detecting.
    */
-  private persist(runId: number, records: UnmatchedStudentRecordDto[]): Promise<IngestResult> {
+  private persist(
+    runId: number,
+    records: EarthbeamApiStudentMatchResultDto[]
+  ): Promise<IngestResult> {
     // Scores go through JSON.stringify once and PostgreSQL parses that text
     // straight to numeric, so they never pass through a Prisma Decimal.
     const payload = JSON.stringify(records);

@@ -5,11 +5,12 @@ import {
   Logger,
   ParseArrayPipe,
 } from '@nestjs/common';
-import { UnmatchedStudentRecordDto } from '@edanalytics/models';
+import { EarthbeamApiStudentMatchResultDto } from '@edanalytics/models';
 
 /**
- * Validates the unmatched-student-records body, a top-level array, against
- * UnmatchedStudentRecordDto one item at a time, and logs what it rejects.
+ * Validates the unmatched-student-records body, a top-level array of match
+ * results, against EarthbeamApiStudentMatchResultDto one item at a time, and
+ * logs what it rejects.
  *
  * ParseArrayPipe also splits string input on commas, being built for query
  * strings. A request body cannot reach it as a string: the JSON body parser's
@@ -21,7 +22,7 @@ export class UnmatchedStudentRecordsPipe extends ParseArrayPipe {
   private readonly logger = new Logger(UnmatchedStudentRecordsPipe.name);
 
   constructor() {
-    super({ items: UnmatchedStudentRecordDto });
+    super({ items: EarthbeamApiStudentMatchResultDto });
   }
 
   // Logged here rather than via exceptionFactory, which ParseArrayPipe also

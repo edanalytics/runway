@@ -168,7 +168,12 @@ export type StudentRosterDetailsJson = {
 
 /*
  * Request body of the unmatched-student-records callback: an array of
- * UnmatchedStudentRecordDto, validated item by item.
+ * EarthbeamApiStudentMatchResultDto, one per group of input details, validated
+ * item by item.
+ *
+ * Class names use the app's concepts: a match result, and the suggestions it
+ * holds. Property names are the Executor's (`candidate` for the input details,
+ * `matches` for the suggestions), because the payload is stored as sent.
  *
  * The DTOs describe and validate the payload's shape. Values are stored exactly
  * as sent: unknown keys are kept rather than stripped and nothing is
@@ -178,10 +183,10 @@ export type StudentRosterDetailsJson = {
  */
 
 /**
- * A possible match from IDRS. Everything but student_unique_id and score is
- * stored as student_match_suggestion.roster_details.
+ * One suggestion: a possible match IDRS returned. Everything but
+ * student_unique_id and score is stored as student_match_suggestion.roster_details.
  */
-export class UnmatchedStudentMatchDto implements StudentRosterDetailsJson {
+export class EarthbeamApiStudentMatchSuggestionDto implements StudentRosterDetailsJson {
   @IsString()
   @IsNotEmpty()
   student_unique_id: string;
@@ -198,7 +203,11 @@ export class UnmatchedStudentMatchDto implements StudentRosterDetailsJson {
   school_years?: JsonValue;
 }
 
-export class UnmatchedStudentRecordDto {
+/**
+ * The result of one search for one group of input details: the details
+ * themselves and the suggestions the search produced.
+ */
+export class EarthbeamApiStudentMatchResultDto {
   // The database's CHECK is authoritative. @Length counts a character plus a
   // variation selector as one where PostgreSQL counts two, so a rare id this
   // passes can still fail the CHECK; to the Executor both are failures.
@@ -210,9 +219,9 @@ export class UnmatchedStudentRecordDto {
   @IsObject()
   candidate: StudentInputDetailsJson;
 
-  /** Possibly empty: IDRS searched and suggested nothing. */
+  /** The suggestions. Possibly empty: IDRS searched and suggested nothing. */
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => UnmatchedStudentMatchDto)
-  matches: UnmatchedStudentMatchDto[];
+  @Type(() => EarthbeamApiStudentMatchSuggestionDto)
+  matches: EarthbeamApiStudentMatchSuggestionDto[];
 }
