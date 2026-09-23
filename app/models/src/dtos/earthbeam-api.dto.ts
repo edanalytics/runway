@@ -60,9 +60,9 @@ export class EarthbeamApiJobResponseDto {
     // before using IDRS to get a partner-scoped token; the payload itself
     // never carries one.
     identityService?: string;
-    // Present only in the fuzzy modes, where IDRS may leave students
-    // unresolved. The executor posts those records here for later review.
-    unmatchedStudentRecords?: string;
+    // Present only in the fuzzy modes. The executor posts its IDRS match
+    // results here — today only for students it could not auto-match.
+    studentMatchResults?: string;
   };
 
   @Expose()
@@ -136,7 +136,7 @@ export const toEarthbeamApiIdentityServiceResponseDto = makeSerializer(
 );
 
 /*
- * Stored JSON for the unmatched-student-records callback, kept exactly as the
+ * Stored JSON for the student-match-results callback, kept exactly as the
  * Executor sent it: snake_case, as IDRS uses, so it can be sent back out
  * verbatim (e.g. to re-query IDRS), and including any keys not named here, so
  * fields IDRS adds later are already stored when the app starts reading them.
@@ -167,7 +167,7 @@ export type StudentRosterDetailsJson = {
 };
 
 /*
- * Request body of the unmatched-student-records callback: an array of
+ * Request body of the student-match-results callback: an array of
  * EarthbeamApiStudentMatchResultDto, one per group of input details, validated
  * item by item.
  *

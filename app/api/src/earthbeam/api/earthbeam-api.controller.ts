@@ -354,7 +354,7 @@ export class EarthbeamApiController {
    * established it. Delivery failure is the Executor's to act on — this
    * endpoint never touches run state.
    */
-  @Post(':runId/unmatched-student-records')
+  @Post(':runId/student-match-results')
   @HttpCode(200)
   async reportStudentMatchResults(
     @Param('runId', ParseIntPipe) runId: number,

@@ -8,7 +8,7 @@ import {
 import { EarthbeamApiStudentMatchResultDto } from '@edanalytics/models';
 
 /**
- * Validates the unmatched-student-records body, a top-level array of match
+ * Validates the student-match-results body, a top-level array of match
  * results, against EarthbeamApiStudentMatchResultDto one item at a time, and
  * logs what it rejects.
  *

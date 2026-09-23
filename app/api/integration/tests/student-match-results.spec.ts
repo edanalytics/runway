@@ -14,9 +14,9 @@ import { Logger } from '@nestjs/common';
  */
 const SENTINEL = 'Sentinel-Never-In-A-Response';
 
-const endpointFor = (runId: number) => `/earthbeam/jobs/${runId}/unmatched-student-records`;
+const endpointFor = (runId: number) => `/earthbeam/jobs/${runId}/student-match-results`;
 
-describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
+describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
   let jobA: Job;
   let runA: Run;
   let tokenA: string;
@@ -436,7 +436,7 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
   });
 });
 
-describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and history', () => {
+describe('POST /earthbeam/jobs/:runId/student-match-results — retries and history', () => {
   let jobA: Job;
   let runA: Run;
   let tokenA: string;

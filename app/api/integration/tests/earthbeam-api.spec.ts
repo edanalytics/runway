@@ -192,7 +192,7 @@ describe('Earthbeam API', () => {
         expect(res.status).toBe(200);
         expect(res.body.idMatchingMode).toBe('id_based');
         expect(res.body.appUrls.identityService).toBeUndefined();
-        expect(res.body.appUrls.unmatchedStudentRecords).toBeUndefined();
+        expect(res.body.appUrls.studentMatchResults).toBeUndefined();
       });
 
       it.each(['fuzzy', 'id_based_fuzzy_background'] as const)(
@@ -205,8 +205,8 @@ describe('Earthbeam API', () => {
           expect(res.body.appUrls.identityService).toContain(
             `/earthbeam/jobs/${run.id}/identity-service`
           );
-          expect(res.body.appUrls.unmatchedStudentRecords).toContain(
-            `/earthbeam/jobs/${run.id}/unmatched-student-records`
+          expect(res.body.appUrls.studentMatchResults).toContain(
+            `/earthbeam/jobs/${run.id}/student-match-results`
           );
         }
       );

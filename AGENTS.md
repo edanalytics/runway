@@ -207,7 +207,7 @@ All of this applies to the `id_based` and `id_based_fuzzy_background` modes. Pur
 
 How student identities are resolved is a per-partner setting, `id_matching_mode`, snapshotted onto each job at creation (`JobsService.createJob` writes it explicitly; the column default is migration safety only). Every run of a job uses that snapshot, so changing the partner setting affects only jobs created afterwards. There is no configuration UI yet.
 
-| Mode | Authoritative path | Roster matching | `appUrls.identityService` / `appUrls.unmatchedStudentRecords` |
+| Mode | Authoritative path | Roster matching | `appUrls.identityService` / `appUrls.studentMatchResults` |
 |---|---|---|---|
 | `id_based` | Existing ID-based processing | ODS / EDU / S3 as above | absent |
 | `id_based_fuzzy_background` | Existing ID-based processing | ODS / EDU / S3 as above | present |
@@ -227,9 +227,9 @@ The executor step is a hard prerequisite, not an ordering preference. An executo
 
 The config and secret steps are owned by the cloud engineering team and happen outside this repo: neither `IDRS_OAUTH_TOKEN_URL` nor `IDRS_URL` is threaded through `cloudformation/` (unlike `OAUTH2_ISSUER` or `UM_CONFIG_SECRET`), and the per-partner `{ENVLABEL}-idrs-connection-info-{partnerId}` secrets are provisioned directly. Don't add the stack wiring here — coordinate with cloud eng instead.
 
-#### Unmatched student records
+#### Student match results
 
-The Executor reports match results — each group of input details with the suggestions IDRS returned for it — to `POST /api/earthbeam/jobs/:runId/unmatched-student-records`, handled by `StudentMatchResultsService`. Today it reports only students IDRS could not resolve, which is where the route's name comes from, but the storage is not specific to them. Reporting auto-matched students too would need one additive change: the payload, and likely a column, would have to record the automatic resolution, or those students would look the same as ones awaiting review. The route is advertised as `appUrls.unmatchedStudentRecords` in the same branch as the identity service — a mode that uses IDRS is a mode that can leave students unresolved. The older `unmatchedIds` callback is unrelated and unchanged.
+The Executor reports match results — each group of input details with the suggestions IDRS returned for it — to `POST /api/earthbeam/jobs/:runId/student-match-results`, handled by `StudentMatchResultsService`. Today it reports only students IDRS could not resolve, but neither the route nor the storage is specific to them. Reporting auto-matched students too would need one additive change: the payload, and likely a column, would have to record the automatic resolution, or those students would look the same as ones awaiting review. The route is advertised as `appUrls.studentMatchResults` in the same branch as the identity service — a mode that uses IDRS is a mode that can leave students unresolved. The older `unmatchedIds` callback is unrelated and unchanged.
 
 The body is a JSON array. Each entry is one input-details group: a `correlation_id` (opaque to the app, 1–128 characters), a `candidate` object of input details, and a `matches` array of possible matches, which may be empty. Each match carries a `student_unique_id` and a numeric `score`, plus roster details. `EarthbeamApiStudentMatchResultDto` (`app/models`) describes and validates this shape; the stored JSON is typed by `StudentInputDetailsJson` and `StudentRosterDetailsJson`.
 

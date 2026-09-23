@@ -28,5 +28,5 @@ export const earthbeamRosterEndpoint = (runId: number | ':runId') =>
 export const earthbeamIdentityServiceEndpoint = (runId: number | ':runId') =>
   `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/identity-service`;
 
-export const earthbeamUnmatchedStudentRecordsEndpoint = (runId: number | ':runId') =>
-  `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/unmatched-student-records`;
+export const earthbeamStudentMatchResultsEndpoint = (runId: number | ':runId') =>
+  `api/${EARTHBEAM_API_BASE_ROUTE}/${runId}/student-match-results`;
