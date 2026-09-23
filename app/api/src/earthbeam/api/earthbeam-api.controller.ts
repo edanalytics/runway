@@ -27,12 +27,10 @@ import {
   JsonValue,
   toEarthbeamApiIdentityServiceResponseDto,
   toEarthbeamApiJobResponseDto,
+  UnmatchedStudentRecordDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
-import {
-  NormalizedRecord,
-  UnmatchedStudentRecordsPipe,
-} from './unmatched-student-records.pipe';
+import { UnmatchedStudentRecordsPipe } from './unmatched-student-records.pipe';
 import { UnmatchedStudentRecordsService } from './unmatched-student-records.service';
 import { IdrsCredentialsService } from './idrs-credentials.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
@@ -359,7 +357,7 @@ export class EarthbeamApiController {
   @HttpCode(200)
   async reportUnmatchedStudentRecords(
     @Param('runId', ParseIntPipe) runId: number,
-    @Body(UnmatchedStudentRecordsPipe) records: NormalizedRecord[]
+    @Body(UnmatchedStudentRecordsPipe) records: UnmatchedStudentRecordDto[]
   ) {
     let result;
     try {

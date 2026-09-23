@@ -1,205 +1,88 @@
-import { BadRequestException, Injectable, Logger, PipeTransform } from '@nestjs/common';
 import {
-  JsonObject,
-  JsonValue,
-  StudentInputDetailsJson,
-  StudentRosterDetailsJson,
-} from '@edanalytics/models';
+  BadRequestException,
+  Injectable,
+  Logger,
+  PipeTransform,
+  ValidationPipe,
+} from '@nestjs/common';
+import { UnmatchedStudentRecordDto } from '@edanalytics/models';
 
 /**
- * Validation and projection for the unmatched-student-records callback.
+ * Validates the unmatched-student-records callback body against
+ * UnmatchedStudentRecordDto, which holds the rules and the projection.
  *
- * The contract is deliberately permissive about student details: malformed
- * names and dates may be exactly why a record needs human review, so recognized
- * fields are preserved verbatim rather than semantically validated. Only
- * structural fields — the array shape, correlation ids, canonical student ids
- * and scores — are enforced.
- *
- * Nest's global ValidationPipe does not validate an array of DTOs, so this pipe
- * checks the top-level array explicitly instead of relying on it.
- *
- * Output keys stay snake_case, matching the wire, the table columns and the
- * stored JSON, so a normalized batch is handed to SQL as-is.
+ * This pipe does only what a DTO cannot. The body is a top-level array, which
+ * Nest's global ValidationPipe skips. `ParseArrayPipe` would handle an array
+ * but is built for query strings: it splits a string body on commas and
+ * JSON-parses the pieces, so a string holding one record would be accepted.
+ * Duplicate correlation ids span items, which a single item's DTO cannot see.
  */
-
-export interface NormalizedSuggestion {
-  ordinal: number;
-  student_unique_id: string;
-  roster_details: StudentRosterDetailsJson;
-  score: number;
-}
-
-export interface NormalizedRecord {
-  correlation_id: string;
-  input_details: StudentInputDetailsJson;
-  suggestions: NormalizedSuggestion[];
-}
-
-/** Recognized input-detail fields. Missing ones stay missing. */
-const CANDIDATE_FIELDS: (keyof StudentInputDetailsJson)[] = [
-  'first_name',
-  'last_name',
-  'birth_date',
-  'school_ids',
-  'student_ids',
-];
-
-/** Recognized fields of a roster student-id object. */
-const STUDENT_ID_FIELDS = ['id_type', 'id_value'] as const;
-
-/** Matches the SQL CHECK on correlation_id, counted in code points. */
-const MAX_CORRELATION_ID_LENGTH = 128;
-
-const isPlainObject = (value: unknown): value is JsonObject =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-/**
- * PostgreSQL's length() counts characters, so the wire bound must too —
- * JavaScript's .length counts UTF-16 units and would let a 129-character id
- * through, or reject a valid one built from astral characters.
- */
-const codePointLength = (value: string) => Array.from(value).length;
-
 @Injectable()
-export class UnmatchedStudentRecordsPipe implements PipeTransform<unknown, NormalizedRecord[]> {
+export class UnmatchedStudentRecordsPipe
+  implements PipeTransform<unknown, Promise<UnmatchedStudentRecordDto[]>>
+{
   private readonly logger = new Logger(UnmatchedStudentRecordsPipe.name);
 
-  transform(body: unknown): NormalizedRecord[] {
+  // Unlike the global pipe, drops unknown keys instead of passing them
+  // through — here they would otherwise be stored — and lets DTO defaults
+  // stand in for missing fields. See UnmatchedStudentRecordDto.
+  private readonly validation = new ValidationPipe({
+    transform: true,
+    transformOptions: { excludeExtraneousValues: true, exposeDefaultValues: true },
+  });
+
+  async transform(body: unknown): Promise<UnmatchedStudentRecordDto[]> {
     try {
-      return this.project(body);
+      return await this.validate(body);
     } catch (err) {
-      // The message carries an index and a field name, never body content.
-      this.logger.warn(
-        `unmatched student records: rejected payload: ${
-          err instanceof Error ? err.message : 'invalid payload'
-        }`
-      );
+      // Messages carry indices, field names and constraints, never values.
+      if (err instanceof BadRequestException) {
+        this.logger.warn(
+          `unmatched student records: rejected payload: ${messagesOf(err).join('; ')}`
+        );
+      }
       throw err;
     }
   }
 
-  private project(body: unknown): NormalizedRecord[] {
-    // A JSON string is not an array of records. Check before iterating, so a
-    // string is never treated as a sequence of characters.
+  private async validate(body: unknown): Promise<UnmatchedStudentRecordDto[]> {
     if (!Array.isArray(body)) {
       throw new BadRequestException('body must be an array of unmatched student records');
     }
 
-    const seen = new Set<string>();
-    return body.map((entry, index) => {
-      if (!isPlainObject(entry)) {
-        throw new BadRequestException(`record ${index}: must be an object`);
-      }
-
-      const correlationId = entry['correlation_id'];
-      if (typeof correlationId !== 'string' || correlationId.length === 0) {
-        throw new BadRequestException(`record ${index}: correlation_id must be a nonempty string`);
-      }
-      if (codePointLength(correlationId) > MAX_CORRELATION_ID_LENGTH) {
-        throw new BadRequestException(
-          `record ${index}: correlation_id must be at most ${MAX_CORRELATION_ID_LENGTH} characters`
+    const records: UnmatchedStudentRecordDto[] = [];
+    for (const [index, item] of body.entries()) {
+      try {
+        records.push(
+          await this.validation.transform(item, {
+            type: 'body',
+            metatype: UnmatchedStudentRecordDto,
+          })
         );
+      } catch (err) {
+        if (err instanceof BadRequestException) {
+          throw new BadRequestException(messagesOf(err).map((m) => `record ${index}: ${m}`));
+        }
+        throw err;
       }
-      // Correlation ids are opaque digests to us. We bound their length and
-      // require uniqueness within a request, but never validate their encoding.
-      if (seen.has(correlationId)) {
+    }
+
+    const seen = new Set<string>();
+    for (const [index, record] of records.entries()) {
+      if (seen.has(record.correlation_id)) {
         throw new BadRequestException(`record ${index}: duplicate correlation_id in request`);
       }
-      seen.add(correlationId);
-
-      const candidate = entry['candidate'];
-      if (!isPlainObject(candidate)) {
-        throw new BadRequestException(`record ${index}: candidate must be an object`);
-      }
-
-      const matches = entry['matches'];
-      if (!Array.isArray(matches)) {
-        throw new BadRequestException(`record ${index}: matches must be an array`);
-      }
-
-      return {
-        correlation_id: correlationId,
-        input_details: this.projectCandidate(candidate),
-        suggestions: matches.map((match, ordinal) =>
-          this.projectSuggestion(match, index, ordinal)
-        ),
-      };
-    });
-  }
-
-  /**
-   * Recognized fields only, values untouched. Absent stays absent: on the input
-   * side, missing and null are different observations about the source row.
-   */
-  private projectCandidate(candidate: JsonObject): StudentInputDetailsJson {
-    const projected: StudentInputDetailsJson = {};
-    for (const field of CANDIDATE_FIELDS) {
-      const value = candidate[field];
-      if (value !== undefined) {
-        projected[field] = value;
-      }
+      seen.add(record.correlation_id);
     }
-    return projected;
-  }
-
-  private projectSuggestion(match: unknown, index: number, ordinal: number): NormalizedSuggestion {
-    if (!isPlainObject(match)) {
-      throw new BadRequestException(`record ${index}, match ${ordinal}: must be an object`);
-    }
-
-    const studentUniqueId = match['student_unique_id'];
-    if (typeof studentUniqueId !== 'string' || studentUniqueId.length === 0) {
-      throw new BadRequestException(
-        `record ${index}, match ${ordinal}: student_unique_id must be a nonempty string`
-      );
-    }
-
-    const score = match['score'];
-    if (typeof score !== 'number' || !Number.isFinite(score)) {
-      throw new BadRequestException(
-        `record ${index}, match ${ordinal}: score must be a finite number`
-      );
-    }
-
-    // Unlike the candidate, missing roster fields become null: IDRS gives their
-    // absence no meaning distinct from null. Empty strings and empty arrays stay
-    // distinct from both.
-    const rosterDetails: StudentRosterDetailsJson = {
-      first_name: match['first_name'] ?? null,
-      middle_name: match['middle_name'] ?? null,
-      last_name: match['last_name'] ?? null,
-      birth_date: match['birth_date'] ?? null,
-      student_ids: this.projectStudentIds(match['student_ids']),
-      school_years: match['school_years'] ?? null,
-    };
-
-    return {
-      ordinal,
-      student_unique_id: studentUniqueId,
-      roster_details: rosterDetails,
-      score,
-    };
-  }
-
-  /**
-   * Roster student ids are objects, unlike the candidate's plain strings. Project
-   * recognized keys when an entry has that documented shape and leave anything
-   * else verbatim — coercing a malformed value would destroy the evidence a
-   * reviewer needs. Order and duplicates are preserved.
-   */
-  private projectStudentIds(value: JsonValue | undefined): JsonValue {
-    if (!Array.isArray(value)) {
-      return value ?? null;
-    }
-    return value.map((entry) => {
-      if (!isPlainObject(entry)) {
-        return entry;
-      }
-      const projected: JsonObject = {};
-      for (const field of STUDENT_ID_FIELDS) {
-        projected[field] = entry[field] ?? null;
-      }
-      return projected;
-    });
+    return records;
   }
 }
+
+const messagesOf = (err: BadRequestException): string[] => {
+  const response = err.getResponse();
+  const message =
+    typeof response === 'object' && response !== null && 'message' in response
+      ? (response as { message: unknown }).message
+      : err.message;
+  return Array.isArray(message) ? message.map(String) : [String(message)];
+};

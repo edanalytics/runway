@@ -311,6 +311,23 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
 
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
     });
+
+    // A heart plus its variation selector is two code points to PostgreSQL but
+    // one character to class-validator's @Length, which would pass 65 of them
+    // and leave the database CHECK to fail with a 500.
+    it('counts a variation selector as its own character, as PostgreSQL does', async () => {
+      const hearts = (n: number) => '\u2764\uFE0F'.repeat(n);
+
+      const ok = await post(runA.id, tokenA, [
+        { correlation_id: hearts(64), candidate: { first_name: 'Ada' }, matches: [] },
+      ]);
+      expect(ok.status).toBe(200);
+
+      const tooLong = await post(runA.id, tokenA, [
+        { correlation_id: hearts(65), candidate: { first_name: 'Ada' }, matches: [] },
+      ]);
+      expect(tooLong.status).toBe(400);
+    });
   });
 
   describe('missing run', () => {

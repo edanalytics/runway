@@ -1,7 +1,17 @@
-import { Expose } from 'class-transformer';
+import { Expose, Type } from 'class-transformer';
 import { $Enums } from '@prisma/client';
 import { JsonValue, makeSerializer } from '../utils';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  ValidateNested,
+} from 'class-validator';
 
 export class EarthbeamApiInitResponseDto {
   @Expose()
@@ -151,3 +161,101 @@ export type StudentRosterDetailsJson = {
   student_ids: JsonValue;
   school_years: JsonValue;
 };
+
+/*
+ * Request body of the unmatched-student-records callback: an array of
+ * UnmatchedStudentRecordDto. Only the structural fields are validated. Student
+ * details are accepted as sent, since malformed input may be exactly why a
+ * record needs review.
+ *
+ * Unknown keys are dropped rather than rejected: the callback's pipe transforms
+ * with `excludeExtraneousValues`, so only `@Expose()`d fields survive, and with
+ * `exposeDefaultValues`, so a field's default applies when it is missing.
+ */
+
+/** A roster student id. Missing fields become null. */
+export class UnmatchedStudentRosterIdDto {
+  @Expose()
+  id_type: JsonValue = null;
+
+  @Expose()
+  id_value: JsonValue = null;
+}
+
+/** Input details, stored as student_input_details.input_details. Absent fields stay absent. */
+export class UnmatchedStudentCandidateDto implements StudentInputDetailsJson {
+  @Expose()
+  first_name?: JsonValue;
+
+  @Expose()
+  last_name?: JsonValue;
+
+  @Expose()
+  birth_date?: JsonValue;
+
+  @Expose()
+  school_ids?: JsonValue;
+
+  @Expose()
+  student_ids?: JsonValue;
+}
+
+/**
+ * A possible match from IDRS. Everything but student_unique_id and score is
+ * stored as student_match_suggestion.roster_details, with IDRS's missing fields
+ * as null.
+ */
+export class UnmatchedStudentMatchDto implements StudentRosterDetailsJson {
+  @Expose()
+  @IsString()
+  @IsNotEmpty()
+  student_unique_id: string;
+
+  @Expose()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  score: number;
+
+  @Expose()
+  first_name: JsonValue = null;
+
+  @Expose()
+  middle_name: JsonValue = null;
+
+  @Expose()
+  last_name: JsonValue = null;
+
+  @Expose()
+  birth_date: JsonValue = null;
+
+  // Not @ValidateNested: object entries are reduced to id_type and id_value,
+  // but anything else is kept verbatim as evidence rather than rejected.
+  @Expose()
+  @Type(() => UnmatchedStudentRosterIdDto)
+  student_ids: JsonValue = null;
+
+  @Expose()
+  school_years: JsonValue = null;
+}
+
+export class UnmatchedStudentRecordDto {
+  // Mirrors the SQL CHECK. The u flag makes each character a code point, as
+  // PostgreSQL's length() counts; @Length would count a character plus a
+  // variation selector as one and let a too-long id reach the database.
+  @Expose()
+  @IsString()
+  @Matches(/^[\s\S]{1,128}$/u, { message: 'correlation_id must be 1 to 128 characters' })
+  correlation_id: string;
+
+  // Not @ValidateNested: the candidate has no validated fields, only the
+  // projection its @Type applies.
+  @Expose()
+  @IsObject()
+  @Type(() => UnmatchedStudentCandidateDto)
+  candidate: UnmatchedStudentCandidateDto;
+
+  @Expose()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UnmatchedStudentMatchDto)
+  matches: UnmatchedStudentMatchDto[];
+}

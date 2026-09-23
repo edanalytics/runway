@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
-import { NormalizedRecord } from './unmatched-student-records.pipe';
+import { UnmatchedStudentRecordDto } from '@edanalytics/models';
 
 export type IngestResult = { status: 'SUCCESS' } | { status: 'ERROR'; code: 'NOT_FOUND' };
 
@@ -11,9 +11,9 @@ export class UnmatchedStudentRecordsService {
 
   constructor(@Inject(PRISMA_ANONYMOUS) private readonly prisma: PrismaClient) {}
 
-  async ingest(runId: number, records: NormalizedRecord[]): Promise<IngestResult> {
+  async ingest(runId: number, records: UnmatchedStudentRecordDto[]): Promise<IngestResult> {
     const startedAt = Date.now();
-    const suggestionCount = records.reduce((total, r) => total + r.suggestions.length, 0);
+    const suggestionCount = records.reduce((total, r) => total + r.matches.length, 0);
 
     try {
       const result = await this.persist(runId, records);
@@ -54,10 +54,10 @@ export class UnmatchedStudentRecordsService {
    * ignored rather than rejected — see AGENTS.md for why that is not worth
    * detecting.
    */
-  private persist(runId: number, records: NormalizedRecord[]): Promise<IngestResult> {
-    // The normalized batch is already in the shape the SQL below reads. Scores
-    // go through JSON.stringify once and PostgreSQL parses that text straight to
-    // numeric, so they never pass through a Prisma Decimal.
+  private persist(runId: number, records: UnmatchedStudentRecordDto[]): Promise<IngestResult> {
+    // The SQL below reads the validated wire shape directly. Scores go through
+    // JSON.stringify once and PostgreSQL parses that text straight to numeric,
+    // so they never pass through a Prisma Decimal.
     const payload = JSON.stringify(records);
 
     return this.prisma.$transaction(async (tx): Promise<IngestResult> => {
@@ -82,9 +82,9 @@ export class UnmatchedStudentRecordsService {
       await tx.$executeRaw`
         INSERT INTO public.student_input_details
           (job_id, correlation_id, source_run_id, input_details)
-        SELECT ${jobId}::int, e.correlation_id, ${runId}::int, e.input_details
+        SELECT ${jobId}::int, e.correlation_id, ${runId}::int, e.candidate
         FROM jsonb_to_recordset(${payload}::jsonb)
-          AS e(correlation_id text, input_details jsonb)
+          AS e(correlation_id text, candidate jsonb)
         ON CONFLICT (job_id, correlation_id) DO NOTHING
       `;
 
@@ -99,7 +99,10 @@ export class UnmatchedStudentRecordsService {
         RETURNING id, correlation_id
       `;
 
-      // 4. Suggestions, for newly inserted results only, in one statement.
+      // 4. Suggestions, for newly inserted results only, in one statement. The
+      // ordinal is the match's zero-based position in the array. Roster details
+      // are the match minus its two column fields — which is exactly the roster
+      // projection, because the pipe has already dropped every unknown key.
       if (inserted.length > 0) {
         const newResults = JSON.stringify(
           inserted.map((r) => ({ correlation_id: r.correlation_id, result_id: r.id.toString() }))
@@ -108,16 +111,16 @@ export class UnmatchedStudentRecordsService {
           INSERT INTO public.student_match_suggestion
             (result_id, ordinal, student_unique_id, roster_details, score)
           SELECT n.result_id,
-                 (s->>'ordinal')::int,
-                 s->>'student_unique_id',
-                 s->'roster_details',
-                 (s->>'score')::numeric
+                 (m.ordinality - 1)::int,
+                 m.match->>'student_unique_id',
+                 m.match - 'student_unique_id' - 'score',
+                 (m.match->>'score')::numeric
           FROM jsonb_to_recordset(${payload}::jsonb)
-            AS e(correlation_id text, suggestions jsonb)
+            AS e(correlation_id text, matches jsonb)
           JOIN jsonb_to_recordset(${newResults}::jsonb)
             AS n(correlation_id text, result_id bigint)
             ON n.correlation_id = e.correlation_id
-          CROSS JOIN LATERAL jsonb_array_elements(e.suggestions) s
+          CROSS JOIN LATERAL jsonb_array_elements(e.matches) WITH ORDINALITY AS m(match, ordinality)
         `;
       }
 
