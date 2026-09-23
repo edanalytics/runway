@@ -10,8 +10,8 @@ export type IngestResult =
   | { status: 'ERROR'; code: 'NOT_FOUND' };
 
 @Injectable()
-export class UnmatchedStudentRecordsService {
-  private readonly logger = new Logger(UnmatchedStudentRecordsService.name);
+export class StudentMatchResultsService {
+  private readonly logger = new Logger(StudentMatchResultsService.name);
 
   constructor(@Inject(PRISMA_ANONYMOUS) private readonly prisma: PrismaClient) {}
 
@@ -23,7 +23,7 @@ export class UnmatchedStudentRecordsService {
       // Counts and identifiers only — never correlation ids, names or any other
       // detail under review.
       this.logger.log(
-        `unmatched student records: runId=${runId} records=${records.length} ` +
+        `student match results: runId=${runId} records=${records.length} ` +
           (result.status === 'SUCCESS'
             ? `outcome=SUCCESS inputs=${result.data.inputs} results=${result.data.results} ` +
               `suggestions=${result.data.suggestions}`
@@ -41,7 +41,7 @@ export class UnmatchedStudentRecordsService {
           ? ` sqlstate=${err.meta.code}`
           : '';
       this.logger.error(
-        `unmatched student records: runId=${runId} records=${records.length} outcome=FAILED ` +
+        `student match results: runId=${runId} records=${records.length} outcome=FAILED ` +
           `durationMs=${Date.now() - startedAt} cause=${
             err instanceof Error ? err.name : 'unknown'
           }${sqlstate}`

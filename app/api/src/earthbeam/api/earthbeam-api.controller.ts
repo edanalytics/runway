@@ -30,8 +30,8 @@ import {
   EarthbeamApiStudentMatchResultDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
-import { UnmatchedStudentRecordsPipe } from './unmatched-student-records.pipe';
-import { UnmatchedStudentRecordsService } from './unmatched-student-records.service';
+import { StudentMatchResultsPipe } from './student-match-results.pipe';
+import { StudentMatchResultsService } from './student-match-results.service';
 import { IdrsCredentialsService } from './idrs-credentials.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
@@ -52,7 +52,7 @@ export class EarthbeamApiController {
     private readonly fileService: FileService,
     private readonly eduPool: EduSnowflakePoolService,
     private readonly idrs: IdrsCredentialsService,
-    private readonly unmatchedStudentRecords: UnmatchedStudentRecordsService
+    private readonly studentMatchResults: StudentMatchResultsService
   ) {}
 
   @Get(':runId')
@@ -342,8 +342,9 @@ export class EarthbeamApiController {
   }
 
   /**
-   * Students the Executor could not auto-match, with the evidence behind each
-   * search, for later human review.
+   * Match results from the Executor's IDRS searches: each group of input
+   * details with the suggestions its search produced. Today the Executor
+   * reports only students it could not auto-match, for human review.
    *
    * Job, partner and tenant come from the authenticated run, never from the
    * body. The whole batch commits or none of it does, and a retry is a
@@ -355,17 +356,17 @@ export class EarthbeamApiController {
    */
   @Post(':runId/unmatched-student-records')
   @HttpCode(200)
-  async reportUnmatchedStudentRecords(
+  async reportStudentMatchResults(
     @Param('runId', ParseIntPipe) runId: number,
-    @Body(UnmatchedStudentRecordsPipe) records: EarthbeamApiStudentMatchResultDto[]
+    @Body(StudentMatchResultsPipe) records: EarthbeamApiStudentMatchResultDto[]
   ) {
     let result;
     try {
-      result = await this.unmatchedStudentRecords.ingest(runId, records);
+      result = await this.studentMatchResults.ingest(runId, records);
     } catch {
       // The service has already logged this safely. Anything more specific
       // risks quoting student details back to the caller.
-      throw new InternalServerErrorException('Failed to save unmatched student records');
+      throw new InternalServerErrorException('Failed to save student match results');
     }
 
     if (result.status === 'ERROR') {

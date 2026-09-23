@@ -18,8 +18,8 @@ import { EarthbeamApiStudentMatchResultDto } from '@edanalytics/models';
  * on if this route ever gets its own parser.
  */
 @Injectable()
-export class UnmatchedStudentRecordsPipe extends ParseArrayPipe {
-  private readonly logger = new Logger(UnmatchedStudentRecordsPipe.name);
+export class StudentMatchResultsPipe extends ParseArrayPipe {
+  private readonly logger = new Logger(StudentMatchResultsPipe.name);
 
   constructor() {
     super({ items: EarthbeamApiStudentMatchResultDto });
@@ -39,7 +39,7 @@ export class UnmatchedStudentRecordsPipe extends ParseArrayPipe {
             ? (response as { message: unknown }).message
             : err.message;
         this.logger.warn(
-          `unmatched student records: rejected payload: ${
+          `student match results: rejected payload: ${
             Array.isArray(message) ? message.join('; ') : String(message)
           }`
         );
