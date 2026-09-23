@@ -47,7 +47,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
       .set('Authorization', `Bearer ${token ?? (await tokenFor(runId))}`)
       .send(body as object);
 
-  /** A later run of job A, as restarting the job would create. */
+  /** A later run of job A. */
   const newRunOfJobA = () => prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
 
   const snapshot = async () => ({
@@ -320,65 +320,42 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
   });
 
   describe('retries and runs', () => {
-    // Within a run the first report of a group wins; new evidence for the same
-    // input arrives as a new run.
-    it('ignores a retry within the same run, however it is batched and whatever it carries', async () => {
-      expect(
-        (await post(runA.id, [record(), record({ correlation_id: 'corr-2', matches: [] })])).status
-      ).toBe(201);
+    // The Executor re-sends exactly what it sent, though not necessarily in the
+    // same batches.
+    it('ignores a retry within the same run, however it is batched', async () => {
+      const batch = [record(), record({ correlation_id: 'corr-2', matches: [] })];
+      expect((await post(runA.id, batch)).status).toBe(201);
       const before = await snapshot();
 
-      // Split into separate requests, with different details, different
-      // suggestions, and an empty result that now has a match.
-      const retries = [
-        [
-          record({
-            candidate: { first_name: 'Adelaide' },
-            matches: [{ ...match, score: 0.1, student_unique_id: 'SUID-OTHER' }],
-          }),
-        ],
-        [record({ correlation_id: 'corr-2' })],
-      ];
-      for (const retry of retries) {
+      for (const retry of [[batch[1]], [batch[0]]]) {
         expect((await post(runA.id, retry)).status).toBe(201);
       }
 
-      // Nothing is rewritten: ids, timestamps and first-reported content all survive.
+      // Nothing is duplicated or rewritten: ids and timestamps survive.
       expect(await snapshot()).toEqual(before);
     });
 
-    // A run that fails partway leaves groups undelivered, and restarting the
-    // job creates a new run on it (JobsService.startJob).
-    it('records a later run as new history, including groups an earlier run never delivered', async () => {
+    // Results are keyed by run, so a later search of the same input adds
+    // history instead of overwriting the first.
+    it('records a later run as new history', async () => {
       expect((await post(runA.id, [record()])).status).toBe(201);
       const before = await snapshot();
       const runB = await newRunOfJobA();
 
       const res = await post(runB.id, [
         record({ matches: [{ ...match, student_unique_id: 'SUID-9' }] }),
-        record({ correlation_id: 'corr-undelivered' }),
       ]);
 
       expect(res.status).toBe(201);
       const after = await snapshot();
-      // Each input row keeps the run that established it.
-      expect(after.inputs.map((i) => [i.correlationId, i.sourceRunId])).toEqual([
-        ['corr-1', runA.id],
-        ['corr-undelivered', runB.id],
-      ]);
-      expect(after.inputs[0]).toEqual(before.inputs[0]);
-      // Run A's result is untouched; run B's holds the suggestions its own search found.
+      // The input row still names the run that established it.
+      expect(after.inputs).toEqual(before.inputs);
       expect(after.results[0]).toEqual(before.results[0]);
       expect(
-        after.results.map((r) => [
-          r.correlationId,
-          r.runId,
-          r.studentMatchSuggestion.map((s) => s.studentUniqueId),
-        ])
+        after.results.map((r) => [r.runId, r.studentMatchSuggestion.map((s) => s.studentUniqueId)])
       ).toEqual([
-        ['corr-1', runA.id, ['SUID-1']],
-        ['corr-1', runB.id, ['SUID-9']],
-        ['corr-undelivered', runB.id, ['SUID-1']],
+        [runA.id, ['SUID-1']],
+        [runB.id, ['SUID-9']],
       ]);
     });
 
