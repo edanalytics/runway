@@ -1,4 +1,10 @@
 import { BadRequestException, Injectable, Logger, PipeTransform } from '@nestjs/common';
+import {
+  JsonObject,
+  JsonValue,
+  StudentInputDetailsJson,
+  StudentRosterDetailsJson,
+} from '@edanalytics/models';
 
 /**
  * Validation and projection for the unmatched-student-records callback.
@@ -11,42 +17,32 @@ import { BadRequestException, Injectable, Logger, PipeTransform } from '@nestjs/
  *
  * Nest's global ValidationPipe does not validate an array of DTOs, so this pipe
  * checks the top-level array explicitly instead of relying on it.
+ *
+ * Output keys stay snake_case, matching the wire, the table columns and the
+ * stored JSON, so a normalized batch is handed to SQL as-is.
  */
-
-/** A value as it arrives from JSON.parse. */
-export type JsonLike = string | number | boolean | null | JsonLike[] | { [key: string]: JsonLike };
 
 export interface NormalizedSuggestion {
   ordinal: number;
-  studentUniqueId: string;
-  rosterDetails: Record<string, JsonLike>;
+  student_unique_id: string;
+  roster_details: StudentRosterDetailsJson;
   score: number;
 }
 
 export interface NormalizedRecord {
-  correlationId: string;
-  inputDetails: Record<string, JsonLike>;
+  correlation_id: string;
+  input_details: StudentInputDetailsJson;
   suggestions: NormalizedSuggestion[];
 }
 
 /** Recognized input-detail fields. Missing ones stay missing. */
-const CANDIDATE_FIELDS = [
+const CANDIDATE_FIELDS: (keyof StudentInputDetailsJson)[] = [
   'first_name',
   'last_name',
   'birth_date',
   'school_ids',
   'student_ids',
-] as const;
-
-/** Recognized roster fields. Missing ones normalize to JSON null. */
-const ROSTER_FIELDS = [
-  'first_name',
-  'middle_name',
-  'last_name',
-  'birth_date',
-  'student_ids',
-  'school_years',
-] as const;
+];
 
 /** Recognized fields of a roster student-id object. */
 const STUDENT_ID_FIELDS = ['id_type', 'id_value'] as const;
@@ -54,7 +50,7 @@ const STUDENT_ID_FIELDS = ['id_type', 'id_value'] as const;
 /** Matches the SQL CHECK on correlation_id, counted in code points. */
 const MAX_CORRELATION_ID_LENGTH = 128;
 
-const isPlainObject = (value: unknown): value is Record<string, JsonLike> =>
+const isPlainObject = (value: unknown): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
@@ -122,8 +118,8 @@ export class UnmatchedStudentRecordsPipe implements PipeTransform<unknown, Norma
       }
 
       return {
-        correlationId,
-        inputDetails: this.projectCandidate(candidate),
+        correlation_id: correlationId,
+        input_details: this.projectCandidate(candidate),
         suggestions: matches.map((match, ordinal) =>
           this.projectSuggestion(match, index, ordinal)
         ),
@@ -135,11 +131,12 @@ export class UnmatchedStudentRecordsPipe implements PipeTransform<unknown, Norma
    * Recognized fields only, values untouched. Absent stays absent: on the input
    * side, missing and null are different observations about the source row.
    */
-  private projectCandidate(candidate: Record<string, JsonLike>): Record<string, JsonLike> {
-    const projected: Record<string, JsonLike> = {};
+  private projectCandidate(candidate: JsonObject): StudentInputDetailsJson {
+    const projected: StudentInputDetailsJson = {};
     for (const field of CANDIDATE_FIELDS) {
-      if (field in candidate && candidate[field] !== undefined) {
-        projected[field] = candidate[field];
+      const value = candidate[field];
+      if (value !== undefined) {
+        projected[field] = value;
       }
     }
     return projected;
@@ -167,14 +164,21 @@ export class UnmatchedStudentRecordsPipe implements PipeTransform<unknown, Norma
     // Unlike the candidate, missing roster fields become null: IDRS gives their
     // absence no meaning distinct from null. Empty strings and empty arrays stay
     // distinct from both.
-    const rosterDetails: Record<string, JsonLike> = {};
-    for (const field of ROSTER_FIELDS) {
-      const value = match[field];
-      rosterDetails[field] =
-        field === 'student_ids' ? this.projectStudentIds(value) : value ?? null;
-    }
+    const rosterDetails: StudentRosterDetailsJson = {
+      first_name: match['first_name'] ?? null,
+      middle_name: match['middle_name'] ?? null,
+      last_name: match['last_name'] ?? null,
+      birth_date: match['birth_date'] ?? null,
+      student_ids: this.projectStudentIds(match['student_ids']),
+      school_years: match['school_years'] ?? null,
+    };
 
-    return { ordinal, studentUniqueId, rosterDetails, score };
+    return {
+      ordinal,
+      student_unique_id: studentUniqueId,
+      roster_details: rosterDetails,
+      score,
+    };
   }
 
   /**
@@ -183,7 +187,7 @@ export class UnmatchedStudentRecordsPipe implements PipeTransform<unknown, Norma
    * else verbatim — coercing a malformed value would destroy the evidence a
    * reviewer needs. Order and duplicates are preserved.
    */
-  private projectStudentIds(value: JsonLike | undefined): JsonLike {
+  private projectStudentIds(value: JsonValue | undefined): JsonValue {
     if (!Array.isArray(value)) {
       return value ?? null;
     }
@@ -191,7 +195,7 @@ export class UnmatchedStudentRecordsPipe implements PipeTransform<unknown, Norma
       if (!isPlainObject(entry)) {
         return entry;
       }
-      const projected: Record<string, JsonLike> = {};
+      const projected: JsonObject = {};
       for (const field of STUDENT_ID_FIELDS) {
         projected[field] = entry[field] ?? null;
       }

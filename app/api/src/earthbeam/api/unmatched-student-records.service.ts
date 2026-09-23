@@ -5,22 +5,6 @@ import { NormalizedRecord } from './unmatched-student-records.pipe';
 
 export type IngestResult = { status: 'SUCCESS' } | { status: 'ERROR'; code: 'NOT_FOUND' };
 
-/**
- * The JSON payload handed to PostgreSQL. Scores travel as strings so the exact
- * decimal text of the parsed JSON number reaches numeric without a round trip
- * through a JS float or a Prisma Decimal.
- */
-interface SqlRecord {
-  correlation_id: string;
-  input_details: Record<string, unknown>;
-  suggestions: {
-    ordinal: number;
-    student_unique_id: string;
-    roster_details: Record<string, unknown>;
-    score: string;
-  }[];
-}
-
 @Injectable()
 export class UnmatchedStudentRecordsService {
   private readonly logger = new Logger(UnmatchedStudentRecordsService.name);
@@ -71,7 +55,10 @@ export class UnmatchedStudentRecordsService {
    * detecting.
    */
   private persist(runId: number, records: NormalizedRecord[]): Promise<IngestResult> {
-    const payload = JSON.stringify(records.map(toSqlRecord));
+    // The normalized batch is already in the shape the SQL below reads. Scores
+    // go through JSON.stringify once and PostgreSQL parses that text straight to
+    // numeric, so they never pass through a Prisma Decimal.
+    const payload = JSON.stringify(records);
 
     return this.prisma.$transaction(async (tx): Promise<IngestResult> => {
       // 1. Resolve the owning job. Ownership comes from the authenticated
@@ -138,14 +125,3 @@ export class UnmatchedStudentRecordsService {
     });
   }
 }
-
-const toSqlRecord = (record: NormalizedRecord): SqlRecord => ({
-  correlation_id: record.correlationId,
-  input_details: record.inputDetails,
-  suggestions: record.suggestions.map((s) => ({
-    ordinal: s.ordinal,
-    student_unique_id: s.studentUniqueId,
-    roster_details: s.rosterDetails,
-    score: String(s.score),
-  })),
-});

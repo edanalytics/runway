@@ -73,6 +73,8 @@ Schema changes follow this workflow (all commands run from `app/`):
 
 **Do not edit `schema.prisma` directly** — it is generated from the database via `prisma:pull-and-generate`. The SQL migration is the source of truth.
 
+The one exception is typing JSON columns with `prisma-json-types-generator`: add a `/// [TypeName]` line directly above the field, and declare `TypeName` in the `PrismaJson` namespace in `app/api/src/types/prisma.d.ts`. Re-introspection preserves these annotations on existing fields, so they survive `prisma:pull-and-generate`. Types shared with the frontend belong in `app/models`, aliased from `prisma.d.ts`.
+
 Migrations run automatically at the start of the integration test suite. If tests fail with schema errors, a missing or mismatched migration is the likely cause.
 
 ## Architecture

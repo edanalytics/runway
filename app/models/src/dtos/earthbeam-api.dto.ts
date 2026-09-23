@@ -1,6 +1,6 @@
 import { Expose } from 'class-transformer';
 import { $Enums } from '@prisma/client';
-import { makeSerializer } from '../utils';
+import { JsonValue, makeSerializer } from '../utils';
 import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class EarthbeamApiInitResponseDto {
@@ -124,3 +124,30 @@ export class EarthbeamApiIdentityServiceResponseDto {
 export const toEarthbeamApiIdentityServiceResponseDto = makeSerializer(
   EarthbeamApiIdentityServiceResponseDto
 );
+
+/*
+ * Stored JSON for the unmatched-student-records callback, kept in the
+ * snake_case the Executor and IDRS use so it can be sent back out verbatim
+ * (e.g. to re-query IDRS). Every field is JsonValue on purpose: details are
+ * preserved rather than validated, since malformed input may be exactly why a
+ * record needs review.
+ */
+
+/** student_input_details.input_details. Fields absent from the input stay absent. */
+export type StudentInputDetailsJson = {
+  first_name?: JsonValue;
+  last_name?: JsonValue;
+  birth_date?: JsonValue;
+  school_ids?: JsonValue;
+  student_ids?: JsonValue;
+};
+
+/** student_match_suggestion.roster_details. Fields absent from IDRS are null. */
+export type StudentRosterDetailsJson = {
+  first_name: JsonValue;
+  middle_name: JsonValue;
+  last_name: JsonValue;
+  birth_date: JsonValue;
+  student_ids: JsonValue;
+  school_years: JsonValue;
+};
