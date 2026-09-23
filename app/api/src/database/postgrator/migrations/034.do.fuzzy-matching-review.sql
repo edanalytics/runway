@@ -19,9 +19,6 @@ CREATE TABLE public.student_input_details (
     FOREIGN KEY (source_run_id, job_id) REFERENCES public.run (id, job_id) ON DELETE NO ACTION
 );
 
-CREATE INDEX student_input_details_source_run_id_idx
-    ON public.student_input_details (source_run_id);
-
 -- One row per (input group, run): the outcome of one matching attempt.
 -- Exists even when that attempt returned no suggestions.
 CREATE TABLE public.student_match_result (
@@ -35,8 +32,6 @@ CREATE TABLE public.student_match_result (
         REFERENCES public.student_input_details (job_id, correlation_id) ON DELETE CASCADE,
     FOREIGN KEY (run_id, job_id) REFERENCES public.run (id, job_id) ON DELETE CASCADE
 );
-
-CREATE INDEX student_match_result_run_id_idx ON public.student_match_result (run_id);
 
 -- One row per possible match returned for a result. (result_id, ordinal) is an
 -- immutable position within that result, not a student identity.

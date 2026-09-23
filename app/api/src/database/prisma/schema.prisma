@@ -473,7 +473,6 @@ model StudentInputDetails {
   studentMatchResult StudentMatchResult[]
 
   @@id([jobId, correlationId])
-  @@index([sourceRunId])
   @@map("student_input_details")
 }
 
@@ -489,7 +488,6 @@ model StudentMatchResult {
   studentMatchSuggestion StudentMatchSuggestion[]
 
   @@unique([jobId, correlationId, runId])
-  @@index([runId])
   @@map("student_match_result")
 }
 
