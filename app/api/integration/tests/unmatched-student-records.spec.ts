@@ -655,5 +655,21 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records — retries and 
         `
       ).rejects.toThrow();
     });
+
+    // source_run_id is provenance, not ownership. Cascading from it would let
+    // deleting one run take every other run's results for the job with it.
+    it('refuses to delete the establishing run but cascades from the job', async () => {
+      expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+      const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+      const tokenB = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runB.id });
+      expect((await post(runB.id, tokenB, [record()])).status).toBe(200);
+
+      await expect(prisma.run.delete({ where: { id: runA.id } })).rejects.toThrow();
+      expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(2);
+
+      await prisma.job.delete({ where: { id: jobA.id } });
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
+    });
   });
 });

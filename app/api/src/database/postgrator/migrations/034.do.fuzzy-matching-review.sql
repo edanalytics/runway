@@ -8,12 +8,15 @@ ALTER TABLE public.run
 CREATE TABLE public.student_input_details (
     job_id INTEGER NOT NULL REFERENCES public.job (id) ON DELETE CASCADE,
     correlation_id TEXT NOT NULL CHECK (length(correlation_id) BETWEEN 1 AND 128),
-    -- The run that first established this row.
+    -- The run that first established this row. Provenance, not ownership: the
+    -- job FK above owns the row, so deleting the job still cascades, while
+    -- deleting this one run is refused rather than taking every other run's
+    -- results for the job with it.
     source_run_id INTEGER NOT NULL,
     input_details JSONB NOT NULL CHECK (jsonb_typeof(input_details) = 'object'),
     created_on TIMESTAMP NOT NULL DEFAULT now(),
     PRIMARY KEY (job_id, correlation_id),
-    FOREIGN KEY (source_run_id, job_id) REFERENCES public.run (id, job_id) ON DELETE CASCADE
+    FOREIGN KEY (source_run_id, job_id) REFERENCES public.run (id, job_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX student_input_details_source_run_id_idx
