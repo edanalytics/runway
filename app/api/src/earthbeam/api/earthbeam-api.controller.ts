@@ -27,10 +27,8 @@ import {
   JsonValue,
   toEarthbeamApiIdentityServiceResponseDto,
   toEarthbeamApiJobResponseDto,
-  UnmatchedStudentRecordDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
-import { UnmatchedStudentRecordsPipe } from './unmatched-student-records.pipe';
 import { UnmatchedStudentRecordsService } from './unmatched-student-records.service';
 import { IdrsCredentialsService } from './idrs-credentials.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
@@ -345,6 +343,11 @@ export class EarthbeamApiController {
    * Students the Executor could not auto-match, with the evidence behind each
    * search, for later human review.
    *
+   * The body is not validated here: the database constraints on the rows it
+   * lands in are the validation, and a payload they reject rolls back and
+   * returns 500 — the Executor only distinguishes success from failure. See
+   * UnmatchedStudentRecordsService.
+   *
    * Job, partner and tenant come from the authenticated run, never from the
    * body. The whole batch commits or none of it does, and a retry is a
    * successful no-op: within a run the first report of a group wins, and new
@@ -357,11 +360,11 @@ export class EarthbeamApiController {
   @HttpCode(200)
   async reportUnmatchedStudentRecords(
     @Param('runId', ParseIntPipe) runId: number,
-    @Body(UnmatchedStudentRecordsPipe) records: UnmatchedStudentRecordDto[]
+    @Body() body: unknown
   ) {
     let result;
     try {
-      result = await this.unmatchedStudentRecords.ingest(runId, records);
+      result = await this.unmatchedStudentRecords.ingest(runId, body);
     } catch {
       // The service has already logged this safely. Anything more specific
       // risks quoting student details back to the caller.

@@ -156,25 +156,23 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
     });
 
-    it('discards unrecognized keys, including nested correlation ids', async () => {
+    it('stores what the Executor sends, including keys the app does not read yet', async () => {
+      const candidate = {
+        first_name: 'Ada',
+        correlation_id: 'nested',
+        added_by_idrs_later: 'kept',
+      };
       const res = await post(runA.id, tokenA, [
         {
-          correlation_id: 'corr-unknown-keys',
-          candidate: {
-            first_name: 'Ada',
-            // Recognized fields absent from the input stay absent — missing is
-            // not the same as null on the candidate side.
-            correlation_id: 'nested-should-be-dropped',
-            unexpected: 'drop me',
-          },
+          correlation_id: 'corr-as-sent',
+          candidate,
           matches: [
             {
               score: 1,
               student_unique_id: 'SUID-1',
               first_name: 'Ada',
-              correlation_id: 'nested-should-be-dropped',
-              unexpected: 'drop me',
-              student_ids: [{ id_type: 'state', id_value: 'ST-1', unexpected: 'drop me' }],
+              added_by_idrs_later: 'kept',
+              student_ids: ['bare-string', { id_type: 'state', extra: 'kept' }],
             },
           ],
         },
@@ -183,107 +181,100 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       expect(res.status).toBe(200);
 
       const input = await prisma.studentInputDetails.findUniqueOrThrow({
-        where: { jobId_correlationId: { jobId: jobA.id, correlationId: 'corr-unknown-keys' } },
+        where: { jobId_correlationId: { jobId: jobA.id, correlationId: 'corr-as-sent' } },
       });
-      expect(input.inputDetails).toEqual({ first_name: 'Ada' });
+      expect(input.inputDetails).toEqual(candidate);
 
       const suggestion = await prisma.studentMatchSuggestion.findFirstOrThrow({
-        where: { studentMatchResult: { jobId: jobA.id, correlationId: 'corr-unknown-keys' } },
+        where: { studentMatchResult: { jobId: jobA.id, correlationId: 'corr-as-sent' } },
       });
-      // Missing roster fields normalize to null; IDRS gives absence no distinct
-      // meaning on the roster side.
+      // The match as sent, minus the two fields stored as columns. Fields the
+      // match omitted stay omitted.
       expect(suggestion.rosterDetails).toEqual({
         first_name: 'Ada',
-        middle_name: null,
-        last_name: null,
-        birth_date: null,
-        student_ids: [{ id_type: 'state', id_value: 'ST-1' }],
-        school_years: null,
+        added_by_idrs_later: 'kept',
+        student_ids: ['bare-string', { id_type: 'state', extra: 'kept' }],
       });
-    });
-
-    it('keeps malformed roster student ids verbatim rather than reshaping them', async () => {
-      const res = await post(runA.id, tokenA, [
-        {
-          correlation_id: 'corr-odd-ids',
-          candidate: { first_name: 'Ada' },
-          matches: [
-            {
-              score: 1,
-              student_unique_id: 'SUID-1',
-              student_ids: ['bare-string', 7, null, { id_type: 'state' }],
-            },
-          ],
-        },
-      ]);
-
-      expect(res.status).toBe(200);
-      const suggestion = await prisma.studentMatchSuggestion.findFirstOrThrow({
-        where: { studentMatchResult: { jobId: jobA.id, correlationId: 'corr-odd-ids' } },
-      });
-      // Only entries with the documented object shape are projected; anything
-      // else is evidence and survives as sent.
-      expect(suggestion.rosterDetails.student_ids).toEqual([
-        'bare-string',
-        7,
-        null,
-        { id_type: 'state', id_value: null },
-      ]);
     });
   });
 
-  describe('validation', () => {
+  // Nothing is validated in the app: the database constraints on the rows a
+  // payload lands in are the validation. Whatever they reject must leave
+  // nothing written and quote no student value back, in the response or the
+  // log — a constraint violation's detail quotes the failing row.
+  describe('payloads the database rejects', () => {
     const candidate = { first_name: SENTINEL };
     const match = { score: 1, student_unique_id: 'SUID-1' };
+    let logs: string[];
+    let logSpies: jest.SpyInstance[];
+
+    beforeEach(() => {
+      logs = [];
+      const capture = (message: unknown) => {
+        logs.push(String(message));
+      };
+      logSpies = [
+        jest.spyOn(Logger.prototype, 'log').mockImplementation(capture),
+        jest.spyOn(Logger.prototype, 'warn').mockImplementation(capture),
+        jest.spyOn(Logger.prototype, 'error').mockImplementation(capture),
+      ];
+    });
+    afterEach(() => logSpies.forEach((spy) => spy.mockRestore()));
 
     it.each([
       ['a top-level object instead of an array', { correlation_id: 'c', candidate, matches: [] }],
-      ['a null candidate', [{ correlation_id: 'c', candidate: null, matches: [] }]],
-      ['an array candidate', [{ correlation_id: 'c', candidate: [], matches: [] }]],
-      ['a missing candidate', [{ correlation_id: 'c', matches: [] }]],
-      ['non-array matches', [{ correlation_id: 'c', candidate, matches: {} }]],
-      ['a primitive match', [{ correlation_id: 'c', candidate, matches: ['nope'] }]],
       ['a primitive record', [5]],
       ['a null record', [null]],
       ['a missing correlation id', [{ candidate, matches: [match] }]],
       ['an empty correlation id', [{ correlation_id: '', candidate, matches: [match] }]],
-      [
-        'a missing student id',
-        [{ correlation_id: 'c', candidate, matches: [{ score: 1 }] }],
-      ],
+      ['a null candidate', [{ correlation_id: 'c', candidate: null, matches: [] }]],
+      ['an array candidate', [{ correlation_id: 'c', candidate: [], matches: [] }]],
+      ['a missing candidate', [{ correlation_id: 'c', matches: [] }]],
+      // These two would otherwise be stored as "IDRS found nothing".
+      ['missing matches', [{ correlation_id: 'c', candidate }]],
+      ['null matches', [{ correlation_id: 'c', candidate, matches: null }]],
+      ['non-array matches', [{ correlation_id: 'c', candidate, matches: {} }]],
+      ['a primitive match', [{ correlation_id: 'c', candidate, matches: ['nope'] }]],
+      ['a missing student id', [{ correlation_id: 'c', candidate, matches: [{ score: 1 }] }]],
       [
         'an empty student id',
         [{ correlation_id: 'c', candidate, matches: [{ score: 1, student_unique_id: '' }] }],
       ],
       [
         'a nonnumeric score',
-        [
-          {
-            correlation_id: 'c',
-            candidate,
-            matches: [{ score: 'high', student_unique_id: 'SUID-1' }],
-          },
-        ],
+        [{ correlation_id: 'c', candidate, matches: [{ score: 'high', student_unique_id: 'S' }] }],
       ],
+      // Both claim ordinal 0 under the one result, so their matches cannot mix.
       [
-        'duplicate correlation ids in one request',
+        'two records sharing a correlation id, each with matches',
         [
-          { correlation_id: 'dupe', candidate, matches: [] },
-          { correlation_id: 'dupe', candidate, matches: [] },
+          { correlation_id: 'dupe', candidate, matches: [match] },
+          { correlation_id: 'dupe', candidate, matches: [match] },
         ],
       ],
-    ])('rejects %s with 400 and writes nothing', async (_label, body) => {
+    ])('rejects %s and writes nothing', async (_label, body) => {
       const res = await post(runA.id, tokenA, body);
 
-      expect(res.status).toBe(400);
-      expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
+      expect(res.status).toBe(500);
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
+      expect(logs.join('\n')).not.toContain(SENTINEL);
+    });
+
+    it("logs the database's error code as the diagnosis", async () => {
+      const res = await post(runA.id, tokenA, [{ correlation_id: '', candidate, matches: [] }]);
+
+      expect(res.status).toBe(500);
+      // 23514: check_violation, from the correlation id length CHECK.
+      expect(logs.join('\n')).toContain('sqlstate=23514');
     });
 
     // Sent explicitly as JSON: superagent defaults a string body to
-    // x-www-form-urlencoded, which Express would parse into an object and so
-    // never exercise the pipe's "a JSON string is not an array" branch.
-    it('rejects a JSON string body rather than iterating its characters', async () => {
+    // x-www-form-urlencoded, which Express would parse into an object instead.
+    // It never reaches the handler: the JSON body parser runs in strict mode by
+    // default, accepting only objects and arrays at the top level.
+    it('rejects a JSON string body before it reaches the handler', async () => {
       const res = await request(app.getHttpServer())
         .post(endpointFor(runA.id))
         .set('Authorization', `Bearer ${tokenA}`)
@@ -295,8 +286,7 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
     });
 
     it('accepts a 128-character correlation id and rejects 129 characters', async () => {
-      // Multibyte on purpose: PostgreSQL's length() counts characters, so the
-      // boundary must be measured in code points, not UTF-16 units or bytes.
+      // Multibyte on purpose: PostgreSQL's length() counts characters, not bytes.
       const at = (n: number) => 'é'.repeat(n);
 
       const ok = await post(runA.id, tokenA, [
@@ -307,26 +297,9 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       const tooLong = await post(runA.id, tokenA, [
         { correlation_id: at(129), candidate: { first_name: 'Ada' }, matches: [] },
       ]);
-      expect(tooLong.status).toBe(400);
+      expect(tooLong.status).toBe(500);
 
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
-    });
-
-    // A heart plus its variation selector is two code points to PostgreSQL but
-    // one character to class-validator's @Length, which would pass 65 of them
-    // and leave the database CHECK to fail with a 500.
-    it('counts a variation selector as its own character, as PostgreSQL does', async () => {
-      const hearts = (n: number) => '\u2764\uFE0F'.repeat(n);
-
-      const ok = await post(runA.id, tokenA, [
-        { correlation_id: hearts(64), candidate: { first_name: 'Ada' }, matches: [] },
-      ]);
-      expect(ok.status).toBe(200);
-
-      const tooLong = await post(runA.id, tokenA, [
-        { correlation_id: hearts(65), candidate: { first_name: 'Ada' }, matches: [] },
-      ]);
-      expect(tooLong.status).toBe(400);
     });
   });
 

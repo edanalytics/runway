@@ -231,20 +231,22 @@ The config and secret steps are owned by the cloud engineering team and happen o
 
 Students IDRS could not resolve are reported to `POST /api/earthbeam/jobs/:runId/unmatched-student-records`, advertised as `appUrls.unmatchedStudentRecords` in the same branch as the identity service — a mode that uses IDRS is a mode that can leave students unresolved. The older `unmatchedIds` callback is unrelated and unchanged.
 
-The body is a JSON array. Each entry is one input-details group: a `correlation_id` (opaque to the app, 1–128 characters), a `candidate` object of input details, and a `matches` array of possible matches, which may be empty. Recognized candidate fields are `first_name`, `last_name`, `birth_date`, `school_ids` and `student_ids`; recognized match fields are `score`, `student_unique_id`, `first_name`, `middle_name`, `last_name`, `birth_date`, `student_ids` and `school_years`. Unknown keys are accepted and discarded, including nested correlation ids.
+The body is a JSON array. Each entry is one input-details group: a `correlation_id` (opaque to the app, 1–128 characters), a `candidate` object of input details, and a `matches` array of possible matches, which may be empty. Each match carries a `student_unique_id` and a numeric `score`, plus roster details. The fields the app knows about today are typed in `StudentInputDetailsJson` and `StudentRosterDetailsJson` (`app/models`).
 
-Only structure is validated — the array shape, correlation id length, a nonempty `student_unique_id` and a numeric `score`. Names and dates are stored verbatim, because malformed details may be exactly why a record needs review. Candidate fields keep missing distinct from null; roster fields normalize missing to null, since IDRS gives roster absence no separate meaning.
+**Everything is stored exactly as the Executor sent it**, including keys the app does not read yet, so a field IDRS adds later is already stored when the app starts using it. Nothing is normalized: names and dates are kept verbatim, since malformed details may be exactly why a record needs review, and a field the Executor omits stays omitted.
+
+**The database is the validation; the app checks nothing.** Every field that lands in a column is guarded by that column's constraints: `correlation_id` by `NOT NULL` and a 1–128 character CHECK, `candidate` by `NOT NULL` and an object CHECK, and each match's `student_unique_id` and `score` by theirs. A body that isn't an array of objects is rejected by the SQL that reads it. The one field that lands in no column, the `matches` array itself, is guarded in the insert: a missing or null `matches` would otherwise be stored as "IDRS found nothing". Any rejection rolls the whole request back. Failures are logged with PostgreSQL's SQLSTATE and never its message, since a constraint violation's detail quotes the failing row.
 
 Three tables hold the result. `student_input_details` is keyed by `(job_id, correlation_id)`; `student_match_result` is one row per input group per run, and exists even when that run returned no suggestions; `student_match_suggestion` is keyed by `(result_id, ordinal)`, an immutable position within one result rather than a student identity. Job, partner and tenant always come from the authenticated run, never from the body — composite `(run_id, job_id)` foreign keys enforce that at the schema level.
 
 | Status | Meaning |
 |---|---|
 | 200 | Committed, or a retry that changed nothing. Empty body |
-| 400 | Malformed payload, or duplicate correlation ids within one request |
+| 400 | Body is not JSON, or is a JSON primitive (the body parser's strict mode) |
 | 401 / 403 | Missing token, or a token issued for a different run |
 | 404 | No such run |
 | 413 | Body exceeded the JSON parser limit — currently Nest's default, pending the agreed cap (see below) |
-| 500 | Persistence failed; nothing was written |
+| 500 | The database rejected the payload, or persistence failed; nothing was written |
 
 Retries are expected and may be rebatched differently, and are no-ops: within a run, **the first report of a group wins**. A re-send is accepted and ignored, including one carrying different suggestions under the same correlation id — it is not rejected, and nothing already stored is rewritten. New evidence for the same input is expected to arrive as a *new run*, which gets its own result row; that is how history is recorded.
 
