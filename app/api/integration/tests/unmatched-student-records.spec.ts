@@ -201,6 +201,35 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
         school_years: null,
       });
     });
+
+    it('keeps malformed roster student ids verbatim rather than reshaping them', async () => {
+      const res = await post(runA.id, tokenA, [
+        {
+          correlation_id: 'corr-odd-ids',
+          candidate: { first_name: 'Ada' },
+          matches: [
+            {
+              score: 1,
+              student_unique_id: 'SUID-1',
+              student_ids: ['bare-string', 7, null, { id_type: 'state' }],
+            },
+          ],
+        },
+      ]);
+
+      expect(res.status).toBe(200);
+      const suggestion = await prisma.studentMatchSuggestion.findFirstOrThrow({
+        where: { studentMatchResult: { jobId: jobA.id, correlationId: 'corr-odd-ids' } },
+      });
+      // Only entries with the documented object shape are projected; anything
+      // else is evidence and survives as sent.
+      expect(suggestion.rosterDetails.student_ids).toEqual([
+        'bare-string',
+        7,
+        null,
+        { id_type: 'state', id_value: null },
+      ]);
+    });
   });
 
   describe('validation', () => {
@@ -214,6 +243,8 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       ['a missing candidate', [{ correlation_id: 'c', matches: [] }]],
       ['non-array matches', [{ correlation_id: 'c', candidate, matches: {} }]],
       ['a primitive match', [{ correlation_id: 'c', candidate, matches: ['nope'] }]],
+      ['a primitive record', [5]],
+      ['a null record', [null]],
       ['a missing correlation id', [{ candidate, matches: [match] }]],
       ['an empty correlation id', [{ correlation_id: '', candidate, matches: [match] }]],
       [
