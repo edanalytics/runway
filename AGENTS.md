@@ -235,7 +235,9 @@ The body is a JSON array of `EarthbeamApiStudentMatchResultDto` (`app/models`): 
 
 Three tables hold it: `student_input_details`, keyed by `(job_id, correlation_id)`; `student_match_result`, one row per input group per run, present even when the run found no suggestions; and `student_match_suggestion`, keyed by `(result_id, ordinal)`, a position within a result rather than a student identity. Job, partner and tenant come from the authenticated run, never the body, and composite `(run_id, job_id)` foreign keys enforce it.
 
-**Validation.** The DTO checks the shape, and the columns the fields land in back it up. Two rules live in only one place. That `matches` is an array is the DTO's alone, since the array lands in no column; without the check, a missing `matches` would be stored as "IDRS found nothing". Duplicate correlation ids within a request are the database's alone, since a per-record DTO cannot see across records: they collapse to one input and one result, and two non-empty match lists collide on the suggestion primary key. Any rejection rolls back the whole request.
+**Validation.** The DTO checks the shape, and the columns the fields land in back it up. One rule is the DTO's alone: that `matches` is an array, since the array lands in no column; without the check, a missing `matches` would be stored as "IDRS found nothing". Any rejection rolls back the whole request.
+
+**Duplicate correlation ids** within a request aren't checked: the DTO can't see across records, and the Executor sends one entry per correlation id. If it ever sent duplicates, a shared id means the same input and therefore the same matches. Duplicates without matches collapse into one input row and one result. Duplicates with matches collide on the suggestion primary key, so the request fails with nothing written. Stored data could be wrong only if a correlation id were attached to the wrong input or matches at the source, which the app doesn't guard against.
 
 | Status | Meaning |
 |---|---|
@@ -244,11 +246,11 @@ Three tables hold it: `student_input_details`, keyed by `(job_id, correlation_id
 | 401 / 403 | Missing token, or a token for a different run |
 | 404 | No such run |
 | 413 | Body over the JSON parser limit: Nest's default, pending the agreed cap (below) |
-| 500 | The database rejected the payload, or persistence failed. Nothing was written. The app logs the SQLSTATE, never the message, since a constraint violation's detail quotes the failing row |
+| 500 | The database rejected the payload, or persistence failed. Nothing was written. The app logs the SQLSTATE, never the message, since a constraint violation's detail quotes the failing row. A payload containing a NUL character (`\u0000`) always lands here, since PostgreSQL's `jsonb` cannot store one; retrying the same bytes fails the same way |
 
 **Retries and runs.** A retry re-sends exactly what was already sent; the Executor never re-queries IDRS for a group it has reported. So a retry is a no-op: the first report of a group wins, and nothing stored is rewritten. A job's first run is the one that extracts input details and calls IDRS, so it establishes every input row. Results are keyed by run so that a later search of the same input, such as rematching (not yet built), adds history rather than overwriting it.
 
-Each request is one transaction, for atomicity: a failure between the three inserts would otherwise leave a result with no suggestions, which looks like a genuine no-match and which a retry cannot repair. No row lock is taken: only a job's first run reports match results, and its batches arrive in sequence.
+Each request is one transaction, for atomicity: a failure between the three inserts would otherwise leave a result with no suggestions, which looks like a genuine no-match and which a retry cannot repair. No row lock is taken: every insert is `ON CONFLICT DO NOTHING` against a unique key, so overlapping requests, such as a timed-out retry racing its original, still store one consistent dataset.
 
 This endpoint never changes run state; acting on a failure is the Executor's job. In `fuzzy` it fails the run; in `id_based_fuzzy_background` it stops only the background processing. That mode is watched through app and Executor logs, with no background-failure UI.
 

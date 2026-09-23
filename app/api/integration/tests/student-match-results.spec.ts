@@ -223,7 +223,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
 
     // No app check needed: both match lists claim ordinal 0 under one result
     // and violate the suggestion primary key.
-    it('lets the database refuse two records that share a correlation id', async () => {
+    it('lets the database refuse two records that share a correlation id and both carry matches', async () => {
       const logs = captureErrorLogs();
       try {
         const res = await post(runA.id, [rejected(), rejected()]);
@@ -323,16 +323,28 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
     // The Executor re-sends exactly what it sent, though not necessarily in the
     // same batches.
     it('ignores a retry within the same run, however it is batched', async () => {
-      const batch = [record(), record({ correlation_id: 'corr-2', matches: [] })];
-      expect((await post(runA.id, batch)).status).toBe(201);
+      const [stored, storedEmpty, undelivered] = [
+        record(),
+        record({ correlation_id: 'corr-2', matches: [] }),
+        record({ correlation_id: 'corr-3' }),
+      ];
+      expect((await post(runA.id, [stored, storedEmpty])).status).toBe(201);
       const before = await snapshot();
 
-      for (const retry of [[batch[1]], [batch[0]]]) {
+      // Rebatched: a stored group alongside one not yet delivered, then another alone.
+      for (const retry of [[stored, undelivered], [storedEmpty]]) {
         expect((await post(runA.id, retry)).status).toBe(201);
       }
 
-      // Nothing is duplicated or rewritten: ids and timestamps survive.
-      expect(await snapshot()).toEqual(before);
+      // Stored groups are neither duplicated nor rewritten; the new one is added.
+      const after = await snapshot();
+      expect(after.inputs.slice(0, 2)).toEqual(before.inputs);
+      expect(after.results.slice(0, 2)).toEqual(before.results);
+      expect(after.results.map((r) => [r.correlationId, r.studentMatchSuggestion.length])).toEqual([
+        ['corr-1', 1],
+        ['corr-2', 0],
+        ['corr-3', 1],
+      ]);
     });
 
     // Results are keyed by run, so a later search of the same input adds
