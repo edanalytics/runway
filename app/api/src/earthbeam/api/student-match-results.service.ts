@@ -73,53 +73,50 @@ export class StudentMatchResultsService {
       }
       const { jobId } = run;
 
-      // 2. Insert input details for groups this job has not seen before.
+      // 2. Store each group's input details.
       const inputs = await tx.$executeRaw`
         INSERT INTO public.student_input_details
           (job_id, correlation_id, source_run_id, input_details)
-        SELECT ${jobId}, e.correlation_id, ${runId}, e.candidate
+        SELECT ${jobId}, entry.correlation_id, ${runId}, entry.candidate
         FROM jsonb_to_recordset(${payload}::jsonb)
-          AS e(correlation_id text, candidate jsonb)
+          AS entry(correlation_id text, candidate jsonb)
         ON CONFLICT (job_id, correlation_id) DO NOTHING
       `;
 
-      // 3. One result per (input group, run). A retry inserts none, so step 4
-      // cannot give an already stored result a second set of suggestions.
-      const inserted = await tx.$queryRaw<{ id: bigint; correlation_id: string }[]>`
+      // 3. Record this run's result for each group, getting back the ids its
+      // suggestions will reference. (A retry's results already exist, so none
+      // come back and step 4 adds nothing.)
+      const results = await tx.$queryRaw<{ id: bigint; correlation_id: string }[]>`
         INSERT INTO public.student_match_result (job_id, correlation_id, run_id)
-        SELECT ${jobId}, e.correlation_id, ${runId}
-        FROM jsonb_to_recordset(${payload}::jsonb) AS e(correlation_id text)
+        SELECT ${jobId}, entry.correlation_id, ${runId}
+        FROM jsonb_to_recordset(${payload}::jsonb) AS entry(correlation_id text)
         ON CONFLICT (job_id, correlation_id, run_id) DO NOTHING
         RETURNING id, correlation_id
       `;
+      const resultIds = JSON.stringify(
+        results.map((r) => ({ correlation_id: r.correlation_id, result_id: r.id.toString() }))
+      );
 
-      // 4. Suggestions for new results only. The ordinal is the match's
-      // zero-based position; roster details are the match minus its two column
-      // fields. Two records sharing a correlation id cannot mix their matches:
-      // both claim ordinal 0 under the one result and violate its primary key.
-      let suggestions = 0;
-      if (inserted.length > 0) {
-        const newResults = JSON.stringify(
-          inserted.map((r) => ({ correlation_id: r.correlation_id, result_id: r.id.toString() }))
-        );
-        suggestions = await tx.$executeRaw`
-          INSERT INTO public.student_match_suggestion
-            (result_id, ordinal, student_unique_id, roster_details, score)
-          SELECT n.result_id,
-                 m.ordinality - 1,
-                 m.match->>'student_unique_id',
-                 m.match - 'student_unique_id' - 'score',
-                 (m.match->>'score')::numeric
-          FROM jsonb_to_recordset(${payload}::jsonb)
-            AS e(correlation_id text, matches jsonb)
-          JOIN jsonb_to_recordset(${newResults}::jsonb)
-            AS n(correlation_id text, result_id bigint)
-            ON n.correlation_id = e.correlation_id
-          CROSS JOIN LATERAL jsonb_array_elements(e.matches) WITH ORDINALITY AS m(match, ordinality)
-        `;
-      }
+      // 4. Store each result's suggestions. A match's position in `matches` is
+      // its ordinal, and the match minus its two column fields is its roster
+      // details.
+      const suggestions = await tx.$executeRaw`
+        INSERT INTO public.student_match_suggestion
+          (result_id, ordinal, student_unique_id, roster_details, score)
+        SELECT ids.result_id,
+               m.ordinality - 1,
+               m.match->>'student_unique_id',
+               m.match - 'student_unique_id' - 'score',
+               (m.match->>'score')::numeric
+        FROM jsonb_to_recordset(${payload}::jsonb)
+          AS entry(correlation_id text, matches jsonb)
+        JOIN jsonb_to_recordset(${resultIds}::jsonb)
+          AS ids(correlation_id text, result_id bigint)
+          ON ids.correlation_id = entry.correlation_id
+        CROSS JOIN LATERAL jsonb_array_elements(entry.matches) WITH ORDINALITY AS m(match, ordinality)
+      `;
 
-      return { status: 'SUCCESS', data: { inputs, results: inserted.length, suggestions } };
+      return { status: 'SUCCESS', data: { inputs, results: results.length, suggestions } };
     });
   }
 }
