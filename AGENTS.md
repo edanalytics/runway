@@ -231,22 +231,22 @@ The config and secret steps are owned by the cloud engineering team and happen o
 
 Students IDRS could not resolve are reported to `POST /api/earthbeam/jobs/:runId/unmatched-student-records`, advertised as `appUrls.unmatchedStudentRecords` in the same branch as the identity service — a mode that uses IDRS is a mode that can leave students unresolved. The older `unmatchedIds` callback is unrelated and unchanged.
 
-The body is a JSON array. Each entry is one input-details group: a `correlation_id` (opaque to the app, 1–128 characters), a `candidate` object of input details, and a `matches` array of possible matches, which may be empty. Each match carries a `student_unique_id` and a numeric `score`, plus roster details. The fields the app knows about today are typed in `StudentInputDetailsJson` and `StudentRosterDetailsJson` (`app/models`).
+The body is a JSON array. Each entry is one input-details group: a `correlation_id` (opaque to the app, 1–128 characters), a `candidate` object of input details, and a `matches` array of possible matches, which may be empty. Each match carries a `student_unique_id` and a numeric `score`, plus roster details. `UnmatchedStudentRecordDto` (`app/models`) describes and validates this shape; the stored JSON is typed by `StudentInputDetailsJson` and `StudentRosterDetailsJson`.
 
 **Everything is stored exactly as the Executor sent it**, including keys the app does not read yet, so a field IDRS adds later is already stored when the app starts using it. Nothing is normalized: names and dates are kept verbatim, since malformed details may be exactly why a record needs review, and a field the Executor omits stays omitted.
 
-**The database is the validation; the app checks nothing.** Every field that lands in a column is guarded by that column's constraints: `correlation_id` by `NOT NULL` and a 1–128 character CHECK, `candidate` by `NOT NULL` and an object CHECK, and each match's `student_unique_id` and `score` by theirs. A body that isn't an array of objects is rejected by the SQL that reads it. The one field that lands in no column, the `matches` array itself, is guarded in the insert: a missing or null `matches` would otherwise be stored as "IDRS found nothing". Any rejection rolls the whole request back. Failures are logged with PostgreSQL's SQLSTATE and never its message, since a constraint violation's detail quotes the failing row.
+**The DTO validates the shape; the database constraints back it up.** The DTO rejects a payload that isn't an array of records with a correlation id, a candidate object and a matches array, or whose matches lack a nonempty `student_unique_id` or a numeric `score`. The same fields are also guarded by the columns they land in, so the schema holds on its own. Two rules live in only one place. `matches` being an array is the DTO's alone, since the array itself lands in no column; without it, a missing `matches` would be stored as "IDRS found nothing". Duplicate correlation ids within a request are the database's alone, since a per-record DTO cannot see across records: they collapse to one input and one result, and two non-empty match lists both claim ordinal 0 and violate the suggestion primary key, so they can never mix. Any rejection rolls the whole request back. Database failures are logged with PostgreSQL's SQLSTATE and never its message, since a constraint violation's detail quotes the failing row.
 
 Three tables hold the result. `student_input_details` is keyed by `(job_id, correlation_id)`; `student_match_result` is one row per input group per run, and exists even when that run returned no suggestions; `student_match_suggestion` is keyed by `(result_id, ordinal)`, an immutable position within one result rather than a student identity. Job, partner and tenant always come from the authenticated run, never from the body — composite `(run_id, job_id)` foreign keys enforce that at the schema level.
 
 | Status | Meaning |
 |---|---|
 | 200 | Committed, or a retry that changed nothing. Empty body |
-| 400 | Body is not JSON, or is a JSON primitive (the body parser's strict mode) |
+| 400 | Payload does not match `UnmatchedStudentRecordDto`, or body is not a JSON object or array |
 | 401 / 403 | Missing token, or a token issued for a different run |
 | 404 | No such run |
 | 413 | Body exceeded the JSON parser limit — currently Nest's default, pending the agreed cap (see below) |
-| 500 | The database rejected the payload, or persistence failed; nothing was written |
+| 500 | The database rejected the payload (e.g. duplicate correlation ids), or persistence failed; nothing was written |
 
 Retries are expected and may be rebatched differently, and are no-ops: within a run, **the first report of a group wins**. A re-send is accepted and ignored, including one carrying different suggestions under the same correlation id — it is not rejected, and nothing already stored is rewritten. New evidence for the same input is expected to arrive as a *new run*, which gets its own result row; that is how history is recorded.
 

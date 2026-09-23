@@ -198,11 +198,10 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
     });
   });
 
-  // Nothing is validated in the app: the database constraints on the rows a
-  // payload lands in are the validation. Whatever they reject must leave
-  // nothing written and quote no student value back, in the response or the
-  // log — a constraint violation's detail quotes the failing row.
-  describe('payloads the database rejects', () => {
+  // Rejected payloads must leave nothing written and quote no student value
+  // back, in the response or the log — a database constraint violation's
+  // detail quotes the failing row.
+  describe('rejected payloads', () => {
     const candidate = { first_name: SENTINEL };
     const match = { score: 1, student_unique_id: 'SUID-1' };
     let logs: string[];
@@ -221,6 +220,13 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
     });
     afterEach(() => logSpies.forEach((spy) => spy.mockRestore()));
 
+    const expectNothingWrittenOrLeaked = async (res: request.Response) => {
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
+      expect(logs.join('\n')).not.toContain(SENTINEL);
+    };
+
     it.each([
       ['a top-level object instead of an array', { correlation_id: 'c', candidate, matches: [] }],
       ['a primitive record', [5]],
@@ -230,7 +236,7 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       ['a null candidate', [{ correlation_id: 'c', candidate: null, matches: [] }]],
       ['an array candidate', [{ correlation_id: 'c', candidate: [], matches: [] }]],
       ['a missing candidate', [{ correlation_id: 'c', matches: [] }]],
-      // These two would otherwise be stored as "IDRS found nothing".
+      // Without a check, these two would be stored as "IDRS found nothing".
       ['missing matches', [{ correlation_id: 'c', candidate }]],
       ['null matches', [{ correlation_id: 'c', candidate, matches: null }]],
       ['non-array matches', [{ correlation_id: 'c', candidate, matches: {} }]],
@@ -244,30 +250,28 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
         'a nonnumeric score',
         [{ correlation_id: 'c', candidate, matches: [{ score: 'high', student_unique_id: 'S' }] }],
       ],
-      // Both claim ordinal 0 under the one result, so their matches cannot mix.
-      [
-        'two records sharing a correlation id, each with matches',
-        [
-          { correlation_id: 'dupe', candidate, matches: [match] },
-          { correlation_id: 'dupe', candidate, matches: [match] },
-        ],
-      ],
-    ])('rejects %s and writes nothing', async (_label, body) => {
+    ])('rejects %s with 400', async (_label, body) => {
       const res = await post(runA.id, tokenA, body);
 
-      expect(res.status).toBe(500);
-      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
-      expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
-      expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
-      expect(logs.join('\n')).not.toContain(SENTINEL);
+      expect(res.status).toBe(400);
+      await expectNothingWrittenOrLeaked(res);
+      expect(logs.join('\n')).toContain('rejected payload');
     });
 
-    it("logs the database's error code as the diagnosis", async () => {
-      const res = await post(runA.id, tokenA, [{ correlation_id: '', candidate, matches: [] }]);
+    // Duplicates span records, which a per-record DTO cannot see, and need no
+    // check of their own: they collapse to one input and one result, and two
+    // non-empty match lists both claim ordinal 0 under it and violate the
+    // suggestion primary key, so they can never mix.
+    it('lets the database refuse two records that share a correlation id', async () => {
+      const res = await post(runA.id, tokenA, [
+        { correlation_id: 'dupe', candidate, matches: [match] },
+        { correlation_id: 'dupe', candidate, matches: [match] },
+      ]);
 
       expect(res.status).toBe(500);
-      // 23514: check_violation, from the correlation id length CHECK.
-      expect(logs.join('\n')).toContain('sqlstate=23514');
+      await expectNothingWrittenOrLeaked(res);
+      // 23505: unique_violation. The SQLSTATE is logged as the diagnosis.
+      expect(logs.join('\n')).toContain('sqlstate=23505');
     });
 
     // Sent explicitly as JSON: superagent defaults a string body to
@@ -297,7 +301,7 @@ describe('POST /earthbeam/jobs/:runId/unmatched-student-records', () => {
       const tooLong = await post(runA.id, tokenA, [
         { correlation_id: at(129), candidate: { first_name: 'Ada' }, matches: [] },
       ]);
-      expect(tooLong.status).toBe(500);
+      expect(tooLong.status).toBe(400);
 
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
     });

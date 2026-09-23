@@ -1,7 +1,17 @@
-import { Expose } from 'class-transformer';
+import { Expose, Type } from 'class-transformer';
 import { $Enums } from '@prisma/client';
 import { JsonValue, makeSerializer } from '../utils';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Length,
+  ValidateNested,
+} from 'class-validator';
 
 export class EarthbeamApiInitResponseDto {
   @Expose()
@@ -155,3 +165,54 @@ export type StudentRosterDetailsJson = {
   student_ids?: JsonValue;
   school_years?: JsonValue;
 };
+
+/*
+ * Request body of the unmatched-student-records callback: an array of
+ * UnmatchedStudentRecordDto, validated item by item.
+ *
+ * The DTOs describe and validate the payload's shape. Values are stored exactly
+ * as sent: unknown keys are kept rather than stripped and nothing is
+ * normalized, so fields IDRS adds later are already stored when the app starts
+ * reading them. Student details are accepted rather than validated, since
+ * malformed input may be exactly why a record needs review.
+ */
+
+/**
+ * A possible match from IDRS. Everything but student_unique_id and score is
+ * stored as student_match_suggestion.roster_details.
+ */
+export class UnmatchedStudentMatchDto implements StudentRosterDetailsJson {
+  @IsString()
+  @IsNotEmpty()
+  student_unique_id: string;
+
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  score: number;
+
+  // Roster details: accepted as sent.
+  first_name?: JsonValue;
+  middle_name?: JsonValue;
+  last_name?: JsonValue;
+  birth_date?: JsonValue;
+  student_ids?: JsonValue;
+  school_years?: JsonValue;
+}
+
+export class UnmatchedStudentRecordDto {
+  // The database's CHECK is authoritative. @Length counts a character plus a
+  // variation selector as one where PostgreSQL counts two, so a rare id this
+  // passes can still fail the CHECK; to the Executor both are failures.
+  @IsString()
+  @Length(1, 128)
+  correlation_id: string;
+
+  /** Input details, stored as student_input_details.input_details. */
+  @IsObject()
+  candidate: StudentInputDetailsJson;
+
+  /** Possibly empty: IDRS searched and suggested nothing. */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UnmatchedStudentMatchDto)
+  matches: UnmatchedStudentMatchDto[];
+}
