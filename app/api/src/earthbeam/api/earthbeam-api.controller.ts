@@ -354,14 +354,9 @@ export class EarthbeamApiController {
    * established it. Delivery failure is the Executor's to act on — this
    * endpoint never touches run state.
    *
-   * ParseArrayPipe validates the top-level array one item at a time. Built for
-   * query strings, it would also split a string on commas, but a body cannot
-   * arrive as one: the JSON body parser's strict mode (the default) accepts
-   * only objects and arrays. Keep strict mode on if this route ever gets its
-   * own parser. A rejection is not logged here; its 400 body names each failing
-   * record by index, with the fields and constraints that failed, for the
-   * Executor to log. stopAtFirstError: false is what adds the index, and it
-   * matches the global ValidationPipe.
+   * A rejected body is not logged here: its 400 names each failing record by
+   * index and the rule it broke, for the Executor to log. stopAtFirstError:
+   * false is what adds the index.
    */
   @Post(':runId/student-match-results')
   async reportStudentMatchResults(
