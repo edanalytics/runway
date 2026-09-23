@@ -241,7 +241,7 @@ Three tables hold the result. `student_input_details` is keyed by `(job_id, corr
 
 | Status | Meaning |
 |---|---|
-| 200 | Committed, or a retry that changed nothing. Empty body |
+| 201 | Committed, or a retry that changed nothing. Empty body. The same code as every other Executor callback: the Executor has checked for exactly 201 before (`update_failure`) |
 | 400 | Payload does not match `EarthbeamApiStudentMatchResultDto`, or body is not a JSON object or array |
 | 401 / 403 | Missing token, or a token issued for a different run |
 | 404 | No such run |

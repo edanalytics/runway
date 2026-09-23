@@ -355,7 +355,6 @@ export class EarthbeamApiController {
    * endpoint never touches run state.
    */
   @Post(':runId/student-match-results')
-  @HttpCode(200)
   async reportStudentMatchResults(
     @Param('runId', ParseIntPipe) runId: number,
     @Body(StudentMatchResultsPipe) records: EarthbeamApiStudentMatchResultDto[]
@@ -371,7 +370,7 @@ export class EarthbeamApiController {
 
     if (result.status === 'ERROR') {
       // Exhaustive on purpose: a non-success response is what fails the run in
-      // fuzzy mode, so an unmapped outcome must not fall through to 200. Adding
+      // fuzzy mode, so an unmapped outcome must not fall through to a 201. Adding
       // an IngestResult error code without a branch here is a compile error.
       if (result.code === 'NOT_FOUND') {
         throw new NotFoundException(`Run not found: ${runId}`);

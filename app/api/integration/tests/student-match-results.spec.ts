@@ -96,7 +96,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
         },
       ]);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(201);
 
       const inputs = await prisma.studentInputDetails.findMany({
         where: { jobId: jobA.id },
@@ -151,7 +151,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
     it('accepts an empty batch without writing rows', async () => {
       const res = await post(runA.id, tokenA, []);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(201);
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
       expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
     });
@@ -178,7 +178,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
         },
       ]);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(201);
 
       const input = await prisma.studentInputDetails.findUniqueOrThrow({
         where: { jobId_correlationId: { jobId: jobA.id, correlationId: 'corr-as-sent' } },
@@ -296,7 +296,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
       const ok = await post(runA.id, tokenA, [
         { correlation_id: at(128), candidate: { first_name: 'Ada' }, matches: [] },
       ]);
-      expect(ok.status).toBe(200);
+      expect(ok.status).toBe(201);
 
       const tooLong = await post(runA.id, tokenA, [
         { correlation_id: at(129), candidate: { first_name: 'Ada' }, matches: [] },
@@ -503,7 +503,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
       record(),
       { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
     ]);
-    expect(first.status).toBe(200);
+    expect(first.status).toBe(201);
     const before = await snapshot();
 
     // Same content, but: split across two requests, object keys in a different
@@ -531,12 +531,12 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
         correlation_id: 'corr-1',
       },
     ]);
-    expect(retryA.status).toBe(200);
+    expect(retryA.status).toBe(201);
 
     const retryB = await post(runA.id, tokenA, [
       { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
     ]);
-    expect(retryB.status).toBe(200);
+    expect(retryB.status).toBe(201);
 
     const after = await snapshot();
     expect(after.inputs).toHaveLength(2);
@@ -555,14 +555,14 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
   // evidence for the same input is expected to arrive as a new run, which gets
   // its own result row.
   it('keeps the first report when a run re-sends a group with different suggestions', async () => {
-    expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+    expect((await post(runA.id, tokenA, [record()])).status).toBe(201);
     const before = await snapshot();
 
     const res = await post(runA.id, tokenA, [
       record({ matches: [{ ...match, score: 0.5, student_unique_id: 'SUID-OTHER' }] }),
     ]);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(await snapshot()).toEqual(before);
   });
 
@@ -573,7 +573,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
   // to fill the gap, so input rows carry per-row provenance rather than a
   // single establishing run for the whole job.
   it('lets a later run deliver groups an earlier run never reported', async () => {
-    expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+    expect((await post(runA.id, tokenA, [record()])).status).toBe(201);
 
     const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
     const tokenB = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runB.id });
@@ -582,7 +582,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
       record(),
       record({ correlation_id: 'corr-undelivered' }),
     ]);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
 
     const { inputs, results } = await snapshot();
     expect(inputs.map((i) => [i.correlationId, i.sourceRunId])).toEqual([
@@ -598,7 +598,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
   });
 
   it('records a later run as new history', async () => {
-    expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+    expect((await post(runA.id, tokenA, [record()])).status).toBe(201);
     const before = await snapshot();
 
     const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
@@ -608,7 +608,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
     const res = await post(runB.id, tokenB, [
       record({ matches: [{ ...match, score: 0.1, student_unique_id: 'SUID-9' }] }),
     ]);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
 
     const after = await snapshot();
     expect(after.inputs).toHaveLength(1);
@@ -633,10 +633,10 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
     const runX = seededX.runs[0];
     const tokenX = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runX.id });
 
-    expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+    expect((await post(runA.id, tokenA, [record()])).status).toBe(201);
     // Same correlation id, same canonical student id, different tenant: a
     // canonical id is only unique within its partner/tenant scope.
-    expect((await post(runX.id, tokenX, [record()])).status).toBe(200);
+    expect((await post(runX.id, tokenX, [record()])).status).toBe(201);
 
     expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
     expect(await prisma.studentInputDetails.count({ where: { jobId: seededX.id } })).toBe(1);
@@ -671,7 +671,7 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
         tenant: tenantA,
       });
       const foreignRun = otherJob.runs[0];
-      expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+      expect((await post(runA.id, tokenA, [record()])).status).toBe(201);
 
       await expect(
         prisma.$executeRaw`
@@ -684,10 +684,10 @@ describe('POST /earthbeam/jobs/:runId/student-match-results — retries and hist
     // source_run_id is provenance, not ownership. Cascading from it would let
     // deleting one run take every other run's results for the job with it.
     it('refuses to delete the establishing run but cascades from the job', async () => {
-      expect((await post(runA.id, tokenA, [record()])).status).toBe(200);
+      expect((await post(runA.id, tokenA, [record()])).status).toBe(201);
       const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
       const tokenB = await app.get(EarthbeamApiAuthService).createAccessToken({ runId: runB.id });
-      expect((await post(runB.id, tokenB, [record()])).status).toBe(200);
+      expect((await post(runB.id, tokenB, [record()])).status).toBe(201);
 
       await expect(prisma.run.delete({ where: { id: runA.id } })).rejects.toThrow();
       expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(2);
