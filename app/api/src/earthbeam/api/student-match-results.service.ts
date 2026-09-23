@@ -32,10 +32,8 @@ export class StudentMatchResultsService {
       );
       return result;
     } catch (err) {
-      // Past the DTO, a failure is the database refusing something: its
-      // SQLSTATE is the diagnosis. Never log the error's message or
-      // meta.message: a constraint violation's detail quotes the failing row,
-      // which is student data.
+      // Log the SQLSTATE, never the message or meta.message: a constraint
+      // violation's detail quotes the failing row, which is student data.
       const sqlstate =
         err instanceof Prisma.PrismaClientKnownRequestError && typeof err.meta?.code === 'string'
           ? ` sqlstate=${err.meta.code}`
@@ -51,38 +49,25 @@ export class StudentMatchResultsService {
   }
 
   /**
-   * Write one batch atomically, exactly as the Executor sent it — including
-   * keys the app does not read yet. EarthbeamApiStudentMatchResultDto has already
-   * checked its shape; the columns' constraints back that up, and any
-   * violation rolls the whole request back.
+   * Stores the batch as sent, in one transaction: a failure between the three
+   * inserts would otherwise leave a result with no suggestions, which looks
+   * like a genuine no-match and which a retry cannot repair.
    *
-   * The transaction is there for atomicity: the three inserts are individually
-   * atomic, but a failure between them would leave a result row with no
-   * suggestions — indistinguishable from a genuine no-match, and permanent,
-   * since a retry inserts nothing.
-   *
-   * Within a run, the first report of a group is authoritative: a retry is a
-   * no-op, and `ON CONFLICT DO NOTHING` is what makes it one. New evidence for
-   * the same input comes from a new run, which gets its own result row. A
-   * re-send carrying different suggestions under the same run is therefore
-   * ignored rather than rejected — see AGENTS.md for why that is not worth
-   * detecting.
+   * Within a run the first report of a group wins, so a retry is a no-op even
+   * if its content differs; new evidence arrives as a new run. See AGENTS.md.
    */
   private persist(
     runId: number,
     records: EarthbeamApiStudentMatchResultDto[]
   ): Promise<IngestResult> {
-    // Scores go through JSON.stringify once and PostgreSQL parses that text
-    // straight to numeric, so they never pass through a Prisma Decimal.
+    // PostgreSQL parses scores from this text straight to numeric, rather than
+    // through a Prisma Decimal.
     const payload = JSON.stringify(records);
 
     return this.prisma.$transaction(async (tx): Promise<IngestResult> => {
-      // 1. Resolve the owning job. Ownership comes from the authenticated
-      // run — never from a body field. No row lock: the Executor sends a
-      // run's batches sequentially, and input details are extracted only on a
-      // job's first run, so no two requests ever insert the same input or
-      // result row concurrently. Uniqueness and this transaction carry the
-      // rest.
+      // 1. The owning job comes from the authenticated run, never the body.
+      // No row lock: a run's batches arrive in sequence, and the unique
+      // constraints keep overlapping runs consistent.
       const owner = await tx.$queryRaw<{ job_id: number }[]>`
         SELECT j.id AS job_id
         FROM public.run r
@@ -104,9 +89,8 @@ export class StudentMatchResultsService {
         ON CONFLICT (job_id, correlation_id) DO NOTHING
       `;
 
-      // 3. One result per (input group, run). A retry of the same run inserts
-      // nothing and is remembered as such, so step 4 cannot give an already
-      // accepted result a second set of children.
+      // 3. One result per (input group, run). A retry inserts none, so step 4
+      // cannot give an already stored result a second set of suggestions.
       const inserted = await tx.$queryRaw<{ id: bigint; correlation_id: string }[]>`
         INSERT INTO public.student_match_result (job_id, correlation_id, run_id)
         SELECT ${jobId}::int, e.correlation_id, ${runId}::int
@@ -115,11 +99,10 @@ export class StudentMatchResultsService {
         RETURNING id, correlation_id
       `;
 
-      // 4. Suggestions, for newly inserted results only, in one statement. The
-      // ordinal is the match's zero-based position in the array, and roster
-      // details are the match as sent, minus its two column fields. Two
-      // records sharing a correlation id cannot interleave their matches: both
-      // claim ordinal 0 under the one result and violate its primary key.
+      // 4. Suggestions for new results only. The ordinal is the match's
+      // zero-based position; roster details are the match minus its two column
+      // fields. Two records sharing a correlation id cannot mix their matches:
+      // both claim ordinal 0 under the one result and violate its primary key.
       let suggestions = 0;
       if (inserted.length > 0) {
         const newResults = JSON.stringify(

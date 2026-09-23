@@ -342,21 +342,11 @@ export class EarthbeamApiController {
   }
 
   /**
-   * Match results from the Executor's IDRS searches: each group of input
-   * details with the suggestions its search produced. Today the Executor
-   * reports only students it could not auto-match, for human review.
+   * Match results from the Executor's IDRS searches (see AGENTS.md). Never
+   * changes run state: acting on a failure is the Executor's job.
    *
-   * Job, partner and tenant come from the authenticated run, never from the
-   * body. The whole batch commits or none of it does, and a retry is a
-   * successful no-op: within a run the first report of a group wins, and new
-   * evidence arrives as a new run. A later run may also fill in groups an
-   * earlier failed run never delivered; each input row keeps the run that
-   * established it. Delivery failure is the Executor's to act on — this
-   * endpoint never touches run state.
-   *
-   * A rejected body is not logged here: its 400 names each failing record by
-   * index and the rule it broke, for the Executor to log. stopAtFirstError:
-   * false is what adds the index.
+   * Rejections are not logged; the 400 names each failing record by index
+   * (stopAtFirstError: false adds it) for the Executor to log.
    */
   @Post(':runId/student-match-results')
   async reportStudentMatchResults(
@@ -368,15 +358,13 @@ export class EarthbeamApiController {
     try {
       result = await this.studentMatchResults.ingest(runId, records);
     } catch {
-      // The service has already logged this safely. Anything more specific
-      // risks quoting student details back to the caller.
+      // Logged safely by the service; anything more specific could quote
+      // student data back to the caller.
       throw new InternalServerErrorException('Failed to save student match results');
     }
 
     if (result.status === 'ERROR') {
-      // Exhaustive on purpose: a non-success response is what fails the run in
-      // fuzzy mode, so an unmapped outcome must not fall through to a 201. Adding
-      // an IngestResult error code without a branch here is a compile error.
+      // An unmapped error code is a compile error here, not a 201.
       if (result.code === 'NOT_FOUND') {
         throw new NotFoundException(`Run not found: ${runId}`);
       }

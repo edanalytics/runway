@@ -202,10 +202,8 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
       await expectRejectedCleanly(await post(runA.id, body), 400);
     });
 
-    // Only the DTO can catch this one: the matches array lands in no column,
-    // so without the check a record missing it would be stored as "IDRS found
-    // nothing". The app does not log rejections, so the body is the diagnosis
-    // for the Executor: it names the record and the rule.
+    // Only the DTO catches this: without it, the record would be stored as
+    // "IDRS found nothing". The body is the Executor's diagnosis.
     it('rejects a record without matches, naming the record in the body', async () => {
       const res = await post(runA.id, [rejected(), rejected({ matches: undefined })]);
 
@@ -223,10 +221,8 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
     });
 
-    // Duplicates span records, which a per-record DTO cannot see, and need no
-    // check of their own: they collapse to one input and one result, and two
-    // non-empty match lists both claim ordinal 0 under it and violate the
-    // suggestion primary key, so they can never mix.
+    // No app check needed: both match lists claim ordinal 0 under one result
+    // and violate the suggestion primary key.
     it('lets the database refuse two records that share a correlation id', async () => {
       const logs = captureErrorLogs();
       try {
@@ -249,12 +245,9 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
     expect(res.status).toBe(404);
   });
 
-  // Atomicity is the only reason this endpoint uses a transaction. No payload
-  // can make the suggestion insert fail once the DTO has passed it, so the
+  // No payload the DTO passes can make the suggestion insert fail, so the
   // failure is injected at the database client, after the input and result
-  // rows are written. Without the transaction those two would survive as a
-  // result with no suggestions: indistinguishable from a genuine no-match, and
-  // permanent, since a retry inserts nothing.
+  // rows are written.
   it('writes nothing when the suggestion insert fails mid-transaction', async () => {
     /* eslint-disable @typescript-eslint/no-explicit-any */
     let writtenBeforeFailure: { inputs: number; results: number } | undefined;
