@@ -77,7 +77,7 @@ export class StudentMatchResultsService {
       const inputs = await tx.$executeRaw`
         INSERT INTO public.student_input_details
           (job_id, correlation_id, source_run_id, input_details)
-        SELECT ${jobId}::int, e.correlation_id, ${runId}::int, e.candidate
+        SELECT ${jobId}, e.correlation_id, ${runId}, e.candidate
         FROM jsonb_to_recordset(${payload}::jsonb)
           AS e(correlation_id text, candidate jsonb)
         ON CONFLICT (job_id, correlation_id) DO NOTHING
@@ -87,7 +87,7 @@ export class StudentMatchResultsService {
       // cannot give an already stored result a second set of suggestions.
       const inserted = await tx.$queryRaw<{ id: bigint; correlation_id: string }[]>`
         INSERT INTO public.student_match_result (job_id, correlation_id, run_id)
-        SELECT ${jobId}::int, e.correlation_id, ${runId}::int
+        SELECT ${jobId}, e.correlation_id, ${runId}
         FROM jsonb_to_recordset(${payload}::jsonb) AS e(correlation_id text)
         ON CONFLICT (job_id, correlation_id, run_id) DO NOTHING
         RETURNING id, correlation_id
@@ -106,7 +106,7 @@ export class StudentMatchResultsService {
           INSERT INTO public.student_match_suggestion
             (result_id, ordinal, student_unique_id, roster_details, score)
           SELECT n.result_id,
-                 (m.ordinality - 1)::int,
+                 m.ordinality - 1,
                  m.match->>'student_unique_id',
                  m.match - 'student_unique_id' - 'score',
                  (m.match->>'score')::numeric
