@@ -442,8 +442,6 @@ export class JobsService {
       return { result: 'JOB_START_FAILED', job, error: e };
     }
 
-    // The task is already running, so failing to record where it runs only
-    // costs us the link to its logs; it must not fail the start.
     if (startResult.ecsTaskArn || startResult.taskSize) {
       try {
         await prisma.run.update({
