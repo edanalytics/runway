@@ -35,15 +35,11 @@ const InputGroup = ({ group }: { group: GetStudentInputDetailsDto }) => (
   <VStack width="100%" alignItems="flex-start" layerStyle="contentBox" padding="400" gap="300">
     <Box textStyle="h5">Input details</Box>
     <Details details={group.inputDetails} />
-    <Box textStyle="h6">
-      correlation id {group.correlationId} · reported by run {group.sourceRunId} on{' '}
-      {group.createdOn.toLocaleString()}
-    </Box>
 
     {group.results.map((result) => (
       <VStack key={result.id} width="100%" alignItems="flex-start" gap="200" marginTop="300">
         <Box textStyle="h5">
-          Run {result.runId} · {result.suggestions.length}{' '}
+          {result.suggestions.length}{' '}
           {result.suggestions.length === 1 ? 'suggestion' : 'suggestions'}
         </Box>
         {result.suggestions.length > 0 && (
