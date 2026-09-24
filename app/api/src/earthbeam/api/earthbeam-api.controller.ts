@@ -10,6 +10,7 @@ import {
   Logger,
   NotFoundException,
   Param,
+  ParseArrayPipe,
   ParseIntPipe,
   Post,
   Req,
@@ -27,8 +28,10 @@ import {
   JsonValue,
   toEarthbeamApiIdentityServiceResponseDto,
   toEarthbeamApiJobResponseDto,
+  EarthbeamApiStudentMatchResultDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
+import { StudentMatchResultsService } from './student-match-results.service';
 import { IdrsCredentialsService } from './idrs-credentials.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
@@ -48,7 +51,8 @@ export class EarthbeamApiController {
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     private readonly fileService: FileService,
     private readonly eduPool: EduSnowflakePoolService,
-    private readonly idrs: IdrsCredentialsService
+    private readonly idrs: IdrsCredentialsService,
+    private readonly studentMatchResults: StudentMatchResultsService
   ) {}
 
   @Get(':runId')
@@ -335,5 +339,37 @@ export class EarthbeamApiController {
       });
 
     return { uid: outputFileSet.uid };
+  }
+
+  /**
+   * Match results from the Executor's IDRS searches (see AGENTS.md). Never
+   * changes run state: acting on a failure is the Executor's job.
+   *
+   * Rejections are not logged; the 400 names each failing record by index
+   * (stopAtFirstError: false adds it) for the Executor to log.
+   */
+  @Post(':runId/student-match-results')
+  async reportStudentMatchResults(
+    @Param('runId', ParseIntPipe) runId: number,
+    @Body(new ParseArrayPipe({ items: EarthbeamApiStudentMatchResultDto, stopAtFirstError: false }))
+    records: EarthbeamApiStudentMatchResultDto[]
+  ) {
+    let result;
+    try {
+      result = await this.studentMatchResults.ingest(runId, records);
+    } catch {
+      // Logged safely by the service; anything more specific could quote
+      // student data back to the caller.
+      throw new InternalServerErrorException('Failed to save student match results');
+    }
+
+    if (result.status === 'ERROR') {
+      // An unmapped error code is a compile error here, not a 201.
+      if (result.code === 'NOT_FOUND') {
+        throw new NotFoundException(`Run not found: ${runId}`);
+      }
+      const unhandled: never = result.code;
+      throw new InternalServerErrorException(`Unhandled ingestion outcome: ${unhandled}`);
+    }
   }
 }

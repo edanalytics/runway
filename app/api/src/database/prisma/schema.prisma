@@ -232,66 +232,70 @@ model OdsConnection {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model Job {
-  id               Int                  @id @default(autoincrement())
-  name             String               @db.VarChar
-  odsId            Int?                 @map("ods_id")
-  schoolYearId     String               @map("school_year_id") @db.VarChar
-  template         Json
-  configStatus     JobConfigStatus      @default(initialized) @map("config_status")
-  tenantCode       String               @map("tenant_code") @db.VarChar
+  id                  Int                   @id @default(autoincrement())
+  name                String                @db.VarChar
+  odsId               Int?                  @map("ods_id")
+  schoolYearId        String                @map("school_year_id") @db.VarChar
+  template            Json
+  configStatus        JobConfigStatus       @default(initialized) @map("config_status")
+  tenantCode          String                @map("tenant_code") @db.VarChar
   /// [JobInputParams]
-  inputParams      Json?                @map("input_params")
-  previousJobId    Int?                 @map("previous_job_id")
-  createdById      Int?                 @map("created_by_id")
-  createdOn        DateTime             @default(now()) @map("created_on") @db.Timestamp(6)
-  modifiedById     Int?                 @map("modified_by_id")
-  modifiedOn       DateTime             @default(now()) @map("modified_on") @db.Timestamp(6)
-  fileProtocol     FileStorageProtocol? @map("file_protocol")
-  fileBucketOrHost String?              @map("file_bucket_or_host") @db.VarChar
-  fileBasePath     String?              @map("file_base_path") @db.VarChar
-  partnerId        String               @map("partner_id") @db.VarChar
-  isResolved       Boolean              @default(false) @map("is_resolved")
-  uid              String               @unique(map: "job_uid_idx") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  apiIssuer        String?              @map("api_issuer") @db.VarChar
-  apiClientId      String?              @map("api_client_id") @db.VarChar
-  apiClientName    String?              @map("api_client_name") @db.VarChar
-  sendToOds        Boolean              @default(true) @map("send_to_ods")
-  idMatchingMode   IdMatchingMode       @default(id_based) @map("id_matching_mode")
-  createdBy        User?                @relation("job_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
-  modifiedBy       User?                @relation("job_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
-  odsConfig        OdsConfig?           @relation(fields: [odsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  job              Job?                 @relation("jobTojob", fields: [previousJobId], references: [id], onUpdate: NoAction)
-  otherJob         Job[]                @relation("jobTojob")
-  schoolYear       SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenant           Tenant               @relation(fields: [tenantCode, partnerId], references: [code, partnerId], onDelete: Cascade, onUpdate: NoAction)
-  files            JobFile[]            @relation("fileToJob")
-  notes            JobNote[]            @relation("noteToJob")
-  runs             Run[]                @relation("jobRun")
+  inputParams         Json?                 @map("input_params")
+  previousJobId       Int?                  @map("previous_job_id")
+  createdById         Int?                  @map("created_by_id")
+  createdOn           DateTime              @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById        Int?                  @map("modified_by_id")
+  modifiedOn          DateTime              @default(now()) @map("modified_on") @db.Timestamp(6)
+  fileProtocol        FileStorageProtocol?  @map("file_protocol")
+  fileBucketOrHost    String?               @map("file_bucket_or_host") @db.VarChar
+  fileBasePath        String?               @map("file_base_path") @db.VarChar
+  partnerId           String                @map("partner_id") @db.VarChar
+  isResolved          Boolean               @default(false) @map("is_resolved")
+  uid                 String                @unique(map: "job_uid_idx") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  apiIssuer           String?               @map("api_issuer") @db.VarChar
+  apiClientId         String?               @map("api_client_id") @db.VarChar
+  apiClientName       String?               @map("api_client_name") @db.VarChar
+  sendToOds           Boolean               @default(true) @map("send_to_ods")
+  idMatchingMode      IdMatchingMode        @default(id_based) @map("id_matching_mode")
+  createdBy           User?                 @relation("job_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  modifiedBy          User?                 @relation("job_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  odsConfig           OdsConfig?            @relation(fields: [odsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  job                 Job?                  @relation("jobTojob", fields: [previousJobId], references: [id], onUpdate: NoAction)
+  otherJob            Job[]                 @relation("jobTojob")
+  schoolYear          SchoolYear            @relation(fields: [schoolYearId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant              Tenant                @relation(fields: [tenantCode, partnerId], references: [code, partnerId], onDelete: Cascade, onUpdate: NoAction)
+  files               JobFile[]             @relation("fileToJob")
+  notes               JobNote[]             @relation("noteToJob")
+  runs                Run[]                 @relation("jobRun")
+  studentInputDetails StudentInputDetails[]
 
   @@map("job")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model Run {
-  id                        Int                @id @default(autoincrement())
-  jobId                     Int                @map("job_id")
-  status                    RunStatus          @default(new)
-  createdById               Int?               @map("created_by_id")
-  createdOn                 DateTime           @default(now()) @map("created_on") @db.Timestamp(6)
-  modifiedById              Int?               @map("modified_by_id")
-  modifiedOn                DateTime           @default(now()) @map("modified_on") @db.Timestamp(6)
+  id                        Int                   @id @default(autoincrement())
+  jobId                     Int                   @map("job_id")
+  status                    RunStatus             @default(new)
+  createdById               Int?                  @map("created_by_id")
+  createdOn                 DateTime              @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById              Int?                  @map("modified_by_id")
+  modifiedOn                DateTime              @default(now()) @map("modified_on") @db.Timestamp(6)
   /// [RunSummary]
-  summary                   Json?              @db.Json
+  summary                   Json?                 @db.Json
   /// [UnmatchedStudentsInfo]
-  unmatchedStudentsInfo     Json?              @map("unmatched_students_info")
-  userRunCreatedByIdTouser  User?              @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
-  job                       Job                @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  userRunModifiedByIdTouser User?              @relation("run_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  unmatchedStudentsInfo     Json?                 @map("unmatched_students_info")
+  userRunCreatedByIdTouser  User?                 @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  job                       Job                   @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  userRunModifiedByIdTouser User?                 @relation("run_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
   runError                  RunError[]
   runOutputFile             RunOutputFile[]
   runOutputFileSet          RunOutputFileSet[]
   runUpdate                 RunUpdate[]
+  studentInputDetails       StudentInputDetails[]
+  studentMatchResult        StudentMatchResult[]
 
+  @@unique([id, jobId], map: "run_id_job_unique")
   @@map("run")
 }
 
@@ -454,6 +458,52 @@ model RunOutputFileSet {
 
   @@unique([runId, path])
   @@map("run_output_file_set")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model StudentInputDetails {
+  jobId              Int                  @map("job_id")
+  correlationId      String               @map("correlation_id")
+  sourceRunId        Int                  @map("source_run_id")
+  /// [StudentInputDetailsJson]
+  inputDetails       Json                 @map("input_details")
+  createdOn          DateTime             @default(now()) @map("created_on") @db.Timestamp(6)
+  job                Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  run                Run                  @relation(fields: [sourceRunId, jobId], references: [id, jobId], onDelete: NoAction, onUpdate: NoAction)
+  studentMatchResult StudentMatchResult[]
+
+  @@id([jobId, correlationId])
+  @@map("student_input_details")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model StudentMatchResult {
+  id                     BigInt                   @id @default(autoincrement())
+  jobId                  Int                      @map("job_id")
+  correlationId          String                   @map("correlation_id")
+  runId                  Int                      @map("run_id")
+  createdOn              DateTime                 @default(now()) @map("created_on") @db.Timestamp(6)
+  studentInputDetails    StudentInputDetails      @relation(fields: [jobId, correlationId], references: [jobId, correlationId], onDelete: Cascade, onUpdate: NoAction)
+  run                    Run                      @relation(fields: [runId, jobId], references: [id, jobId], onDelete: Cascade, onUpdate: NoAction)
+  studentMatchSuggestion StudentMatchSuggestion[]
+
+  @@unique([jobId, correlationId, runId])
+  @@map("student_match_result")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model StudentMatchSuggestion {
+  resultId           BigInt             @map("result_id")
+  ordinal            Int
+  studentUniqueId    String             @map("student_unique_id")
+  /// [StudentRosterDetailsJson]
+  rosterDetails      Json               @map("roster_details")
+  score              Decimal            @db.Decimal
+  studentMatchResult StudentMatchResult @relation(fields: [resultId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([resultId, ordinal])
+  @@index([studentUniqueId])
+  @@map("student_match_suggestion")
 }
 
 enum OdsAuthResponse {
