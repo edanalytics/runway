@@ -473,7 +473,15 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
       await expect(prisma.run.delete({ where: { id: runA.id } })).rejects.toMatchObject({
         code: 'P2003',
       });
-      expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(2);
+      // Nothing was deleted: run B's result, which a cascade from the input row
+      // would have taken along with run A's, is still there.
+      expect(
+        await prisma.studentMatchResult.findMany({
+          where: { jobId: jobA.id },
+          select: { runId: true },
+          orderBy: { runId: 'asc' },
+        })
+      ).toEqual([{ runId: runA.id }, { runId: runB.id }]);
 
       await prisma.job.delete({ where: { id: jobA.id } });
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
