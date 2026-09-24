@@ -1,5 +1,6 @@
 import {
   Box,
+  Button,
   IconButton,
   Spinner,
   Table,
@@ -14,7 +15,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Fragment, useState } from 'react';
 import { GetJobDto } from '@edanalytics/models';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
-import { IconMinus, IconPlus } from '../../../../assets/icons';
+import { IconCheckmark, IconMinus, IconPlus } from '../../../../assets/icons';
 import { Detail, FIELDS, fieldsIn, suggestionsOf, tableSx } from './studentMatchDisplay';
 
 /**
@@ -30,6 +31,19 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
       const next = new Set(current);
       if (!next.delete(correlationId)) {
         next.add(correlationId);
+      }
+      return next;
+    });
+  // Each student's chosen suggestion, by key. In memory only, for trying out
+  // the interaction: nothing is saved, and a reload clears it.
+  const [matches, setMatches] = useState<Map<string, string>>(new Map());
+  const choose = (correlationId: string, suggestionKey: string) =>
+    setMatches((current) => {
+      const next = new Map(current);
+      if (next.get(correlationId) === suggestionKey) {
+        next.delete(correlationId);
+      } else {
+        next.set(correlationId, suggestionKey);
       }
       return next;
     });
@@ -73,12 +87,16 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
                 </Th>
               ))}
               <Th isNumeric>Score</Th>
+              <Th />
             </Tr>
           </Thead>
           <Tbody>
             {groups.map((group) => {
               const isOpen = expanded.has(group.correlationId);
               const suggestions = suggestionsOf(group);
+              const matched = suggestions.find(
+                (suggestion) => suggestion.key === matches.get(group.correlationId)
+              );
               return (
                 <Fragment key={group.correlationId}>
                   <Tr cursor="pointer" onClick={() => toggle(group.correlationId)}>
@@ -93,13 +111,22 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
                       />
                     </Td>
                     <Td whiteSpace="nowrap" fontWeight="600">
-                      {suggestions.length} {suggestions.length === 1 ? 'suggestion' : 'suggestions'}
+                      {matched ? (
+                        <Box as="span" color="green.100">
+                          Matched {matched.studentUniqueId}
+                        </Box>
+                      ) : (
+                        `${suggestions.length} ${
+                          suggestions.length === 1 ? 'suggestion' : 'suggestions'
+                        }`
+                      )}
                     </Td>
                     {fields.map((field) => (
                       <Td key={field} fontWeight="600">
                         <Detail details={group.inputDetails} field={field} />
                       </Td>
                     ))}
+                    <Td />
                     <Td />
                   </Tr>
                   {isOpen &&
@@ -114,12 +141,43 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
                             </Td>
                           ))}
                           <Td isNumeric>{suggestion.score}</Td>
+                          <Td>
+                            {matched?.key === suggestion.key ? (
+                              <Button
+                                size="sm"
+                                textStyle="button"
+                                bg="green.100"
+                                color="green.600"
+                                _hover={{ bg: 'green.50' }}
+                                leftIcon={<IconCheckmark />}
+                                onClick={() => choose(group.correlationId, suggestion.key)}
+                              >
+                                Matched
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                textStyle="button"
+                                variant="outline"
+                                borderColor="green.100"
+                                color="green.100"
+                                _hover={{
+                                  bg: 'transparent',
+                                  borderColor: 'green.50',
+                                  color: 'green.50',
+                                }}
+                                onClick={() => choose(group.correlationId, suggestion.key)}
+                              >
+                                Match
+                              </Button>
+                            )}
+                          </Td>
                         </Tr>
                       ))
                     ) : (
                       <Tr data-no-hover bg="blue.600">
                         <Td />
-                        <Td colSpan={fields.length + 2}>
+                        <Td colSpan={fields.length + 3}>
                           IDRS found no suggestions for this student.
                         </Td>
                       </Tr>
