@@ -81,6 +81,21 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
     runA = seeded.runs[0];
   });
 
+  describe('authentication', () => {
+    it('rejects a token issued for another run without writing rows', async () => {
+      const otherJob = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+
+      const res = await post(runA.id, [record()], await tokenFor(otherJob.runs[0].id));
+
+      expect(res.status).toBe(403);
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+    });
+  });
+
   describe('ingestion', () => {
     it('persists input details, one result per group, and ordered suggestions', async () => {
       const res = await post(runA.id, [
@@ -237,86 +252,81 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
     });
   });
 
-  it('returns 404 for a token naming a run that does not exist', async () => {
-    const ghost = 2147483000;
+  describe('failures', () => {
+    it('returns 404 for a token naming a run that does not exist', async () => {
+      const ghost = 2147483000;
 
-    const res = await post(ghost, [record()]);
+      const res = await post(ghost, [record()]); // post generates a valid token for the ghost run
 
-    expect(res.status).toBe(404);
-  });
+      expect(res.status).toBe(404);
+    });
 
-  // No payload the DTO passes can make the suggestion insert fail, so the
-  // failure is injected at the database client, after the input and result
-  // rows are written.
-  it('writes nothing when the suggestion insert fails mid-transaction', async () => {
-    /* eslint-disable @typescript-eslint/no-explicit-any */
-    let writtenBeforeFailure: { inputs: number; results: number } | undefined;
-    const client = app.get(PRISMA_ANONYMOUS) as any;
-    const realTransaction = client.$transaction.bind(client);
-    const transactionSpy = jest.spyOn(client, '$transaction').mockImplementation((...args: any[]) =>
-      realTransaction(async (tx: any) => {
-        let executeRawCalls = 0;
-        const failing = new Proxy(tx, {
-          get(target, prop, receiver) {
-            if (prop !== '$executeRaw') {
-              return Reflect.get(target, prop, receiver);
-            }
-            // The 1st is the input insert, the 2nd the suggestions.
-            return async (...callArgs: any[]) => {
-              executeRawCalls += 1;
-              if (executeRawCalls !== 2) {
-                return target.$executeRaw(...callArgs);
-              }
-              // Prove the injection landed where the test claims: the zero
-              // counts below would be just as true of a failure at the first
-              // statement. Read through the same transaction, so these are its
-              // own uncommitted rows.
-              const [{ inputs, results }] = await target.$queryRaw<
-                { inputs: number; results: number }[]
-              >`
-                SELECT
-                  (SELECT count(*)::int FROM public.student_input_details
-                    WHERE job_id = ${jobA.id}) AS inputs,
-                  (SELECT count(*)::int FROM public.student_match_result
-                    WHERE job_id = ${jobA.id}) AS results
-              `;
-              writtenBeforeFailure = { inputs, results };
-              // Quotes student data, as a real constraint violation's detail
-              // would; neither the response nor the log may repeat it.
-              throw new Error(`Failing row contains (${SENTINEL})`);
-            };
-          },
-        });
-        return args[0](failing);
-      }, args[1])
-    );
-    /* eslint-enable @typescript-eslint/no-explicit-any */
-    const logs = captureErrorLogs();
+    // No payload the DTO passes can make the suggestion insert fail, so the
+    // failure is injected at the database client, after the input and result
+    // rows are written.
+    it('writes nothing when the suggestion insert fails mid-transaction', async () => {
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      let writtenBeforeFailure: { inputs: number; results: number } | undefined;
+      const client = app.get(PRISMA_ANONYMOUS) as any;
+      const realTransaction = client.$transaction.bind(client);
+      const transactionSpy = jest
+        .spyOn(client, '$transaction')
+        .mockImplementation((...args: any[]) =>
+          realTransaction(async (tx: any) => {
+            let executeRawCalls = 0;
+            const failing = new Proxy(tx, {
+              get(target, prop, receiver) {
+                if (prop !== '$executeRaw') {
+                  return Reflect.get(target, prop, receiver);
+                }
+                // The 1st is the input insert, the 2nd the suggestions.
+                return async (...callArgs: any[]) => {
+                  executeRawCalls += 1;
+                  if (executeRawCalls !== 2) {
+                    return target.$executeRaw(...callArgs);
+                  }
+                  // Prove the injection landed where the test claims: the zero
+                  // counts below would be just as true of a failure at the first
+                  // statement. Read through the same transaction, so these are its
+                  // own uncommitted rows.
+                  const [{ inputs, results }] = await target.$queryRaw<
+                    { inputs: number; results: number }[]
+                  >`
+                  SELECT
+                    (SELECT count(*)::int FROM public.student_input_details
+                      WHERE job_id = ${jobA.id}) AS inputs,
+                    (SELECT count(*)::int FROM public.student_match_result
+                      WHERE job_id = ${jobA.id}) AS results
+                `;
+                  writtenBeforeFailure = { inputs, results };
+                  // Quotes student data, as a real constraint violation's detail
+                  // would; neither the response nor the log may repeat it.
+                  throw new Error(`Failing row contains (${SENTINEL})`);
+                };
+              },
+            });
+            return args[0](failing);
+          }, args[1])
+        );
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+      const logs = captureErrorLogs();
 
-    try {
-      const res = await post(runA.id, [record()]);
+      try {
+        const res = await post(runA.id, [record()]);
 
-      expect(res.status).toBe(500);
-      expect(writtenBeforeFailure).toEqual({ inputs: 1, results: 1 });
-      expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
-      expect(logs.text()).toContain(`runId=${runA.id}`);
-      expect(logs.text()).not.toContain(SENTINEL);
-    } finally {
-      transactionSpy.mockRestore();
-      logs.restore();
-    }
+        expect(res.status).toBe(500);
+        expect(writtenBeforeFailure).toEqual({ inputs: 1, results: 1 });
+        expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
+        expect(logs.text()).toContain(`runId=${runA.id}`);
+        expect(logs.text()).not.toContain(SENTINEL);
+      } finally {
+        transactionSpy.mockRestore();
+        logs.restore();
+      }
 
-    expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
-    expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
-  });
-
-  it('rejects a token issued for another run without writing rows', async () => {
-    const otherJob = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
-
-    const res = await post(runA.id, [record()], await tokenFor(otherJob.runs[0].id));
-
-    expect(res.status).toBe(403);
-    expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+      expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
+    });
   });
 
   describe('retries and runs', () => {
