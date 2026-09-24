@@ -413,7 +413,9 @@ export class JobsService {
     });
 
     let startResult: ExecutorStartResult;
+    let startResult: ExecutorStartResult;
     try {
+      startResult = await this.executor.start(run);
       startResult = await this.executor.start(run);
     } catch (e) {
       this.logger.error(`Failed to start run ${run.id}: ${e}`);
@@ -440,6 +442,8 @@ export class JobsService {
       return { result: 'JOB_START_FAILED', job, error: e };
     }
 
+    // The task is already running, so failing to record where it runs only
+    // costs us the link to its logs; it must not fail the start.
     if (startResult.ecsTaskArn || startResult.taskSize) {
       try {
         await prisma.run.update({
