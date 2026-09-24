@@ -46,13 +46,15 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
     );
   }
 
-  // One column set for the whole table, so every row lines up.
+  // One column set for the whole table, so every row lines up. Middle name is
+  // left out: only suggestions carry it, so it would be empty on every
+  // student's row.
   const fields = fieldsIn(
     groups.flatMap((group) => [
       group.inputDetails,
       ...suggestionsOf(group).map((suggestion) => suggestion.rosterDetails),
     ])
-  );
+  ).filter((field) => field !== 'middle_name');
 
   return (
     <VStack width="100%" alignItems="flex-start" gap="300">
@@ -105,9 +107,7 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
                       suggestions.map((suggestion) => (
                         <Tr key={suggestion.key} data-no-hover bg="blue.600">
                           <Td />
-                          <Td whiteSpace="nowrap">
-                            #{suggestion.ordinal + 1} · {suggestion.studentUniqueId}
-                          </Td>
+                          <Td whiteSpace="nowrap">#{suggestion.ordinal + 1}</Td>
                           <Td isNumeric>{suggestion.score}</Td>
                           {fields.map((field) => (
                             <Td key={field}>
