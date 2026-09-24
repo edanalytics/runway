@@ -5,7 +5,7 @@ import { bundleA } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425 } from '../fixtures/context-fixtures/ods-fixture';
 import { tenantA } from '../fixtures/context-fixtures/tenant-fixtures';
 import { Job, Prisma, Run } from '@prisma/client';
-import { PRISMA_ANONYMOUS } from 'api/src/database';
+import { StudentMatchResultsService } from 'api/src/earthbeam/api/student-match-results.service';
 import { Logger } from '@nestjs/common';
 
 /** A student value that must never appear in a response body or a log. */
@@ -306,71 +306,57 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
       expect(res.status).toBe(404);
     });
 
-    // No payload the DTO passes can make the suggestion insert fail, so the
-    // failure is injected at the database client, after the input and result
-    // rows are written.
-    it('writes nothing when the suggestion insert fails mid-transaction', async () => {
-      /* eslint-disable @typescript-eslint/no-explicit-any */
-      let writtenBeforeFailure: { inputs: number; results: number } | undefined;
-      const client = app.get(PRISMA_ANONYMOUS) as any;
-      const realTransaction = client.$transaction.bind(client);
-      const transactionSpy = jest
-        .spyOn(client, '$transaction')
-        .mockImplementation((...args: any[]) =>
-          realTransaction(async (tx: any) => {
-            let executeRawCalls = 0;
-            const failing = new Proxy(tx, {
-              get(target, prop, receiver) {
-                if (prop !== '$executeRaw') {
-                  return Reflect.get(target, prop, receiver);
-                }
-                // The 1st is the input insert, the 2nd the suggestions.
-                return async (...callArgs: any[]) => {
-                  executeRawCalls += 1;
-                  if (executeRawCalls !== 2) {
-                    return target.$executeRaw(...callArgs);
-                  }
-                  // Prove the injection landed where the test claims: the zero
-                  // counts below would be just as true of a failure at the first
-                  // statement. Read through the same transaction, so these are its
-                  // own uncommitted rows.
-                  const [{ inputs, results }] = await target.$queryRaw<
-                    { inputs: number; results: number }[]
-                  >`
-                  SELECT
-                    (SELECT count(*)::int FROM public.student_input_details
-                      WHERE job_id = ${jobA.id}) AS inputs,
-                    (SELECT count(*)::int FROM public.student_match_result
-                      WHERE job_id = ${jobA.id}) AS results
-                `;
-                  writtenBeforeFailure = { inputs, results };
-                  // Quotes student data, as a real constraint violation's detail
-                  // would; neither the response nor the log may repeat it.
-                  throw new Error(`Failing row contains (${SENTINEL})`);
-                };
-              },
-            });
-            return args[0](failing);
-          }, args[1])
-        );
-      /* eslint-enable @typescript-eslint/no-explicit-any */
+    // The DTO stops any request that could fail partway through, so this calls
+    // the service directly. An empty student id passes the input and result
+    // inserts, then violates the suggestion table's CHECK.
+    it('writes nothing when a later insert fails', async () => {
       const logs = captureErrorLogs();
-
       try {
-        const res = await post(runA.id, [record()]);
-
-        expect(res.status).toBe(500);
-        expect(writtenBeforeFailure).toEqual({ inputs: 1, results: 1 });
-        expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
-        expect(logs.text()).toContain(`runId=${runA.id}`);
+        await expect(
+          app.get(StudentMatchResultsService).ingest(runA.id, [
+            {
+              correlation_id: 'corr-1',
+              candidate: { first_name: 'Ada' },
+              matches: [{ student_unique_id: '', score: 1, first_name: SENTINEL }],
+            },
+          ])
+        ).rejects.toMatchObject({
+          // The real error quotes the failing row, student data included.
+          message: expect.stringContaining(SENTINEL),
+          meta: {
+            code: '23514',
+            message: expect.stringContaining('student_match_suggestion_student_unique_id_check'),
+          },
+        });
+        expect(logs.text()).toContain(`runId=${runA.id} records=1 outcome=FAILED`);
         expect(logs.text()).not.toContain(SENTINEL);
       } finally {
-        transactionSpy.mockRestore();
         logs.restore();
       }
 
       expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
       expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
+    });
+
+    // @Length counts a character plus a variation selector as one, PostgreSQL
+    // as two, so 65 of these pass the DTO and fail the correlation id CHECK,
+    // whose error quotes the failing row.
+    it('keeps a database error that quotes student data out of the response', async () => {
+      const logs = captureErrorLogs();
+      try {
+        const res = await post(runA.id, [
+          record({
+            correlation_id: '\u2764\uFE0F'.repeat(65),
+            candidate: { first_name: SENTINEL },
+          }),
+        ]);
+
+        expect(res.status).toBe(500);
+        expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
+        expect(logs.text()).toContain('sqlstate=23514');
+      } finally {
+        logs.restore();
+      }
     });
   });
 
