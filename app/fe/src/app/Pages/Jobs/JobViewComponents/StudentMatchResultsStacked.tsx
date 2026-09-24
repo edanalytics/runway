@@ -67,12 +67,12 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
             <Tr>
               <Th width="1%" />
               <Th>Suggestion</Th>
-              <Th isNumeric>Score</Th>
               {fields.map((field) => (
                 <Th key={field} whiteSpace="nowrap">
                   {FIELDS[field] ?? field}
                 </Th>
               ))}
+              <Th isNumeric>Score</Th>
             </Tr>
           </Thead>
           <Tbody>
@@ -95,25 +95,25 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
                     <Td whiteSpace="nowrap" fontWeight="600">
                       {suggestions.length} {suggestions.length === 1 ? 'suggestion' : 'suggestions'}
                     </Td>
-                    <Td />
                     {fields.map((field) => (
                       <Td key={field} fontWeight="600">
                         <Detail details={group.inputDetails} field={field} />
                       </Td>
                     ))}
+                    <Td />
                   </Tr>
                   {isOpen &&
                     (suggestions.length ? (
                       suggestions.map((suggestion) => (
                         <Tr key={suggestion.key} data-no-hover bg="blue.600">
                           <Td />
-                          <Td whiteSpace="nowrap">#{suggestion.ordinal + 1}</Td>
-                          <Td isNumeric>{suggestion.score}</Td>
+                          <Td whiteSpace="nowrap">{suggestion.studentUniqueId}</Td>
                           {fields.map((field) => (
                             <Td key={field}>
                               <Detail details={suggestion.rosterDetails} field={field} />
                             </Td>
                           ))}
+                          <Td isNumeric>{suggestion.score}</Td>
                         </Tr>
                       ))
                     ) : (
