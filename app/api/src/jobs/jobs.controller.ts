@@ -30,6 +30,7 @@ import {
   toGetJobDto,
   toGetOutputFileDto,
   toGetRunUpdateDto,
+  toGetStudentInputDetailsDto,
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
@@ -120,15 +121,20 @@ export class JobsController {
   @Get(':jobId/output-files/input_no_student_id_match.csv')
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForUnmatchedStudentsOutputFile(
-    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('jobId', new ParseIntPipe()) jobId: number
   ) {
-    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, 'input_no_student_id_match.csv');
+    const url = await this.jobService.getDownloadUrlForOutputFile(
+      jobId,
+      'input_no_student_id_match.csv'
+    );
     if (!url) {
-      return new NotFoundException(`File not found for job ${jobId} and file input_no_student_id_match.csv`);
+      return new NotFoundException(
+        `File not found for job ${jobId} and file input_no_student_id_match.csv`
+      );
     }
     return url;
   }
-  
+
   @Get(':jobId/output-files/:fileName')
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
@@ -297,6 +303,12 @@ export class JobsController {
     });
 
     return;
+  }
+
+  @Get(':jobId/student-match-results')
+  @AllowMetatenant('job.metatenant.read')
+  async getStudentMatchResults(@Param('jobId', ParseIntPipe) jobId: number) {
+    return toGetStudentInputDetailsDto(await this.jobService.getStudentMatchResults(jobId));
   }
 
   @Get(':jobId/notes')
