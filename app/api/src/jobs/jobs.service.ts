@@ -44,6 +44,32 @@ export class JobsService {
     return lastRun?.runError;
   }
 
+  /**
+   * Every group of input details for the job, with each run's result for it
+   * and each result's suggestions in order.
+   */
+  async getStudentMatchResults(jobId: Job['id']) {
+    const inputs = await this.prisma.studentInputDetails.findMany({
+      where: { jobId },
+      orderBy: { correlationId: 'asc' },
+      include: {
+        studentMatchResult: {
+          orderBy: { runId: 'asc' },
+          include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
+        },
+      },
+    });
+    // Prisma names each relation after its table; the API calls them results
+    // and suggestions.
+    return inputs.map(({ studentMatchResult, ...input }) => ({
+      ...input,
+      results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
+        ...result,
+        suggestions: studentMatchSuggestion,
+      })),
+    }));
+  }
+
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<
     | {
         status: 'success';
