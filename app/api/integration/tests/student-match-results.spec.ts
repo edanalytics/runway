@@ -82,6 +82,13 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
   });
 
   describe('authentication', () => {
+    it('rejects a request without a token without writing rows', async () => {
+      const res = await request(app.getHttpServer()).post(endpointFor(runA.id)).send([record()]);
+
+      expect(res.status).toBe(401);
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+    });
+
     it('rejects a token issued for another run without writing rows', async () => {
       const otherJob = await seedJob({
         odsConfig: odsConfigA2425,
