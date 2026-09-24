@@ -12,55 +12,19 @@ import {
 } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { Fragment, useState } from 'react';
-import { GetJobDto, GetStudentInputDetailsDto, JsonValue } from '@edanalytics/models';
+import { GetJobDto, GetStudentInputDetailsDto } from '@edanalytics/models';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
 import { runwayTableSx } from '../../../components/Table/RunwayStdTable';
 import { IconMinus, IconPlus } from '../../../../assets/icons';
-
-/** Known fields first, in this order; anything else IDRS sends follows. */
-const FIELDS: Record<string, string> = {
-  first_name: 'First name',
-  middle_name: 'Middle name',
-  last_name: 'Last name',
-  birth_date: 'Date of birth',
-  student_ids: 'Student IDs',
-  school_ids: 'School IDs',
-  school_years: 'School years',
-};
-
-/** A stored detail as text, or null when it's missing or empty. */
-const format = (value: JsonValue | undefined): string | null => {
-  if (value === undefined || value === null || value === '') {
-    return null;
-  }
-  if (Array.isArray(value)) {
-    const items = value.map(format).filter((item) => item !== null);
-    return items.length ? items.join(', ') : null;
-  }
-  if (typeof value === 'object') {
-    // Roster student ids arrive as { id_type, id_value }.
-    if ('id_value' in value) {
-      return value.id_type ? `${value.id_type}: ${value.id_value}` : String(value.id_value);
-    }
-    return JSON.stringify(value);
-  }
-  return String(value);
-};
-
-const Missing = () => (
-  <Box as="span" opacity="0.5">
-    —
-  </Box>
-);
-
-// The shared table highlights rows on hover. An expanded row, and the
-// comparison table inside it, aren't rows to pick, so they don't.
-const tableSx = {
-  ...runwayTableSx,
-  'tbody tr[data-expanded-row]:hover, tbody tr[data-expanded-row] tr:hover': {
-    bg: 'transparent',
-  },
-};
+import {
+  Detail,
+  FIELDS,
+  fieldsIn,
+  format,
+  Missing,
+  suggestionsOf,
+  tableSx,
+} from './studentMatchDisplay';
 
 /** Every student IDRS could not resolve, one expandable row each. */
 export const StudentMatchResults = ({ job }: { job: GetJobDto }) => {
@@ -119,11 +83,13 @@ export const StudentMatchResults = ({ job }: { job: GetJobDto }) => {
                       />
                     </Td>
                     <Td>{summarize(group)}</Td>
-                    <Td>{format(group.inputDetails.student_ids) ?? <Missing />}</Td>
+                    <Td>
+                      <Detail details={group.inputDetails} field="student_ids" />
+                    </Td>
                     <Td isNumeric>{suggestionsOf(group).length}</Td>
                   </Tr>
                   {isOpen && (
-                    <Tr data-expanded-row>
+                    <Tr data-no-hover>
                       <Td colSpan={4} paddingTop="0">
                         <Comparison group={group} />
                       </Td>
@@ -138,14 +104,6 @@ export const StudentMatchResults = ({ job }: { job: GetJobDto }) => {
     </VStack>
   );
 };
-
-const suggestionsOf = (group: GetStudentInputDetailsDto) =>
-  group.results.flatMap((result) =>
-    result.suggestions.map((suggestion) => ({
-      ...suggestion,
-      key: `${result.id}-${suggestion.ordinal}`,
-    }))
-  );
 
 /** "First Last (date of birth)", from whichever of those were sent. */
 const summarize = (group: GetStudentInputDetailsDto) => {
@@ -167,14 +125,10 @@ const summarize = (group: GetStudentInputDetailsDto) => {
  */
 const Comparison = ({ group }: { group: GetStudentInputDetailsDto }) => {
   const suggestions = suggestionsOf(group);
-  const sent = new Set([
-    ...Object.keys(group.inputDetails),
-    ...suggestions.flatMap((suggestion) => Object.keys(suggestion.rosterDetails)),
+  const fields = fieldsIn([
+    group.inputDetails,
+    ...suggestions.map((suggestion) => suggestion.rosterDetails),
   ]);
-  const fields = [
-    ...Object.keys(FIELDS).filter((field) => sent.has(field)),
-    ...[...sent].filter((field) => !(field in FIELDS)).sort(),
-  ];
 
   // Opaque, so scrolled columns pass underneath the pinned ones. The student
   // column pins just past the label column, so that one has a fixed width.
@@ -219,15 +173,11 @@ const Comparison = ({ group }: { group: GetStudentInputDetailsDto }) => {
                 {FIELDS[field] ?? field}
               </Td>
               <Td {...pinned} left={labelWidth}>
-                {format(group.inputDetails[field as keyof typeof group.inputDetails]) ?? (
-                  <Missing />
-                )}
+                <Detail details={group.inputDetails} field={field} />
               </Td>
               {suggestions.map((suggestion) => (
                 <Td key={suggestion.key}>
-                  {format(
-                    suggestion.rosterDetails[field as keyof typeof suggestion.rosterDetails]
-                  ) ?? <Missing />}
+                  <Detail details={suggestion.rosterDetails} field={field} />
                 </Td>
               ))}
             </Tr>

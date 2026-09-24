@@ -33,6 +33,7 @@ import { JobConfiguration } from './JobViewComponents/JobConfiguration';
 import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
 import { StudentMatchResults } from './JobViewComponents/StudentMatchResults';
+import { StudentMatchResultsStacked } from './JobViewComponents/StudentMatchResultsStacked';
 import { useMe } from '../../api/queries/me.queries';
 
 // Chakra's default selected tab uses blue.600, which this theme makes a
@@ -152,7 +153,8 @@ export const JobViewPage = () => {
       <Tabs isLazy lazyBehavior="keepMounted" width="100%">
         <TabList borderColor="blue.50-40">
           <Tab _selected={selectedTab}>Overview</Tab>
-          <Tab _selected={selectedTab}>Unmatched students</Tab>
+          <Tab _selected={selectedTab}>Unmatched (side by side)</Tab>
+          <Tab _selected={selectedTab}>Unmatched (stacked)</Tab>
         </TabList>
         <TabPanels>
           <TabPanel paddingX="0" paddingY="400">
@@ -202,6 +204,9 @@ export const JobViewPage = () => {
           </TabPanel>
           <TabPanel paddingX="0" paddingY="400">
             <StudentMatchResults job={job} />
+          </TabPanel>
+          <TabPanel paddingX="0" paddingY="400">
+            <StudentMatchResultsStacked job={job} />
           </TabPanel>
         </TabPanels>
       </Tabs>
