@@ -1,4 +1,16 @@
-import { Box, Collapse, HStack, Spinner, StackDivider, VStack } from '@chakra-ui/react';
+import {
+  Box,
+  Collapse,
+  HStack,
+  Spinner,
+  StackDivider,
+  Tab,
+  TabList,
+  TabPanel,
+  TabPanels,
+  Tabs,
+  VStack,
+} from '@chakra-ui/react';
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import {
   getJobErrors,
@@ -20,7 +32,12 @@ import { UnmatchedStudents } from './JobViewComponents/UnmatchedStudents';
 import { JobConfiguration } from './JobViewComponents/JobConfiguration';
 import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
+import { StudentMatchResults } from './JobViewComponents/StudentMatchResults';
 import { useMe } from '../../api/queries/me.queries';
+
+// Chakra's default selected tab uses blue.600, which this theme makes a
+// background color.
+const selectedTab = { color: 'blue.50', borderColor: 'blue.50' };
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
 const getStageFromUpdates = (updates: GetRunUpdateDto[] | undefined): JobStages => {
@@ -132,47 +149,62 @@ export const JobViewPage = () => {
           </Box>
         )}
       </Box>
-      <JobNotes job={job} />
-      <VStack
-        width="100%"
-        alignItems="flex-start"
-        layerStyle="contentBox"
-        padding="400"
-        gap="400"
-        divider={<StackDivider borderColor="blue.50-40" />}
-      >
-        <JobViewSection title="Progress">
-          {currentStage === 'not started' ? (
-            <HStack gap="300">
-              <Spinner size="md" color="blue.50" speed="0.75s" />
-              <Box textStyle="body">queued for processing...</Box>
-            </HStack>
-          ) : (
-            <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
-              <JobProgressTracker statusUpdates={statusUpdates} sendToOds={job.sendToOds} />
-            </Box>
-          )}
-          {errors?.map(({ error }) => (
-            // In theory, a job could have multiple errors, but in practice, any
-            // error flagged by the executor is fatal and so there will be only one.
-            <JobError key={error.id} err={error} />
-          ))}
-          {!!job.hasUnmatchedStudents && <UnmatchedStudents job={job} />}
-        </JobViewSection>
-        {!!job.resourceSummaries && (
-          <JobViewSection title="Summary">
-            <ResourceSummary job={job} />
-          </JobViewSection>
-        )}
-        <JobViewSection title="Configuration">
-          <JobConfiguration job={job} />
-        </JobViewSection>
-        {canViewOutputFiles && (
-          <JobViewSection title="Output Files">
-            <JobOutputFiles job={job} />
-          </JobViewSection>
-        )}
-      </VStack>
+      <Tabs isLazy lazyBehavior="keepMounted" width="100%">
+        <TabList borderColor="blue.50-40">
+          <Tab _selected={selectedTab}>Overview</Tab>
+          <Tab _selected={selectedTab}>Unmatched students</Tab>
+        </TabList>
+        <TabPanels>
+          <TabPanel paddingX="0" paddingY="400">
+            <VStack width="100%" alignItems="flex-start" gap="500">
+              <JobNotes job={job} />
+              <VStack
+                width="100%"
+                alignItems="flex-start"
+                layerStyle="contentBox"
+                padding="400"
+                gap="400"
+                divider={<StackDivider borderColor="blue.50-40" />}
+              >
+                <JobViewSection title="Progress">
+                  {currentStage === 'not started' ? (
+                    <HStack gap="300">
+                      <Spinner size="md" color="blue.50" speed="0.75s" />
+                      <Box textStyle="body">queued for processing...</Box>
+                    </HStack>
+                  ) : (
+                    <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
+                      <JobProgressTracker statusUpdates={statusUpdates} sendToOds={job.sendToOds} />
+                    </Box>
+                  )}
+                  {errors?.map(({ error }) => (
+                    // In theory, a job could have multiple errors, but in practice, any
+                    // error flagged by the executor is fatal and so there will be only one.
+                    <JobError key={error.id} err={error} />
+                  ))}
+                  {!!job.hasUnmatchedStudents && <UnmatchedStudents job={job} />}
+                </JobViewSection>
+                {!!job.resourceSummaries && (
+                  <JobViewSection title="Summary">
+                    <ResourceSummary job={job} />
+                  </JobViewSection>
+                )}
+                <JobViewSection title="Configuration">
+                  <JobConfiguration job={job} />
+                </JobViewSection>
+                {canViewOutputFiles && (
+                  <JobViewSection title="Output Files">
+                    <JobOutputFiles job={job} />
+                  </JobViewSection>
+                )}
+              </VStack>
+            </VStack>
+          </TabPanel>
+          <TabPanel paddingX="0" paddingY="400">
+            <StudentMatchResults job={job} />
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
     </VStack>
   );
 };
