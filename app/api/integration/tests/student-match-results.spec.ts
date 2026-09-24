@@ -338,24 +338,19 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
       expect(await prisma.studentMatchResult.count({ where: { jobId: jobA.id } })).toBe(0);
     });
 
-    // @Length counts a character plus a variation selector as one, PostgreSQL
-    // as two, so 65 of these pass the DTO and fail the correlation id CHECK,
-    // whose error quotes the failing row.
-    it('keeps a database error that quotes student data out of the response', async () => {
-      const logs = captureErrorLogs();
+    // The service's errors can quote student data (the test above shows a real
+    // one does), so the controller answers any failure with a fixed 500.
+    it("keeps an error's message out of the response", async () => {
+      const ingest = jest
+        .spyOn(app.get(StudentMatchResultsService), 'ingest')
+        .mockRejectedValueOnce(new Error(`Failing row contains (${SENTINEL})`));
       try {
-        const res = await post(runA.id, [
-          record({
-            correlation_id: '\u2764\uFE0F'.repeat(65),
-            candidate: { first_name: SENTINEL },
-          }),
-        ]);
+        const res = await post(runA.id, [record()]);
 
         expect(res.status).toBe(500);
         expect(JSON.stringify(res.body)).not.toContain(SENTINEL);
-        expect(logs.text()).toContain('sqlstate=23514');
       } finally {
-        logs.restore();
+        ingest.mockRestore();
       }
     });
   });
