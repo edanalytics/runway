@@ -4,7 +4,7 @@ import { seedJob } from '../factories/job-factory';
 import { bundleA } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425 } from '../fixtures/context-fixtures/ods-fixture';
 import { tenantA } from '../fixtures/context-fixtures/tenant-fixtures';
-import { Job, Run } from '@prisma/client';
+import { Job, Prisma, Run } from '@prisma/client';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Logger } from '@nestjs/common';
 
@@ -104,43 +104,81 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
   });
 
   describe('ingestion', () => {
-    it('persists input details, one result per group, and ordered suggestions', async () => {
+    it('stores input details, a result for this run, and its suggestions in order', async () => {
       const res = await post(runA.id, [
-        record({
-          correlation_id: 'corr-multi',
+        {
+          correlation_id: 'corr-1',
+          candidate: { first_name: 'Ada', last_name: 'Lovelace' },
           matches: [
-            { ...match, score: 0.97, student_unique_id: 'SUID-1' },
-            { ...match, score: 0.42, student_unique_id: 'SUID-2' },
+            { student_unique_id: 'SUID-1', score: 0.97, first_name: 'Ada' },
+            { student_unique_id: 'SUID-2', score: 0.42, first_name: 'Adah' },
           ],
-        }),
-        record({ correlation_id: 'corr-empty', matches: [] }),
+        },
+        { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
       ]);
 
       expect(res.status).toBe(201);
-      const { inputs, results } = await snapshot();
-      // Provenance comes from the authenticated run.
-      expect(inputs.map((i) => [i.correlationId, i.sourceRunId])).toEqual([
-        ['corr-empty', runA.id],
-        ['corr-multi', runA.id],
+      expect(
+        await prisma.studentInputDetails.findMany({
+          where: { jobId: jobA.id },
+          orderBy: { correlationId: 'asc' },
+        })
+      ).toEqual([
+        {
+          jobId: jobA.id,
+          correlationId: 'corr-1',
+          sourceRunId: runA.id,
+          inputDetails: { first_name: 'Ada', last_name: 'Lovelace' },
+          createdOn: expect.any(Date),
+        },
+        {
+          jobId: jobA.id,
+          correlationId: 'corr-2',
+          sourceRunId: runA.id,
+          inputDetails: { first_name: 'Grace' },
+          createdOn: expect.any(Date),
+        },
       ]);
       expect(
-        results.map((r) => [
-          r.correlationId,
-          r.runId,
-          r.studentMatchSuggestion.map((s) => [s.ordinal, s.studentUniqueId, s.score.toString()]),
-        ])
+        await prisma.studentMatchResult.findMany({
+          where: { jobId: jobA.id },
+          orderBy: { correlationId: 'asc' },
+          include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
+        })
       ).toEqual([
-        // A result exists even with no suggestions: "searched, found nothing"
-        // is not the same as "never searched".
-        ['corr-empty', runA.id, []],
-        [
-          'corr-multi',
-          runA.id,
-          [
-            [0, 'SUID-1', '0.97'],
-            [1, 'SUID-2', '0.42'],
+        {
+          id: expect.any(BigInt),
+          jobId: jobA.id,
+          correlationId: 'corr-1',
+          runId: runA.id,
+          createdOn: expect.any(Date),
+          studentMatchSuggestion: [
+            {
+              resultId: expect.any(BigInt),
+              ordinal: 0,
+              studentUniqueId: 'SUID-1',
+              score: new Prisma.Decimal('0.97'),
+              rosterDetails: { first_name: 'Ada' },
+            },
+            {
+              resultId: expect.any(BigInt),
+              ordinal: 1,
+              studentUniqueId: 'SUID-2',
+              score: new Prisma.Decimal('0.42'),
+              rosterDetails: { first_name: 'Adah' },
+            },
           ],
-        ],
+        },
+        {
+          id: expect.any(BigInt),
+          jobId: jobA.id,
+          correlationId: 'corr-2',
+          runId: runA.id,
+          createdOn: expect.any(Date),
+          // A result even with no suggestions: "searched, found nothing" is
+          // not the same as "never searched".
+          studentMatchSuggestion: [],
+        },
       ]);
     });
 
