@@ -1,6 +1,6 @@
 import { Expose, Type } from 'class-transformer';
 import { DtoGetBase, GetDto } from '../utils/get-base.dto';
-import { Prisma, Run, RunStatus } from '@prisma/client';
+import { EcsTaskSize, Prisma, Run, RunStatus } from '@prisma/client';
 import { makeSerializer } from '../utils';
 import { IsOptional } from 'class-validator';
 export class GetRunDto
@@ -24,6 +24,12 @@ export class GetRunDto
 
   @Expose()
   summary: Prisma.JsonValue | null;
+
+  @Expose()
+  ecsTaskArn: string | null;
+
+  @Expose()
+  taskSize: EcsTaskSize | null;
 
   @Expose()
   @Type(() => UnmatchedStudentsInfoDto)
