@@ -329,17 +329,37 @@ export const WorkspaceReview = () => {
               onChange={(key) => setCountFilter(key === countFilter ? null : (key as CountFilter))}
             />
           </VStack>
-          <HStack justifyContent="space-between" fontSize="0.8rem" gap="200">
+          <HStack fontSize="0.8rem" gap="200" minHeight="1.5rem">
             <Box opacity="0.8" whiteSpace="nowrap">
               {queue.length} of {groups.length} students
+            </Box>
+            {filtered && (
+              <QuietButton size="xs" onClick={clearFilters}>
+                Clear filters
+              </QuietButton>
+            )}
+          </HStack>
+          <HStack fontSize="0.8rem" gap="200">
+            <Box as="label" htmlFor="workspace-queue-sort" opacity="0.8">
+              Sort
             </Box>
             <Select
               id="workspace-queue-sort"
               size="xs"
-              width="auto"
+              flex="1"
               value={sort}
               onChange={(event) => setSort(event.target.value as SortKey)}
-              aria-label="Sort the list"
+              bg="blue.600"
+              color="blue.50"
+              borderColor="blue.50-40"
+              _hover={{ borderColor: 'blue.50' }}
+              // The open list is drawn by the browser; give its options the same colors.
+              sx={{
+                option: {
+                  background: 'var(--chakra-colors-blue-700)',
+                  color: 'var(--chakra-colors-blue-50)',
+                },
+              }}
             >
               {sorts.map((s) => (
                 <option key={s.key} value={s.key}>
@@ -347,13 +367,6 @@ export const WorkspaceReview = () => {
                 </option>
               ))}
             </Select>
-          </HStack>
-          <HStack justifyContent="flex-end" fontSize="0.8rem" minHeight="1.5rem">
-            {filtered && (
-              <QuietButton size="xs" onClick={clearFilters}>
-                Clear filters
-              </QuietButton>
-            )}
           </HStack>
           <VStack
             alignItems="stretch"
@@ -1068,6 +1081,31 @@ const EvidenceTable = ({
   const agreementOf = (label: string, index: number): Agreement =>
     comparisons[index].fields.find((f) => f.label === label)?.agreement ?? 'unknown';
 
+  const renderRow = (row: Row) => (
+    <Tr key={row.label}>
+      <Td whiteSpace="nowrap" opacity="0.85">
+        {row.label}
+      </Td>
+      <Td>{fileValue[row.label] ?? <Missing compared={!row.rosterOnly} />}</Td>
+      {shown.map((c, i) => {
+        const value = row.roster(c.rosterDetails);
+        return (
+          <Td key={c.studentUniqueId} bg={selected === c.studentUniqueId ? 'blue.600' : undefined}>
+            <HStack gap="100" alignItems="baseline">
+              {row.compared ? (
+                <AgreementMark agreement={agreementOf(row.label, i)} />
+              ) : (
+                // Keeps unmarked values aligned with marked ones.
+                !row.rosterOnly && <Box width="1.5rem" flexShrink={0} />
+              )}
+              <Box>{value ?? <Missing compared={!row.rosterOnly} />}</Box>
+            </HStack>
+          </Td>
+        );
+      })}
+    </Tr>
+  );
+
   return (
     <VStack alignItems="stretch" gap="200">
       {candidates.length > MAX_COMPARED && (
@@ -1132,35 +1170,8 @@ const EvidenceTable = ({
             </Tr>
           </Thead>
           <Tbody>
-            {rows
-              .filter((row) => !row.rosterOnly || showRosterOnly)
-              .map((row) => (
-                <Tr key={row.label}>
-                  <Td whiteSpace="nowrap" opacity="0.85">
-                    {row.label}
-                  </Td>
-                  <Td>{fileValue[row.label] ?? <Missing compared={!row.rosterOnly} />}</Td>
-                  {shown.map((c, i) => {
-                    const value = row.roster(c.rosterDetails);
-                    return (
-                      <Td
-                        key={c.studentUniqueId}
-                        bg={selected === c.studentUniqueId ? 'blue.600' : undefined}
-                      >
-                        <HStack gap="100" alignItems="baseline">
-                          {row.compared ? (
-                            <AgreementMark agreement={agreementOf(row.label, i)} />
-                          ) : (
-                            // Keeps unmarked values aligned with marked ones.
-                            !row.rosterOnly && <Box width="1.5rem" flexShrink={0} />
-                          )}
-                          <Box>{value ?? <Missing compared={!row.rosterOnly} />}</Box>
-                        </HStack>
-                      </Td>
-                    );
-                  })}
-                </Tr>
-              ))}
+            {rows.filter((row) => !row.rosterOnly).map(renderRow)}
+            {/* The toggle stays put; roster details open beneath it. */}
             <Tr>
               <Td colSpan={2 + shown.length} paddingY="100">
                 <QuietButton
@@ -1169,13 +1180,14 @@ const EvidenceTable = ({
                   onClick={() => setShowRosterOnly(!showRosterOnly)}
                   aria-expanded={showRosterOnly}
                 >
-                  {showRosterOnly ? '▾ Hide roster details' : '▸ Roster details'}
+                  {showRosterOnly ? '▾' : '▸'} Roster details
                 </QuietButton>
                 <Box as="span" fontSize="0.75rem" opacity="0.6" marginLeft="200">
                   middle name, school years
                 </Box>
               </Td>
             </Tr>
+            {showRosterOnly && rows.filter((row) => row.rosterOnly).map(renderRow)}
             <Tr>
               <Td opacity="0.85" fontSize="0.8rem">
                 Match score
