@@ -858,17 +858,57 @@ type Row = {
   label: string;
   file: string | null;
   roster: (candidate: StudentRosterDetailsJson) => string | null;
-  /** Compared rows get marks; roster-only rows are shown for context. */
+  /** Compared rows get marks. */
   compared: boolean;
+  /** Only the roster has these; they're a click away. */
+  rosterOnly: boolean;
 };
 
 const rows: Row[] = [
-  { label: 'First name', file: null, roster: (r) => valueText(r.first_name), compared: true },
-  { label: 'Last name', file: null, roster: (r) => valueText(r.last_name), compared: true },
-  { label: 'Date of birth', file: null, roster: (r) => valueText(r.birth_date), compared: true },
-  { label: 'Middle name', file: null, roster: (r) => valueText(r.middle_name), compared: false },
-  { label: 'Student IDs', file: null, roster: (r) => valueText(r.student_ids), compared: false },
-  { label: 'School years', file: null, roster: (r) => valueText(r.school_years), compared: false },
+  {
+    label: 'First name',
+    file: null,
+    roster: (r) => valueText(r.first_name),
+    compared: true,
+    rosterOnly: false,
+  },
+  {
+    label: 'Last name',
+    file: null,
+    roster: (r) => valueText(r.last_name),
+    compared: true,
+    rosterOnly: false,
+  },
+  {
+    label: 'Date of birth',
+    file: null,
+    roster: (r) => valueText(r.birth_date),
+    compared: true,
+    rosterOnly: false,
+  },
+  // Both sides have IDs, but usually from different ID systems (the roster's
+  // are typed), so they're shown side by side without a mark.
+  {
+    label: 'Student IDs',
+    file: null,
+    roster: (r) => valueText(r.student_ids),
+    compared: false,
+    rosterOnly: false,
+  },
+  {
+    label: 'Middle name',
+    file: null,
+    roster: (r) => valueText(r.middle_name),
+    compared: false,
+    rosterOnly: true,
+  },
+  {
+    label: 'School years',
+    file: null,
+    roster: (r) => valueText(r.school_years),
+    compared: false,
+    rosterOnly: true,
+  },
 ];
 
 const MAX_COMPARED = 3;
@@ -984,13 +1024,13 @@ const EvidenceTable = ({
           </Thead>
           <Tbody>
             {rows
-              .filter((row) => row.compared || showRosterOnly)
+              .filter((row) => !row.rosterOnly || showRosterOnly)
               .map((row) => (
                 <Tr key={row.label}>
                   <Td whiteSpace="nowrap" opacity="0.85">
                     {row.label}
                   </Td>
-                  <Td>{fileValue[row.label] ?? <Missing compared={row.compared} />}</Td>
+                  <Td>{fileValue[row.label] ?? <Missing compared={!row.rosterOnly} />}</Td>
                   {shown.map((c, i) => {
                     const value = row.roster(c.rosterDetails);
                     return (
@@ -999,8 +1039,13 @@ const EvidenceTable = ({
                         bg={selected === c.studentUniqueId ? 'blue.600' : undefined}
                       >
                         <HStack gap="100" alignItems="baseline">
-                          {row.compared && <AgreementMark agreement={agreementOf(row.label, i)} />}
-                          <Box>{value ?? <Missing compared={row.compared} />}</Box>
+                          {row.compared ? (
+                            <AgreementMark agreement={agreementOf(row.label, i)} />
+                          ) : (
+                            // Keeps unmarked values aligned with marked ones.
+                            !row.rosterOnly && <Box width="1.5rem" flexShrink={0} />
+                          )}
+                          <Box>{value ?? <Missing compared={!row.rosterOnly} />}</Box>
                         </HStack>
                       </Td>
                     );
@@ -1018,7 +1063,7 @@ const EvidenceTable = ({
                   {showRosterOnly ? '▾ Hide roster details' : '▸ Roster details'}
                 </QuietButton>
                 <Box as="span" fontSize="0.75rem" opacity="0.6" marginLeft="200">
-                  middle name, student IDs, school years · shown, not compared
+                  middle name, school years
                 </Box>
               </Td>
             </Tr>
