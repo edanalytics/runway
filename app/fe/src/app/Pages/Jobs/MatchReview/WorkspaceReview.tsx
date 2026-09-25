@@ -51,17 +51,16 @@ import {
 /*
  * PROTOTYPE, design 5: Review workspace, following the design review in
  * docs/student-identity-review-ux.md. One persistent queue and one focused
- * workspace. Suggestion count is a filter, not a workflow. Three distinct
- * destinations: save a match, set aside for more information, or exclude
- * from this job; rejecting suggestions is none of them. Submitting is a
- * deliberate checkpoint, and batch outcomes stay with the batch.
+ * workspace. Suggestion count is a filter, not a workflow. Two destinations:
+ * save a match, or exclude the record from this job (mostly for junk data);
+ * rejecting the suggestions is neither. Submitting is a deliberate
+ * checkpoint, and batch outcomes stay with the batch.
  */
 
 // Queue ----------------------------------------------------------------------
 
 const statusLabel: Record<StudentStatus, string> = {
   'to-review': 'Needs review',
-  'set-aside': 'Set aside',
   ready: 'Match saved',
   reprocessing: 'Submitted',
   reprocessed: 'Submitted',
@@ -69,39 +68,23 @@ const statusLabel: Record<StudentStatus, string> = {
   excluded: 'Excluded',
 };
 
-type StatusFilter =
-  | 'unfinished'
-  | 'to-review'
-  | 'set-aside'
-  | 'ready'
-  | 'excluded'
-  | 'submitted'
-  | 'all';
+type StatusFilter = 'unfinished' | 'to-review' | 'ready' | 'excluded' | 'submitted' | 'all';
 type CountFilter = 'any' | 'none' | 'one' | 'several';
 
 const statusFilters: { key: StatusFilter; label: string; includes: StudentStatus[] }[] = [
   {
     key: 'unfinished',
     label: 'Unfinished',
-    includes: ['to-review', 'set-aside', 'ready', 'run-failed'],
+    includes: ['to-review', 'ready', 'run-failed'],
   },
   { key: 'to-review', label: 'Needs review', includes: ['to-review'] },
-  { key: 'set-aside', label: 'Set aside', includes: ['set-aside'] },
   { key: 'ready', label: 'Match saved', includes: ['ready'] },
   { key: 'excluded', label: 'Excluded', includes: ['excluded'] },
   { key: 'submitted', label: 'Submitted', includes: ['reprocessing', 'reprocessed', 'run-failed'] },
   {
     key: 'all',
     label: 'All',
-    includes: [
-      'to-review',
-      'set-aside',
-      'ready',
-      'reprocessing',
-      'reprocessed',
-      'run-failed',
-      'excluded',
-    ],
+    includes: ['to-review', 'ready', 'reprocessing', 'reprocessed', 'run-failed', 'excluded'],
   },
 ];
 
@@ -252,7 +235,7 @@ export const WorkspaceReview = () => {
     <VStack alignItems="stretch" width="100%" gap="400">
       <DesignIntro
         title="Review workspace"
-        bet="Following the design review: one queue and one workspace, built for a defensible choice first. Save a match, set a record aside until you have the information, or exclude it from this job; submit saved matches when you reach a stopping point. Keyboard: j/k to move, 1–9 to select, s to save, a to set aside, x to exclude."
+        bet="Following the design review: one queue and one workspace, built for a defensible choice first. Save a match, or exclude a record from this job, mostly for junk data; submit saved matches when you reach a stopping point. Keyboard: j/k to move, 1–9 to select, s to save, x to exclude."
       />
       <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
 
@@ -364,7 +347,7 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
   const { groups, statusOf, batches } = useReviewSession();
   const count = (...statuses: StudentStatus[]) =>
     groups.filter((g) => statuses.includes(statusOf(g.correlationId))).length;
-  const unresolved = count('to-review', 'set-aside', 'run-failed');
+  const unresolved = count('to-review', 'run-failed');
   const running = batches.filter((b) => !isFinished(b)).length;
   const withErrors = batches.filter((b) => b.status === 'complete with errors').length;
   const done = groups.length > 0 && count('excluded', 'reprocessed') === groups.length;
@@ -393,7 +376,6 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
 
   const tiles: { label: string; value: number }[] = [
     { label: 'Needs review', value: count('to-review') },
-    { label: 'Set aside', value: count('set-aside') },
     { label: 'Matches to submit', value: readyCount },
     { label: 'Excluded', value: count('excluded') },
     { label: 'Submitted', value: count('reprocessing', 'reprocessed', 'run-failed') },
@@ -558,8 +540,7 @@ const Workspace = ({
   const [found, setFound] = useState<Candidate | null>(
     decision?.kind === 'match' && decision.candidate.source === 'search' ? decision.candidate : null
   );
-  const [panel, setPanel] = useState<'none' | 'set-aside' | 'exclude'>('none');
-  const [note, setNote] = useState(decision?.kind === 'set-aside' ? decision.note : '');
+  const [confirmingExclude, setConfirmingExclude] = useState(false);
   const [searching, setSearching] = useState(suggestions.length === 0);
 
   const candidates =
@@ -583,16 +564,10 @@ const Workspace = ({
       advance: true,
     });
   };
-  const setAside = () => {
-    const previous = decision;
-    decide(id, { kind: 'set-aside', note: note.trim() });
-    setPanel('none');
-    onSaved({ message: `Set ${name} aside.`, undo: restore(previous), advance: true });
-  };
   const exclude = () => {
     const previous = decision;
     decide(id, { kind: 'not-in-roster' });
-    setPanel('none');
+    setConfirmingExclude(false);
     onSaved({ message: `Excluded ${name} from this job.`, undo: restore(previous), advance: true });
   };
 
@@ -601,8 +576,7 @@ const Workspace = ({
     const pick = Number(event.key);
     if (pick >= 1 && pick <= candidates.length) setSelected(candidates[pick - 1]);
     if (event.key === 's') save();
-    if (event.key === 'a') setPanel('set-aside');
-    if (event.key === 'x') setPanel('exclude');
+    if (event.key === 'x') setConfirmingExclude(true);
   };
 
   const issues = fileIssues(group);
@@ -693,44 +667,22 @@ const Workspace = ({
           borderTopWidth="1px"
           borderColor="blue.50-40"
         >
-          {panel === 'set-aside' && (
-            <VStack alignItems="stretch" gap="200">
-              <FormControl>
-                <FormLabel fontSize="0.85rem">
-                  What do you need before deciding? (optional, for whoever picks this up)
-                </FormLabel>
-                <Input
-                  id={`set-aside-note-${id}`}
-                  size="sm"
-                  value={note}
-                  placeholder="e.g. SIS confirms enrollment; waiting for roster refresh"
-                  onChange={(event) => setNote(event.target.value)}
-                  onKeyDown={(event) => event.key === 'Enter' && setAside()}
-                  autoFocus
-                />
-              </FormControl>
-              <HStack gap="200">
-                <SecondaryButton onClick={setAside}>Set aside</SecondaryButton>
-                <QuietButton onClick={() => setPanel('none')}>Cancel</QuietButton>
-              </HStack>
-            </VStack>
-          )}
-          {panel === 'exclude' && (
+          {confirmingExclude && (
             <VStack alignItems="stretch" gap="200">
               <Box fontSize="0.9rem">
-                Exclude {name} from this job? Their records won't be included in reprocessing.
-                Reason: not found in the roster. You can undo this later; it doesn't carry over to
-                other jobs.
+                Exclude {name} from this job? Use this for junk data, or a student who isn't in the
+                roster. Their records won't be reprocessed. You can undo it, and it doesn't carry
+                over to other jobs.
               </Box>
               <HStack gap="200">
                 <SecondaryButton borderColor="pink.100" color="pink.100" onClick={exclude}>
                   Exclude from this job
                 </SecondaryButton>
-                <QuietButton onClick={() => setPanel('none')}>Cancel</QuietButton>
+                <QuietButton onClick={() => setConfirmingExclude(false)}>Cancel</QuietButton>
               </HStack>
             </VStack>
           )}
-          {/* The same three actions, in the same places, for every record. */}
+          {/* The same actions, in the same places, for every record. */}
           <HStack gap="300" flexWrap="wrap">
             <PrimaryButton
               isDisabled={!selected || selected.studentUniqueId === saved}
@@ -740,8 +692,7 @@ const Workspace = ({
                 ? `Save match: ${selected.studentUniqueId} (s)`
                 : 'Select a student to save a match'}
             </PrimaryButton>
-            <SecondaryButton onClick={() => setPanel('set-aside')}>Set aside… (a)</SecondaryButton>
-            <SecondaryButton onClick={() => setPanel('exclude')}>
+            <SecondaryButton onClick={() => setConfirmingExclude(true)}>
               Exclude from this job… (x)
             </SecondaryButton>
             {decision && (
@@ -788,14 +739,8 @@ const DecisionState = ({
     body = `Match saved${by}: ${decision.candidate.studentUniqueId}${
       decision.candidate.source === 'search' ? ', found by searching' : ''
     }. Not submitted yet.`;
-  } else if (status === 'set-aside' && decision?.kind === 'set-aside') {
-    body = (
-      <>
-        Set aside{by}.{decision.note ? ` Note: “${decision.note}”` : ' No note.'} Still unresolved.
-      </>
-    );
   } else if (status === 'excluded') {
-    body = `Excluded from this job${by}: not found in the roster. Its records won't be reprocessed.`;
+    body = `Excluded from this job${by}. Its records won't be reprocessed.`;
   } else if (
     batch &&
     (status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed')
@@ -1174,10 +1119,18 @@ const SubmitReview = ({
 }) => {
   const { decisions, submit, groups, statusOf } = useReviewSession();
   const [sent, setSent] = useState(false);
+  const [conflict, setConflict] = useState(false);
   useEffect(() => {
-    if (isOpen) setSent(false);
+    if (isOpen) {
+      setSent(false);
+      setConflict(false);
+    }
   }, [isOpen]);
   const excluded = groups.filter((g) => statusOf(g.correlationId) === 'excluded');
+  const byOthers = ready.filter((g) => {
+    const by = decisions.get(g.correlationId)?.decidedBy;
+    return by && by !== 'you';
+  });
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">
@@ -1188,6 +1141,37 @@ const SubmitReview = ({
           these identities
         </ModalHeader>
         <ModalBody>
+          {conflict && (
+            <VStack
+              alignItems="flex-start"
+              gap="200"
+              marginBottom="300"
+              padding="300"
+              borderRadius="6px"
+              borderWidth="1px"
+              borderColor="pink.100"
+            >
+              <Box>
+                Nothing was submitted. Some of these matches changed since this page loaded them,
+                perhaps by another reviewer. Refresh to see the latest, then submit again.
+              </Box>
+              <SecondaryButton onClick={() => window.location.reload()}>Refresh</SecondaryButton>
+            </VStack>
+          )}
+          {byOthers.length > 0 && (
+            <Box
+              marginBottom="300"
+              padding="300"
+              borderRadius="6px"
+              borderWidth="1px"
+              borderColor="purple.200"
+              fontSize="0.9rem"
+            >
+              {byOthers.length} of these {byOthers.length === 1 ? 'match was' : 'matches were'}{' '}
+              saved by another reviewer. Submitting sends them as they are; check them if you're not
+              expecting that.
+            </Box>
+          )}
           <Table size="sm">
             <Thead>
               <Tr>
@@ -1218,6 +1202,11 @@ const SubmitReview = ({
                         {candidate && studentName(candidate.rosterDetails)}
                         {candidate?.source === 'search' && ' · found by search'}
                       </Box>
+                      {decision && decision.decidedBy !== 'you' && (
+                        <Box fontSize="0.75rem" color="purple.200">
+                          Saved by {decision.decidedBy}
+                        </Box>
+                      )}
                     </Td>
                     <Td textAlign="right">
                       <QuietButton onClick={() => onView(group.correlationId)}>
@@ -1247,8 +1236,9 @@ const SubmitReview = ({
             isDisabled={sent || !ready.length}
             onClick={() => {
               setSent(true);
-              submit(ready.map((g) => g.correlationId));
-              onClose();
+              const result = submit(ready.map((g) => g.correlationId));
+              if (result.ok) onClose();
+              else setConflict(true);
             }}
           >
             Submit batch
@@ -1295,18 +1285,53 @@ const SupportPath = ({ batches }: { batches: Batch[] }) => {
 };
 
 const PrototypeControls = () => {
-  const { failNextRun, setFailNextRun } = useReviewSession();
+  const {
+    groups,
+    statusOf,
+    decide,
+    failNextRun,
+    setFailNextRun,
+    conflictNextSubmit,
+    setConflictNextSubmit,
+  } = useReviewSession();
+  // Someone else saving the top suggestion for a student still needing review.
+  const other = groups.find(
+    (g) => statusOf(g.correlationId) === 'to-review' && suggestionsOf(g).length > 0
+  );
   return (
-    <HStack fontSize="0.8rem" opacity="0.75" gap="200">
-      <Box>Prototype:</Box>
-      <Checkbox
-        size="sm"
-        isChecked={failNextRun}
-        onChange={(e) => setFailNextRun(e.target.checked)}
-      >
-        Make the next batch's run fail outright
-      </Checkbox>
-      <Box>· Decisions persist in this browser; reload to try leaving and coming back.</Box>
-    </HStack>
+    <VStack alignItems="flex-start" fontSize="0.8rem" opacity="0.75" gap="100">
+      <HStack gap="300" flexWrap="wrap">
+        <Box>Prototype:</Box>
+        <Checkbox
+          size="sm"
+          isChecked={failNextRun}
+          onChange={(e) => setFailNextRun(e.target.checked)}
+        >
+          Next batch's run fails outright
+        </Checkbox>
+        <Checkbox
+          size="sm"
+          isChecked={conflictNextSubmit}
+          onChange={(e) => setConflictNextSubmit(e.target.checked)}
+        >
+          Next submission finds a conflicting change
+        </Checkbox>
+        <QuietButton
+          size="xs"
+          isDisabled={!other}
+          onClick={() =>
+            other &&
+            decide(
+              other.correlationId,
+              { kind: 'match', candidate: suggestionsOf(other)[0] },
+              'another reviewer'
+            )
+          }
+        >
+          Another reviewer saves a match
+        </QuietButton>
+      </HStack>
+      <Box>Decisions persist in this browser; reload to try leaving and coming back.</Box>
+    </VStack>
   );
 };

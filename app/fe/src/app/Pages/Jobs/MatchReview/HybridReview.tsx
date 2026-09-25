@@ -241,7 +241,6 @@ const ReadySummary = ({ ready }: { ready: GetStudentInputDetailsDto[] }) => {
 
 const glyph: Record<StudentStatus, string> = {
   'to-review': '○',
-  'set-aside': '◌',
   'run-failed': '!',
   ready: '●',
   reprocessing: '…',

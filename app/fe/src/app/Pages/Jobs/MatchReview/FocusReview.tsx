@@ -25,7 +25,6 @@ import { Candidate, StudentStatus, suggestedCandidates, useReviewSession } from 
 
 const sections: { status: StudentStatus; title: string }[] = [
   { status: 'to-review', title: 'To review' },
-  { status: 'set-aside', title: 'Set aside' },
   { status: 'run-failed', title: 'Run failed' },
   { status: 'ready', title: 'Ready to submit' },
   { status: 'reprocessing', title: 'Reprocessing' },
@@ -35,7 +34,6 @@ const sections: { status: StudentStatus; title: string }[] = [
 
 const statusGlyph: Record<StudentStatus, string> = {
   'to-review': '○',
-  'set-aside': '◌',
   'run-failed': '!',
   ready: '●',
   reprocessing: '…',

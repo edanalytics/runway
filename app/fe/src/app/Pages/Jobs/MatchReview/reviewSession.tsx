@@ -38,11 +38,7 @@ export type Candidate = {
   source: 'suggestion' | 'search';
 };
 
-export type DecisionChoice =
-  | { kind: 'match'; candidate: Candidate }
-  | { kind: 'not-in-roster' }
-  /** Unresolved: the reviewer needs more information first. */
-  | { kind: 'set-aside'; note: string };
+export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: 'not-in-roster' };
 
 export type Decision = DecisionChoice & { decidedAt: number; decidedBy: string };
 
@@ -88,7 +84,6 @@ export const isFinished = (batch: Batch) =>
  */
 export type StudentStatus =
   | 'to-review'
-  | 'set-aside'
   | 'ready'
   | 'reprocessing'
   | 'reprocessed'
@@ -105,13 +100,17 @@ type Session = {
   roster: RosterStudent[];
   decisions: Map<string, Decision>;
   batches: Batch[];
-  decide: (correlationId: string, decision: DecisionChoice) => void;
+  /** Saves a decision; `decidedBy` is the reviewer, "you" unless simulating someone else. */
+  decide: (correlationId: string, decision: DecisionChoice, decidedBy?: string) => void;
   undo: (correlationId: string) => void;
   statusOf: (correlationId: string) => StudentStatus;
   /** The latest batch this student was submitted in, if any. */
   batchOf: (correlationId: string) => Batch | undefined;
-  /** Submits the match decisions among these students as one batch. */
-  submit: (correlationIds: string[]) => void;
+  /**
+   * Submits the match decisions among these students as one batch. Refused
+   * when a decision changed on the server since this page loaded it.
+   */
+  submit: (correlationIds: string[]) => SubmitResult;
   /** Sends a failed batch's choices again, as a new batch. */
   retry: (batchId: number) => void;
   /** The reviewer's last search for a student, kept for when they come back. */
@@ -120,6 +119,9 @@ type Session = {
   /** Prototype control: make the next batch's run fail outright. */
   failNextRun: boolean;
   setFailNextRun: (fail: boolean) => void;
+  /** Prototype control: make the next submission find a conflicting change. */
+  conflictNextSubmit: boolean;
+  setConflictNextSubmit: (conflict: boolean) => void;
   reset: () => void;
 };
 
@@ -130,6 +132,8 @@ export const useReviewSession = () => {
   if (!session) throw new Error('useReviewSession must be used inside a ReviewSessionProvider');
   return session;
 };
+
+export type SubmitResult = { ok: true } | { ok: false; reason: 'conflict' };
 
 type Stored = {
   decisions: [string, Decision][];
@@ -142,7 +146,13 @@ const storageKey = (jobId: number) => `runway.match-review-prototype.${jobId}`;
 const load = (jobId: number): Stored | null => {
   try {
     const raw = window.localStorage.getItem(storageKey(jobId));
-    return raw ? (JSON.parse(raw) as Stored) : null;
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as Stored;
+    // Drop decision kinds this prototype no longer has.
+    stored.decisions = stored.decisions.filter(
+      ([, d]) => d.kind === 'match' || d.kind === 'not-in-roster'
+    );
+    return stored;
   } catch {
     return null;
   }
@@ -176,6 +186,7 @@ export const ReviewSessionProvider = ({
     () => new Map(initial?.searches ?? [])
   );
   const [failNextRun, setFailNextRun] = useState(false);
+  const [conflictNextSubmit, setConflictNextSubmit] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -250,11 +261,7 @@ export const ReviewSessionProvider = ({
       const batch = batchOf(correlationId);
       // A decision made since the last submission is the one that counts.
       if (decision && (!batch || decision.decidedAt > batch.submittedAt)) {
-        return decision.kind === 'match'
-          ? 'ready'
-          : decision.kind === 'set-aside'
-          ? 'set-aside'
-          : 'excluded';
+        return decision.kind === 'match' ? 'ready' : 'excluded';
       }
       if (batch) {
         if (!isFinished(batch)) return 'reprocessing';
@@ -265,11 +272,14 @@ export const ReviewSessionProvider = ({
     [batchOf, decisions]
   );
 
-  const decide = useCallback((correlationId: string, decision: DecisionChoice) => {
-    setDecisions((current) =>
-      new Map(current).set(correlationId, { ...decision, decidedAt: Date.now(), decidedBy: 'you' })
-    );
-  }, []);
+  const decide = useCallback(
+    (correlationId: string, decision: DecisionChoice, decidedBy = 'you') => {
+      setDecisions((current) =>
+        new Map(current).set(correlationId, { ...decision, decidedAt: Date.now(), decidedBy })
+      );
+    },
+    []
+  );
 
   const undo = useCallback((correlationId: string) => {
     setDecisions((current) => {
@@ -311,14 +321,22 @@ export const ReviewSessionProvider = ({
   );
 
   const submit = useCallback(
-    (correlationIds: string[]) =>
+    (correlationIds: string[]): SubmitResult => {
+      // Stands in for the server checking each decision is still the one
+      // this page loaded, before it accepts the batch.
+      if (conflictNextSubmit) {
+        setConflictNextSubmit(false);
+        return { ok: false, reason: 'conflict' };
+      }
       send(
         correlationIds.flatMap((correlationId) => {
           const decision = decisions.get(correlationId);
           return decision?.kind === 'match' ? [{ correlationId, decision }] : [];
         })
-      ),
-    [decisions, send]
+      );
+      return { ok: true };
+    },
+    [conflictNextSubmit, decisions, send]
   );
 
   const retry = useCallback(
@@ -344,6 +362,7 @@ export const ReviewSessionProvider = ({
     setStored([]);
     setSearches(new Map());
     setFailNextRun(false);
+    setConflictNextSubmit(false);
     save(job.id, null);
   }, [job.id]);
 
@@ -365,6 +384,8 @@ export const ReviewSessionProvider = ({
     setSearch,
     failNextRun,
     setFailNextRun,
+    conflictNextSubmit,
+    setConflictNextSubmit,
     reset,
   };
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
