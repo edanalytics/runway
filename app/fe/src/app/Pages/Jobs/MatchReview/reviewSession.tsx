@@ -15,6 +15,7 @@ import {
 } from '@edanalytics/models';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
 import { pretendRoster, RosterStudent, SearchHit, SearchTerms } from './mockIdrs';
+import { syntheticStudents } from './syntheticStudents';
 
 /*
  * PROTOTYPE ONLY. One review session per job page, shared by every review
@@ -117,6 +118,9 @@ type Session = {
   searchOf: (correlationId: string) => SearchState | undefined;
   setSearch: (correlationId: string, search: SearchState) => void;
   /** Prototype control: make the next batch's run fail outright. */
+  /** Prototype control: add a large job's worth of made-up students. */
+  simulateLarge: boolean;
+  setSimulateLarge: (large: boolean) => void;
   failNextRun: boolean;
   setFailNextRun: (fail: boolean) => void;
   /** Prototype control: make the next submission find a conflicting change. */
@@ -177,7 +181,25 @@ export const ReviewSessionProvider = ({
   children: ReactNode;
 }) => {
   const { data, isLoading, isError } = useQuery(getJobStudentMatchResults(String(job.id)));
-  const groups = useMemo(() => data ?? [], [data]);
+  const [simulateLarge, setSimulateLargeState] = useState(() => {
+    try {
+      return window.localStorage.getItem(`${storageKey(job.id)}.large`) === 'on';
+    } catch {
+      return false;
+    }
+  });
+  const setSimulateLarge = (large: boolean) => {
+    setSimulateLargeState(large);
+    try {
+      window.localStorage.setItem(`${storageKey(job.id)}.large`, large ? 'on' : 'off');
+    } catch {
+      // A convenience; the control still works for this visit.
+    }
+  };
+  const groups = useMemo(
+    () => [...(data ?? []), ...(simulateLarge ? syntheticStudents(240, job.lastRun?.id ?? 0) : [])],
+    [data, simulateLarge, job.lastRun?.id]
+  );
   const roster = useMemo(() => pretendRoster(groups), [groups]);
   const [initial] = useState(() => load(job.id));
   const [decisions, setDecisions] = useState<Map<string, Decision>>(
@@ -388,6 +410,8 @@ export const ReviewSessionProvider = ({
     retry,
     searchOf,
     setSearch,
+    simulateLarge,
+    setSimulateLarge,
     failNextRun,
     setFailNextRun,
     conflictNextSubmit,

@@ -11,6 +11,8 @@ import {
   ModalFooter,
   ModalHeader,
   ModalOverlay,
+  Progress,
+  Select,
   SimpleGrid,
   Spinner,
   Table,
@@ -26,7 +28,7 @@ import {
   JsonValue,
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
-import { KeyboardEvent, ReactNode, useEffect, useState } from 'react';
+import { KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
@@ -89,6 +91,29 @@ const countFilters: { key: CountFilter; label: string; test: (n: number) => bool
   { key: 'one', label: 'One', test: (n) => n === 1 },
   { key: 'several', label: 'Several', test: (n) => n > 1 },
 ];
+
+type SortKey = 'file' | 'last-name' | 'score';
+
+const sorts: { key: SortKey; label: string }[] = [
+  { key: 'file', label: 'File order' },
+  { key: 'last-name', label: 'Last name' },
+  { key: 'score', label: 'Highest match score' },
+];
+
+const lastNameOf = (group: GetStudentInputDetailsDto) =>
+  `${valueText(group.inputDetails.last_name) ?? ''} ${
+    valueText(group.inputDetails.first_name) ?? ''
+  }`.toLowerCase();
+
+const topScore = (group: GetStudentInputDetailsDto) =>
+  Math.max(-1, ...suggestionsOf(group).map((c) => c.score ?? -1));
+
+const sortBy = (key: SortKey) => (a: GetStudentInputDetailsDto, b: GetStudentInputDetailsDto) =>
+  key === 'last-name'
+    ? lastNameOf(a).localeCompare(lastNameOf(b))
+    : key === 'score'
+    ? topScore(b) - topScore(a)
+    : 0;
 
 // Evidence -------------------------------------------------------------------
 
@@ -204,18 +229,21 @@ export const WorkspaceReview = () => {
     }
   };
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortKey>('file');
   const [reviewing, setReviewing] = useState(false);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
 
   const includes = statusFilters.find((f) => f.key === statusFilter)?.includes;
   const countTest = countFilters.find((f) => f.key === countFilter)?.test ?? (() => true);
   const terms = query.trim().toLowerCase();
-  const queue = groups.filter(
-    (g) =>
-      (!includes || includes.includes(statusOf(g.correlationId))) &&
-      countTest(suggestionsOf(g).length) &&
-      (!terms || searchText(g).includes(terms))
-  );
+  const queue = groups
+    .filter(
+      (g) =>
+        (!includes || includes.includes(statusOf(g.correlationId))) &&
+        countTest(suggestionsOf(g).length) &&
+        (!terms || searchText(g).includes(terms))
+    )
+    .sort(sortBy(sort));
   const filtered = statusFilter !== 'open' || countFilter !== null || !!terms;
   const clearFilters = () => {
     setStatusFilter('open');
@@ -241,6 +269,13 @@ export const WorkspaceReview = () => {
     const index = queue.findIndex((g) => g.correlationId === selected.correlationId);
     setSelectedId(queue[(index + step + queue.length) % queue.length].correlationId);
   };
+  const position = queue.findIndex((g) => g.correlationId === selected.correlationId);
+  const nextToReview = (() => {
+    const after = [...queue.slice(position + 1), ...queue.slice(0, Math.max(position, 0))];
+    return after.find(
+      (g) => g.correlationId !== selected.correlationId && statusOf(g.correlationId) === 'to-review'
+    );
+  })();
 
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
@@ -258,6 +293,9 @@ export const WorkspaceReview = () => {
           layerStyle="contentBox"
           padding="300"
           gap="300"
+          position="sticky"
+          top="0"
+          maxHeight="100vh"
         >
           <Input
             id="workspace-queue-search"
@@ -291,17 +329,40 @@ export const WorkspaceReview = () => {
               onChange={(key) => setCountFilter(key === countFilter ? null : (key as CountFilter))}
             />
           </VStack>
-          <HStack justifyContent="space-between" fontSize="0.8rem" opacity="0.8">
-            <Box>
+          <HStack justifyContent="space-between" fontSize="0.8rem" gap="200">
+            <Box opacity="0.8" whiteSpace="nowrap">
               {queue.length} of {groups.length} students
             </Box>
+            <Select
+              id="workspace-queue-sort"
+              size="xs"
+              width="auto"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as SortKey)}
+              aria-label="Sort the list"
+            >
+              {sorts.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.label}
+                </option>
+              ))}
+            </Select>
+          </HStack>
+          <HStack justifyContent="flex-end" fontSize="0.8rem" minHeight="1.5rem">
             {filtered && (
               <QuietButton size="xs" onClick={clearFilters}>
                 Clear filters
               </QuietButton>
             )}
           </HStack>
-          <VStack alignItems="stretch" gap="0" maxHeight="60vh" overflowY="auto" marginX="-200">
+          <VStack
+            alignItems="stretch"
+            gap="0"
+            flex="1"
+            minHeight="0"
+            overflowY="auto"
+            marginX="-200"
+          >
             {queue.length === 0 && (
               <Box padding="200" opacity="0.8" fontSize="0.9rem">
                 Nothing matches.{' '}
@@ -335,6 +396,34 @@ export const WorkspaceReview = () => {
             if (event.key === 'k') move(-1);
           }}
         >
+          <HStack
+            justifyContent="space-between"
+            marginBottom="300"
+            fontSize="0.85rem"
+            gap="200"
+            flexWrap="wrap"
+          >
+            <Box opacity="0.8">
+              {position >= 0
+                ? `${position + 1} of ${queue.length} in this list`
+                : 'Not in the current list'}
+            </Box>
+            <HStack gap="100">
+              <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
+                ‹ Previous
+              </QuietButton>
+              <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
+                Next ›
+              </QuietButton>
+              <SecondaryButton
+                size="xs"
+                isDisabled={!nextToReview}
+                onClick={() => nextToReview && setSelectedId(nextToReview.correlationId)}
+              >
+                Next to review
+              </SecondaryButton>
+            </HStack>
+          </HStack>
           {lastAction && (
             <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
           )}
@@ -369,6 +458,7 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
   const { groups, statusOf, batches } = useReviewSession();
   const count = (...statuses: StudentStatus[]) =>
     groups.filter((g) => statuses.includes(statusOf(g.correlationId))).length;
+  const decided = groups.length - count('to-review', 'run-failed');
   const tiles: { label: string; value: number }[] = [
     { label: 'Needs review', value: count('to-review') },
     { label: 'Matches to submit', value: readyCount },
@@ -394,6 +484,20 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
         <PrimaryButton isDisabled={!readyCount} onClick={onReview}>
           Review and submit {readyCount || ''} {readyCount === 1 ? 'match' : 'matches'}
         </PrimaryButton>
+      </HStack>
+      <HStack gap="300" fontSize="0.8rem">
+        <Progress
+          flex="1"
+          value={groups.length ? (decided / groups.length) * 100 : 0}
+          size="xs"
+          borderRadius="999px"
+          bg="blue.600"
+          sx={{ '& > div': { bg: 'green.100' } }}
+          aria-label="Students decided"
+        />
+        <Box opacity="0.8" whiteSpace="nowrap">
+          {decided} of {groups.length} decided
+        </Box>
       </HStack>
       {batches.length > 0 && (
         <VStack
@@ -535,9 +639,14 @@ const QueueRow = ({
   onSelect: () => void;
 }) => {
   const count = suggestionsOf(group).length;
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (isSelected) ref.current?.scrollIntoView({ block: 'nearest' });
+  }, [isSelected]);
   return (
     <VStack
       as="button"
+      ref={ref}
       onClick={onSelect}
       alignItems="stretch"
       gap="0"

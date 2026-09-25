@@ -575,6 +575,8 @@ export const PrototypeControls = () => {
     setFailNextRun,
     conflictNextSubmit,
     setConflictNextSubmit,
+    simulateLarge,
+    setSimulateLarge,
   } = useReviewSession();
   // Someone else saving the top suggestion for a student still needing review.
   const other = groups.find(
@@ -597,6 +599,13 @@ export const PrototypeControls = () => {
           onChange={(e) => setConflictNextSubmit(e.target.checked)}
         >
           Next submission finds a conflicting change
+        </Checkbox>
+        <Checkbox
+          size="sm"
+          isChecked={simulateLarge}
+          onChange={(e) => setSimulateLarge(e.target.checked)}
+        >
+          Simulate a large job (240 more students)
         </Checkbox>
         <QuietButton
           size="xs"
