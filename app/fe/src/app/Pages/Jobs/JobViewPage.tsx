@@ -60,7 +60,7 @@ const reviewTabs: { label: string; tucked: boolean }[] = [
   { label: 'Unmatched Students (yes / no)', tucked: true },
   { label: 'Unmatched Students (grouped)', tucked: false },
   { label: 'Unmatched Students (workspace)', tucked: false },
-  { label: 'Unmatched Students (table)', tucked: false },
+  { label: 'Unmatched Students (table)', tucked: true },
   { label: 'Unmatched Students (expanding rows)', tucked: false },
 ];
 
