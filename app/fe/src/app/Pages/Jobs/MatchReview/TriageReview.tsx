@@ -13,7 +13,7 @@ import {
   QuietButton,
   SearchPanel,
   SecondaryButton,
-  StrengthBadge,
+  ScoreBadge,
   studentName,
 } from './components';
 import {
@@ -40,24 +40,14 @@ type Triaged = {
   lane: Lane;
 };
 
-/**
- * One strong suggestion that no other suggestion rivals is a confirm; any
- * suggestions otherwise are a choice; none at all is a find.
- */
+/** By suggestion count: one is a confirm, several a choice, none a find. */
 const triage = (group: GetStudentInputDetailsDto): Triaged => {
   const candidates = suggestedCandidates(group);
   const comparisons = candidates.map((candidate) =>
     compare(group.inputDetails, candidate.rosterDetails)
   );
-  const strong = comparisons.filter((comparison) => comparison.strength === 'strong').length;
   const lane: Lane =
-    candidates.length === 0
-      ? 'find'
-      : strong === 1 && comparisons[0].strength === 'strong'
-      ? 'confirm'
-      : candidates.length === 1 && comparisons[0].strength === 'possible'
-      ? 'confirm'
-      : 'choose';
+    candidates.length === 0 ? 'find' : candidates.length === 1 ? 'confirm' : 'choose';
   return { group, candidates, comparisons, lane };
 };
 
@@ -65,12 +55,12 @@ const lanes: { lane: Lane; title: string; hint: string }[] = [
   {
     lane: 'confirm',
     title: 'Confirm',
-    hint: 'One suggestion stands out. Check the evidence and accept them together.',
+    hint: 'One suggestion each. Check the evidence and accept them together.',
   },
   {
     lane: 'choose',
     title: 'Choose',
-    hint: 'Several suggestions, or none that stands out. Open a student to pick.',
+    hint: 'Several suggestions each. Open a student to pick.',
   },
   {
     lane: 'find',
@@ -272,16 +262,13 @@ const TriageRow = ({
             <HStack gap="300" flexWrap="wrap">
               <Box fontWeight="600">{candidates[0].studentUniqueId}</Box>
               <Chips comparison={comparisons[0]} />
-              <StrengthBadge strength={comparisons[0].strength} />
+              <ScoreBadge score={candidates[0].score} />
             </HStack>
           )}
           {lane === 'choose' && (
             <Box fontSize="0.9rem" opacity="0.85">
-              {candidates.length === 1
-                ? `One weak suggestion: ${comparisons[0].summary}`
-                : `${candidates.length} suggestions. Best: ${
-                    candidates[0].studentUniqueId
-                  }, ${comparisons[0].summary.toLowerCase()}`}
+              {candidates.length} suggestions. Highest IDRS score: {candidates[0].studentUniqueId} (
+              {candidates[0].score}).
             </Box>
           )}
           {lane === 'find' && (
@@ -320,7 +307,7 @@ const TriageRow = ({
                     minWidth="20rem"
                     flex="1"
                   >
-                    <Evidence comparison={comparisons[index]} />
+                    <Evidence comparison={comparisons[index]} score={candidate.score} />
                     <ComparisonTable
                       comparison={comparisons[index]}
                       rosterHeading={candidate.studentUniqueId}

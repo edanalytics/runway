@@ -18,7 +18,7 @@ import {
 } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto, StudentInputDetailsJson } from '@edanalytics/models';
 import { ReactNode, useState } from 'react';
-import { Agreement, compare, Comparison, Strength, strengthLabel } from './compare';
+import { Agreement, compare, Comparison } from './compare';
 import { SearchHit, searchRoster, SearchTerms, termsFrom } from './mockIdrs';
 import { Batch, Candidate, useReviewSession } from './reviewSession';
 
@@ -27,9 +27,8 @@ import { Batch, Candidate, useReviewSession } from './reviewSession';
  */
 
 const agreementStyle: Record<Agreement, { glyph: string; color: string; label: string }> = {
-  same: { glyph: '✓', color: 'green.100', label: 'matches' },
-  close: { glyph: '≈', color: 'purple.200', label: 'close' },
-  different: { glyph: '✕', color: 'pink.100', label: 'differs' },
+  same: { glyph: '=', color: 'green.100', label: 'identical' },
+  different: { glyph: '≠', color: 'pink.100', label: 'not identical' },
   unknown: { glyph: '·', color: 'blue.50-40', label: 'nothing to compare' },
 };
 
@@ -51,33 +50,34 @@ export const AgreementMark = ({ agreement }: { agreement: Agreement }) => {
   );
 };
 
-const strengthColor: Record<Strength, string> = {
-  strong: 'green.100',
-  possible: 'purple.200',
-  weak: 'pink.100',
-};
+/** IDRS's score: how good a match is is the matching service's judgment, not the app's. */
+export const ScoreBadge = ({ score }: { score: number | null }) =>
+  score === null ? null : (
+    <Box
+      as="span"
+      paddingX="200"
+      paddingY="1px"
+      borderRadius="999px"
+      borderWidth="1px"
+      borderColor="blue.50-40"
+      fontSize="0.8rem"
+      fontWeight="600"
+      whiteSpace="nowrap"
+    >
+      IDRS score {score}
+    </Box>
+  );
 
-export const StrengthBadge = ({ strength }: { strength: Strength }) => (
-  <Box
-    as="span"
-    paddingX="200"
-    paddingY="1px"
-    borderRadius="999px"
-    borderWidth="1px"
-    borderColor={strengthColor[strength]}
-    color={strengthColor[strength]}
-    fontSize="0.8rem"
-    fontWeight="600"
-    whiteSpace="nowrap"
-  >
-    {strengthLabel[strength]}
-  </Box>
-);
-
-/** The strength and a one-sentence reason, e.g. "Name and date of birth match." */
-export const Evidence = ({ comparison }: { comparison: Comparison }) => (
+/** IDRS's score, and which fields are identical, e.g. "Last name and date of birth match." */
+export const Evidence = ({
+  comparison,
+  score,
+}: {
+  comparison: Comparison;
+  score: number | null;
+}) => (
   <HStack gap="200" alignItems="baseline" flexWrap="wrap">
-    <StrengthBadge strength={comparison.strength} />
+    <ScoreBadge score={score} />
     <Box textStyle="body">{comparison.summary}</Box>
   </HStack>
 );
@@ -247,7 +247,7 @@ export const SearchPanel = ({
               >
                 <HStack justifyContent="space-between" alignItems="flex-start" gap="300">
                   <VStack alignItems="flex-start" gap="100" flex="1">
-                    <Evidence comparison={comparison} />
+                    <Evidence comparison={comparison} score={hit.score} />
                     <ComparisonTable comparison={comparison} rosterHeading={hit.studentUniqueId} />
                   </VStack>
                   <PrimaryButton

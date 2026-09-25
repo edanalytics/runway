@@ -20,7 +20,7 @@ import { Candidate, suggestedCandidates, useReviewSession } from './reviewSessio
  * PROTOTYPE, design 3: Yes / no. One question at a time: "Is this the same
  * student?" The bet: comparing one pair is easier and less error-prone than
  * choosing among several, so never show more than one roster student at once.
- * Suggestions come strongest first; a "no" moves to the next, and running out
+ * Suggestions come highest IDRS score first; a "no" moves to the next, and running out
  * of suggestions turns the question into "can you find them?"
  */
 
@@ -34,7 +34,7 @@ export const QuestionReview = () => {
   if (!groups.length) return <Box>No unmatched students for this assessment.</Box>;
 
   const open = groups.filter((g) => ['to-review', 'failed'].includes(statusOf(g.correlationId)));
-  // Returned failures first, then easiest first, so momentum builds; skipped last.
+  // Returned failures first, then highest IDRS score first, so momentum builds; skipped last.
   const queue = [...open].sort(
     (a, b) =>
       Number(skipped.includes(a.correlationId)) - Number(skipped.includes(b.correlationId)) ||
@@ -49,7 +49,7 @@ export const QuestionReview = () => {
     <VStack alignItems="flex-start" width="100%" gap="400">
       <DesignIntro
         title="Yes / no: one question at a time"
-        bet="Comparing one pair is easier than choosing among several, so you only ever see one roster student at a time, strongest first. Say no and the next suggestion comes up; when suggestions run out, the question becomes whether you can find them."
+        bet="Comparing one pair is easier than choosing among several, so you only ever see one roster student at a time, highest IDRS score first. Say no and the next suggestion comes up; when suggestions run out, the question becomes whether you can find them."
       />
       <VStack alignItems="stretch" width="100%" gap="100">
         <HStack justifyContent="space-between" fontSize="0.9rem">
@@ -94,13 +94,8 @@ export const QuestionReview = () => {
   );
 };
 
-/** How obvious a student is: a strong top suggestion first, no suggestions last. */
-const ease = (group: GetStudentInputDetailsDto) => {
-  const [top] = suggestedCandidates(group);
-  if (!top) return 0;
-  const strength = compare(group.inputDetails, top.rosterDetails).strength;
-  return { strong: 3, possible: 2, weak: 1 }[strength];
-};
+/** Highest IDRS score first, no suggestions last. */
+const ease = (group: GetStudentInputDetailsDto) => suggestedCandidates(group)[0]?.score ?? 0;
 
 const Question = ({
   group,
@@ -148,7 +143,10 @@ const Question = ({
               Suggestion {index + 1} of {candidates.length}
             </Box>
           </HStack>
-          <Evidence comparison={compare(group.inputDetails, candidate.rosterDetails)} />
+          <Evidence
+            comparison={compare(group.inputDetails, candidate.rosterDetails)}
+            score={candidate.score}
+          />
           <ComparisonTable
             comparison={compare(group.inputDetails, candidate.rosterDetails)}
             rosterHeading={`Roster: ${candidate.studentUniqueId}`}

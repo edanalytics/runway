@@ -3,7 +3,7 @@ import {
   StudentInputDetailsJson,
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
-import { compare, compareDates, compareNames } from './compare';
+import { compare } from './compare';
 
 /*
  * PROTOTYPE ONLY. A pretend roster and a pretend identity search, so the
@@ -115,6 +115,44 @@ export const searchRoster = async (
     .filter((hit) => hit.score >= 0.5)
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
+};
+
+// A crude stand-in for IDRS's own scoring: what counts as close is the
+// matching service's call, so this lives with the mock, not the UI.
+type Closeness = 'same' | 'close' | 'different' | 'unknown';
+
+const distance = (a: string, b: string) => {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const current = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = current;
+    }
+  }
+  return row[b.length];
+};
+
+const letters = (value: string) =>
+  value
+    .normalize('NFD')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+
+const compareNames = (a: string | null, b: string | null): Closeness => {
+  if (!a || !b) return 'unknown';
+  const [x, y] = [letters(a), letters(b)];
+  if (x === y) return 'same';
+  const prefix = Math.min(x.length, y.length) >= 3 && (x.startsWith(y) || y.startsWith(x));
+  return prefix || distance(x, y) <= 2 ? 'close' : 'different';
+};
+
+const compareDates = (a: string | null, b: string | null): Closeness => {
+  if (!a || !b) return 'unknown';
+  if (a === b) return 'same';
+  return distance(a, b) <= 2 ? 'close' : 'different';
 };
 
 const text = (value: unknown) => (typeof value === 'string' && value ? value : null);

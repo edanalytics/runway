@@ -380,13 +380,8 @@ const CandidateCard = ({
     <Box width="100%" padding="300" borderRadius="6px" bg="blue.600">
       <HStack justifyContent="space-between" alignItems="flex-start" gap="300">
         <VStack alignItems="flex-start" gap="200" flex="1" minWidth="0">
-          <Evidence comparison={comparison} />
+          <Evidence comparison={comparison} score={candidate.score} />
           <ComparisonTable comparison={comparison} rosterHeading={candidate.studentUniqueId} />
-          {candidate.score !== null && (
-            <Box fontSize="0.75rem" opacity="0.6">
-              IDRS score {candidate.score}
-            </Box>
-          )}
         </VStack>
         {action}
       </HStack>

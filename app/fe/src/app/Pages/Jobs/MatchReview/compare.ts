@@ -6,7 +6,7 @@ import { JsonValue, StudentInputDetailsJson, StudentRosterDetailsJson } from '@e
  * than leaving the reviewer to line up two strings by eye.
  */
 
-export type Agreement = 'same' | 'close' | 'different' | 'unknown';
+export type Agreement = 'same' | 'different' | 'unknown';
 
 export type ComparedField = {
   label: string;
@@ -15,11 +15,8 @@ export type ComparedField = {
   agreement: Agreement;
 };
 
-export type Strength = 'strong' | 'possible' | 'weak';
-
 export type Comparison = {
   fields: ComparedField[];
-  strength: Strength;
   summary: string;
 };
 
@@ -44,44 +41,13 @@ const idsOf = (value: JsonValue | undefined): string[] => {
     .filter((id): id is string => id !== null);
 };
 
-const distance = (a: string, b: string) => {
-  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let previous = row[0];
-    row[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const current = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
-      previous = current;
-    }
-  }
-  return row[b.length];
-};
-
-const letters = (value: string) => value.toLowerCase().replace(/[^a-z]/g, '');
-
-export const compareNames = (a: string | null, b: string | null): Agreement => {
+/**
+ * Exact equality only, ignoring case and surrounding whitespace. Whether two
+ * values are close enough to be the same student is IDRS's call, not ours.
+ */
+const compareText = (a: string | null, b: string | null): Agreement => {
   if (!a || !b) return 'unknown';
-  const [x, y] = [letters(a), letters(b)];
-  if (x === y) return 'same';
-  const prefix = Math.min(x.length, y.length) >= 3 && (x.startsWith(y) || y.startsWith(x));
-  return prefix || distance(x, y) <= 2 ? 'close' : 'different';
-};
-
-const asDate = (value: string) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const date = new Date(`${value}T00:00:00Z`);
-  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? null : date;
-};
-
-export const compareDates = (a: string | null, b: string | null): Agreement => {
-  if (!a || !b) return 'unknown';
-  if (a === b) return 'same';
-  // Transposed digits, like 2012-12-01 for 2012-12-10.
-  const transposed = [...a].sort().join('') === [...b].sort().join('') && distance(a, b) <= 2;
-  const [x, y] = [asDate(a), asDate(b)];
-  const nearby = x && y && Math.abs(x.getTime() - y.getTime()) <= 7 * 24 * 60 * 60 * 1000;
-  return transposed || nearby ? 'close' : 'different';
+  return a.toLowerCase() === b.toLowerCase() ? 'same' : 'different';
 };
 
 /**
@@ -104,19 +70,19 @@ export const compare = (
       label: 'First name',
       file: text(file.first_name),
       roster: text(roster.first_name),
-      agreement: compareNames(text(file.first_name), text(roster.first_name)),
+      agreement: compareText(text(file.first_name), text(roster.first_name)),
     },
     {
       label: 'Last name',
       file: text(file.last_name),
       roster: text(roster.last_name),
-      agreement: compareNames(text(file.last_name), text(roster.last_name)),
+      agreement: compareText(text(file.last_name), text(roster.last_name)),
     },
     {
       label: 'Date of birth',
       file: text(file.birth_date),
       roster: text(roster.birth_date),
-      agreement: compareDates(text(file.birth_date), text(roster.birth_date)),
+      agreement: compareText(text(file.birth_date), text(roster.birth_date)),
     },
     {
       label: 'Student IDs',
@@ -125,15 +91,7 @@ export const compare = (
       agreement: compareIds(fileIds, rosterIds),
     },
   ];
-  const [first, last, dob, ids] = fields.map((field) => field.agreement);
-  const agreeing = [first, last, dob].filter((a) => a === 'same' || a === 'close').length;
-  const strength: Strength =
-    ids === 'same' || (last === 'same' && dob === 'same' && (first === 'same' || first === 'close'))
-      ? 'strong'
-      : agreeing >= 2
-      ? 'possible'
-      : 'weak';
-  return { fields, strength, summary: summarize(fields) };
+  return { fields, summary: summarize(fields) };
 };
 
 const list = (labels: string[]) =>
@@ -141,18 +99,16 @@ const list = (labels: string[]) =>
     ? labels.join('')
     : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 
-/** "Last name and date of birth match; first name is close." */
+/** "Last name and date of birth match; first name differs." */
 const summarize = (fields: ComparedField[]) => {
   const named = (agreement: Agreement) =>
     fields
       .filter((field) => field.agreement === agreement)
       .map((field) => (field.label === 'Student IDs' ? 'a student ID' : field.label.toLowerCase()));
   const same = named('same');
-  const close = named('close');
   const different = named('different');
   const parts = [
     same.length && `${list(same)} ${same.length === 1 ? 'matches' : 'match'}`,
-    close.length && `${list(close)} ${close.length === 1 ? 'is' : 'are'} close`,
     different.length && `${list(different)} ${different.length === 1 ? 'differs' : 'differ'}`,
   ].filter(Boolean) as string[];
   if (!parts.length) return 'Not enough details to compare.';
@@ -161,9 +117,3 @@ const summarize = (fields: ComparedField[]) => {
 };
 
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
-
-export const strengthLabel: Record<Strength, string> = {
-  strong: 'Strong match',
-  possible: 'Possible match',
-  weak: 'Weak match',
-};

@@ -22,6 +22,7 @@ import {
   FileLine,
   PrimaryButton,
   QuietButton,
+  ScoreBadge,
   SearchPanel,
   SecondaryButton,
   studentName,
@@ -462,9 +463,7 @@ const VerifyView = ({
   const [candidate] = suggestedCandidates(group);
   const [rejected, setRejected] = useState(candidate.studentUniqueId === failedId);
   const comparison = compare(group.inputDetails, candidate.rosterDetails);
-  const differs = comparison.fields.filter(
-    (f) => f.agreement === 'different' || f.agreement === 'close'
-  );
+  const differs = comparison.fields.filter((f) => f.agreement === 'different');
   const unknown = comparison.fields.filter(
     (f) => f.agreement === 'unknown' && f.label !== 'Student IDs'
   );
@@ -491,14 +490,17 @@ const VerifyView = ({
       outline="none"
       onKeyDown={shortcuts({ y: () => actions.match(candidate), n: () => setRejected(true) })}
     >
-      <Box textStyle="h5">Is this {candidate.studentUniqueId} the same student?</Box>
+      <HStack gap="300" alignItems="baseline">
+        <Box textStyle="h5">Is this {candidate.studentUniqueId} the same student?</Box>
+        <ScoreBadge score={candidate.score} />
+      </HStack>
       <VStack
         alignItems="flex-start"
         gap="100"
         padding="300"
         borderRadius="6px"
         borderLeftWidth="3px"
-        borderColor={differs.length ? 'pink.100' : 'purple.200'}
+        borderColor={differs.length ? 'pink.100' : 'blue.50-40'}
         bg="blue.600"
       >
         {differs.length ? (
@@ -514,7 +516,7 @@ const VerifyView = ({
             ))}
           </>
         ) : (
-          <Box fontWeight="600">Nothing that could be compared differs.</Box>
+          <Box fontWeight="600">Every field that could be compared is identical.</Box>
         )}
         {unknown.length > 0 && (
           <Box fontSize="0.9rem" opacity="0.85">
@@ -607,6 +609,9 @@ const ChooseView = ({
               {candidates.map((c, i) => (
                 <Th key={c.studentUniqueId} color="blue.50" textTransform="none" fontSize="0.8rem">
                   {i + 1}. {c.studentUniqueId}
+                  <Box fontWeight="normal" opacity="0.8">
+                    IDRS score {c.score}
+                  </Box>
                   {c.studentUniqueId === failedId && (
                     <Box as="span" color="pink.100" marginLeft="100">
                       (didn't load)
