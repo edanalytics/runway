@@ -13,6 +13,7 @@ import {
   QuietButton,
   SearchPanel,
   SecondaryButton,
+  ReviewProgress,
   ScoreBadge,
   studentName,
 } from './components';
@@ -70,7 +71,7 @@ const lanes: { lane: Lane; title: string; hint: string }[] = [
 ];
 
 export const TriageReview = () => {
-  const { groups, isLoading, isError, statusOf, decisions, decide, submit } = useReviewSession();
+  const { groups, isLoading, isError, statusOf, decide, submit } = useReviewSession();
   // Unchecking is the reviewer's doubt; everything starts accepted.
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
 
@@ -79,16 +80,14 @@ export const TriageReview = () => {
   if (!groups.length) return <Box>No unmatched students for this assessment.</Box>;
 
   const triaged = groups.map(triage);
-  const open = (t: Triaged) => ['to-review', 'failed'].includes(statusOf(t.group.correlationId));
+  const open = (t: Triaged) => statusOf(t.group.correlationId) === 'to-review';
   const ready = groups.filter((group) => statusOf(group.correlationId) === 'ready');
   const confirmable = triaged.filter(
-    // A student whose accepted match failed to load needs a fresh look, not a re-accept.
     (t) =>
       t.lane === 'confirm' &&
       statusOf(t.group.correlationId) === 'to-review' &&
       !unchecked.has(t.group.correlationId)
   );
-  const matches = ready.filter((g) => decisions.get(g.correlationId)?.kind === 'match').length;
 
   const toggle = (id: string) =>
     setUnchecked((current) => {
@@ -103,6 +102,7 @@ export const TriageReview = () => {
         title="Triage: everyone at once"
         bet="Most students are obvious once the evidence is lined up. Clear the obvious ones in bulk, then spend your attention on the students who need choosing or finding. Decide in any order; submit whenever you like, as often as you like."
       />
+      <ReviewProgress />
       {lanes.map(({ lane, title, hint }) => {
         const members = triaged.filter((t) => t.lane === lane);
         if (!members.length) return null;
@@ -165,10 +165,8 @@ export const TriageReview = () => {
       >
         <Box>
           {ready.length
-            ? `${ready.length} decided and not yet submitted: ${matches} to load, ${
-                ready.length - matches
-              } to leave out.`
-            : 'Decide some students, then submit them together.'}
+            ? `${ready.length} ${ready.length === 1 ? 'match' : 'matches'} not yet submitted.`
+            : 'Choose matches, then submit them together. Excluded students are never submitted.'}
         </Box>
         <PrimaryButton
           isDisabled={!ready.length}
@@ -191,12 +189,12 @@ const TriageRow = ({
   onToggle: () => void;
 }) => {
   const { group, candidates, comparisons, lane } = triaged;
-  const { statusOf, decisions, decide, undo, lastSubmission } = useReviewSession();
+  const { statusOf, decisions, decide, undo } = useReviewSession();
   const [expanded, setExpanded] = useState(false);
   const id = group.correlationId;
   const status = statusOf(id);
   const decision = decisions.get(id);
-  const isOpen = status === 'to-review' || status === 'failed';
+  const isOpen = status === 'to-review';
 
   const choose = (candidate: Candidate) => {
     decide(id, { kind: 'match', candidate });
@@ -211,10 +209,12 @@ const TriageRow = ({
   if (!isOpen) {
     right = (
       <HStack gap="200">
-        <Box fontSize="0.9rem" color={status === 'loaded' ? 'green.100' : undefined}>
+        <Box fontSize="0.9rem" color={status === 'reprocessed' ? 'green.100' : undefined}>
           {statusText(status, decision)}
         </Box>
-        {status === 'ready' && <QuietButton onClick={() => undo(id)}>Undo</QuietButton>}
+        {(status === 'ready' || status === 'excluded') && (
+          <QuietButton onClick={() => undo(id)}>Undo</QuietButton>
+        )}
       </HStack>
     );
   } else if (lane === 'confirm') {
@@ -253,11 +253,6 @@ const TriageRow = ({
           <FileLine details={group.inputDetails} />
         </VStack>
         <Box flex="1" minWidth="0">
-          {status === 'failed' && (
-            <Box fontSize="0.85rem" color="pink.100">
-              Didn't load: {lastSubmission(id)?.reason}
-            </Box>
-          )}
           {lane === 'confirm' && (
             <HStack gap="300" flexWrap="wrap">
               <Box fontWeight="600">{candidates[0].studentUniqueId}</Box>
@@ -320,7 +315,7 @@ const TriageRow = ({
               </HStack>
               <HStack gap="200">
                 <SecondaryButton onClick={notInRoster}>
-                  None of these: not in roster
+                  None of these: exclude, not in roster
                 </SecondaryButton>
               </HStack>
               <SearchPanel group={group} onPick={choose} heading="Or search for someone else" />
@@ -329,7 +324,7 @@ const TriageRow = ({
           {lane === 'find' && (
             <VStack alignItems="flex-start" gap="300">
               <SearchPanel group={group} onPick={choose} />
-              <SecondaryButton onClick={notInRoster}>Not in roster: leave them out</SecondaryButton>
+              <SecondaryButton onClick={notInRoster}>Exclude: not in roster</SecondaryButton>
             </VStack>
           )}
         </Box>
@@ -355,8 +350,8 @@ const Chips = ({ comparison }: { comparison: Comparison }) => (
 const statusText = (status: StudentStatus, decision: Decision | undefined) => {
   const chosen = decision?.kind === 'match' ? decision.candidate.studentUniqueId : '';
   if (status === 'reprocessing') return 'Reprocessing…';
-  if (status === 'loaded') return `Loaded as ${chosen}`;
-  if (status === 'left-out') return 'Left out';
+  if (status === 'reprocessed') return `Reprocessed with ${chosen}`;
+  if (status === 'excluded') return 'Excluded: not in roster';
   if (!decision) return '';
-  return decision.kind === 'match' ? `Matched ${chosen}` : 'Not in roster';
+  return `Matched ${chosen}`;
 };

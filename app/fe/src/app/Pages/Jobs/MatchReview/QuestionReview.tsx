@@ -10,6 +10,7 @@ import {
   FileLine,
   PrimaryButton,
   QuietButton,
+  ReviewProgress,
   SearchPanel,
   SecondaryButton,
   studentName,
@@ -33,13 +34,11 @@ export const QuestionReview = () => {
   if (isError) return <Box>Couldn't load unmatched students.</Box>;
   if (!groups.length) return <Box>No unmatched students for this assessment.</Box>;
 
-  const open = groups.filter((g) => ['to-review', 'failed'].includes(statusOf(g.correlationId)));
-  // Returned failures first, then highest IDRS score first, so momentum builds; skipped last.
+  const open = groups.filter((g) => statusOf(g.correlationId) === 'to-review');
+  // Highest IDRS score first, so momentum builds; skipped last.
   const queue = [...open].sort(
     (a, b) =>
       Number(skipped.includes(a.correlationId)) - Number(skipped.includes(b.correlationId)) ||
-      Number(statusOf(b.correlationId) === 'failed') -
-        Number(statusOf(a.correlationId) === 'failed') ||
       ease(b) - ease(a)
   );
   const current = reviewingSummary ? undefined : queue[0];
@@ -106,17 +105,9 @@ const Question = ({
   onSkip: () => void;
   isLastOpen: boolean;
 }) => {
-  const { decide, statusOf, lastSubmission } = useReviewSession();
+  const { decide } = useReviewSession();
   const candidates = suggestedCandidates(group);
-  const failed = lastSubmission(group.correlationId);
-  // Skip the suggestion that already failed to load, if it was one.
-  const [index, setIndex] = useState(() =>
-    statusOf(group.correlationId) === 'failed' &&
-    failed?.decision.kind === 'match' &&
-    candidates[0]?.studentUniqueId === failed.decision.candidate.studentUniqueId
-      ? 1
-      : 0
-  );
+  const [index, setIndex] = useState(0);
   const candidate: Candidate | undefined = candidates[index];
 
   return (
@@ -128,12 +119,6 @@ const Question = ({
         <Box textStyle="h3">{studentName(group.inputDetails)}</Box>
         <FileLine details={group.inputDetails} />
       </VStack>
-
-      {statusOf(group.correlationId) === 'failed' && (
-        <Box padding="300" borderRadius="6px" borderWidth="1px" borderColor="pink.100">
-          Your last answer didn't load: {failed?.reason}
-        </Box>
-      )}
 
       {candidate ? (
         <VStack alignItems="stretch" gap="300">
@@ -188,7 +173,7 @@ const Question = ({
               size="md"
               onClick={() => decide(group.correlationId, { kind: 'not-in-roster' })}
             >
-              They're not in the roster
+              Exclude: not in the roster
             </SecondaryButton>
             {candidates.length > 0 && (
               <QuietButton onClick={() => setIndex(0)}>Start the suggestions over</QuietButton>
@@ -206,20 +191,23 @@ const Question = ({
 const Summary = ({ stillOpen, onBack }: { stillOpen: number; onBack?: () => void }) => {
   const { groups, statusOf, decisions, undo, submit, batches } = useReviewSession();
   const ready = groups.filter((g) => statusOf(g.correlationId) === 'ready');
+  const excluded = groups.filter((g) => statusOf(g.correlationId) === 'excluded');
 
   return (
     <VStack alignItems="stretch" gap="400">
       <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="500">
         <Box textStyle="h4">
           {ready.length
-            ? `Check your ${ready.length} ${ready.length === 1 ? 'answer' : 'answers'}`
+            ? `Check your ${ready.length} ${
+                ready.length === 1 ? 'match' : 'matches'
+              } before submitting`
             : stillOpen
             ? 'Nothing answered yet'
             : batches.length
             ? 'All answered and submitted'
             : 'Nothing to review'}
         </Box>
-        {ready.map((group) => {
+        {[...ready, ...excluded].map((group) => {
           const decision = decisions.get(group.correlationId);
           return (
             <HStack
@@ -237,12 +225,17 @@ const Summary = ({ stillOpen, onBack }: { stillOpen: number; onBack?: () => void
                   ? `Same student as ${decision.candidate.studentUniqueId}${
                       decision.candidate.source === 'search' ? ' (you found them)' : ''
                     }`
-                  : 'Not in the roster: leave out'}
+                  : 'Excluded: not in the roster'}
               </Box>
               <QuietButton onClick={() => undo(group.correlationId)}>Ask me again</QuietButton>
             </HStack>
           );
         })}
+        {excluded.length > 0 && (
+          <Box fontSize="0.85rem" opacity="0.8">
+            Exclusions take effect right away; only matches are submitted.
+          </Box>
+        )}
         <HStack gap="300" paddingTop="200">
           {ready.length > 0 && (
             <PrimaryButton size="md" onClick={() => submit(ready.map((g) => g.correlationId))}>
@@ -256,6 +249,7 @@ const Summary = ({ stillOpen, onBack }: { stillOpen: number; onBack?: () => void
           )}
         </HStack>
       </VStack>
+      <ReviewProgress />
       <VStack alignItems="flex-start" gap="200">
         <Box textStyle="h5">Reprocessing</Box>
         <BatchActivity emptyText="Nothing submitted yet." />

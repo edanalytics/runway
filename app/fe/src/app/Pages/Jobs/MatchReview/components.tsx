@@ -20,7 +20,14 @@ import { GetStudentInputDetailsDto, StudentInputDetailsJson } from '@edanalytics
 import { ReactNode, useState } from 'react';
 import { Agreement, compare, Comparison } from './compare';
 import { SearchHit, searchRoster, SearchTerms, termsFrom } from './mockIdrs';
-import { Batch, Candidate, useReviewSession } from './reviewSession';
+import {
+  Batch,
+  Candidate,
+  loadedOf,
+  StudentStatus,
+  totalOf,
+  useReviewSession,
+} from './reviewSession';
 
 /*
  * PROTOTYPE ONLY. Pieces shared by the review designs.
@@ -278,12 +285,12 @@ const time = (at: number) =>
 const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
   const { groups } = useReviewSession();
   const [open, setOpen] = useState(false);
-  const finished = batch.items.filter((item) => item.outcome);
-  const count = (outcome: string) => batch.items.filter((item) => item.outcome === outcome).length;
   const nameOf = (correlationId: string) => {
     const group = groups.find((g) => g.correlationId === correlationId);
     return group ? studentName(group.inputDetails) : correlationId;
   };
+  const counts = totalOf(batch.summary);
+  const isDone = batch.status === 'complete' || batch.status === 'complete with errors';
   return (
     <Box width="100%" padding="300" borderRadius="6px" bg="blue.600">
       <HStack justifyContent="space-between" gap="300" flexWrap="wrap">
@@ -291,35 +298,45 @@ const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
           Batch {number} · {batch.items.length} {batch.items.length === 1 ? 'student' : 'students'}{' '}
           · submitted {time(batch.submittedAt)}
         </Box>
-        <Box fontSize="0.9rem">
+        <Box
+          fontSize="0.9rem"
+          color={batch.status === 'complete with errors' ? 'pink.100' : undefined}
+        >
           {batch.status === 'queued' && 'Queued for reprocessing'}
-          {batch.status === 'processing' &&
-            `Reprocessing: ${finished.length} of ${batch.items.length} done`}
-          {batch.status === 'done' && (
-            <>
-              <Box as="span" color="green.100">
-                {count('loaded')} loaded
-              </Box>
-              {count('left-out') > 0 && ` · ${count('left-out')} left out`}
-              {count('failed') > 0 && (
-                <Box as="span" color="pink.100">
-                  {' '}
-                  · {count('failed')} failed
-                </Box>
-              )}
-            </>
-          )}
+          {batch.status === 'processing' && 'Reprocessing'}
+          {batch.status === 'complete' && 'Complete'}
+          {batch.status === 'complete with errors' && 'Complete with errors'}
         </Box>
       </HStack>
-      {batch.status !== 'done' && (
+      {!isDone && (
         <Progress
           marginTop="200"
           size="xs"
           colorScheme="progressGreen"
-          isIndeterminate={batch.status === 'queued'}
-          value={(finished.length / batch.items.length) * 100}
+          isIndeterminate
           borderRadius="999px"
         />
+      )}
+      {isDone && (
+        <VStack alignItems="flex-start" gap="100" marginTop="200" fontSize="0.9rem">
+          <Box>
+            {counts.processed} assessment {counts.processed === 1 ? 'record' : 'records'} processed:{' '}
+            {loadedOf(counts)} loaded
+            {counts.skipped > 0 && `, ${counts.skipped} skipped`}
+            {counts.failed > 0 && (
+              <Box as="span" color="pink.100">
+                , {counts.failed} failed
+              </Box>
+            )}
+            .
+          </Box>
+          {counts.failed > 0 && (
+            <Box opacity="0.85">
+              The run can't say which students the failed records belong to. The matches still
+              stand; support can trace the failures from the run's troubleshooting logs.
+            </Box>
+          )}
+        </VStack>
       )}
       <QuietButton marginTop="100" paddingX="0" onClick={() => setOpen(!open)}>
         {open ? 'Hide students' : 'Show students'}
@@ -329,23 +346,7 @@ const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
           {batch.items.map((item) => (
             <HStack key={item.correlationId} gap="200" alignItems="baseline" flexWrap="wrap">
               <Box minWidth="10rem">{nameOf(item.correlationId)}</Box>
-              <Box opacity="0.8">
-                {item.decision.kind === 'match'
-                  ? `→ ${item.decision.candidate.studentUniqueId}`
-                  : '→ not in roster'}
-              </Box>
-              <Box
-                color={
-                  item.outcome === 'loaded'
-                    ? 'green.100'
-                    : item.outcome === 'failed'
-                    ? 'pink.100'
-                    : undefined
-                }
-              >
-                {item.outcome ? outcomeLabel[item.outcome] : 'waiting'}
-              </Box>
-              {item.outcome === 'failed' && <Box fontSize="0.85rem">{item.reason}</Box>}
+              <Box opacity="0.8">→ {item.decision.candidate.studentUniqueId}</Box>
             </HStack>
           ))}
         </VStack>
@@ -353,8 +354,6 @@ const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
     </Box>
   );
 };
-
-const outcomeLabel = { loaded: 'loaded', 'left-out': 'left out', failed: 'failed' };
 
 /** Every submitted batch, newest first. Batches run side by side. */
 export const BatchActivity = ({ emptyText }: { emptyText?: string }) => {
@@ -368,6 +367,56 @@ export const BatchActivity = ({ emptyText }: { emptyText?: string }) => {
         <BatchCard key={batch.id} batch={batch} number={batches.indexOf(batch) + 1} />
       ))}
     </VStack>
+  );
+};
+
+/**
+ * Where the job's review stands. Review is done when every student has been
+ * excluded or had a reprocessing run attempted with their match.
+ */
+export const ReviewProgress = () => {
+  const { groups, statusOf, batches } = useReviewSession();
+  const count = (status: StudentStatus) =>
+    groups.filter((g) => statusOf(g.correlationId) === status).length;
+  const excluded = count('excluded');
+  const reprocessed = count('reprocessed');
+  const unfinished = batches.filter((b) => b.status === 'queued' || b.status === 'processing');
+  const failed = batches.reduce((sum, b) => sum + totalOf(b.summary).failed, 0);
+  const isDone = groups.length > 0 && excluded + reprocessed === groups.length;
+  return (
+    <HStack
+      width="100%"
+      gap="300"
+      padding="300"
+      borderRadius="6px"
+      borderWidth="1px"
+      borderColor={isDone ? (failed ? 'pink.100' : 'green.100') : 'blue.50-40'}
+      flexWrap="wrap"
+      fontSize="0.9rem"
+    >
+      <Box fontWeight="600">
+        {isDone
+          ? failed
+            ? 'Review done, with delivery errors'
+            : 'Review done'
+          : `${groups.length - excluded - reprocessed} of ${
+              groups.length
+            } students still to finish`}
+      </Box>
+      <Box opacity="0.85">
+        {reprocessed} reprocessed · {excluded} excluded
+        {count('reprocessing') > 0 && ` · ${count('reprocessing')} reprocessing`}
+        {count('ready') > 0 && ` · ${count('ready')} ready to submit`}
+        {count('to-review') > 0 && ` · ${count('to-review')} to review`}
+      </Box>
+      {failed > 0 && (
+        <Box color="pink.100">
+          {failed} assessment {failed === 1 ? 'record' : 'records'} failed to load across{' '}
+          {batches.filter((b) => totalOf(b.summary).failed > 0).length} of{' '}
+          {batches.length - unfinished.length} finished batches
+        </Box>
+      )}
+    </HStack>
   );
 };
 

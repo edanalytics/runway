@@ -22,18 +22,13 @@ import {
   FileLine,
   PrimaryButton,
   QuietButton,
+  ReviewProgress,
   ScoreBadge,
   SearchPanel,
   SecondaryButton,
   studentName,
 } from './components';
-import {
-  Candidate,
-  Decision,
-  StudentStatus,
-  suggestedCandidates,
-  useReviewSession,
-} from './reviewSession';
+import { Candidate, StudentStatus, suggestedCandidates, useReviewSession } from './reviewSession';
 
 /*
  * PROTOTYPE, design 4: Focus by decision type. A hybrid of focus and triage.
@@ -58,10 +53,10 @@ const types: { type: DecisionType; title: string; question: string }[] = [
   { type: 'find', title: 'Find', question: 'No suggestions. Can you find them?' },
 ];
 
-const isOpen = (status: StudentStatus) => status === 'to-review' || status === 'failed';
+const isOpen = (status: StudentStatus) => status === 'to-review';
 
 export const HybridReview = () => {
-  const { groups, isLoading, isError, statusOf, decisions, submit } = useReviewSession();
+  const { groups, isLoading, isError, statusOf, submit } = useReviewSession();
   const [type, setType] = useState<DecisionType | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -79,14 +74,7 @@ export const HybridReview = () => {
   if (!groups.length) return <Box>No unmatched students for this assessment.</Box>;
   if (!type) return null;
 
-  // Returned failures first, then file order.
-  const members = groups
-    .filter((g) => typeOf(g) === type)
-    .sort(
-      (a, b) =>
-        Number(statusOf(b.correlationId) === 'failed') -
-        Number(statusOf(a.correlationId) === 'failed')
-    );
+  const members = groups.filter((g) => typeOf(g) === type);
   const openMembers = members.filter((g) => isOpen(statusOf(g.correlationId)));
   const selected =
     members.find((g) => g.correlationId === selectedId) ?? openMembers[0] ?? members[0];
@@ -107,11 +95,11 @@ export const HybridReview = () => {
         title="Focus by decision type"
         bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work one kind of decision at a time, each with a view built for it: verifying one suggestion puts the differences first, choosing lines the suggestions up side by side, and finding starts from why IDRS may have missed them."
       />
+      <ReviewProgress />
       <HStack width="100%" gap="300" alignItems="stretch">
         {types.map(({ type: t, title, question }) => {
           const all = groups.filter((g) => typeOf(g) === t);
           const waiting = all.filter((g) => isOpen(statusOf(g.correlationId))).length;
-          const returned = all.filter((g) => statusOf(g.correlationId) === 'failed').length;
           const isSelected = t === type;
           return (
             <VStack
@@ -141,11 +129,6 @@ export const HybridReview = () => {
               <Box fontSize="0.85rem" opacity="0.85">
                 {question}
               </Box>
-              {returned > 0 && (
-                <Box fontSize="0.8rem" color="pink.100">
-                  {returned} returned after a failed load
-                </Box>
-              )}
             </VStack>
           );
         })}
@@ -227,7 +210,7 @@ export const HybridReview = () => {
       >
         <Box>
           {ready.length ? (
-            <ReadySummary ready={ready} decisions={decisions} />
+            <ReadySummary ready={ready} />
           ) : (
             'Decisions collect here until you submit them. Submit as often as you like.'
           )}
@@ -243,33 +226,25 @@ export const HybridReview = () => {
   );
 };
 
-const ReadySummary = ({
-  ready,
-  decisions,
-}: {
-  ready: GetStudentInputDetailsDto[];
-  decisions: Map<string, Decision>;
-}) => {
+const ReadySummary = ({ ready }: { ready: GetStudentInputDetailsDto[] }) => {
   const count = (t: DecisionType) => ready.filter((g) => typeOf(g) === t).length;
-  const leftOut = ready.filter((g) => decisions.get(g.correlationId)?.kind === 'not-in-roster');
   const parts = types
     .map(({ type, title }) => count(type) && `${count(type)} ${title.toLowerCase()}`)
     .filter(Boolean);
   return (
     <>
-      {ready.length} ready ({parts.join(', ')})
-      {leftOut.length > 0 && `, ${leftOut.length} of them left out as not in roster`}.
+      {ready.length} {ready.length === 1 ? 'match' : 'matches'} ready to submit ({parts.join(', ')}
+      ).
     </>
   );
 };
 
 const glyph: Record<StudentStatus, string> = {
-  failed: '!',
   'to-review': '○',
   ready: '●',
   reprocessing: '…',
-  loaded: '✓',
-  'left-out': '⊘',
+  reprocessed: '✓',
+  excluded: '⊘',
 };
 
 const QueueRow = ({
@@ -297,23 +272,20 @@ const QueueRow = ({
       textAlign="left"
       opacity={isOpen(status) ? 1 : 0.7}
     >
-      <Box
-        width="1rem"
-        color={status === 'failed' ? 'pink.100' : status === 'loaded' ? 'green.100' : undefined}
-      >
+      <Box width="1rem" color={status === 'reprocessed' ? 'green.100' : undefined}>
         {glyph[status]}
       </Box>
       <Box flex="1">{studentName(group.inputDetails)}</Box>
-      {status === 'ready' && decision && (
+      {(status === 'ready' || status === 'reprocessed') && decision?.kind === 'match' && (
         <Box fontSize="0.75rem" opacity="0.8">
-          {decision.kind === 'match' ? decision.candidate.studentUniqueId : 'none'}
+          {decision.candidate.studentUniqueId}
         </Box>
       )}
     </HStack>
   );
 };
 
-/** What every view shares: the file record, the failure note, a decided state. */
+/** What every view shares: the file record and a decided state. */
 const FocusFor = ({
   type,
   group,
@@ -323,15 +295,10 @@ const FocusFor = ({
   group: GetStudentInputDetailsDto;
   onDecided: () => void;
 }) => {
-  const { statusOf, decisions, decide, undo, lastSubmission } = useReviewSession();
+  const { statusOf, decisions, decide, undo, batchOf } = useReviewSession();
   const [changing, setChanging] = useState(false);
   const status = statusOf(group.correlationId);
   const decision = decisions.get(group.correlationId);
-  const last = lastSubmission(group.correlationId);
-  const failedId =
-    status === 'failed' && last?.decision.kind === 'match'
-      ? last.decision.candidate.studentUniqueId
-      : undefined;
 
   const actions: Actions = {
     match: (candidate) => {
@@ -350,33 +317,34 @@ const FocusFor = ({
   if (isOpen(status) || changing) {
     body =
       type === 'verify' ? (
-        <VerifyView group={group} failedId={failedId} actions={actions} />
+        <VerifyView group={group} actions={actions} />
       ) : type === 'choose' ? (
-        <ChooseView group={group} failedId={failedId} actions={actions} />
+        <ChooseView group={group} actions={actions} />
       ) : (
         <FindView group={group} actions={actions} />
       );
   } else if (status === 'reprocessing') {
     body = <Box>Submitted and reprocessing. See the batch below.</Box>;
-  } else if (status === 'loaded') {
-    body = (
-      <Box color="green.100">
-        Loaded as {decision?.kind === 'match' ? decision.candidate.studentUniqueId : ''}.
-      </Box>
-    );
   } else if (decision) {
+    const batch = status === 'reprocessed' ? batchOf(group.correlationId) : undefined;
     body = (
       <VStack alignItems="flex-start" gap="200">
         <Box>
           {decision.kind === 'match'
-            ? `You matched this student to ${decision.candidate.studentUniqueId}${
-                decision.candidate.source === 'search' ? ', found by searching' : ''
-              }.`
-            : 'You marked this student as not in the roster. Their record will be left out.'}
+            ? `${batch ? 'Reprocessed with' : 'You matched this student to'} ${
+                decision.candidate.studentUniqueId
+              }${decision.candidate.source === 'search' ? ', found by searching' : ''}.`
+            : "Excluded: not in the roster. Their assessments won't be loaded."}
         </Box>
+        {batch?.status === 'complete with errors' && (
+          <Box fontSize="0.9rem" opacity="0.85">
+            Their batch completed with errors. The run can't say whose assessments failed, so this
+            match stands; support can trace the failures from the run's logs.
+          </Box>
+        )}
         <HStack gap="200">
           <SecondaryButton onClick={() => setChanging(true)}>Change</SecondaryButton>
-          {status === 'ready' && (
+          {(status === 'ready' || status === 'excluded') && (
             <QuietButton onClick={() => undo(group.correlationId)}>Undo</QuietButton>
           )}
         </HStack>
@@ -400,11 +368,6 @@ const FocusFor = ({
             </Box>
           ))}
       </VStack>
-      {status === 'failed' && (
-        <Box padding="300" borderRadius="6px" borderWidth="1px" borderColor="pink.100">
-          The last submission didn't load: {last?.reason}
-        </Box>
-      )}
       {body}
     </VStack>
   );
@@ -434,9 +397,9 @@ const Fallback = ({
   <VStack alignItems="flex-start" gap="300" width="100%">
     <SearchPanel group={group} onPick={actions.match} heading={heading} />
     <HStack gap="300" paddingTop="200">
-      <SecondaryButton onClick={actions.notInRoster}>Not in roster</SecondaryButton>
+      <SecondaryButton onClick={actions.notInRoster}>Exclude: not in roster</SecondaryButton>
       <Box fontSize="0.85rem" opacity="0.8">
-        Their record can't be loaded and will be left out.
+        Excluded students aren't reprocessed; their assessments won't load.
       </Box>
     </HStack>
   </VStack>
@@ -451,17 +414,9 @@ const describe = (field: ComparedField) =>
  * One suggestion, and IDRS wasn't sure enough to match it. Lead with the
  * reason it wasn't sure: what differs, and what couldn't be compared.
  */
-const VerifyView = ({
-  group,
-  failedId,
-  actions,
-}: {
-  group: GetStudentInputDetailsDto;
-  failedId?: string;
-  actions: Actions;
-}) => {
+const VerifyView = ({ group, actions }: { group: GetStudentInputDetailsDto; actions: Actions }) => {
   const [candidate] = suggestedCandidates(group);
-  const [rejected, setRejected] = useState(candidate.studentUniqueId === failedId);
+  const [rejected, setRejected] = useState(false);
   const comparison = compare(group.inputDetails, candidate.rosterDetails);
   const differs = comparison.fields.filter((f) => f.agreement === 'different');
   const unknown = comparison.fields.filter(
@@ -473,9 +428,7 @@ const VerifyView = ({
       <VStack alignItems="flex-start" gap="300" tabIndex={-1} outline="none">
         <HStack gap="300">
           <Box textStyle="h5">Not {candidate.studentUniqueId}. Can you find them?</Box>
-          {candidate.studentUniqueId !== failedId && (
-            <QuietButton onClick={() => setRejected(false)}>Back to the suggestion</QuietButton>
-          )}
+          <QuietButton onClick={() => setRejected(false)}>Back to the suggestion</QuietButton>
         </HStack>
         <Fallback group={group} actions={actions} heading="Search with corrected details" />
       </VStack>
@@ -542,15 +495,7 @@ const VerifyView = ({
  * Several suggestions in one table, one column each, so the eye runs across
  * a row. Rows where the suggestions disagree are the ones that decide it.
  */
-const ChooseView = ({
-  group,
-  failedId,
-  actions,
-}: {
-  group: GetStudentInputDetailsDto;
-  failedId?: string;
-  actions: Actions;
-}) => {
+const ChooseView = ({ group, actions }: { group: GetStudentInputDetailsDto; actions: Actions }) => {
   const candidates = suggestedCandidates(group);
   const comparisons: Comparison[] = candidates.map((c) =>
     compare(group.inputDetails, c.rosterDetails)
@@ -565,7 +510,6 @@ const ChooseView = ({
     return { label: field.label, file: field.file, cells, deciding };
   });
   const shown = onlyDeciding ? rows.filter((r) => r.deciding) : rows;
-  const pickable = candidates.map((c) => c.studentUniqueId !== failedId);
 
   if (rejected) {
     return (
@@ -581,7 +525,7 @@ const ChooseView = ({
 
   const keys: Record<string, () => void> = { '0': () => setRejected(true) };
   candidates.forEach((c, i) => {
-    if (pickable[i]) keys[String(i + 1)] = () => actions.match(c);
+    keys[String(i + 1)] = () => actions.match(c);
   });
 
   return (
@@ -612,11 +556,6 @@ const ChooseView = ({
                   <Box fontWeight="normal" opacity="0.8">
                     IDRS score {c.score}
                   </Box>
-                  {c.studentUniqueId === failedId && (
-                    <Box as="span" color="pink.100" marginLeft="100">
-                      (didn't load)
-                    </Box>
-                  )}
                 </Th>
               ))}
             </Tr>
@@ -648,9 +587,7 @@ const ChooseView = ({
               <Td />
               {candidates.map((c, i) => (
                 <Td key={c.studentUniqueId}>
-                  <PrimaryButton isDisabled={!pickable[i]} onClick={() => actions.match(c)}>
-                    Match ({i + 1})
-                  </PrimaryButton>
+                  <PrimaryButton onClick={() => actions.match(c)}>Match ({i + 1})</PrimaryButton>
                 </Td>
               ))}
             </Tr>

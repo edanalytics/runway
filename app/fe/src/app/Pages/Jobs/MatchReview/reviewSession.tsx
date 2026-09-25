@@ -21,7 +21,13 @@ import { pretendRoster, RosterStudent } from './mockIdrs';
  * PROTOTYPE ONLY. One review session per job page, shared by every review
  * design so a decision made on one tab shows on the others. Decisions and
  * reprocessing batches live in memory; batches run on timers to stand in for
- * a reprocessing run and report a result per student.
+ * a reprocessing run.
+ *
+ * A run reports only a summary: per resource, how many assessment records it
+ * processed, skipped and failed. It can't say which students those records
+ * belong to, so a batch's outcome belongs to the batch, never to a student.
+ * A delivery failure doesn't undo a match decision either; like a job that
+ * completes with errors today, it's resolved out of band.
  */
 
 export type Candidate = {
@@ -36,33 +42,28 @@ export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: '
 
 export type Decision = DecisionChoice & { decidedAt: number };
 
-export type Outcome = 'loaded' | 'left-out' | 'failed';
+export type MatchDecision = Extract<Decision, { kind: 'match' }>;
 
-export type BatchItem = {
-  correlationId: string;
-  decision: Decision;
-  outcome?: Outcome;
-  reason?: string;
-};
+/** One resource's counts, as a run's summary reports them. */
+export type ResourceSummary = { processed: number; skipped: number; failed: number };
+
+export type BatchItem = { correlationId: string; decision: MatchDecision };
 
 export type Batch = {
   id: number;
   submittedAt: number;
-  status: 'queued' | 'processing' | 'done';
+  status: 'queued' | 'processing' | 'complete' | 'complete with errors';
   items: BatchItem[];
+  /** The run's summary, once it finishes. */
+  summary?: Record<string, ResourceSummary>;
 };
 
 /**
- * Where each student stands. `ready` means decided but not yet submitted;
- * `failed` sends a student back for another look.
+ * Where each student stands. Excluding a student takes effect at once: they
+ * never go to the Executor. `reprocessed` means a run was attempted with the
+ * student's match; whether their assessments loaded isn't knowable.
  */
-export type StudentStatus =
-  | 'to-review'
-  | 'ready'
-  | 'reprocessing'
-  | 'loaded'
-  | 'left-out'
-  | 'failed';
+export type StudentStatus = 'to-review' | 'ready' | 'reprocessing' | 'reprocessed' | 'excluded';
 
 type Session = {
   job: GetJobDto;
@@ -75,8 +76,9 @@ type Session = {
   decide: (correlationId: string, decision: DecisionChoice) => void;
   undo: (correlationId: string) => void;
   statusOf: (correlationId: string) => StudentStatus;
-  /** The item from the latest batch this student was in, if any. */
-  lastSubmission: (correlationId: string) => BatchItem | undefined;
+  /** The latest batch this student was submitted in, if any. */
+  batchOf: (correlationId: string) => Batch | undefined;
+  /** Submits the match decisions among these students as one batch. */
   submit: (correlationIds: string[]) => void;
   reset: () => void;
 };
@@ -106,7 +108,7 @@ export const ReviewSessionProvider = ({
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   // The latest school year any roster student is enrolled in stands in for the
-  // job's year: matching someone not enrolled then fails to load.
+  // job's year: a match to someone not enrolled then fails to load.
   const currentYear = useMemo(
     () =>
       Math.max(
@@ -120,52 +122,45 @@ export const ReviewSessionProvider = ({
     [roster]
   );
 
-  const outcomeOf = useCallback(
-    (decision: Decision): Pick<BatchItem, 'outcome' | 'reason'> => {
-      if (decision.kind === 'not-in-roster') {
-        return { outcome: 'left-out', reason: 'Marked not in roster, so left out of the load.' };
+  /** What the pretend run's summary reports for a batch. */
+  const summarize = useCallback(
+    (items: BatchItem[]): Record<string, ResourceSummary> => {
+      let processed = 0;
+      let failed = 0;
+      for (const { correlationId, decision } of items) {
+        const assessments = assessmentsFor(correlationId);
+        processed += assessments;
+        const years = decision.candidate.rosterDetails.school_years;
+        if (Array.isArray(years) && currentYear && !years.includes(currentYear)) {
+          failed += assessments;
+        }
       }
-      const years = decision.candidate.rosterDetails.school_years;
-      if (Array.isArray(years) && currentYear && !years.includes(currentYear)) {
-        return {
-          outcome: 'failed',
-          reason: `${decision.candidate.studentUniqueId} has no enrollment in ${currentYear}, so the record couldn't load.`,
-        };
-      }
-      return { outcome: 'loaded' };
+      return { studentAssessments: { processed, skipped: 0, failed } };
     },
     [currentYear]
   );
 
-  const lastSubmission = useCallback(
-    (correlationId: string) => {
-      for (let i = batches.length - 1; i >= 0; i--) {
-        const item = batches[i].items.find((it) => it.correlationId === correlationId);
-        if (item) return item;
-      }
-      return undefined;
-    },
+  const batchOf = useCallback(
+    (correlationId: string) =>
+      [...batches].reverse().find((b) => b.items.some((it) => it.correlationId === correlationId)),
     [batches]
   );
 
   const statusOf = useCallback(
     (correlationId: string): StudentStatus => {
       const decision = decisions.get(correlationId);
-      const batch = [...batches]
-        .reverse()
-        .find((b) => b.items.some((it) => it.correlationId === correlationId));
-      const item = batch?.items.find((it) => it.correlationId === correlationId);
-      if (batch && item) {
-        // A decision made since the submission is a fresh one to submit.
-        if (decision && decision.decidedAt > batch.submittedAt && item.outcome !== 'loaded') {
-          return 'ready';
-        }
-        if (!item.outcome) return 'reprocessing';
-        return item.outcome;
+      if (decision?.kind === 'not-in-roster') return 'excluded';
+      const batch = batchOf(correlationId);
+      // A match chosen since the last submission is a fresh one to submit.
+      if (decision && (!batch || decision.decidedAt > batch.submittedAt)) return 'ready';
+      if (batch) {
+        return batch.status === 'queued' || batch.status === 'processing'
+          ? 'reprocessing'
+          : 'reprocessed';
       }
-      return decision ? 'ready' : 'to-review';
+      return 'to-review';
     },
-    [batches, decisions]
+    [batchOf, decisions]
   );
 
   const decide = useCallback((correlationId: string, decision: DecisionChoice) => {
@@ -184,33 +179,30 @@ export const ReviewSessionProvider = ({
 
   const submit = useCallback(
     (correlationIds: string[]) => {
-      const items = correlationIds
-        .map((correlationId) => ({ correlationId, decision: decisions.get(correlationId) }))
-        .filter((item): item is BatchItem => !!item.decision);
+      const items = correlationIds.flatMap((correlationId) => {
+        const decision = decisions.get(correlationId);
+        return decision?.kind === 'match' ? [{ correlationId, decision }] : [];
+      });
       if (!items.length) return;
       const id = Date.now();
       setBatches((current) => [...current, { id, submittedAt: id, status: 'queued', items }]);
       const update = (change: (batch: Batch) => Batch) =>
         setBatches((current) => current.map((batch) => (batch.id === id ? change(batch) : batch)));
-      // Queued briefly, then each record finishes in turn, like a run working
-      // through the batch.
       const schedule = (delay: number, step: () => void) => {
         timers.current.push(setTimeout(step, delay));
       };
       schedule(1500, () => update((batch) => ({ ...batch, status: 'processing' })));
-      items.forEach((item, index) =>
-        schedule(2500 + index * 900, () =>
-          update((batch) => ({
-            ...batch,
-            status: index === items.length - 1 ? 'done' : 'processing',
-            items: batch.items.map((it, i) =>
-              i === index ? { ...it, ...outcomeOf(it.decision) } : it
-            ),
-          }))
-        )
-      );
+      schedule(3500 + items.length * 500, () => {
+        const summary = summarize(items);
+        const failed = Object.values(summary).some((resource) => resource.failed > 0);
+        update((batch) => ({
+          ...batch,
+          summary,
+          status: failed ? 'complete with errors' : 'complete',
+        }));
+      });
     },
-    [decisions, outcomeOf]
+    [decisions, summarize]
   );
 
   const reset = useCallback(() => {
@@ -231,7 +223,7 @@ export const ReviewSessionProvider = ({
     decide,
     undo,
     statusOf,
-    lastSubmission,
+    batchOf,
     submit,
     reset,
   };
@@ -249,3 +241,21 @@ export const suggestedCandidates = (group: GetStudentInputDetailsDto): Candidate
       score: suggestion.score,
       source: 'suggestion' as const,
     }));
+
+/** How many assessment records a student has in the file: one or two, in this prototype. */
+const assessmentsFor = (correlationId: string) => 1 + (parseInt(correlationId.slice(-1), 16) % 2);
+
+/** Every resource's counts added up, e.g. across all of a job's batches. */
+export const totalOf = (summary: Record<string, ResourceSummary> | undefined) =>
+  Object.values(summary ?? {}).reduce(
+    (total, resource) => ({
+      processed: total.processed + resource.processed,
+      skipped: total.skipped + resource.skipped,
+      failed: total.failed + resource.failed,
+    }),
+    { processed: 0, skipped: 0, failed: 0 }
+  );
+
+/** Loaded is processed less skipped and failed, as the job page counts it. */
+export const loadedOf = (counts: ResourceSummary) =>
+  Math.max(0, counts.processed - counts.skipped - counts.failed);

@@ -10,6 +10,7 @@ import {
   FileLine,
   PrimaryButton,
   QuietButton,
+  ReviewProgress,
   SearchPanel,
   SecondaryButton,
   studentName,
@@ -23,21 +24,19 @@ import { Candidate, StudentStatus, suggestedCandidates, useReviewSession } from 
  */
 
 const sections: { status: StudentStatus; title: string }[] = [
-  { status: 'failed', title: 'Needs another look' },
   { status: 'to-review', title: 'To review' },
   { status: 'ready', title: 'Ready to submit' },
   { status: 'reprocessing', title: 'Reprocessing' },
-  { status: 'loaded', title: 'Loaded' },
-  { status: 'left-out', title: 'Left out' },
+  { status: 'reprocessed', title: 'Reprocessed' },
+  { status: 'excluded', title: 'Excluded: not in roster' },
 ];
 
 const statusGlyph: Record<StudentStatus, string> = {
-  failed: '!',
   'to-review': '○',
   ready: '●',
   reprocessing: '…',
-  loaded: '✓',
-  'left-out': '⊘',
+  reprocessed: '✓',
+  excluded: '⊘',
 };
 
 export const FocusReview = () => {
@@ -46,7 +45,7 @@ export const FocusReview = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
-  const needsDecision = (id: string) => ['to-review', 'failed'].includes(statusOf(id));
+  const needsDecision = (id: string) => statusOf(id) === 'to-review';
   const ordered = useMemo(
     () =>
       sections.flatMap(({ status }) =>
@@ -104,6 +103,7 @@ export const FocusReview = () => {
         title="Focus: one student at a time"
         bet="Every decision deserves full attention. The comparison does the lining-up, the panel adapts to how many suggestions there are, and deciding moves you to the next student. Keyboard: j/k to move, 1–9 to pick, n for not in roster, u to undo."
       />
+      <ReviewProgress />
       <HStack alignItems="flex-start" width="100%" gap="400">
         <VStack
           width="17rem"
@@ -140,16 +140,7 @@ export const FocusReview = () => {
                       _hover={{ bg: isSelected ? 'blue.500' : 'blue.600' }}
                       textAlign="left"
                     >
-                      <Box
-                        width="1rem"
-                        color={
-                          status === 'failed'
-                            ? 'pink.100'
-                            : status === 'loaded'
-                            ? 'green.100'
-                            : undefined
-                        }
-                      >
+                      <Box width="1rem" color={status === 'reprocessed' ? 'green.100' : undefined}>
                         {statusGlyph[status]}
                       </Box>
                       <Box flex="1">{studentName(group.inputDetails)}</Box>
@@ -206,16 +197,11 @@ const SubmitConfirmation = ({
   onCancel: () => void;
   onSubmit: () => void;
 }) => {
-  const { decisions } = useReviewSession();
-  const matches = ready.filter(
-    (group) => decisions.get(group.correlationId)?.kind === 'match'
-  ).length;
-  const leftOut = ready.length - matches;
   return (
     <VStack alignItems="stretch" gap="200">
       <Box fontSize="0.9rem">
-        {matches} {matches === 1 ? 'student' : 'students'} will be loaded with the match you chose.
-        {leftOut > 0 && ` ${leftOut} marked not in roster will be left out.`}
+        {ready.length} {ready.length === 1 ? 'student' : 'students'} will be reprocessed with the
+        match you chose. The run will report how many assessments loaded, but not whose.
       </Box>
       <PrimaryButton onClick={onSubmit}>Submit batch</PrimaryButton>
       <QuietButton onClick={onCancel}>Cancel</QuietButton>
@@ -231,7 +217,7 @@ const FocusPanel = ({
   group: GetStudentInputDetailsDto;
   onDecided: () => void;
 }) => {
-  const { statusOf, decisions, decide, undo, lastSubmission } = useReviewSession();
+  const { statusOf, decisions, decide, undo } = useReviewSession();
   const status = statusOf(group.correlationId);
   const decision = decisions.get(group.correlationId);
   const candidates = suggestedCandidates(group);
@@ -249,11 +235,13 @@ const FocusPanel = ({
     setChanging(false);
     onDecided();
   };
-  const canDecide = status === 'to-review' || status === 'failed' || changing;
+  const canDecide = status === 'to-review' || changing;
 
   const onKeyDown = (event: KeyboardEvent) => {
     if ((event.target as HTMLElement).closest('input') || !canDecide) {
-      if (event.key === 'u' && decision && status === 'ready') undo(group.correlationId);
+      if (event.key === 'u' && (status === 'ready' || status === 'excluded')) {
+        undo(group.correlationId);
+      }
       return;
     }
     const pick = Number(event.key);
@@ -261,8 +249,6 @@ const FocusPanel = ({
     if (event.key === 'n') notInRoster();
     if (event.key === 'y' && candidates.length === 1) choose(candidates[0]);
   };
-
-  const failure = status === 'failed' ? lastSubmission(group.correlationId)?.reason : undefined;
 
   return (
     <VStack alignItems="flex-start" gap="400" width="100%" onKeyDown={onKeyDown}>
@@ -274,32 +260,26 @@ const FocusPanel = ({
         <FileLine details={group.inputDetails} />
       </VStack>
 
-      {failure && (
-        <Box padding="300" borderRadius="6px" borderWidth="1px" borderColor="pink.100" width="100%">
-          The last submission didn't load: {failure} Choose again below.
-        </Box>
-      )}
-
       {status === 'reprocessing' && <Box>Submitted — reprocessing now. See the batch below.</Box>}
-      {status === 'loaded' && decision?.kind === 'match' && (
-        <Box color="green.100">Loaded as {decision.candidate.studentUniqueId}.</Box>
-      )}
-
-      {(status === 'ready' || status === 'left-out') && !changing && decision && (
-        <VStack alignItems="flex-start" gap="200">
-          <Box>
-            {decision.kind === 'match'
-              ? `You matched this student to ${decision.candidate.studentUniqueId}.`
-              : 'You marked this student as not in the roster. Their record will be left out.'}
-          </Box>
-          <HStack gap="200">
-            <SecondaryButton onClick={() => setChanging(true)}>Change</SecondaryButton>
-            {status === 'ready' && (
-              <QuietButton onClick={() => undo(group.correlationId)}>Undo (u)</QuietButton>
-            )}
-          </HStack>
-        </VStack>
-      )}
+      {(status === 'ready' || status === 'excluded' || status === 'reprocessed') &&
+        !changing &&
+        decision && (
+          <VStack alignItems="flex-start" gap="200">
+            <Box>
+              {decision.kind === 'match'
+                ? status === 'reprocessed'
+                  ? `Reprocessed with ${decision.candidate.studentUniqueId}. See the batch below for how its assessments loaded.`
+                  : `You matched this student to ${decision.candidate.studentUniqueId}.`
+                : "Excluded: not in the roster. Their assessments won't be loaded."}
+            </Box>
+            <HStack gap="200">
+              <SecondaryButton onClick={() => setChanging(true)}>Change</SecondaryButton>
+              {(status === 'ready' || status === 'excluded') && (
+                <QuietButton onClick={() => undo(group.correlationId)}>Undo (u)</QuietButton>
+              )}
+            </HStack>
+          </VStack>
+        )}
 
       {canDecide && (
         <VStack alignItems="flex-start" gap="400" width="100%">
@@ -348,9 +328,9 @@ const FocusPanel = ({
               </Box>
               <SearchPanel group={group} onPick={choose} heading="Search with corrected details" />
               <HStack gap="300" alignItems="center">
-                <SecondaryButton onClick={notInRoster}>Not in roster (n)</SecondaryButton>
+                <SecondaryButton onClick={notInRoster}>Exclude: not in roster (n)</SecondaryButton>
                 <Box fontSize="0.85rem" opacity="0.8">
-                  Their record can't be loaded and will be left out.
+                  Excluded students aren't reprocessed; their assessments won't load.
                 </Box>
               </HStack>
               {rejectedSuggestions && (
