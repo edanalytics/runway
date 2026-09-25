@@ -153,8 +153,7 @@ export const FocusReview = () => {
           </Box>
           {sections.map(({ status, title }) => {
             const members = groups.filter((group) => statusOf(group.correlationId) === status);
-            if (!members.length) return null;
-            return (
+            const list = (
               <VStack key={status} alignItems="stretch" gap="100">
                 <Box fontSize="0.8rem" fontWeight="600" opacity="0.8">
                   {title} ({members.length})
@@ -189,27 +188,47 @@ export const FocusReview = () => {
                 })}
               </VStack>
             );
-          })}
-          <Box borderTopWidth="1px" borderColor="blue.50-40" paddingTop="300">
-            {!confirming ? (
-              <PrimaryButton
-                width="100%"
-                isDisabled={!ready.length}
-                onClick={() => setConfirming(true)}
+            if (status !== 'ready') return members.length ? list : null;
+            // The students to submit and the button that submits them, together
+            // and always in the same place.
+            return (
+              <VStack
+                key={status}
+                alignItems="stretch"
+                gap="200"
+                padding="200"
+                marginX="-200"
+                borderRadius="6px"
+                borderWidth="1px"
+                borderColor="blue.50-40"
               >
-                Submit {ready.length || ''} for reprocessing
-              </PrimaryButton>
-            ) : (
-              <SubmitConfirmation
-                ready={ready}
-                onCancel={() => setConfirming(false)}
-                onSubmit={() => {
-                  submit(ready.map((group) => group.correlationId));
-                  setConfirming(false);
-                }}
-              />
-            )}
-          </Box>
+                {list}
+                {!members.length && (
+                  <Box fontSize="0.8rem" opacity="0.7">
+                    Students you match land here until you submit them.
+                  </Box>
+                )}
+                {!confirming ? (
+                  <PrimaryButton
+                    width="100%"
+                    isDisabled={!ready.length}
+                    onClick={() => setConfirming(true)}
+                  >
+                    Submit {ready.length || ''} for reprocessing
+                  </PrimaryButton>
+                ) : (
+                  <SubmitConfirmation
+                    ready={ready}
+                    onCancel={() => setConfirming(false)}
+                    onSubmit={() => {
+                      submit(ready.map((group) => group.correlationId));
+                      setConfirming(false);
+                    }}
+                  />
+                )}
+              </VStack>
+            );
+          })}
         </VStack>
         <VStack flex="1" minWidth="0" alignItems="stretch" gap="300">
           {transition && (
