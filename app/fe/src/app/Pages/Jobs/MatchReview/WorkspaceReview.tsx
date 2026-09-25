@@ -28,7 +28,7 @@ import {
   JsonValue,
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
-import { KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { Fragment, KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
@@ -246,9 +246,14 @@ const selectedKey = (jobId: number) => `runway.match-review-prototype.${jobId}.s
 /**
  * `split` is the list beside the workspace. `table` starts from the whole
  * list as a sortable table; opening a student condenses it to the side list,
- * like opening a thread or a ticket.
+ * like opening a thread or a ticket. `inline` keeps the table and opens the
+ * review pane beneath the student's row.
  */
-export const WorkspaceReview = ({ layout = 'split' }: { layout?: 'split' | 'table' }) => {
+export const WorkspaceReview = ({
+  layout = 'split',
+}: {
+  layout?: 'split' | 'table' | 'inline';
+}) => {
   const { job, groups, isLoading, isError, statusOf, decisions } = useReviewSession();
   // null means that filter is off. Clicking the active chip turns it off.
   const [statusFilter, setStatusFilter] = useState<StatusFilter | null>('open');
@@ -271,6 +276,8 @@ export const WorkspaceReview = ({ layout = 'split' }: { layout?: 'split' | 'tabl
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>({ key: 'file', descending: false });
   const [expanded, setExpanded] = useState(layout === 'table');
+  // Inline: the one row open beneath the table, if any.
+  const [inlineId, setInlineId] = useState<string | null>(null);
   const chooseSort = (key: SortKey) =>
     setSort((current) =>
       current.key === key
@@ -377,7 +384,12 @@ export const WorkspaceReview = ({ layout = 'split' }: { layout?: 'split' | 'tabl
 
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
-      {layout === 'table' ? (
+      {layout === 'inline' ? (
+        <DesignIntro
+          title="Review workspace, expanding rows"
+          bet="The whole list stays a table, and reviewing happens in place: open a row and the full review pane unfolds beneath it, set apart from the rows, while the rest of the table stays in view above and below. Saving moves the pane to the next student to review. Sort by any column, search and filter as usual. Keyboard: j/k to move between rows, s to save, x to exclude, Esc to close."
+        />
+      ) : layout === 'table' ? (
         <DesignIntro
           title="Review workspace, table first"
           bet="The workspace, starting from the whole list as a table: sort by any column, search and filter, and see every student's status at a glance. Open a student and the table condenses into a side list next to the full review panel, like opening a thread or a ticket; go back to the table whenever you want the big picture. Keyboard: j/k to move, s to save, x to exclude, Esc for the table."
@@ -390,7 +402,56 @@ export const WorkspaceReview = ({ layout = 'split' }: { layout?: 'split' | 'tabl
       )}
       <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
 
-      {expanded ? (
+      {layout === 'inline' ? (
+        <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
+          <HStack gap="300" alignItems="flex-start" flexWrap="wrap">
+            <Box width="20rem">{searchBox}</Box>
+            <VStack alignItems="stretch" gap="100" fontSize="0.8rem" flex="1">
+              {filterChips}
+            </VStack>
+          </HStack>
+          {countLine}
+          <StudentTable
+            queue={queue}
+            sort={sort}
+            onSort={chooseSort}
+            onOpen={(id) => setInlineId(id === inlineId ? null : id)}
+            lastOpened={inlineId}
+            expandedId={inlineId}
+            renderExpanded={(group) => {
+              const index = queue.findIndex((g) => g.correlationId === group.correlationId);
+              const step = (by: number) =>
+                setInlineId(queue[(index + by + queue.length) % queue.length].correlationId);
+              const after = [...queue.slice(index + 1), ...queue.slice(0, Math.max(index, 0))];
+              const next = after.find(
+                (g) =>
+                  g.correlationId !== group.correlationId &&
+                  statusOf(g.correlationId) === 'to-review'
+              );
+              return (
+                <InlinePane
+                  position={`${index + 1} of ${queue.length}`}
+                  onPrevious={queue.length > 1 ? () => step(-1) : undefined}
+                  onNext={queue.length > 1 ? () => step(1) : undefined}
+                  onNextToReview={next ? () => setInlineId(next.correlationId) : undefined}
+                  onClose={() => setInlineId(null)}
+                  lastAction={lastAction}
+                  onDismissAction={() => setLastAction(null)}
+                >
+                  <Workspace
+                    key={group.correlationId}
+                    group={group}
+                    onSaved={(action) => {
+                      setLastAction(action);
+                      if (action.advance) setInlineId(next?.correlationId ?? null);
+                    }}
+                  />
+                </InlinePane>
+              );
+            }}
+          />
+        </VStack>
+      ) : expanded ? (
         <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
           <HStack gap="300" alignItems="flex-start" flexWrap="wrap">
             <Box width="20rem">{searchBox}</Box>
@@ -560,7 +621,8 @@ export const WorkspaceReview = ({ layout = 'split' }: { layout?: 'split' | 'tabl
         onClose={() => setReviewing(false)}
         onView={(id) => {
           setReviewing(false);
-          open(id);
+          if (layout === 'inline') setInlineId(id);
+          else open(id);
         }}
       />
     </VStack>
@@ -805,6 +867,8 @@ const StudentTable = ({
   onSort,
   onOpen,
   lastOpened,
+  expandedId,
+  renderExpanded,
 }: {
   queue: GetStudentInputDetailsDto[];
   sort: Sort;
@@ -812,12 +876,17 @@ const StudentTable = ({
   onOpen: (correlationId: string) => void;
   /** The student last open, marked so returning to the table keeps your place. */
   lastOpened: string | null;
+  /** Inline: the row whose review pane is open beneath it. */
+  expandedId?: string | null;
+  renderExpanded?: (group: GetStudentInputDetailsDto) => ReactNode;
 }) => {
   const { statusOf, decisions } = useReviewSession();
   const lastRow = useRef<HTMLTableRowElement>(null);
+  const inline = !!renderExpanded;
+  // Bring the open row to the top when it changes, so its pane is in view.
   useEffect(() => {
-    lastRow.current?.scrollIntoView({ block: 'nearest' });
-  }, []);
+    lastRow.current?.scrollIntoView({ block: inline ? 'start' : 'nearest', behavior: 'smooth' });
+  }, [inline, lastOpened]);
   if (!queue.length) {
     return (
       <Box padding="200" opacity="0.8" fontSize="0.9rem">
@@ -826,9 +895,9 @@ const StudentTable = ({
     );
   }
   return (
-    <Box overflowX="auto" maxHeight="70vh" overflowY="auto">
+    <Box {...(inline ? {} : { overflowX: 'auto', maxHeight: '70vh', overflowY: 'auto' })}>
       <Table size="sm" sx={{ 'td, th': { paddingX: '200' } }}>
-        <Thead position="sticky" top="0" bg="blue.700" zIndex={1}>
+        <Thead position="sticky" top="0" bg="blue.700" zIndex={2}>
           <Tr>
             {columns.map((column) => {
               const active = sort.key === column.key;
@@ -858,6 +927,7 @@ const StudentTable = ({
             <Th color="blue.50" textTransform="none" fontSize="0.8rem">
               Match
             </Th>
+            {inline && <Th width="1.5rem" />}
           </Tr>
         </Thead>
         <Tbody>
@@ -867,30 +937,47 @@ const StudentTable = ({
             const suggestions = suggestionsOf(group);
             const score = topScore(group);
             const isLast = group.correlationId === lastOpened;
+            const isOpen = inline && group.correlationId === expandedId;
             return (
-              <Tr
-                key={group.correlationId}
-                ref={isLast ? lastRow : undefined}
-                onClick={() => onOpen(group.correlationId)}
-                onKeyDown={(event) => event.key === 'Enter' && onOpen(group.correlationId)}
-                tabIndex={0}
-                cursor="pointer"
-                bg={isLast ? 'blue.600' : undefined}
-                _hover={{ bg: 'blue.600' }}
-                _focusVisible={{ outline: '2px solid', outlineColor: 'blue.50' }}
-                aria-label={`Open ${studentName(group.inputDetails)}`}
-              >
-                <Td fontWeight="600">{studentName(group.inputDetails)}</Td>
-                <Td>{valueText(group.inputDetails.birth_date) ?? '—'}</Td>
-                <Td>{valueText(group.inputDetails.student_ids) ?? '—'}</Td>
-                <Td isNumeric>{suggestions.length}</Td>
-                <Td isNumeric>{score >= 0 ? score : '—'}</Td>
-                <Td whiteSpace="nowrap">{statusLabel[status]}</Td>
-                <Td whiteSpace="nowrap">
-                  {decision?.kind === 'match' ? decision.candidate.studentUniqueId : ''}
-                  {status === 'excluded' ? 'excluded' : ''}
-                </Td>
-              </Tr>
+              <Fragment key={group.correlationId}>
+                <Tr
+                  ref={isLast ? lastRow : undefined}
+                  onClick={() => onOpen(group.correlationId)}
+                  onKeyDown={(event) => event.key === 'Enter' && onOpen(group.correlationId)}
+                  tabIndex={0}
+                  cursor="pointer"
+                  // Clear of the sticky header when scrolled to the top.
+                  scrollMarginTop="3rem"
+                  bg={isOpen ? 'blue.500' : isLast ? 'blue.600' : undefined}
+                  _hover={{ bg: isOpen ? 'blue.500' : 'blue.600' }}
+                  _focusVisible={{ outline: '2px solid', outlineColor: 'blue.50' }}
+                  aria-label={`${isOpen ? 'Close' : 'Open'} ${studentName(group.inputDetails)}`}
+                  aria-expanded={inline ? isOpen : undefined}
+                >
+                  <Td fontWeight="600">{studentName(group.inputDetails)}</Td>
+                  <Td>{valueText(group.inputDetails.birth_date) ?? '—'}</Td>
+                  <Td>{valueText(group.inputDetails.student_ids) ?? '—'}</Td>
+                  <Td isNumeric>{suggestions.length}</Td>
+                  <Td isNumeric>{score >= 0 ? score : '—'}</Td>
+                  <Td whiteSpace="nowrap">{statusLabel[status]}</Td>
+                  <Td whiteSpace="nowrap">
+                    {decision?.kind === 'match' ? decision.candidate.studentUniqueId : ''}
+                    {status === 'excluded' ? 'excluded' : ''}
+                  </Td>
+                  {inline && (
+                    <Td opacity="0.8" textAlign="center">
+                      {isOpen ? '▾' : '▸'}
+                    </Td>
+                  )}
+                </Tr>
+                {isOpen && renderExpanded && (
+                  <Tr>
+                    <Td colSpan={columns.length + 2} padding="0" borderBottomWidth="0">
+                      {renderExpanded(group)}
+                    </Td>
+                  </Tr>
+                )}
+              </Fragment>
             );
           })}
         </Tbody>
@@ -898,6 +985,75 @@ const StudentTable = ({
     </Box>
   );
 };
+
+/** The review pane opened beneath a row, set apart from the table around it. */
+const InlinePane = ({
+  position,
+  onPrevious,
+  onNext,
+  onNextToReview,
+  onClose,
+  lastAction,
+  onDismissAction,
+  children,
+}: {
+  position: string;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  onNextToReview?: () => void;
+  onClose: () => void;
+  lastAction: LastAction | null;
+  onDismissAction: () => void;
+  children: ReactNode;
+}) => (
+  <Box
+    marginX="300"
+    marginTop="0"
+    marginBottom="400"
+    padding="400"
+    bg="blue.800"
+    borderWidth="1px"
+    borderTopWidth="0"
+    borderColor="blue.100"
+    borderBottomRadius="8px"
+    boxShadow="0 8px 20px rgba(0,0,0,0.35)"
+    // Keys act on this student; Esc closes the pane.
+    onKeyDown={(event: KeyboardEvent) => {
+      if ((event.target as HTMLElement).closest('input, textarea')) return;
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'j') onNext?.();
+      if (event.key === 'k') onPrevious?.();
+    }}
+    tabIndex={-1}
+    outline="none"
+    cursor="auto"
+    textAlign="left"
+    whiteSpace="normal"
+    fontWeight="normal"
+    // The table's small size would otherwise shrink everything in the pane.
+    fontSize="1rem"
+  >
+    <HStack justifyContent="space-between" marginBottom="300" fontSize="0.85rem" gap="200">
+      <Box opacity="0.8">{position}</Box>
+      <HStack gap="100">
+        <QuietButton size="xs" isDisabled={!onPrevious} onClick={onPrevious}>
+          ‹ Previous
+        </QuietButton>
+        <QuietButton size="xs" isDisabled={!onNext} onClick={onNext}>
+          Next ›
+        </QuietButton>
+        <SecondaryButton size="xs" isDisabled={!onNextToReview} onClick={onNextToReview}>
+          Next to review
+        </SecondaryButton>
+        <QuietButton size="xs" onClick={onClose} aria-label="Close">
+          ✕
+        </QuietButton>
+      </HStack>
+    </HStack>
+    {lastAction && <LastActionBar action={lastAction} onDismiss={onDismissAction} />}
+    {children}
+  </Box>
+);
 
 type LastAction = { message: string; undo: () => void; advance: boolean };
 
