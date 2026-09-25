@@ -122,6 +122,8 @@ type Session = {
   /** Prototype control: make the next submission find a conflicting change. */
   conflictNextSubmit: boolean;
   setConflictNextSubmit: (conflict: boolean) => void;
+  /** Set when a submission was refused over a conflicting change. */
+  submitConflict: boolean;
   reset: () => void;
 };
 
@@ -187,6 +189,7 @@ export const ReviewSessionProvider = ({
   );
   const [failNextRun, setFailNextRun] = useState(false);
   const [conflictNextSubmit, setConflictNextSubmit] = useState(false);
+  const [submitConflict, setSubmitConflict] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -326,8 +329,10 @@ export const ReviewSessionProvider = ({
       // this page loaded, before it accepts the batch.
       if (conflictNextSubmit) {
         setConflictNextSubmit(false);
+        setSubmitConflict(true);
         return { ok: false, reason: 'conflict' };
       }
+      setSubmitConflict(false);
       send(
         correlationIds.flatMap((correlationId) => {
           const decision = decisions.get(correlationId);
@@ -363,6 +368,7 @@ export const ReviewSessionProvider = ({
     setSearches(new Map());
     setFailNextRun(false);
     setConflictNextSubmit(false);
+    setSubmitConflict(false);
     save(job.id, null);
   }, [job.id]);
 
@@ -386,6 +392,7 @@ export const ReviewSessionProvider = ({
     setFailNextRun,
     conflictNextSubmit,
     setConflictNextSubmit,
+    submitConflict,
     reset,
   };
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;

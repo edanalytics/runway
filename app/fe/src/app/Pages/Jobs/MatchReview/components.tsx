@@ -1,6 +1,7 @@
 import {
   Box,
   Button,
+  Checkbox,
   FormControl,
   FormLabel,
   HStack,
@@ -26,6 +27,7 @@ import {
   isFinished,
   loadedOf,
   StudentStatus,
+  suggestedCandidates,
   totalOf,
   useReviewSession,
 } from './reviewSession';
@@ -523,37 +525,136 @@ export const ReviewProgress = () => {
   const failed = batches.filter((b) => b.status === 'complete with errors').length;
   const isDone = groups.length > 0 && excluded + reprocessed === groups.length;
   return (
+    <>
+      <SubmitConflictNotice />
+      <HStack
+        width="100%"
+        gap="300"
+        padding="300"
+        borderRadius="6px"
+        borderWidth="1px"
+        borderColor={isDone ? (failed ? 'pink.100' : 'green.100') : 'blue.50-40'}
+        flexWrap="wrap"
+        fontSize="0.9rem"
+      >
+        <Box fontWeight="600">
+          {isDone
+            ? failed
+              ? 'Review done, with delivery errors'
+              : 'Review done'
+            : `${groups.length - excluded - reprocessed} of ${
+                groups.length
+              } students still to finish`}
+        </Box>
+        <Box opacity="0.85">
+          {reprocessed} reprocessed · {excluded} excluded
+          {count('reprocessing') > 0 && ` · ${count('reprocessing')} reprocessing`}
+          {count('ready') > 0 && ` · ${count('ready')} ready to submit`}
+          {count('to-review') > 0 && ` · ${count('to-review')} to review`}
+        </Box>
+        {failed > 0 && (
+          <Box color="pink.100">
+            {failed} {failed === 1 ? 'batch' : 'batches'} reported delivery errors
+          </Box>
+        )}
+      </HStack>
+    </>
+  );
+};
+
+/**
+ * Simulations for how processing can go: a run that fails outright, a
+ * submission that meets a conflicting change, and another reviewer's match.
+ */
+export const PrototypeControls = () => {
+  const {
+    groups,
+    statusOf,
+    decide,
+    failNextRun,
+    setFailNextRun,
+    conflictNextSubmit,
+    setConflictNextSubmit,
+  } = useReviewSession();
+  // Someone else saving the top suggestion for a student still needing review.
+  const other = groups.find(
+    (g) => statusOf(g.correlationId) === 'to-review' && suggestedCandidates(g).length > 0
+  );
+  return (
+    <VStack alignItems="flex-start" fontSize="0.8rem" opacity="0.75" gap="100">
+      <HStack gap="300" flexWrap="wrap">
+        <Box>Prototype:</Box>
+        <Checkbox
+          size="sm"
+          isChecked={failNextRun}
+          onChange={(e) => setFailNextRun(e.target.checked)}
+        >
+          Next batch's run fails outright
+        </Checkbox>
+        <Checkbox
+          size="sm"
+          isChecked={conflictNextSubmit}
+          onChange={(e) => setConflictNextSubmit(e.target.checked)}
+        >
+          Next submission finds a conflicting change
+        </Checkbox>
+        <QuietButton
+          size="xs"
+          isDisabled={!other}
+          onClick={() =>
+            other &&
+            decide(
+              other.correlationId,
+              { kind: 'match', candidate: suggestedCandidates(other)[0] },
+              'another reviewer'
+            )
+          }
+        >
+          Another reviewer saves a match
+        </QuietButton>
+      </HStack>
+      <Box>Decisions persist in this browser; reload to try leaving and coming back.</Box>
+    </VStack>
+  );
+};
+
+/** A submission was refused because matches changed since the page loaded them. */
+export const SubmitConflictNotice = () => {
+  const { submitConflict } = useReviewSession();
+  if (!submitConflict) return null;
+  return (
     <HStack
       width="100%"
       gap="300"
       padding="300"
       borderRadius="6px"
       borderWidth="1px"
-      borderColor={isDone ? (failed ? 'pink.100' : 'green.100') : 'blue.50-40'}
+      borderColor="pink.100"
       flexWrap="wrap"
-      fontSize="0.9rem"
+      role="alert"
     >
-      <Box fontWeight="600">
-        {isDone
-          ? failed
-            ? 'Review done, with delivery errors'
-            : 'Review done'
-          : `${groups.length - excluded - reprocessed} of ${
-              groups.length
-            } students still to finish`}
+      <Box flex="1">
+        Nothing was submitted. Some of these matches changed since this page loaded them, perhaps by
+        another reviewer. Refresh to see the latest, then submit again.
       </Box>
-      <Box opacity="0.85">
-        {reprocessed} reprocessed · {excluded} excluded
-        {count('reprocessing') > 0 && ` · ${count('reprocessing')} reprocessing`}
-        {count('ready') > 0 && ` · ${count('ready')} ready to submit`}
-        {count('to-review') > 0 && ` · ${count('to-review')} to review`}
-      </Box>
-      {failed > 0 && (
-        <Box color="pink.100">
-          {failed} {failed === 1 ? 'batch' : 'batches'} reported delivery errors
-        </Box>
-      )}
+      <SecondaryButton onClick={() => window.location.reload()}>Refresh</SecondaryButton>
     </HStack>
+  );
+};
+
+/** Notes when matches about to be submitted were saved by someone else. Not a stop. */
+export const OthersMatchesNote = ({ ready }: { ready: GetStudentInputDetailsDto[] }) => {
+  const { decisions } = useReviewSession();
+  const count = ready.filter((g) => {
+    const by = decisions.get(g.correlationId)?.decidedBy;
+    return by && by !== 'you';
+  }).length;
+  if (!count) return null;
+  return (
+    <Box fontSize="0.85rem" color="purple.200">
+      {count} of these {count === 1 ? 'match was' : 'matches were'} saved by another reviewer.
+      Submitting sends them as they are.
+    </Box>
   );
 };
 

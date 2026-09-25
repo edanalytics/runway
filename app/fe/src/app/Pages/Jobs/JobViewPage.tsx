@@ -53,13 +53,13 @@ const selectedTab = { color: 'blue.50', borderColor: 'blue.50' };
 // PROTOTYPE: review designs in panel order. Tucked designs stay reachable
 // from the tab bar's menu without competing with the promising ones.
 const reviewTabs: { label: string; tucked: boolean }[] = [
-  { label: 'Unmatched (side by side)', tucked: true },
-  { label: 'Unmatched (stacked)', tucked: true },
-  { label: 'Review: focus', tucked: false },
-  { label: 'Review: triage', tucked: true },
-  { label: 'Review: yes / no', tucked: true },
-  { label: 'Review: by suggestion count', tucked: false },
-  { label: 'Review: workspace', tucked: false },
+  { label: 'Unmatched Students (side by side)', tucked: true },
+  { label: 'Unmatched Students (stacked)', tucked: true },
+  { label: 'Unmatched Students (focus)', tucked: false },
+  { label: 'Unmatched Students (triage)', tucked: true },
+  { label: 'Unmatched Students (yes / no)', tucked: true },
+  { label: 'Unmatched Students (by suggestion count)', tucked: false },
+  { label: 'Unmatched Students (workspace)', tucked: false },
 ];
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';

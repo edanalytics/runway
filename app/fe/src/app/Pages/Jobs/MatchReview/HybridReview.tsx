@@ -20,7 +20,9 @@ import {
   DesignIntro,
   FileLine,
   NoSuggestionFits,
+  OthersMatchesNote,
   PrimaryButton,
+  PrototypeControls,
   QuietButton,
   ReviewProgress,
   SecondaryButton,
@@ -107,8 +109,8 @@ export const HybridReview = () => {
   return (
     <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="500">
       <DesignIntro
-        title="Focus by suggestion count"
-        bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work through students grouped by what the matching returned, each group with a view built for it: one suggestion puts the differences first, several line the suggestions up side by side, and none starts from why they may not have been found. Any group can end in a match, a search or an exclusion. The student on screen changes only when you press Next (or Enter) or pick from the list."
+        title="By suggestion count"
+        bet="Students grouped by what the matching returned (one suggestion, several, or none), each group with a view tuned to it: one suggestion leads with what differs, several are lined up side by side, and none starts from what in the file may have kept them from being found. Nothing moves on by itself: a decision shows what you chose, and Next (or Enter) takes you on. Saved matches from every group collect in the bar below, ready to submit."
       />
       <ReviewProgress />
       <HStack width="100%" gap="300" alignItems="stretch">
@@ -206,6 +208,7 @@ export const HybridReview = () => {
             )}
           </Box>
           <HStack gap="200">
+            <OthersMatchesNote ready={ready} />
             {ready.length > 0 && (
               <QuietButton onClick={() => setShowReady(!showReady)}>
                 {showReady ? 'Hide list' : 'Show list'}
@@ -261,6 +264,7 @@ export const HybridReview = () => {
         <Box textStyle="h5">Reprocessing</Box>
         <BatchActivity emptyText="Nothing submitted yet." />
       </VStack>
+      <PrototypeControls />
     </VStack>
   );
 };

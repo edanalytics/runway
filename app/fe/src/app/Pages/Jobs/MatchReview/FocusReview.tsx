@@ -8,8 +8,10 @@ import {
   DesignIntro,
   Evidence,
   FileLine,
-  PrimaryButton,
   NoSuggestionFits,
+  OthersMatchesNote,
+  PrimaryButton,
+  PrototypeControls,
   QuietButton,
   ReviewProgress,
   SecondaryButton,
@@ -136,7 +138,7 @@ export const FocusReview = () => {
     >
       <DesignIntro
         title="Focus: one student at a time"
-        bet="Every decision deserves full attention. One flow whatever the number of suggestions: use one, or say none fit and then search or exclude. Deciding moves you to the next student, and says so. Keyboard: j/k to move, u to undo."
+        bet="One student at a time, in a single flow whatever the number of suggestions: use one, or say none fit, then search the roster or exclude the record. Deciding moves you straight on to the next student, and a banner names what you decided and who's up now, with Undo. Saved matches gather at the top of the list, next to the button that submits them. Keyboard: j/k to move, u to undo."
       />
       <ReviewProgress />
       <HStack alignItems="flex-start" width="100%" gap="400">
@@ -258,6 +260,7 @@ export const FocusReview = () => {
         <Box textStyle="h5">Reprocessing</Box>
         <BatchActivity emptyText="Nothing submitted yet. Submitted decisions run as a batch, and batches can run side by side." />
       </VStack>
+      <PrototypeControls />
     </VStack>
   );
 };
@@ -326,6 +329,7 @@ const SubmitConfirmation = ({
         {ready.length} {ready.length === 1 ? 'student' : 'students'} will be reprocessed with the
         match you chose. The run will report how many assessments loaded, but not whose.
       </Box>
+      <OthersMatchesNote ready={ready} />
       <PrimaryButton onClick={onSubmit}>Submit batch</PrimaryButton>
       <QuietButton onClick={onCancel}>Cancel</QuietButton>
     </VStack>

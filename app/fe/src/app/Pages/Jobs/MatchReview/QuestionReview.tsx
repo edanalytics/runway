@@ -8,7 +8,9 @@ import {
   DesignIntro,
   Evidence,
   FileLine,
+  OthersMatchesNote,
   PrimaryButton,
+  PrototypeControls,
   QuietButton,
   ReviewProgress,
   SearchPanel,
@@ -48,7 +50,7 @@ export const QuestionReview = () => {
     <VStack alignItems="flex-start" width="100%" gap="400">
       <DesignIntro
         title="Yes / no: one question at a time"
-        bet="Comparing one pair is easier than choosing among several, so you only ever see one roster student at a time, highest IDRS score first. Say no and the next suggestion comes up; when suggestions run out, the question becomes whether you can find them."
+        bet="One question at a time, with only one roster student on screen: is this the same student? Suggestions come highest match score first; no brings up the next, and when they run out the question becomes whether you can find them. It ends on a summary of your answers to check before submitting."
       />
       <VStack alignItems="stretch" width="100%" gap="100">
         <HStack justifyContent="space-between" fontSize="0.9rem">
@@ -236,6 +238,7 @@ const Summary = ({ stillOpen, onBack }: { stillOpen: number; onBack?: () => void
             Exclusions take effect right away; only matches are submitted.
           </Box>
         )}
+        <OthersMatchesNote ready={ready} />
         <HStack gap="300" paddingTop="200">
           {ready.length > 0 && (
             <PrimaryButton size="md" onClick={() => submit(ready.map((g) => g.correlationId))}>
@@ -254,6 +257,7 @@ const Summary = ({ stillOpen, onBack }: { stillOpen: number; onBack?: () => void
         <Box textStyle="h5">Reprocessing</Box>
         <BatchActivity emptyText="Nothing submitted yet." />
       </VStack>
+      <PrototypeControls />
     </VStack>
   );
 };

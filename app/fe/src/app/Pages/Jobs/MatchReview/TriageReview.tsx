@@ -9,12 +9,14 @@ import {
   DesignIntro,
   Evidence,
   FileLine,
+  OthersMatchesNote,
   PrimaryButton,
+  PrototypeControls,
   QuietButton,
-  SearchPanel,
-  SecondaryButton,
   ReviewProgress,
   ScoreBadge,
+  SearchPanel,
+  SecondaryButton,
   studentName,
 } from './components';
 import {
@@ -100,7 +102,7 @@ export const TriageReview = () => {
     <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="500">
       <DesignIntro
         title="Triage: everyone at once"
-        bet="Most students are obvious once the evidence is lined up. Clear the obvious ones in bulk, then spend your attention on the students who need choosing or finding. Decide in any order; submit whenever you like, as often as you like."
+        bet="Everyone on one page, in lanes by suggestion count, so the whole job is visible at once. Students with one suggestion can be accepted in bulk; the others open in place to choose or search. Decide in any order and submit whenever you like from the bar below."
       />
       <ReviewProgress />
       {lanes.map(({ lane, title, hint }) => {
@@ -151,6 +153,7 @@ export const TriageReview = () => {
         <Box textStyle="h5">Reprocessing</Box>
         <BatchActivity emptyText="Nothing submitted yet." />
       </VStack>
+      <PrototypeControls />
       <HStack
         position="sticky"
         bottom="0"
@@ -167,6 +170,7 @@ export const TriageReview = () => {
           {ready.length
             ? `${ready.length} ${ready.length === 1 ? 'match' : 'matches'} not yet submitted.`
             : 'Choose matches, then submit them together. Excluded students are never submitted.'}
+          <OthersMatchesNote ready={ready} />
         </Box>
         <PrimaryButton
           isDisabled={!ready.length}

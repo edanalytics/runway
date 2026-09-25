@@ -34,6 +34,7 @@ import {
   ComparisonTable,
   DesignIntro,
   PrimaryButton,
+  PrototypeControls,
   QuietButton,
   SecondaryButton,
   studentName,
@@ -245,7 +246,7 @@ export const WorkspaceReview = () => {
     <VStack alignItems="stretch" width="100%" gap="400">
       <DesignIntro
         title="Review workspace"
-        bet="Following the design review: one queue and one workspace, built for a defensible choice first. Save a match, or exclude a record from this job, mostly for junk data; submit saved matches when you reach a stopping point. Keyboard: j/k to move, s to save, x to exclude."
+        bet="One searchable, filterable list and one workspace, built for a careful choice first. Every candidate is lined up against your file, roster details are a click away, and roster search is always available. Select a student, then save the match, or exclude junk records; review and submit saved matches at a stopping point, and follow each batch from the summary above. Keyboard: j/k to move, s to save, x to exclude."
       />
       <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
 
@@ -1350,58 +1351,6 @@ const SupportPath = ({ batches }: { batches: Batch[] }) => {
           Open run logs (support)
         </QuietButton>
       </HStack>
-    </VStack>
-  );
-};
-
-const PrototypeControls = () => {
-  const {
-    groups,
-    statusOf,
-    decide,
-    failNextRun,
-    setFailNextRun,
-    conflictNextSubmit,
-    setConflictNextSubmit,
-  } = useReviewSession();
-  // Someone else saving the top suggestion for a student still needing review.
-  const other = groups.find(
-    (g) => statusOf(g.correlationId) === 'to-review' && suggestionsOf(g).length > 0
-  );
-  return (
-    <VStack alignItems="flex-start" fontSize="0.8rem" opacity="0.75" gap="100">
-      <HStack gap="300" flexWrap="wrap">
-        <Box>Prototype:</Box>
-        <Checkbox
-          size="sm"
-          isChecked={failNextRun}
-          onChange={(e) => setFailNextRun(e.target.checked)}
-        >
-          Next batch's run fails outright
-        </Checkbox>
-        <Checkbox
-          size="sm"
-          isChecked={conflictNextSubmit}
-          onChange={(e) => setConflictNextSubmit(e.target.checked)}
-        >
-          Next submission finds a conflicting change
-        </Checkbox>
-        <QuietButton
-          size="xs"
-          isDisabled={!other}
-          onClick={() =>
-            other &&
-            decide(
-              other.correlationId,
-              { kind: 'match', candidate: suggestionsOf(other)[0] },
-              'another reviewer'
-            )
-          }
-        >
-          Another reviewer saves a match
-        </QuietButton>
-      </HStack>
-      <Box>Decisions persist in this browser; reload to try leaving and coming back.</Box>
     </VStack>
   );
 };
