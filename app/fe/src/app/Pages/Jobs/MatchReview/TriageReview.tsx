@@ -97,7 +97,7 @@ export const TriageReview = () => {
     });
 
   return (
-    <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="1000">
+    <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="500">
       <DesignIntro
         title="Triage: everyone at once"
         bet="Most students are obvious once the evidence is lined up. Clear the obvious ones in bulk, then spend your attention on the students who need choosing or finding. Decide in any order; submit whenever you like, as often as you like."

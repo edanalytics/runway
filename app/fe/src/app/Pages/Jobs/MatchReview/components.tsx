@@ -398,7 +398,7 @@ const OptionBox = ({
 const time = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 
-const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
+export const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
   const { groups, retry } = useReviewSession();
   const [open, setOpen] = useState(false);
   const nameOf = (correlationId: string) => {

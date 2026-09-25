@@ -30,7 +30,7 @@ import { KeyboardEvent, ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
-  BatchActivity,
+  BatchCard,
   ComparisonTable,
   DesignIntro,
   PrimaryButton,
@@ -68,13 +68,13 @@ const statusLabel: Record<StudentStatus, string> = {
   excluded: 'Excluded',
 };
 
-type StatusFilter = 'unfinished' | 'to-review' | 'ready' | 'excluded' | 'submitted' | 'all';
+type StatusFilter = 'open' | 'to-review' | 'ready' | 'excluded' | 'submitted' | 'all';
 type CountFilter = 'any' | 'none' | 'one' | 'several';
 
 const statusFilters: { key: StatusFilter; label: string; includes: StudentStatus[] }[] = [
   {
-    key: 'unfinished',
-    label: 'Unfinished',
+    key: 'open',
+    label: 'Open',
     includes: ['to-review', 'ready', 'run-failed'],
   },
   { key: 'to-review', label: 'Needs review', includes: ['to-review'] },
@@ -126,6 +126,10 @@ const valueText = (value: JsonValue | undefined): string | null => {
   }
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
 };
+
+/** What the list's search box matches against: name, birth date and IDs. */
+const searchText = (group: GetStudentInputDetailsDto) =>
+  [studentName(group.inputDetails), secondId(group)].join(' ').toLowerCase();
 
 /** A second identifier beside the name, so similarly named records stay distinguishable. */
 const secondId = (group: GetStudentInputDetailsDto) => {
@@ -185,8 +189,8 @@ const time = (at: number) =>
 const selectedKey = (jobId: number) => `runway.match-review-prototype.${jobId}.selected`;
 
 export const WorkspaceReview = () => {
-  const { job, groups, isLoading, isError, statusOf, decisions, batches } = useReviewSession();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('unfinished');
+  const { job, groups, isLoading, isError, statusOf, decisions } = useReviewSession();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [countFilter, setCountFilter] = useState<CountFilter>('any');
   const [selectedId, setSelectedIdState] = useState<string | null>(() => {
     try {
@@ -203,14 +207,25 @@ export const WorkspaceReview = () => {
       // A remembered place is a convenience.
     }
   };
+  const [query, setQuery] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
 
   const includes = statusFilters.find((f) => f.key === statusFilter)?.includes ?? [];
   const countTest = countFilters.find((f) => f.key === countFilter)?.test ?? (() => true);
+  const terms = query.trim().toLowerCase();
   const queue = groups.filter(
-    (g) => includes.includes(statusOf(g.correlationId)) && countTest(suggestionsOf(g).length)
+    (g) =>
+      includes.includes(statusOf(g.correlationId)) &&
+      countTest(suggestionsOf(g).length) &&
+      (!terms || searchText(g).includes(terms))
   );
+  const filtered = statusFilter !== 'open' || countFilter !== 'any' || !!terms;
+  const clearFilters = () => {
+    setStatusFilter('open');
+    setCountFilter('any');
+    setQuery('');
+  };
 
   if (isLoading) return <Spinner color="blue.50" />;
   if (isError) return <Box>Couldn't load unmatched students.</Box>;
@@ -235,59 +250,79 @@ export const WorkspaceReview = () => {
     <VStack alignItems="stretch" width="100%" gap="400">
       <DesignIntro
         title="Review workspace"
-        bet="Following the design review: one queue and one workspace, built for a defensible choice first. Save a match, or exclude a record from this job, mostly for junk data; submit saved matches when you reach a stopping point. Keyboard: j/k to move, 1–9 to select, s to save, x to exclude."
+        bet="Following the design review: one queue and one workspace, built for a defensible choice first. Save a match, or exclude a record from this job, mostly for junk data; submit saved matches when you reach a stopping point. Keyboard: j/k to move, s to save, x to exclude."
       />
       <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
 
-      <HStack gap="400" flexWrap="wrap" fontSize="0.85rem">
-        <FilterChips
-          label="Show"
-          options={statusFilters.map(({ key, label }) => ({
-            key,
-            label,
-            count: groups.filter((g) =>
-              (statusFilters.find((f) => f.key === key)?.includes ?? []).includes(
-                statusOf(g.correlationId)
-              )
-            ).length,
-          }))}
-          value={statusFilter}
-          onChange={(key) => setStatusFilter(key as StatusFilter)}
-        />
-        <FilterChips
-          label="Suggestions"
-          options={countFilters.map(({ key, label }) => ({ key, label }))}
-          value={countFilter}
-          onChange={(key) => setCountFilter(key as CountFilter)}
-        />
-      </HStack>
-
       <HStack alignItems="flex-start" gap="400" width="100%">
         <VStack
-          width="18rem"
+          width="20rem"
           flexShrink={0}
           alignItems="stretch"
           layerStyle="contentBox"
-          padding="200"
-          gap="100"
-          maxHeight="75vh"
-          overflowY="auto"
+          padding="300"
+          gap="300"
         >
-          {queue.length === 0 && (
-            <Box padding="200" opacity="0.8" fontSize="0.9rem">
-              Nothing matches these filters.
-            </Box>
-          )}
-          {queue.map((group) => (
-            <QueueRow
-              key={group.correlationId}
-              group={group}
-              decision={decisions.get(group.correlationId)}
-              status={statusOf(group.correlationId)}
-              isSelected={group.correlationId === selected.correlationId}
-              onSelect={() => setSelectedId(group.correlationId)}
+          <Input
+            id="workspace-queue-search"
+            size="sm"
+            placeholder="Search by name, birth date or ID"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search the list"
+          />
+          <VStack alignItems="stretch" gap="200" fontSize="0.8rem">
+            <FilterChips
+              label="Show"
+              options={statusFilters.map(({ key, label }) => ({
+                key,
+                label,
+                count: groups.filter((g) =>
+                  (statusFilters.find((f) => f.key === key)?.includes ?? []).includes(
+                    statusOf(g.correlationId)
+                  )
+                ).length,
+              }))}
+              value={statusFilter}
+              onChange={(key) => setStatusFilter(key as StatusFilter)}
             />
-          ))}
+            <FilterChips
+              label="Suggestions"
+              options={countFilters.map(({ key, label }) => ({ key, label }))}
+              value={countFilter}
+              onChange={(key) => setCountFilter(key as CountFilter)}
+            />
+          </VStack>
+          <HStack justifyContent="space-between" fontSize="0.8rem" opacity="0.8">
+            <Box>
+              {queue.length} of {groups.length} students
+            </Box>
+            {filtered && (
+              <QuietButton size="xs" onClick={clearFilters}>
+                Clear filters
+              </QuietButton>
+            )}
+          </HStack>
+          <VStack alignItems="stretch" gap="0" maxHeight="60vh" overflowY="auto" marginX="-200">
+            {queue.length === 0 && (
+              <Box padding="200" opacity="0.8" fontSize="0.9rem">
+                Nothing matches.{' '}
+                <QuietButton size="xs" onClick={clearFilters}>
+                  Clear filters
+                </QuietButton>
+              </Box>
+            )}
+            {queue.map((group) => (
+              <QueueRow
+                key={group.correlationId}
+                group={group}
+                decision={decisions.get(group.correlationId)}
+                status={statusOf(group.correlationId)}
+                isSelected={group.correlationId === selected.correlationId}
+                onSelect={() => setSelectedId(group.correlationId)}
+              />
+            ))}
+          </VStack>
         </VStack>
         <Box
           flex="1"
@@ -316,18 +351,7 @@ export const WorkspaceReview = () => {
         </Box>
       </HStack>
 
-      <VStack alignItems="stretch" gap="200">
-        <Box textStyle="h5">Batches</Box>
-        <Box fontSize="0.85rem" opacity="0.8">
-          Each batch keeps the choices it was submitted with and reports its own run's counts. A run
-          can't say which students any failed records belong to.
-        </Box>
-        <BatchActivity emptyText="Nothing submitted yet." />
-        {batches.some((b) => b.status === 'complete with errors' || b.status === 'failed') && (
-          <SupportPath batches={batches} />
-        )}
-        <PrototypeControls />
-      </VStack>
+      <PrototypeControls />
 
       <SubmitReview
         isOpen={reviewing}
@@ -357,7 +381,7 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
     message = withErrors
       ? `Review done. ${withErrors} ${
           withErrors === 1 ? 'batch' : 'batches'
-        } reported delivery errors; see Batches below.`
+        } reported delivery errors.`
       : 'Review done: every record is excluded or has been reprocessed with its match.';
   } else if (!unresolved && !readyCount && running) {
     message = `All decisions submitted; ${running} ${
@@ -403,8 +427,72 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
       <Box fontSize="0.9rem" color={done && withErrors ? 'pink.100' : undefined}>
         {message}
       </Box>
+      {batches.length > 0 && (
+        <VStack
+          alignItems="stretch"
+          gap="100"
+          paddingTop="200"
+          borderTopWidth="1px"
+          borderColor="blue.50-40"
+        >
+          <Box fontSize="0.8rem" opacity="0.8">
+            Batches, newest first. Each reports its own run's counts; a run can't say which students
+            any failed records belong to.
+          </Box>
+          {[...batches].reverse().map((batch) => (
+            <BatchSummary key={batch.id} batch={batch} number={batches.indexOf(batch) + 1} />
+          ))}
+          {batches.some((b) => b.status === 'complete with errors' || b.status === 'failed') && (
+            <SupportPath batches={batches} />
+          )}
+        </VStack>
+      )}
     </VStack>
   );
+};
+
+/** One line per batch; expands to its counts and students. */
+const BatchSummary = ({ batch, number }: { batch: Batch; number: number }) => {
+  const [open, setOpen] = useState(false);
+  const troubled = batch.status === 'complete with errors' || batch.status === 'failed';
+  return (
+    <VStack alignItems="stretch" gap="100">
+      <HStack
+        as="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        gap="300"
+        paddingX="200"
+        paddingY="100"
+        borderRadius="4px"
+        _hover={{ bg: 'blue.600' }}
+        fontSize="0.9rem"
+        textAlign="left"
+      >
+        <Box width="1rem" opacity="0.8">
+          {open ? '▾' : '▸'}
+        </Box>
+        <Box fontWeight="600">Batch {number}</Box>
+        <Box opacity="0.85">
+          {batch.items.length} {batch.items.length === 1 ? 'student' : 'students'} · submitted{' '}
+          {time(batch.submittedAt)}
+        </Box>
+        <Box flex="1" />
+        <Box color={troubled ? 'pink.100' : undefined}>
+          {isFinished(batch) ? batchStatusLabel[batch.status] : 'Running'}
+        </Box>
+      </HStack>
+      {open && <BatchCard batch={batch} number={number} />}
+    </VStack>
+  );
+};
+
+const batchStatusLabel: Record<Batch['status'], string> = {
+  queued: 'Queued',
+  processing: 'Running',
+  complete: 'Complete',
+  'complete with errors': 'Complete with errors',
+  failed: 'Run failed',
 };
 
 const FilterChips = ({
@@ -418,8 +506,8 @@ const FilterChips = ({
   value: string;
   onChange: (key: string) => void;
 }) => (
-  <HStack gap="100" flexWrap="wrap">
-    <Box opacity="0.8" marginRight="100">
+  <HStack gap="100" flexWrap="wrap" rowGap="100">
+    <Box opacity="0.8" marginRight="100" width="100%">
       {label}
     </Box>
     {options.map((option) => (
@@ -463,7 +551,7 @@ const QueueRow = ({
       alignItems="stretch"
       gap="0"
       paddingX="200"
-      paddingY="150"
+      paddingY="100"
       borderRadius="4px"
       bg={isSelected ? 'blue.500' : undefined}
       _hover={{ bg: isSelected ? 'blue.500' : 'blue.600' }}
@@ -496,6 +584,8 @@ const LastActionBar = ({ action, onDismiss }: { action: LastAction; onDismiss: (
     paddingLeft="300"
     borderRadius="6px"
     bg="blue.600"
+    borderLeftWidth="3px"
+    borderColor="green.100"
     justifyContent="space-between"
     role="status"
   >
@@ -532,8 +622,6 @@ const Workspace = ({
   const batch = batchOf(id);
   const isSubmitted = status === 'reprocessing' || status === 'reprocessed';
   const suggestions = suggestionsOf(group);
-  const result = latestResult(group);
-  const earlier = group.results.length - 1;
 
   // The candidate the reviewer has selected but not yet saved. Never defaulted.
   const [selected, setSelected] = useState<Candidate | null>(null);
@@ -573,8 +661,6 @@ const Workspace = ({
 
   const onKeyDown = (event: KeyboardEvent) => {
     if ((event.target as HTMLElement).closest('input, textarea') || isSubmitted) return;
-    const pick = Number(event.key);
-    if (pick >= 1 && pick <= candidates.length) setSelected(candidates[pick - 1]);
     if (event.key === 's') save();
     if (event.key === 'x') setConfirmingExclude(true);
   };
@@ -598,9 +684,6 @@ const Workspace = ({
             {issue}
           </Box>
         ))}
-        <Box fontSize="0.8rem" opacity="0.7">
-          A decision here applies to every row in your file with exactly these details.
-        </Box>
       </VStack>
 
       <DecisionState
@@ -613,24 +696,12 @@ const Workspace = ({
       />
 
       <VStack alignItems="stretch" gap="200">
-        <HStack justifyContent="space-between" flexWrap="wrap" gap="200">
-          <Box textStyle="h6">
-            {suggestions.length
-              ? `IDRS suggested ${suggestions.length} ${
-                  suggestions.length === 1 ? 'student' : 'students'
-                }`
-              : 'IDRS suggested no one'}
-          </Box>
-          <Box fontSize="0.8rem" opacity="0.7">
-            {result
-              ? `From the search in run ${result.runId}, ${new Date(
-                  result.createdOn
-                ).toLocaleDateString()}`
-              : 'No search recorded'}
-            {earlier > 0 &&
-              ` · ${earlier} earlier ${earlier === 1 ? 'search' : 'searches'} in history`}
-          </Box>
-        </HStack>
+        {/* The count matters when a suggestion is past the fold. */}
+        <Box fontSize="0.85rem" opacity="0.8">
+          {suggestions.length === 0
+            ? 'No suggestions'
+            : `${suggestions.length} ${suggestions.length === 1 ? 'suggestion' : 'suggestions'}`}
+        </Box>
         {candidates.length > 0 && (
           <EvidenceTable
             group={group}
@@ -667,8 +738,15 @@ const Workspace = ({
           borderTopWidth="1px"
           borderColor="blue.50-40"
         >
-          {confirmingExclude && (
-            <VStack alignItems="stretch" gap="200">
+          {confirmingExclude ? (
+            <VStack
+              alignItems="stretch"
+              gap="200"
+              padding="300"
+              borderRadius="6px"
+              borderWidth="1px"
+              borderColor="pink.100"
+            >
               <Box fontSize="0.9rem">
                 Exclude {name} from this job? Use this for junk data, or a student who isn't in the
                 roster. Their records won't be reprocessed. You can undo it, and it doesn't carry
@@ -681,36 +759,38 @@ const Workspace = ({
                 <QuietButton onClick={() => setConfirmingExclude(false)}>Cancel</QuietButton>
               </HStack>
             </VStack>
-          )}
-          {/* The same actions, in the same places, for every record. */}
-          <HStack gap="300" flexWrap="wrap">
-            <PrimaryButton
-              isDisabled={!selected || selected.studentUniqueId === saved}
-              onClick={save}
-            >
-              {selected
-                ? `Save match: ${selected.studentUniqueId} (s)`
-                : 'Select a student to save a match'}
-            </PrimaryButton>
-            <SecondaryButton onClick={() => setConfirmingExclude(true)}>
-              Exclude from this job… (x)
-            </SecondaryButton>
-            {decision && (
-              <QuietButton
-                onClick={() => {
-                  const previous = decision;
-                  undo(id);
-                  onSaved({
-                    message: `Cleared the decision for ${name}.`,
-                    undo: restore(previous),
-                    advance: false,
-                  });
-                }}
+          ) : (
+            // The same actions, in the same places, for every record.
+            <HStack gap="300" flexWrap="wrap">
+              <PrimaryButton
+                isDisabled={!selected || selected.studentUniqueId === saved}
+                onClick={save}
               >
-                Clear decision
+                {selected
+                  ? `Save match: ${selected.studentUniqueId} (s)`
+                  : 'Select a student to save a match'}
+              </PrimaryButton>
+              {decision && (
+                <QuietButton
+                  onClick={() => {
+                    const previous = decision;
+                    undo(id);
+                    onSaved({
+                      message: `Cleared the decision for ${name}.`,
+                      undo: restore(previous),
+                      advance: false,
+                    });
+                  }}
+                >
+                  Clear decision
+                </QuietButton>
+              )}
+              <Box flex="1" />
+              <QuietButton color="pink.100" onClick={() => setConfirmingExclude(true)}>
+                Exclude from this job… (x)
               </QuietButton>
-            )}
-          </HStack>
+            </HStack>
+          )}
         </VStack>
       )}
     </VStack>
@@ -886,7 +966,6 @@ const EvidenceTable = ({
                 In your file
               </Th>
               {shown.map((c) => {
-                const index = candidates.indexOf(c);
                 const isSelected = selected === c.studentUniqueId;
                 return (
                   <Th
@@ -898,13 +977,11 @@ const EvidenceTable = ({
                     borderTopRadius="6px"
                   >
                     <HStack gap="100">
-                      <Box>
-                        {index + 1}. {c.studentUniqueId}
-                      </Box>
+                      <Box>{c.studentUniqueId}</Box>
                       <CopyButton value={c.studentUniqueId} />
                     </HStack>
                     <Box fontWeight="normal" opacity="0.8">
-                      {c.source === 'search' ? 'Found by your search' : 'IDRS suggestion'}
+                      {c.source === 'search' ? 'Found by your search' : 'Suggestion'}
                       {saved === c.studentUniqueId && ' · saved match'}
                     </Box>
                   </Th>
@@ -948,7 +1025,7 @@ const EvidenceTable = ({
             ))}
             <Tr>
               <Td opacity="0.85" fontSize="0.8rem">
-                IDRS score
+                Match score
               </Td>
               <Td />
               {shown.map((c) => (
@@ -967,7 +1044,6 @@ const EvidenceTable = ({
                 <Td />
                 <Td />
                 {shown.map((c) => {
-                  const index = candidates.indexOf(c);
                   const isSelected = selected === c.studentUniqueId;
                   return (
                     <Td
@@ -975,15 +1051,15 @@ const EvidenceTable = ({
                       bg={isSelected ? 'blue.600' : undefined}
                       borderBottomRadius="6px"
                     >
-                      <SecondaryButton
-                        onClick={() => onSelect(c)}
-                        aria-pressed={isSelected}
-                        bg={isSelected ? 'green.100' : undefined}
-                        color={isSelected ? 'green.600' : undefined}
-                        _hover={isSelected ? { bg: 'green.100' } : undefined}
-                      >
-                        {isSelected ? 'Selected' : `Select (${index + 1})`}
-                      </SecondaryButton>
+                      {isSelected ? (
+                        <PrimaryButton aria-pressed onClick={() => onSelect(c)}>
+                          ✓ Selected
+                        </PrimaryButton>
+                      ) : (
+                        <SecondaryButton aria-pressed={false} onClick={() => onSelect(c)}>
+                          Select
+                        </SecondaryButton>
+                      )}
                     </Td>
                   );
                 })}

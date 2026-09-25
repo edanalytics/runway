@@ -105,7 +105,7 @@ export const HybridReview = () => {
   const ready = groups.filter((g) => statusOf(g.correlationId) === 'ready');
 
   return (
-    <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="1000">
+    <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="500">
       <DesignIntro
         title="Focus by suggestion count"
         bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work through students grouped by what the matching returned, each group with a view built for it: one suggestion puts the differences first, several line the suggestions up side by side, and none starts from why they may not have been found. Any group can end in a match, a search or an exclusion. The student on screen changes only when you press Next (or Enter) or pick from the list."
