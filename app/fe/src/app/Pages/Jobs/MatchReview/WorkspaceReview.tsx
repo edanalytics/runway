@@ -92,12 +92,18 @@ const countFilters: { key: CountFilter; label: string; test: (n: number) => bool
   { key: 'several', label: 'Several', test: (n) => n > 1 },
 ];
 
-type SortKey = 'file' | 'last-name' | 'score';
+type SortKey = 'file' | 'name' | 'birth' | 'id' | 'suggestions' | 'score' | 'status';
+type Sort = { key: SortKey; descending: boolean };
 
-const sorts: { key: SortKey; label: string }[] = [
-  { key: 'file', label: 'File order' },
-  { key: 'last-name', label: 'Last name' },
-  { key: 'score', label: 'Highest match score' },
+/** Each sort's natural first direction: best scores first, most suggestions first. */
+const sorts: { key: SortKey; label: string; descending: boolean }[] = [
+  { key: 'file', label: 'File order', descending: false },
+  { key: 'name', label: 'Last name', descending: false },
+  { key: 'birth', label: 'Date of birth', descending: false },
+  { key: 'id', label: 'Local ID', descending: false },
+  { key: 'suggestions', label: 'Suggestions', descending: true },
+  { key: 'score', label: 'Top match score', descending: true },
+  { key: 'status', label: 'Status', descending: false },
 ];
 
 const lastNameOf = (group: GetStudentInputDetailsDto) =>
@@ -108,12 +114,41 @@ const lastNameOf = (group: GetStudentInputDetailsDto) =>
 const topScore = (group: GetStudentInputDetailsDto) =>
   Math.max(-1, ...suggestionsOf(group).map((c) => c.score ?? -1));
 
-const sortBy = (key: SortKey) => (a: GetStudentInputDetailsDto, b: GetStudentInputDetailsDto) =>
-  key === 'last-name'
-    ? lastNameOf(a).localeCompare(lastNameOf(b))
-    : key === 'score'
-    ? topScore(b) - topScore(a)
-    : 0;
+// Work waiting on the reviewer first, then work in flight, then work done.
+const statusOrder: StudentStatus[] = [
+  'to-review',
+  'run-failed',
+  'ready',
+  'reprocessing',
+  'reprocessed',
+  'excluded',
+];
+
+const sortBy =
+  ({ key, descending }: Sort, statusOf: (id: string) => StudentStatus) =>
+  (a: GetStudentInputDetailsDto, b: GetStudentInputDetailsDto) => {
+    const text = (v: JsonValue | undefined) => valueText(v) ?? '';
+    const order =
+      key === 'name'
+        ? lastNameOf(a).localeCompare(lastNameOf(b))
+        : key === 'birth'
+        ? text(a.inputDetails.birth_date).localeCompare(text(b.inputDetails.birth_date))
+        : key === 'id'
+        ? text(a.inputDetails.student_ids).localeCompare(
+            text(b.inputDetails.student_ids),
+            undefined,
+            { numeric: true }
+          )
+        : key === 'suggestions'
+        ? suggestionsOf(a).length - suggestionsOf(b).length
+        : key === 'score'
+        ? topScore(a) - topScore(b)
+        : key === 'status'
+        ? statusOrder.indexOf(statusOf(a.correlationId)) -
+          statusOrder.indexOf(statusOf(b.correlationId))
+        : 0;
+    return descending ? -order : order;
+  };
 
 // Evidence -------------------------------------------------------------------
 
@@ -208,7 +243,12 @@ const time = (at: number) =>
 
 const selectedKey = (jobId: number) => `runway.match-review-prototype.${jobId}.selected`;
 
-export const WorkspaceReview = () => {
+/**
+ * `split` is the list beside the workspace. `table` starts from the whole
+ * list as a sortable table; opening a student condenses it to the side list,
+ * like opening a thread or a ticket.
+ */
+export const WorkspaceReview = ({ layout = 'split' }: { layout?: 'split' | 'table' }) => {
   const { job, groups, isLoading, isError, statusOf, decisions } = useReviewSession();
   // null means that filter is off. Clicking the active chip turns it off.
   const [statusFilter, setStatusFilter] = useState<StatusFilter | null>('open');
@@ -229,7 +269,14 @@ export const WorkspaceReview = () => {
     }
   };
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<SortKey>('file');
+  const [sort, setSort] = useState<Sort>({ key: 'file', descending: false });
+  const [expanded, setExpanded] = useState(layout === 'table');
+  const chooseSort = (key: SortKey) =>
+    setSort((current) =>
+      current.key === key
+        ? { key, descending: !current.descending }
+        : { key, descending: sorts.find((s) => s.key === key)?.descending ?? false }
+    );
   const [reviewing, setReviewing] = useState(false);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
 
@@ -243,7 +290,7 @@ export const WorkspaceReview = () => {
         countTest(suggestionsOf(g).length) &&
         (!terms || searchText(g).includes(terms))
     )
-    .sort(sortBy(sort));
+    .sort(sortBy(sort, statusOf));
   const filtered = statusFilter !== 'open' || countFilter !== null || !!terms;
   const clearFilters = () => {
     setStatusFilter('open');
@@ -277,179 +324,233 @@ export const WorkspaceReview = () => {
     );
   })();
 
+  const searchBox = (
+    <Input
+      id={`workspace-queue-search-${layout}`}
+      size="sm"
+      placeholder="Search by name, birth date or ID"
+      value={query}
+      onChange={(event) => setQuery(event.target.value)}
+      aria-label="Search the list"
+    />
+  );
+  const filterChips = (
+    <>
+      <FilterChips
+        label="Status"
+        options={statusFilters.map(({ key, label }) => ({
+          key,
+          label,
+          count: groups.filter((g) =>
+            (statusFilters.find((f) => f.key === key)?.includes ?? []).includes(
+              statusOf(g.correlationId)
+            )
+          ).length,
+        }))}
+        value={statusFilter}
+        onChange={(key) => setStatusFilter(key === statusFilter ? null : (key as StatusFilter))}
+      />
+      <FilterChips
+        label="Suggestions"
+        options={countFilters.map(({ key, label }) => ({ key, label }))}
+        value={countFilter}
+        onChange={(key) => setCountFilter(key === countFilter ? null : (key as CountFilter))}
+      />
+    </>
+  );
+  const countLine = (
+    <HStack fontSize="0.8rem" gap="200" minHeight="1.5rem">
+      <Box opacity="0.8" whiteSpace="nowrap">
+        {queue.length} of {groups.length} students
+      </Box>
+      {filtered && (
+        <QuietButton size="xs" onClick={clearFilters}>
+          Clear filters
+        </QuietButton>
+      )}
+    </HStack>
+  );
+  const open = (id: string) => {
+    setSelectedId(id);
+    setExpanded(false);
+  };
+
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
-      <DesignIntro
-        title="Review workspace"
-        bet="One searchable, filterable list and one workspace, built for a careful choice first. Every candidate is lined up against your file, roster details are a click away, and roster search is always available. Select a student, then save the match, or exclude junk records; review and submit saved matches at a stopping point, and follow each batch from the summary above. Keyboard: j/k to move, s to save, x to exclude."
-      />
+      {layout === 'table' ? (
+        <DesignIntro
+          title="Review workspace, table first"
+          bet="The workspace, starting from the whole list as a table: sort by any column, search and filter, and see every student's status at a glance. Open a student and the table condenses into a side list next to the full review panel, like opening a thread or a ticket; go back to the table whenever you want the big picture. Keyboard: j/k to move, s to save, x to exclude, Esc for the table."
+        />
+      ) : (
+        <DesignIntro
+          title="Review workspace"
+          bet="One searchable, filterable list and one workspace, built for a careful choice first. Every candidate is lined up against your file, roster details are a click away, and roster search is always available. Select a student, then save the match, or exclude junk records; review and submit saved matches at a stopping point, and follow each batch from the summary above. Keyboard: j/k to move, s to save, x to exclude."
+        />
+      )}
       <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
 
-      <HStack alignItems="flex-start" gap="400" width="100%">
-        <VStack
-          width="20rem"
-          flexShrink={0}
-          alignItems="stretch"
-          layerStyle="contentBox"
-          padding="300"
-          gap="300"
-          position="sticky"
-          top="0"
-          maxHeight="100vh"
-        >
-          <Input
-            id="workspace-queue-search"
-            size="sm"
-            placeholder="Search by name, birth date or ID"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Search the list"
+      {expanded ? (
+        <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
+          <HStack gap="300" alignItems="flex-start" flexWrap="wrap">
+            <Box width="20rem">{searchBox}</Box>
+            <VStack alignItems="stretch" gap="100" fontSize="0.8rem" flex="1">
+              {filterChips}
+            </VStack>
+          </HStack>
+          {countLine}
+          <StudentTable
+            queue={queue}
+            sort={sort}
+            onSort={chooseSort}
+            onOpen={open}
+            lastOpened={selectedId}
           />
-          <VStack alignItems="stretch" gap="200" fontSize="0.8rem">
-            <FilterChips
-              label="Show"
-              options={statusFilters.map(({ key, label }) => ({
-                key,
-                label,
-                count: groups.filter((g) =>
-                  (statusFilters.find((f) => f.key === key)?.includes ?? []).includes(
-                    statusOf(g.correlationId)
-                  )
-                ).length,
-              }))}
-              value={statusFilter}
-              onChange={(key) =>
-                setStatusFilter(key === statusFilter ? null : (key as StatusFilter))
-              }
-            />
-            <FilterChips
-              label="Suggestions"
-              options={countFilters.map(({ key, label }) => ({ key, label }))}
-              value={countFilter}
-              onChange={(key) => setCountFilter(key === countFilter ? null : (key as CountFilter))}
-            />
-          </VStack>
-          <HStack fontSize="0.8rem" gap="200" minHeight="1.5rem">
-            <Box opacity="0.8" whiteSpace="nowrap">
-              {queue.length} of {groups.length} students
-            </Box>
-            {filtered && (
-              <QuietButton size="xs" onClick={clearFilters}>
-                Clear filters
-              </QuietButton>
-            )}
-          </HStack>
-          <HStack fontSize="0.8rem" gap="200">
-            <Box as="label" htmlFor="workspace-queue-sort" opacity="0.8">
-              Sort
-            </Box>
-            <Select
-              id="workspace-queue-sort"
-              size="xs"
-              flex="1"
-              value={sort}
-              onChange={(event) => setSort(event.target.value as SortKey)}
-              bg="blue.600"
-              color="blue.50"
-              borderColor="blue.50-40"
-              _hover={{ borderColor: 'blue.50' }}
-              // The open list is drawn by the browser; give its options the same colors.
-              sx={{
-                option: {
-                  background: 'var(--chakra-colors-blue-700)',
-                  color: 'var(--chakra-colors-blue-50)',
-                },
-              }}
-            >
-              {sorts.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
-          </HStack>
-          <VStack
-            alignItems="stretch"
-            gap="0"
-            flex="1"
-            minHeight="0"
-            overflowY="auto"
-            marginX="-200"
-          >
-            {queue.length === 0 && (
-              <Box padding="200" opacity="0.8" fontSize="0.9rem">
-                Nothing matches.{' '}
-                <QuietButton size="xs" onClick={clearFilters}>
-                  Clear filters
-                </QuietButton>
-              </Box>
-            )}
-            {queue.map((group) => (
-              <QueueRow
-                key={group.correlationId}
-                group={group}
-                decision={decisions.get(group.correlationId)}
-                status={statusOf(group.correlationId)}
-                isSelected={group.correlationId === selected.correlationId}
-                onSelect={() => setSelectedId(group.correlationId)}
-              />
-            ))}
-          </VStack>
         </VStack>
-        <Box
-          flex="1"
-          minWidth="0"
-          layerStyle="contentBox"
-          padding="400"
-          tabIndex={-1}
-          outline="none"
+      ) : (
+        <HStack
+          alignItems="flex-start"
+          gap="400"
+          width="100%"
           onKeyDown={(event: KeyboardEvent) => {
+            if (layout !== 'table' || event.key !== 'Escape') return;
             if ((event.target as HTMLElement).closest('input, textarea')) return;
-            if (event.key === 'j') move(1);
-            if (event.key === 'k') move(-1);
+            setExpanded(true);
           }}
         >
-          <HStack
-            justifyContent="space-between"
-            marginBottom="300"
-            fontSize="0.85rem"
-            gap="200"
-            flexWrap="wrap"
+          <VStack
+            width="20rem"
+            flexShrink={0}
+            alignItems="stretch"
+            layerStyle="contentBox"
+            padding="300"
+            gap="300"
+            position="sticky"
+            top="0"
+            maxHeight="100vh"
           >
-            <Box opacity="0.8">
-              {position >= 0
-                ? `${position + 1} of ${queue.length} in this list`
-                : 'Not in the current list'}
-            </Box>
-            <HStack gap="100">
-              <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
-                ‹ Previous
-              </QuietButton>
-              <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
-                Next ›
-              </QuietButton>
-              <SecondaryButton
-                size="xs"
-                isDisabled={!nextToReview}
-                onClick={() => nextToReview && setSelectedId(nextToReview.correlationId)}
-              >
-                Next to review
+            {layout === 'table' && (
+              <SecondaryButton size="xs" alignSelf="flex-start" onClick={() => setExpanded(true)}>
+                ⤢ Back to table
               </SecondaryButton>
+            )}
+            <VStack alignItems="stretch" gap="200" fontSize="0.8rem">
+              {filterChips}
+            </VStack>
+            {countLine}
+            <HStack fontSize="0.8rem" gap="200">
+              <Box as="label" htmlFor={`workspace-queue-sort-${layout}`} opacity="0.8">
+                Sort
+              </Box>
+              <Select
+                id={`workspace-queue-sort-${layout}`}
+                size="xs"
+                flex="1"
+                value={sort.key}
+                onChange={(event) => chooseSort(event.target.value as SortKey)}
+                bg="blue.600"
+                color="blue.50"
+                borderColor="blue.50-40"
+                _hover={{ borderColor: 'blue.50' }}
+                // The open list is drawn by the browser; give its options the same colors.
+                sx={{
+                  option: {
+                    background: 'var(--chakra-colors-blue-700)',
+                    color: 'var(--chakra-colors-blue-50)',
+                  },
+                }}
+              >
+                {sorts.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </Select>
             </HStack>
-          </HStack>
-          {lastAction && (
-            <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
-          )}
-          <Workspace
-            key={selected.correlationId}
-            group={selected}
-            onSaved={(action) => {
-              setLastAction(action);
-              if (action.advance) advance(selected.correlationId);
+            {searchBox}
+            <VStack
+              alignItems="stretch"
+              gap="0"
+              flex="1"
+              minHeight="0"
+              overflowY="auto"
+              marginX="-200"
+            >
+              {queue.length === 0 && (
+                <Box padding="200" opacity="0.8" fontSize="0.9rem">
+                  Nothing matches.{' '}
+                  <QuietButton size="xs" onClick={clearFilters}>
+                    Clear filters
+                  </QuietButton>
+                </Box>
+              )}
+              {queue.map((group) => (
+                <QueueRow
+                  key={group.correlationId}
+                  group={group}
+                  decision={decisions.get(group.correlationId)}
+                  status={statusOf(group.correlationId)}
+                  isSelected={group.correlationId === selected.correlationId}
+                  onSelect={() => setSelectedId(group.correlationId)}
+                />
+              ))}
+            </VStack>
+          </VStack>
+          <Box
+            flex="1"
+            minWidth="0"
+            layerStyle="contentBox"
+            padding="400"
+            tabIndex={-1}
+            outline="none"
+            onKeyDown={(event: KeyboardEvent) => {
+              if ((event.target as HTMLElement).closest('input, textarea')) return;
+              if (event.key === 'j') move(1);
+              if (event.key === 'k') move(-1);
             }}
-          />
-        </Box>
-      </HStack>
+          >
+            <HStack
+              justifyContent="space-between"
+              marginBottom="300"
+              fontSize="0.85rem"
+              gap="200"
+              flexWrap="wrap"
+            >
+              <Box opacity="0.8">
+                {position >= 0
+                  ? `${position + 1} of ${queue.length} in this list`
+                  : 'Not in the current list'}
+              </Box>
+              <HStack gap="100">
+                <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
+                  ‹ Previous
+                </QuietButton>
+                <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
+                  Next ›
+                </QuietButton>
+                <SecondaryButton
+                  size="xs"
+                  isDisabled={!nextToReview}
+                  onClick={() => nextToReview && setSelectedId(nextToReview.correlationId)}
+                >
+                  Next to review
+                </SecondaryButton>
+              </HStack>
+            </HStack>
+            {lastAction && (
+              <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
+            )}
+            <Workspace
+              key={selected.correlationId}
+              group={selected}
+              onSaved={(action) => {
+                setLastAction(action);
+                if (action.advance) advance(selected.correlationId);
+              }}
+            />
+          </Box>
+        </HStack>
+      )}
 
       <PrototypeControls />
 
@@ -459,7 +560,7 @@ export const WorkspaceReview = () => {
         onClose={() => setReviewing(false)}
         onView={(id) => {
           setReviewing(false);
-          setSelectedId(id);
+          open(id);
         }}
       />
     </VStack>
@@ -688,6 +789,116 @@ const QueueRow = ({
   );
 };
 
+const columns: { key: SortKey; label: string; numeric?: boolean }[] = [
+  { key: 'name', label: 'Student' },
+  { key: 'birth', label: 'Date of birth' },
+  { key: 'id', label: 'Local ID' },
+  { key: 'suggestions', label: 'Suggestions', numeric: true },
+  { key: 'score', label: 'Top match score', numeric: true },
+  { key: 'status', label: 'Status' },
+];
+
+/** The whole list as a table: click a header to sort, a row to open the student. */
+const StudentTable = ({
+  queue,
+  sort,
+  onSort,
+  onOpen,
+  lastOpened,
+}: {
+  queue: GetStudentInputDetailsDto[];
+  sort: Sort;
+  onSort: (key: SortKey) => void;
+  onOpen: (correlationId: string) => void;
+  /** The student last open, marked so returning to the table keeps your place. */
+  lastOpened: string | null;
+}) => {
+  const { statusOf, decisions } = useReviewSession();
+  const lastRow = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    lastRow.current?.scrollIntoView({ block: 'nearest' });
+  }, []);
+  if (!queue.length) {
+    return (
+      <Box padding="200" opacity="0.8" fontSize="0.9rem">
+        Nothing matches.
+      </Box>
+    );
+  }
+  return (
+    <Box overflowX="auto" maxHeight="70vh" overflowY="auto">
+      <Table size="sm" sx={{ 'td, th': { paddingX: '200' } }}>
+        <Thead position="sticky" top="0" bg="blue.700" zIndex={1}>
+          <Tr>
+            {columns.map((column) => {
+              const active = sort.key === column.key;
+              return (
+                <Th
+                  key={column.key}
+                  isNumeric={column.numeric}
+                  color="blue.50"
+                  textTransform="none"
+                  fontSize="0.8rem"
+                  aria-sort={active ? (sort.descending ? 'descending' : 'ascending') : 'none'}
+                >
+                  <Box
+                    as="button"
+                    onClick={() => onSort(column.key)}
+                    fontWeight={active ? '700' : '600'}
+                    _hover={{ textDecoration: 'underline' }}
+                  >
+                    {column.label}
+                    <Box as="span" marginLeft="100" opacity={active ? 1 : 0.3}>
+                      {active && sort.descending ? '↓' : '↑'}
+                    </Box>
+                  </Box>
+                </Th>
+              );
+            })}
+            <Th color="blue.50" textTransform="none" fontSize="0.8rem">
+              Match
+            </Th>
+          </Tr>
+        </Thead>
+        <Tbody>
+          {queue.map((group) => {
+            const status = statusOf(group.correlationId);
+            const decision = decisions.get(group.correlationId);
+            const suggestions = suggestionsOf(group);
+            const score = topScore(group);
+            const isLast = group.correlationId === lastOpened;
+            return (
+              <Tr
+                key={group.correlationId}
+                ref={isLast ? lastRow : undefined}
+                onClick={() => onOpen(group.correlationId)}
+                onKeyDown={(event) => event.key === 'Enter' && onOpen(group.correlationId)}
+                tabIndex={0}
+                cursor="pointer"
+                bg={isLast ? 'blue.600' : undefined}
+                _hover={{ bg: 'blue.600' }}
+                _focusVisible={{ outline: '2px solid', outlineColor: 'blue.50' }}
+                aria-label={`Open ${studentName(group.inputDetails)}`}
+              >
+                <Td fontWeight="600">{studentName(group.inputDetails)}</Td>
+                <Td>{valueText(group.inputDetails.birth_date) ?? '—'}</Td>
+                <Td>{valueText(group.inputDetails.student_ids) ?? '—'}</Td>
+                <Td isNumeric>{suggestions.length}</Td>
+                <Td isNumeric>{score >= 0 ? score : '—'}</Td>
+                <Td whiteSpace="nowrap">{statusLabel[status]}</Td>
+                <Td whiteSpace="nowrap">
+                  {decision?.kind === 'match' ? decision.candidate.studentUniqueId : ''}
+                  {status === 'excluded' ? 'excluded' : ''}
+                </Td>
+              </Tr>
+            );
+          })}
+        </Tbody>
+      </Table>
+    </Box>
+  );
+};
+
 type LastAction = { message: string; undo: () => void; advance: boolean };
 
 const LastActionBar = ({ action, onDismiss }: { action: LastAction; onDismiss: () => void }) => (
@@ -875,8 +1086,12 @@ const Workspace = ({
           ) : (
             // The same actions, in the same places, for every record.
             <HStack gap="300" flexWrap="wrap">
-              <QuietButton color="pink.100" onClick={() => setConfirmingExclude(true)}>
-                Exclude from this job… (x)
+              <QuietButton
+                color="pink.100"
+                title="Exclude this record from the job (x)"
+                onClick={() => setConfirmingExclude(true)}
+              >
+                Exclude record
               </QuietButton>
               <Box flex="1" />
               {decision && (
@@ -896,10 +1111,11 @@ const Workspace = ({
               )}
               <PrimaryButton
                 isDisabled={!selected || selected.studentUniqueId === saved}
+                title="Save match (s)"
                 onClick={save}
               >
                 {selected
-                  ? `Save match: ${selected.studentUniqueId} (s)`
+                  ? `Save match: ${selected.studentUniqueId}`
                   : 'Select a student to save a match'}
               </PrimaryButton>
             </HStack>
