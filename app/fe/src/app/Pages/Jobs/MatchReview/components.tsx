@@ -34,24 +34,39 @@ import {
  * PROTOTYPE ONLY. Pieces shared by the review designs.
  */
 
-const agreementStyle: Record<Agreement, { glyph: string; color: string; label: string }> = {
-  same: { glyph: '=', color: 'green.100', label: 'identical' },
-  different: { glyph: '≠', color: 'pink.100', label: 'not identical' },
-  unknown: { glyph: '·', color: 'blue.50-40', label: 'nothing to compare' },
+// Shape as well as color tells the marks apart: identical is filled, not
+// identical is outlined, nothing to compare is a faint dot.
+const agreementStyle: Record<
+  Agreement,
+  { glyph: string; label: string; color: string; bg?: string; border?: string }
+> = {
+  same: { glyph: '=', label: 'identical', color: 'green.600', bg: 'green.100' },
+  different: { glyph: '≠', label: 'not identical', color: 'pink.100', border: 'pink.100' },
+  unknown: { glyph: '·', label: 'nothing to compare', color: 'blue.50-40' },
 };
 
 export const AgreementMark = ({ agreement }: { agreement: Agreement }) => {
-  const { glyph, color, label } = agreementStyle[agreement];
+  const { glyph, label, color, bg, border } = agreementStyle[agreement];
   return (
     <Box
       as="span"
-      color={color}
-      fontWeight="700"
+      role="img"
       title={label}
       aria-label={label}
-      width="1rem"
-      textAlign="center"
-      display="inline-block"
+      display="inline-flex"
+      alignItems="center"
+      justifyContent="center"
+      flexShrink={0}
+      width="1.5rem"
+      height="1.5rem"
+      borderRadius="4px"
+      fontSize="1.1rem"
+      fontWeight="700"
+      lineHeight="1"
+      color={color}
+      bg={bg}
+      borderWidth={border ? '2px' : undefined}
+      borderColor={border}
     >
       {glyph}
     </Box>
@@ -141,7 +156,7 @@ export const ComparisonTable = ({
         <Th color="blue.50" textTransform="none" fontSize="0.8rem">
           In your file
         </Th>
-        <Th width="1rem" />
+        <Th width="2rem" />
         <Th color="blue.50" textTransform="none" fontSize="0.8rem">
           {rosterHeading}
         </Th>
