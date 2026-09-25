@@ -78,21 +78,37 @@ export const HybridReview = () => {
   const selected =
     members.find((g) => g.correlationId === selectedId) ?? openMembers[0] ?? members[0];
 
-  const advance = () => {
-    const next = openMembers.find((g) => g.correlationId !== selected?.correlationId);
-    setSelectedId(next?.correlationId ?? null);
-  };
+  // Where Next goes: the next undecided student here, else in the next group.
+  const nextHere = openMembers.find((g) => g.correlationId !== selected?.correlationId);
   const nextType = types.find(
     ({ type: t }) =>
       t !== type && groups.some((g) => typeOf(g) === t && isOpen(statusOf(g.correlationId)))
   );
+  const nextThere =
+    nextType &&
+    groups.find((g) => typeOf(g) === nextType.type && isOpen(statusOf(g.correlationId)));
+  const nextStep: NextStep | null = nextHere
+    ? {
+        label: `Next: ${studentName(nextHere.inputDetails)}`,
+        go: () => setSelectedId(nextHere.correlationId),
+      }
+    : nextType && nextThere
+    ? {
+        label: `Next: ${studentName(nextThere.inputDetails)}`,
+        detail: `in ${nextType.title.toLowerCase()}`,
+        go: () => {
+          setType(nextType.type);
+          setSelectedId(nextThere.correlationId);
+        },
+      }
+    : null;
   const ready = groups.filter((g) => statusOf(g.correlationId) === 'ready');
 
   return (
     <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="1000">
       <DesignIntro
         title="Focus by suggestion count"
-        bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work through students grouped by what the matching returned, each group with a view built for it: one suggestion puts the differences first, several line the suggestions up side by side, and none starts from why they may not have been found. Any group can end in a match, a search or an exclusion."
+        bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work through students grouped by what the matching returned, each group with a view built for it: one suggestion puts the differences first, several line the suggestions up side by side, and none starts from why they may not have been found. Any group can end in a match, a search or an exclusion. The student on screen changes only when you press Next (or Enter) or pick from the list."
       />
       <ReviewProgress />
       <HStack width="100%" gap="300" alignItems="stretch">
@@ -159,29 +175,10 @@ export const HybridReview = () => {
                 key={selected.correlationId}
                 type={type}
                 group={selected}
-                onDecided={advance}
+                nextStep={nextStep}
+                // Pin the student so deciding never swaps who's on screen.
+                onDecide={() => setSelectedId(selected.correlationId)}
               />
-            )}
-            {!openMembers.length && (
-              <HStack
-                marginTop="400"
-                paddingTop="300"
-                borderTopWidth="1px"
-                borderColor="blue.50-40"
-                gap="300"
-              >
-                <Box>Every student here has a decision.</Box>
-                {nextType && (
-                  <SecondaryButton
-                    onClick={() => {
-                      setType(nextType.type);
-                      setSelectedId(null);
-                    }}
-                  >
-                    Next: {nextType.title}
-                  </SecondaryButton>
-                )}
-              </HStack>
             )}
           </Box>
         </HStack>
@@ -334,30 +331,42 @@ const QueueRow = ({
 };
 
 /** What every view shares: the file record and a decided state. */
+type NextStep = { label: string; detail?: string; go: () => void };
+
+/**
+ * One student, from deciding to decided. The panel never moves on by
+ * itself: a decision shows what was decided, and the reviewer moves on with
+ * Next, so the student on screen only changes when they ask.
+ */
 const FocusFor = ({
   type,
   group,
-  onDecided,
+  nextStep,
+  onDecide,
 }: {
   type: DecisionType;
   group: GetStudentInputDetailsDto;
-  onDecided: () => void;
+  nextStep: NextStep | null;
+  onDecide: () => void;
 }) => {
   const { statusOf, decisions, decide, undo, batchOf } = useReviewSession();
   const [changing, setChanging] = useState(false);
+  const [justDecided, setJustDecided] = useState(false);
   const status = statusOf(group.correlationId);
   const decision = decisions.get(group.correlationId);
 
   const actions: Actions = {
     match: (candidate) => {
+      onDecide();
       decide(group.correlationId, { kind: 'match', candidate });
       setChanging(false);
-      onDecided();
+      setJustDecided(true);
     },
     notInRoster: () => {
+      onDecide();
       decide(group.correlationId, { kind: 'not-in-roster' });
       setChanging(false);
-      onDecided();
+      setJustDecided(true);
     },
   };
 
@@ -375,25 +384,74 @@ const FocusFor = ({
     body = <Box>Submitted and reprocessing. See the batch below.</Box>;
   } else if (decision) {
     const batch = status === 'reprocessed' ? batchOf(group.correlationId) : undefined;
+    const chosen = decision.kind === 'match' ? decision.candidate : null;
     body = (
-      <VStack alignItems="flex-start" gap="200">
-        <Box>
-          {decision.kind === 'match'
-            ? `${batch ? 'Reprocessed with' : 'You matched this student to'} ${
-                decision.candidate.studentUniqueId
-              }${decision.candidate.source === 'search' ? ', found by searching' : ''}.`
-            : "Excluded from this job. Their assessments won't be loaded."}
-        </Box>
-        {batch?.status === 'complete with errors' && (
-          <Box fontSize="0.9rem" opacity="0.85">
-            Their batch completed with errors. The run can't say whose assessments failed, so this
-            match stands; support can trace the failures from the run's logs.
+      <VStack
+        alignItems="stretch"
+        gap="300"
+        padding="300"
+        borderRadius="6px"
+        borderLeftWidth="3px"
+        borderColor={justDecided ? 'green.100' : 'blue.50-40'}
+        bg="blue.600"
+      >
+        <VStack alignItems="flex-start" gap="100">
+          <Box fontSize="0.8rem" opacity="0.8">
+            {justDecided ? 'Decided' : batch ? 'Reprocessed' : 'Your decision'}
           </Box>
-        )}
-        <HStack gap="200">
-          <SecondaryButton onClick={() => setChanging(true)}>Change</SecondaryButton>
+          {chosen ? (
+            <>
+              <Box fontWeight="600">
+                {batch ? 'Reprocessed with' : 'Matched to'} {chosen.studentUniqueId}
+                {chosen.source === 'search' ? ', found by searching' : ''}
+              </Box>
+              <Box fontSize="0.9rem" opacity="0.85">
+                In the roster: {studentName(chosen.rosterDetails)}
+                {typeof chosen.rosterDetails.birth_date === 'string' &&
+                  `, born ${chosen.rosterDetails.birth_date}`}
+              </Box>
+            </>
+          ) : (
+            <Box fontWeight="600">Excluded from this job. Their assessments won't be loaded.</Box>
+          )}
+          {batch?.status === 'complete with errors' && (
+            <Box fontSize="0.9rem" opacity="0.85">
+              Their batch completed with errors. The run can't say whose assessments failed, so this
+              match stands; support can trace the failures from the run's logs.
+            </Box>
+          )}
+        </VStack>
+        <HStack gap="200" flexWrap="wrap">
+          {nextStep ? (
+            <PrimaryButton autoFocus={justDecided} onClick={nextStep.go}>
+              {nextStep.label} →
+            </PrimaryButton>
+          ) : (
+            <Box fontSize="0.9rem">Every student has a decision; submit your matches below.</Box>
+          )}
+          {nextStep?.detail && (
+            <Box fontSize="0.8rem" opacity="0.7">
+              {nextStep.detail}
+            </Box>
+          )}
+          <Box flex="1" />
+          <QuietButton
+            onClick={() => {
+              setChanging(true);
+              setJustDecided(false);
+            }}
+          >
+            Change
+          </QuietButton>
           {(status === 'ready' || status === 'excluded') && (
-            <QuietButton onClick={() => undo(group.correlationId)}>Undo</QuietButton>
+            <QuietButton
+              onClick={() => {
+                undo(group.correlationId);
+                setJustDecided(false);
+              }}
+            >
+              Undo
+            </QuietButton>
           )}
         </HStack>
       </VStack>
