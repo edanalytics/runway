@@ -58,7 +58,7 @@ const reviewTabs: { label: string; tucked: boolean }[] = [
   { label: 'Review: focus', tucked: false },
   { label: 'Review: triage', tucked: true },
   { label: 'Review: yes / no', tucked: true },
-  { label: 'Review: by decision type', tucked: false },
+  { label: 'Review: by suggestion count', tucked: false },
   { label: 'Review: workspace', tucked: false },
 ];
 

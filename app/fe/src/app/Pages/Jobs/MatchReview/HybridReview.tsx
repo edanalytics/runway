@@ -46,9 +46,9 @@ const typeOf = (group: GetStudentInputDetailsDto): DecisionType => {
 };
 
 const types: { type: DecisionType; title: string }[] = [
-  { type: 'verify', title: 'Verify' },
-  { type: 'choose', title: 'Choose' },
-  { type: 'find', title: 'Find' },
+  { type: 'verify', title: 'One suggestion' },
+  { type: 'choose', title: 'Several suggestions' },
+  { type: 'find', title: 'No suggestions' },
 ];
 
 const isOpen = (status: StudentStatus) => status === 'to-review';
@@ -91,8 +91,8 @@ export const HybridReview = () => {
   return (
     <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="1000">
       <DesignIntro
-        title="Focus by decision type"
-        bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work one kind of decision at a time, each with a view built for it: verifying one suggestion puts the differences first, choosing lines the suggestions up side by side, and finding starts from why they may not have been found."
+        title="Focus by suggestion count"
+        bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work through students grouped by what the matching returned, each group with a view built for it: one suggestion puts the differences first, several line the suggestions up side by side, and none starts from why they may not have been found. Any group can end in a match, a search or an exclusion."
       />
       <ReviewProgress />
       <HStack width="100%" gap="300" alignItems="stretch">
@@ -119,14 +119,10 @@ export const HybridReview = () => {
                 setSelectedId(null);
               }}
             >
-              <HStack justifyContent="space-between" width="100%">
+              <HStack justifyContent="space-between" width="100%" flexWrap="wrap" gap="200">
                 <Box textStyle="h5">{title}</Box>
                 <Box fontSize="0.9rem" opacity={all.length ? 1 : 0.6}>
-                  {all.length === 0
-                    ? 'none'
-                    : waiting
-                    ? `${waiting} ${waiting === 1 ? 'student' : 'students'}`
-                    : 'all decided'}
+                  {all.length === 0 ? 'none' : `${all.length - waiting} of ${all.length} decided`}
                 </Box>
               </HStack>
             </VStack>
@@ -174,7 +170,7 @@ export const HybridReview = () => {
                 borderColor="blue.50-40"
                 gap="300"
               >
-                <Box>All {type} decisions are made.</Box>
+                <Box>Every student here has a decision.</Box>
                 {nextType && (
                   <SecondaryButton
                     onClick={() => {
@@ -190,11 +186,6 @@ export const HybridReview = () => {
           </Box>
         </HStack>
       )}
-
-      <VStack alignItems="flex-start" width="100%" gap="200">
-        <Box textStyle="h5">Reprocessing</Box>
-        <BatchActivity emptyText="Nothing submitted yet." />
-      </VStack>
 
       <VStack
         position="sticky"
@@ -255,7 +246,7 @@ export const HybridReview = () => {
                   }
                   _hover={{ bg: 'blue.600' }}
                   fontSize="0.85rem"
-                  title={`Open in ${types.find((x) => x.type === t)?.title}`}
+                  title="Open this student"
                 >
                   <Box fontWeight="600">{studentName(g.inputDetails)}</Box>
                   <Box opacity="0.85">
@@ -268,6 +259,11 @@ export const HybridReview = () => {
           </HStack>
         )}
       </VStack>
+
+      <VStack alignItems="flex-start" width="100%" gap="200">
+        <Box textStyle="h5">Reprocessing</Box>
+        <BatchActivity emptyText="Nothing submitted yet." />
+      </VStack>
     </VStack>
   );
 };
@@ -275,7 +271,7 @@ export const HybridReview = () => {
 const ReadySummary = ({ ready }: { ready: GetStudentInputDetailsDto[] }) => {
   const count = (t: DecisionType) => ready.filter((g) => typeOf(g) === t).length;
   const parts = types
-    .map(({ type, title }) => count(type) && `${count(type)} ${title.toLowerCase()}`)
+    .map(({ type, title }) => count(type) && `${count(type)} with ${title.toLowerCase()}`)
     .filter(Boolean);
   return (
     <>
