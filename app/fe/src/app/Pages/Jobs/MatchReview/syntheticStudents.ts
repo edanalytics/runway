@@ -101,7 +101,7 @@ const nearMiss = (
   return {
     ...base,
     middle_name: next() < 0.3 ? firstNames[id % firstNames.length] : null,
-    student_ids: [{ id_type: 'state', id_value: `S-9${String(id).padStart(3, '0')}` }],
+    student_ids: [{ id_type: 'state', id_value: `${900000 + id}` }],
     school_years: next() < 0.9 ? [2025] : [2024],
   };
 };
@@ -124,7 +124,7 @@ export const syntheticStudents = (count: number, runId: number): GetStudentInput
       rosterId += 1;
       return {
         ordinal,
-        studentUniqueId: `S-9${String(rosterId).padStart(3, '0')}`,
+        studentUniqueId: `${900000 + rosterId}`,
         score: Math.round((0.88 - ordinal * 0.07 - next() * 0.1) * 100) / 100,
         rosterDetails: nearMiss(next, first, last, birth, rosterId),
       };

@@ -16,46 +16,46 @@ export type RosterStudent = { studentUniqueId: string; rosterDetails: StudentRos
 
 const invented: RosterStudent[] = [
   {
-    studentUniqueId: 'S-7001',
+    studentUniqueId: '107001',
     rosterDetails: {
       first_name: 'Alan',
       middle_name: 'Mathison',
       last_name: 'Turing',
       birth_date: '2012-06-23',
-      student_ids: [{ id_type: 'state', id_value: 'S-7001' }],
+      student_ids: [{ id_type: 'state', id_value: '107001' }],
       school_years: [2025],
     },
   },
   {
-    studentUniqueId: 'S-7004',
+    studentUniqueId: '107004',
     rosterDetails: {
       first_name: 'Alan',
       middle_name: null,
       last_name: 'Turner',
       birth_date: '2012-06-03',
-      student_ids: [{ id_type: 'state', id_value: 'S-7004' }],
+      student_ids: [{ id_type: 'state', id_value: '107004' }],
       school_years: [2025],
     },
   },
   {
-    studentUniqueId: 'S-7002',
+    studentUniqueId: '107002',
     rosterDetails: {
       first_name: 'Mae',
       middle_name: 'Carol',
       last_name: 'Jemison',
       birth_date: '2012-10-17',
-      student_ids: [{ id_type: 'state', id_value: 'S-7002' }],
+      student_ids: [{ id_type: 'state', id_value: '107002' }],
       school_years: [2025],
     },
   },
   {
-    studentUniqueId: 'S-7003',
+    studentUniqueId: '107003',
     rosterDetails: {
       first_name: 'Mae',
       middle_name: null,
       last_name: 'Jennings',
       birth_date: '2012-10-07',
-      student_ids: [{ id_type: 'state', id_value: 'S-7003' }],
+      student_ids: [{ id_type: 'state', id_value: '107003' }],
       school_years: [2025],
     },
   },

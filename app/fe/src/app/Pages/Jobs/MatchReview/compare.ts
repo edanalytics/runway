@@ -27,7 +27,7 @@ const text = (value: JsonValue | undefined): string | null =>
     ? String(value)
     : null;
 
-/** IDs as written, with their type when the roster gives one: "state S-4102". */
+/** IDs as written, with their type when the roster gives one: "state 104102". */
 const idsOf = (value: JsonValue | undefined): string[] => {
   if (!Array.isArray(value)) {
     const single = text(value);
