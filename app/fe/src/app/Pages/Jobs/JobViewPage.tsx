@@ -2,6 +2,10 @@ import {
   Box,
   Collapse,
   HStack,
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuList,
   Spinner,
   StackDivider,
   Tab,
@@ -46,6 +50,18 @@ import { WorkspaceReview } from './MatchReview/WorkspaceReview';
 // background color.
 const selectedTab = { color: 'blue.50', borderColor: 'blue.50' };
 
+// PROTOTYPE: review designs in panel order. Tucked designs stay reachable
+// from the tab bar's menu without competing with the promising ones.
+const reviewTabs: { label: string; tucked: boolean }[] = [
+  { label: 'Unmatched (side by side)', tucked: true },
+  { label: 'Unmatched (stacked)', tucked: true },
+  { label: 'Review: focus', tucked: false },
+  { label: 'Review: triage', tucked: true },
+  { label: 'Review: yes / no', tucked: true },
+  { label: 'Review: by decision type', tucked: false },
+  { label: 'Review: workspace', tucked: false },
+];
+
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
 const getStageFromUpdates = (updates: GetRunUpdateDto[] | undefined): JobStages => {
   if (!updates || !updates.length) {
@@ -71,6 +87,8 @@ export const JobViewPage = () => {
   const canViewOutputFiles = me?.privileges?.has('job.output-files.read') ?? false;
   const canViewCrossTenantJobs = me?.privileges?.has('job.metatenant.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
+
+  const [tabIndex, setTabIndex] = useState(0);
 
   /**
    * The job progress through a series of stages. We determine which stage
@@ -158,16 +176,51 @@ export const JobViewPage = () => {
       </Box>
       {/* PROTOTYPE: the review tabs share one in-memory session. */}
       <ReviewSessionProvider job={job}>
-        <Tabs isLazy lazyBehavior="keepMounted" width="100%">
+        <Tabs
+          isLazy
+          lazyBehavior="keepMounted"
+          width="100%"
+          index={tabIndex}
+          onChange={setTabIndex}
+        >
           <TabList borderColor="blue.50-40">
             <Tab _selected={selectedTab}>Overview</Tab>
-            <Tab _selected={selectedTab}>Unmatched (side by side)</Tab>
-            <Tab _selected={selectedTab}>Unmatched (stacked)</Tab>
-            <Tab _selected={selectedTab}>Review: focus</Tab>
-            <Tab _selected={selectedTab}>Review: triage</Tab>
-            <Tab _selected={selectedTab}>Review: yes / no</Tab>
-            <Tab _selected={selectedTab}>Review: by decision type</Tab>
-            <Tab _selected={selectedTab}>Review: workspace</Tab>
+            {reviewTabs.map(({ label, tucked }, i) => (
+              // A tucked tab shows in the bar only while it's the one open.
+              <Tab
+                key={label}
+                _selected={selectedTab}
+                display={tucked && tabIndex !== i + 1 ? 'none' : undefined}
+              >
+                {label}
+              </Tab>
+            ))}
+            <Menu placement="bottom-end">
+              <MenuButton
+                as={Box}
+                role="button"
+                aria-label="More prototypes"
+                title="More prototypes"
+                marginLeft="auto"
+                paddingX="300"
+                alignSelf="center"
+                fontSize="1.2rem"
+                lineHeight="1"
+                opacity="0.8"
+                _hover={{ opacity: 1 }}
+              >
+                ⋯
+              </MenuButton>
+              <MenuList>
+                {reviewTabs.map(({ label, tucked }, i) =>
+                  tucked ? (
+                    <MenuItem key={label} onClick={() => setTabIndex(i + 1)}>
+                      {label}
+                    </MenuItem>
+                  ) : null
+                )}
+              </MenuList>
+            </Menu>
           </TabList>
           <TabPanels>
             <TabPanel paddingX="0" paddingY="400">
