@@ -15,7 +15,13 @@ import {
   SecondaryButton,
   studentName,
 } from './components';
-import { Candidate, StudentStatus, suggestedCandidates, useReviewSession } from './reviewSession';
+import {
+  Candidate,
+  Decision,
+  StudentStatus,
+  suggestedCandidates,
+  useReviewSession,
+} from './reviewSession';
 
 /*
  * PROTOTYPE, design 1: Focus. One student at a time, one flow whether IDRS
@@ -41,11 +47,22 @@ const statusGlyph: Record<StudentStatus, string> = {
   excluded: '⊘',
 };
 
+/** The decision just made, announced as the panel moves on. */
+type Transition = {
+  correlationId: string;
+  name: string;
+  outcome: string;
+  previous: Decision | undefined;
+  /** Who the panel moved on to, if anyone was left to review. */
+  nextName: string | null;
+};
+
 export const FocusReview = () => {
   const session = useReviewSession();
-  const { groups, isLoading, isError, statusOf, decisions, submit } = session;
+  const { groups, isLoading, isError, statusOf, decisions, decide, undo, submit } = session;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [transition, setTransition] = useState<Transition | null>(null);
 
   const needsDecision = (id: string) => statusOf(id) === 'to-review';
   const ordered = useMemo(
@@ -71,25 +88,41 @@ export const FocusReview = () => {
   if (!groups.length) return <Box>No unmatched students for this assessment.</Box>;
 
   const selected = groups.find((group) => group.correlationId === selectedId) ?? groups[0];
+  const select = (id: string) => {
+    setSelectedId(id);
+    setTransition(null);
+  };
   const move = (step: number) => {
     const index = ordered.findIndex((group) => group.correlationId === selected.correlationId);
-    const next = ordered[(index + step + ordered.length) % ordered.length];
-    setSelectedId(next.correlationId);
+    select(ordered[(index + step + ordered.length) % ordered.length].correlationId);
   };
-  const advance = () => {
-    const next = groups.find(
-      (group) =>
-        group.correlationId !== selected.correlationId && needsDecision(group.correlationId)
-    );
+  const toReview = groups.filter((group) => needsDecision(group.correlationId));
+
+  // Deciding moves on to the next student still to review, and says so.
+  const onDecided = (outcome: string, previous: Decision | undefined) => {
+    const next = toReview.find((group) => group.correlationId !== selected.correlationId);
+    setTransition({
+      correlationId: selected.correlationId,
+      name: studentName(selected.inputDetails),
+      outcome,
+      previous,
+      nextName: next ? studentName(next.inputDetails) : null,
+    });
     if (next) setSelectedId(next.correlationId);
   };
-  const decided = groups.filter((group) => statusOf(group.correlationId) !== 'to-review').length;
+  const undoTransition = (t: Transition) => {
+    if (t.previous) decide(t.correlationId, t.previous);
+    else undo(t.correlationId);
+    select(t.correlationId);
+  };
 
   const onKeyDown = (event: KeyboardEvent) => {
     if ((event.target as HTMLElement).closest('input')) return;
     if (event.key === 'j' || event.key === 'ArrowDown') move(1);
     if (event.key === 'k' || event.key === 'ArrowUp') move(-1);
   };
+
+  const position = toReview.findIndex((g) => g.correlationId === selected.correlationId);
 
   return (
     // Keyboard shortcuts listen here, so hidden tabs don't react.
@@ -103,7 +136,7 @@ export const FocusReview = () => {
     >
       <DesignIntro
         title="Focus: one student at a time"
-        bet="Every decision deserves full attention. The comparison does the lining-up, the panel adapts to how many suggestions there are, and deciding moves you to the next student. Keyboard: j/k to move, 1–9 to pick, n for not in roster, u to undo."
+        bet="Every decision deserves full attention. One flow whatever the number of suggestions: use one, or say none fit and then search or exclude. Deciding moves you to the next student, and says so. Keyboard: j/k to move, u to undo."
       />
       <ReviewProgress />
       <HStack alignItems="flex-start" width="100%" gap="400">
@@ -116,7 +149,7 @@ export const FocusReview = () => {
           gap="300"
         >
           <Box fontSize="0.9rem">
-            {decided} of {groups.length} decided
+            {groups.length - toReview.length} of {groups.length} decided
           </Box>
           {sections.map(({ status, title }) => {
             const members = groups.filter((group) => statusOf(group.correlationId) === status);
@@ -133,7 +166,7 @@ export const FocusReview = () => {
                     <HStack
                       as="button"
                       key={group.correlationId}
-                      onClick={() => setSelectedId(group.correlationId)}
+                      onClick={() => select(group.correlationId)}
                       gap="200"
                       paddingX="200"
                       paddingY="100"
@@ -146,9 +179,9 @@ export const FocusReview = () => {
                         {statusGlyph[status]}
                       </Box>
                       <Box flex="1">{studentName(group.inputDetails)}</Box>
-                      {status === 'ready' && decision && (
+                      {status === 'ready' && decision?.kind === 'match' && (
                         <Box fontSize="0.75rem" opacity="0.8">
-                          {decision.kind === 'match' ? decision.candidate.studentUniqueId : 'none'}
+                          {decision.candidate.studentUniqueId}
                         </Box>
                       )}
                     </HStack>
@@ -178,9 +211,29 @@ export const FocusReview = () => {
             )}
           </Box>
         </VStack>
-        <Box flex="1" minWidth="0" layerStyle="contentBox" padding="400">
-          <FocusPanel key={selected.correlationId} group={selected} onDecided={advance} />
-        </Box>
+        <VStack flex="1" minWidth="0" alignItems="stretch" gap="300">
+          {transition && (
+            <TransitionBanner
+              transition={transition}
+              onUndo={() => undoTransition(transition)}
+              onBack={() => select(transition.correlationId)}
+              onDismiss={() => setTransition(null)}
+            />
+          )}
+          <Box layerStyle="contentBox" padding="400">
+            <FocusPanel
+              key={selected.correlationId}
+              group={selected}
+              place={
+                position >= 0
+                  ? `To review · ${position + 1} of ${toReview.length}`
+                  : statusTitle(statusOf(selected.correlationId))
+              }
+              isNext={!!transition?.nextName}
+              onDecided={onDecided}
+            />
+          </Box>
+        </VStack>
       </HStack>
       <VStack alignItems="flex-start" width="100%" gap="200">
         <Box textStyle="h5">Reprocessing</Box>
@@ -189,6 +242,55 @@ export const FocusReview = () => {
     </VStack>
   );
 };
+
+const statusTitle = (status: StudentStatus) =>
+  sections.find((section) => section.status === status)?.title ?? '';
+
+/**
+ * Names what just happened and who's showing now, so moving on is never a
+ * surprise, with a way straight back.
+ */
+const TransitionBanner = ({
+  transition,
+  onUndo,
+  onBack,
+  onDismiss,
+}: {
+  transition: Transition;
+  onUndo: () => void;
+  onBack: () => void;
+  onDismiss: () => void;
+}) => (
+  <HStack
+    role="status"
+    padding="200"
+    paddingLeft="300"
+    borderRadius="6px"
+    bg="blue.600"
+    borderLeftWidth="3px"
+    borderColor="green.100"
+    justifyContent="space-between"
+    gap="300"
+    flexWrap="wrap"
+  >
+    <Box fontSize="0.9rem">
+      <Box as="span" fontWeight="600">
+        {transition.name}
+      </Box>
+      : {transition.outcome}.{' '}
+      {transition.nextName
+        ? `Now showing the next student to review, ${transition.nextName}.`
+        : 'That was the last student to review; submit your matches when ready.'}
+    </Box>
+    <HStack gap="100">
+      <QuietButton onClick={onUndo}>Undo</QuietButton>
+      {transition.nextName && <QuietButton onClick={onBack}>Back to {transition.name}</QuietButton>}
+      <QuietButton onClick={onDismiss} aria-label="Dismiss">
+        ✕
+      </QuietButton>
+    </HStack>
+  </HStack>
+);
 
 const SubmitConfirmation = ({
   ready,
@@ -211,55 +313,58 @@ const SubmitConfirmation = ({
   );
 };
 
-/** The decision for one student, adapting to what IDRS found. */
+/** The decision for one student: the same flow whatever the number of suggestions. */
 const FocusPanel = ({
   group,
+  place,
+  isNext,
   onDecided,
 }: {
   group: GetStudentInputDetailsDto;
-  onDecided: () => void;
+  /** Where this student sits, e.g. "To review · 2 of 5". */
+  place: string;
+  /** Whether the panel just moved on to this student. */
+  isNext: boolean;
+  onDecided: (outcome: string, previous: Decision | undefined) => void;
 }) => {
   const { statusOf, decisions, decide, undo } = useReviewSession();
   const status = statusOf(group.correlationId);
   const decision = decisions.get(group.correlationId);
   const candidates = suggestedCandidates(group);
   const [changing, setChanging] = useState(false);
-  // With one suggestion, "No" opens the alternatives; with several, "None of these" does.
-  const [rejectedSuggestions, setRejectedSuggestions] = useState(false);
+  // Saying none fit stays on this student and opens the other options.
+  const [noneFit, setNoneFit] = useState(false);
 
   const choose = (candidate: Candidate) => {
+    const previous = decision;
     decide(group.correlationId, { kind: 'match', candidate });
     setChanging(false);
-    onDecided();
+    onDecided(`matched to ${candidate.studentUniqueId}`, previous);
   };
-  const notInRoster = () => {
+  const exclude = () => {
+    const previous = decision;
     decide(group.correlationId, { kind: 'not-in-roster' });
     setChanging(false);
-    onDecided();
+    onDecided('excluded from this job', previous);
   };
   const canDecide = status === 'to-review' || changing;
 
   const onKeyDown = (event: KeyboardEvent) => {
-    if ((event.target as HTMLElement).closest('input') || !canDecide) {
-      if (event.key === 'u' && (status === 'ready' || status === 'excluded')) {
-        undo(group.correlationId);
-      }
-      return;
+    if ((event.target as HTMLElement).closest('input')) return;
+    if (event.key === 'u' && !canDecide && (status === 'ready' || status === 'excluded')) {
+      undo(group.correlationId);
     }
-    const pick = Number(event.key);
-    if (pick >= 1 && pick <= candidates.length) choose(candidates[pick - 1]);
-    if (event.key === 'n') notInRoster();
-    if (event.key === 'y' && candidates.length === 1) choose(candidates[0]);
   };
 
   return (
-    <VStack alignItems="flex-start" gap="400" width="100%" onKeyDown={onKeyDown}>
+    <VStack alignItems="stretch" gap="400" width="100%" onKeyDown={onKeyDown}>
       <VStack alignItems="flex-start" gap="100">
         <Box fontSize="0.8rem" opacity="0.8">
-          From your file
+          {isNext ? 'Next student · ' : ''}
+          {place}
         </Box>
         <Box textStyle="h4">{studentName(group.inputDetails)}</Box>
-        <FileLine details={group.inputDetails} />
+        <FileLine details={group.inputDetails} withName={false} />
       </VStack>
 
       {status === 'reprocessing' && <Box>Submitted — reprocessing now. See the batch below.</Box>}
@@ -272,7 +377,7 @@ const FocusPanel = ({
                 ? status === 'reprocessed'
                   ? `Reprocessed with ${decision.candidate.studentUniqueId}. See the batch below for how its assessments loaded.`
                   : `You matched this student to ${decision.candidate.studentUniqueId}.`
-                : "Excluded: not in the roster. Their assessments won't be loaded."}
+                : "Excluded from this job. Their assessments won't be loaded."}
             </Box>
             <HStack gap="200">
               <SecondaryButton onClick={() => setChanging(true)}>Change</SecondaryButton>
@@ -283,70 +388,107 @@ const FocusPanel = ({
           </VStack>
         )}
 
-      {canDecide && (
-        <VStack alignItems="flex-start" gap="400" width="100%">
-          {candidates.length === 1 && !rejectedSuggestions && (
-            <VStack alignItems="flex-start" gap="300" width="100%">
-              <Box textStyle="h5">Is this the same student?</Box>
-              <CandidateCard candidate={candidates[0]} group={group} />
-              <HStack gap="200">
-                <PrimaryButton onClick={() => choose(candidates[0])}>
-                  Yes, same student (y)
-                </PrimaryButton>
-                <SecondaryButton onClick={() => setRejectedSuggestions(true)}>No</SecondaryButton>
-              </HStack>
-            </VStack>
-          )}
+      {canDecide && candidates.length > 0 && !noneFit && (
+        <VStack alignItems="stretch" gap="300">
+          {/* The count matters when a suggestion is past the fold. */}
+          <Box fontSize="0.85rem" opacity="0.8">
+            {candidates.length} {candidates.length === 1 ? 'suggestion' : 'suggestions'}
+          </Box>
+          {candidates.map((candidate) => (
+            <CandidateCard
+              key={candidate.studentUniqueId}
+              candidate={candidate}
+              group={group}
+              action={
+                <PrimaryButton onClick={() => choose(candidate)}>Use suggestion</PrimaryButton>
+              }
+            />
+          ))}
+          <HStack gap="300">
+            <SecondaryButton onClick={() => setNoneFit(true)}>
+              {candidates.length === 1 ? 'Not this student' : 'None of these'}
+            </SecondaryButton>
+            <Box fontSize="0.8rem" opacity="0.7">
+              Then search the roster, or exclude the record.
+            </Box>
+          </HStack>
+        </VStack>
+      )}
 
-          {candidates.length > 1 && !rejectedSuggestions && (
-            <VStack alignItems="flex-start" gap="300" width="100%">
-              <Box textStyle="h5">
-                IDRS found {candidates.length} possible students. Pick the one who matches.
-              </Box>
-              {candidates.map((candidate, index) => (
-                <CandidateCard
-                  key={candidate.studentUniqueId}
-                  candidate={candidate}
-                  group={group}
-                  action={
-                    <PrimaryButton onClick={() => choose(candidate)}>
-                      Match ({index + 1})
-                    </PrimaryButton>
-                  }
-                />
-              ))}
-              <SecondaryButton onClick={() => setRejectedSuggestions(true)}>
-                None of these
-              </SecondaryButton>
-            </VStack>
-          )}
-
-          {(candidates.length === 0 || rejectedSuggestions) && (
-            <VStack alignItems="flex-start" gap="300" width="100%">
-              <Box textStyle="h5">
-                {candidates.length === 0
-                  ? 'IDRS found no one who matches.'
-                  : 'Not one of the suggestions. Search, or mark as not in the roster.'}
-              </Box>
-              <SearchPanel group={group} onPick={choose} heading="Search with corrected details" />
-              <HStack gap="300" alignItems="center">
-                <SecondaryButton onClick={notInRoster}>Exclude: not in roster (n)</SecondaryButton>
-                <Box fontSize="0.85rem" opacity="0.8">
-                  Excluded students aren't reprocessed; their assessments won't load.
-                </Box>
-              </HStack>
-              {rejectedSuggestions && (
-                <QuietButton onClick={() => setRejectedSuggestions(false)}>
-                  Back to the suggestions
-                </QuietButton>
-              )}
-            </VStack>
-          )}
+      {canDecide && (candidates.length === 0 || noneFit) && (
+        <VStack alignItems="stretch" gap="300">
+          <HStack justifyContent="space-between" gap="300" flexWrap="wrap">
+            <Box textStyle="h5">
+              {candidates.length === 0
+                ? 'No suggestions for this student'
+                : candidates.length === 1
+                ? 'Not the suggested student'
+                : 'None of the suggestions'}
+            </Box>
+            {noneFit && (
+              <QuietButton onClick={() => setNoneFit(false)}>
+                ← Back to {candidates.length === 1 ? 'the suggestion' : 'the suggestions'}
+              </QuietButton>
+            )}
+          </HStack>
+          <OptionBox
+            title="Search the roster"
+            detail="Look them up with corrected details, or their student unique ID if you know it. Using a result matches them and moves on."
+          >
+            <SearchPanel group={group} onPick={choose} heading={null} />
+          </OptionBox>
+          <HStack gap="300" opacity="0.7" fontSize="0.85rem">
+            <Box flex="1" borderTopWidth="1px" borderColor="blue.50-40" />
+            <Box>or</Box>
+            <Box flex="1" borderTopWidth="1px" borderColor="blue.50-40" />
+          </HStack>
+          <OptionBox
+            title="Exclude this record from the job"
+            detail="For junk data, or a student who isn't in the roster. Their records won't be reprocessed. You can undo this."
+            tone="caution"
+          >
+            <SecondaryButton
+              alignSelf="flex-start"
+              borderColor="pink.100"
+              color="pink.100"
+              onClick={exclude}
+            >
+              Exclude from this job
+            </SecondaryButton>
+          </OptionBox>
         </VStack>
       )}
     </VStack>
   );
 };
+
+/** One of the ways forward when no suggestion fits, set apart from the other. */
+const OptionBox = ({
+  title,
+  detail,
+  tone,
+  children,
+}: {
+  title: string;
+  detail: string;
+  tone?: 'caution';
+  children: React.ReactNode;
+}) => (
+  <VStack
+    alignItems="stretch"
+    gap="200"
+    padding="300"
+    borderRadius="6px"
+    borderWidth="1px"
+    borderColor={tone === 'caution' ? 'pink.100' : 'blue.50-40'}
+  >
+    <Box textStyle="h6">{title}</Box>
+    <Box fontSize="0.85rem" opacity="0.85">
+      {detail}
+    </Box>
+    {children}
+  </VStack>
+);
 
 const CandidateCard = ({
   candidate,

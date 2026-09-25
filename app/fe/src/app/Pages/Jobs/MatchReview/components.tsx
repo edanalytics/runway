@@ -72,7 +72,7 @@ export const ScoreBadge = ({ score }: { score: number | null }) =>
       fontWeight="600"
       whiteSpace="nowrap"
     >
-      IDRS score {score}
+      Match score {score}
     </Box>
   );
 
@@ -98,9 +98,16 @@ export const studentName = (details: StudentInputDetailsJson) =>
   'Unnamed student';
 
 /** The file's record in one line: name, date of birth and IDs. */
-export const FileLine = ({ details }: { details: StudentInputDetailsJson }) => (
+export const FileLine = ({
+  details,
+  withName = true,
+}: {
+  details: StudentInputDetailsJson;
+  /** Leave the name out when a heading already shows it. */
+  withName?: boolean;
+}) => (
   <HStack gap="300" flexWrap="wrap" alignItems="baseline">
-    <Box fontWeight="600">{studentName(details)}</Box>
+    {withName && <Box fontWeight="600">{studentName(details)}</Box>}
     <Box opacity="0.8">born {valueOf(details.birth_date) ?? '—'}</Box>
     <Box opacity="0.8">IDs {valueOf(details.student_ids) ?? '—'}</Box>
   </HStack>
@@ -224,7 +231,7 @@ export const SearchPanel = ({
 
   return (
     <VStack alignItems="flex-start" width="100%" gap="300">
-      <Box textStyle="h6">{heading}</Box>
+      {heading && <Box textStyle="h6">{heading}</Box>}
       <SimpleGrid columns={{ base: 2, md: 4 }} gap="200" width="100%">
         {field('first_name', 'First name')}
         {field('last_name', 'Last name')}
@@ -268,7 +275,7 @@ export const SearchPanel = ({
                       })
                     }
                   >
-                    Match
+                    Use this student
                   </PrimaryButton>
                 </HStack>
               </Box>
