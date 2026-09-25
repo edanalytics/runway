@@ -6,7 +6,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import {
@@ -15,19 +14,20 @@ import {
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
-import { pretendRoster, RosterStudent } from './mockIdrs';
+import { pretendRoster, RosterStudent, SearchHit, SearchTerms } from './mockIdrs';
 
 /*
  * PROTOTYPE ONLY. One review session per job page, shared by every review
- * design so a decision made on one tab shows on the others. Decisions and
- * reprocessing batches live in memory; batches run on timers to stand in for
- * a reprocessing run.
+ * design so a decision made on one tab shows on the others. Decisions,
+ * searches and reprocessing batches are simulated. They're kept in this
+ * browser's storage so leaving and coming back can be tried out, and a
+ * batch's progress is worked out from the clock, so it survives a reload.
  *
- * A run reports only a summary: per resource, how many assessment records it
- * processed, skipped and failed. It can't say which students those records
- * belong to, so a batch's outcome belongs to the batch, never to a student.
- * A delivery failure doesn't undo a match decision either; like a job that
- * completes with errors today, it's resolved out of band.
+ * A run reports only a summary: per resource, how many records it processed,
+ * skipped and failed. It can't say which students those records belong to,
+ * so a batch's outcome belongs to the batch, never to a student. A delivery
+ * failure doesn't undo a match decision either; like a job that completes
+ * with errors today, it's resolved out of band.
  */
 
 export type Candidate = {
@@ -38,9 +38,13 @@ export type Candidate = {
   source: 'suggestion' | 'search';
 };
 
-export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: 'not-in-roster' };
+export type DecisionChoice =
+  | { kind: 'match'; candidate: Candidate }
+  | { kind: 'not-in-roster' }
+  /** Unresolved: the reviewer needs more information first. */
+  | { kind: 'set-aside'; note: string };
 
-export type Decision = DecisionChoice & { decidedAt: number };
+export type Decision = DecisionChoice & { decidedAt: number; decidedBy: string };
 
 export type MatchDecision = Extract<Decision, { kind: 'match' }>;
 
@@ -49,21 +53,49 @@ export type ResourceSummary = { processed: number; skipped: number; failed: numb
 
 export type BatchItem = { correlationId: string; decision: MatchDecision };
 
-export type Batch = {
+export type BatchStatus = 'queued' | 'processing' | 'complete' | 'complete with errors' | 'failed';
+
+/** A batch as stored: what it was sent with and how its pretend run will go. */
+type StoredBatch = {
   id: number;
   submittedAt: number;
-  status: 'queued' | 'processing' | 'complete' | 'complete with errors';
+  startsAt: number;
+  finishesAt: number;
   items: BatchItem[];
+  /** The batch this one retries, if any. */
+  retryOf?: number;
+  /** A run that fails outright produces no summary. */
+  plan: {
+    outcome: 'complete' | 'complete with errors' | 'failed';
+    summary?: Record<string, ResourceSummary>;
+  };
+};
+
+export type Batch = Omit<StoredBatch, 'plan'> & {
+  status: BatchStatus;
   /** The run's summary, once it finishes. */
   summary?: Record<string, ResourceSummary>;
 };
 
+export const isFinished = (batch: Batch) =>
+  batch.status !== 'queued' && batch.status !== 'processing';
+
 /**
  * Where each student stands. Excluding a student takes effect at once: they
  * never go to the Executor. `reprocessed` means a run was attempted with the
- * student's match; whether their assessments loaded isn't knowable.
+ * student's match; whether their records loaded isn't knowable. `run-failed`
+ * means the batch's run failed outright, so nothing was attempted.
  */
-export type StudentStatus = 'to-review' | 'ready' | 'reprocessing' | 'reprocessed' | 'excluded';
+export type StudentStatus =
+  | 'to-review'
+  | 'set-aside'
+  | 'ready'
+  | 'reprocessing'
+  | 'reprocessed'
+  | 'run-failed'
+  | 'excluded';
+
+export type SearchState = { terms: SearchTerms; hits: SearchHit[] | null };
 
 type Session = {
   job: GetJobDto;
@@ -80,6 +112,14 @@ type Session = {
   batchOf: (correlationId: string) => Batch | undefined;
   /** Submits the match decisions among these students as one batch. */
   submit: (correlationIds: string[]) => void;
+  /** Sends a failed batch's choices again, as a new batch. */
+  retry: (batchId: number) => void;
+  /** The reviewer's last search for a student, kept for when they come back. */
+  searchOf: (correlationId: string) => SearchState | undefined;
+  setSearch: (correlationId: string, search: SearchState) => void;
+  /** Prototype control: make the next batch's run fail outright. */
+  failNextRun: boolean;
+  setFailNextRun: (fail: boolean) => void;
   reset: () => void;
 };
 
@@ -89,6 +129,32 @@ export const useReviewSession = () => {
   const session = useContext(SessionContext);
   if (!session) throw new Error('useReviewSession must be used inside a ReviewSessionProvider');
   return session;
+};
+
+type Stored = {
+  decisions: [string, Decision][];
+  batches: StoredBatch[];
+  searches: [string, SearchState][];
+};
+
+const storageKey = (jobId: number) => `runway.match-review-prototype.${jobId}`;
+
+const load = (jobId: number): Stored | null => {
+  try {
+    const raw = window.localStorage.getItem(storageKey(jobId));
+    return raw ? (JSON.parse(raw) as Stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const save = (jobId: number, stored: Stored | null) => {
+  try {
+    if (stored) window.localStorage.setItem(storageKey(jobId), JSON.stringify(stored));
+    else window.localStorage.removeItem(storageKey(jobId));
+  } catch {
+    // Storage is a convenience here; the session still works without it.
+  }
 };
 
 export const ReviewSessionProvider = ({
@@ -101,14 +167,46 @@ export const ReviewSessionProvider = ({
   const { data, isLoading, isError } = useQuery(getJobStudentMatchResults(String(job.id)));
   const groups = useMemo(() => data ?? [], [data]);
   const roster = useMemo(() => pretendRoster(groups), [groups]);
-  const [decisions, setDecisions] = useState<Map<string, Decision>>(new Map());
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [initial] = useState(() => load(job.id));
+  const [decisions, setDecisions] = useState<Map<string, Decision>>(
+    () => new Map(initial?.decisions ?? [])
+  );
+  const [stored, setStored] = useState<StoredBatch[]>(() => initial?.batches ?? []);
+  const [searches, setSearches] = useState<Map<string, SearchState>>(
+    () => new Map(initial?.searches ?? [])
+  );
+  const [failNextRun, setFailNextRun] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  useEffect(() => {
+    save(job.id, {
+      decisions: [...decisions],
+      batches: stored,
+      searches: [...searches],
+    });
+  }, [job.id, decisions, stored, searches]);
 
-  // The latest school year any roster student is enrolled in stands in for the
-  // job's year: a match to someone not enrolled then fails to load.
+  // Tick while any run is unfinished, so batches move along.
+  const running = stored.some((batch) => batch.finishesAt > now);
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, [running]);
+
+  const batches = useMemo<Batch[]>(
+    () =>
+      stored.map(({ plan, ...batch }) => {
+        if (now < batch.startsAt) return { ...batch, status: 'queued' };
+        if (now < batch.finishesAt) return { ...batch, status: 'processing' };
+        return { ...batch, status: plan.outcome, summary: plan.summary };
+      }),
+    [stored, now]
+  );
+
+  // MOCK ONLY, not product policy: the latest school year any roster student
+  // is enrolled in stands in for the job's year, and a match to someone not
+  // enrolled then fails to load, so a batch can complete with errors.
   const currentYear = useMemo(
     () =>
       Math.max(
@@ -128,11 +226,11 @@ export const ReviewSessionProvider = ({
       let processed = 0;
       let failed = 0;
       for (const { correlationId, decision } of items) {
-        const assessments = assessmentsFor(correlationId);
-        processed += assessments;
+        const records = recordsFor(correlationId);
+        processed += records;
         const years = decision.candidate.rosterDetails.school_years;
         if (Array.isArray(years) && currentYear && !years.includes(currentYear)) {
-          failed += assessments;
+          failed += records;
         }
       }
       return { studentAssessments: { processed, skipped: 0, failed } };
@@ -149,14 +247,18 @@ export const ReviewSessionProvider = ({
   const statusOf = useCallback(
     (correlationId: string): StudentStatus => {
       const decision = decisions.get(correlationId);
-      if (decision?.kind === 'not-in-roster') return 'excluded';
       const batch = batchOf(correlationId);
-      // A match chosen since the last submission is a fresh one to submit.
-      if (decision && (!batch || decision.decidedAt > batch.submittedAt)) return 'ready';
+      // A decision made since the last submission is the one that counts.
+      if (decision && (!batch || decision.decidedAt > batch.submittedAt)) {
+        return decision.kind === 'match'
+          ? 'ready'
+          : decision.kind === 'set-aside'
+          ? 'set-aside'
+          : 'excluded';
+      }
       if (batch) {
-        return batch.status === 'queued' || batch.status === 'processing'
-          ? 'reprocessing'
-          : 'reprocessed';
+        if (!isFinished(batch)) return 'reprocessing';
+        return batch.status === 'failed' ? 'run-failed' : 'reprocessed';
       }
       return 'to-review';
     },
@@ -165,7 +267,7 @@ export const ReviewSessionProvider = ({
 
   const decide = useCallback((correlationId: string, decision: DecisionChoice) => {
     setDecisions((current) =>
-      new Map(current).set(correlationId, { ...decision, decidedAt: Date.now() })
+      new Map(current).set(correlationId, { ...decision, decidedAt: Date.now(), decidedBy: 'you' })
     );
   }, []);
 
@@ -177,40 +279,73 @@ export const ReviewSessionProvider = ({
     });
   }, []);
 
-  const submit = useCallback(
-    (correlationIds: string[]) => {
-      const items = correlationIds.flatMap((correlationId) => {
-        const decision = decisions.get(correlationId);
-        return decision?.kind === 'match' ? [{ correlationId, decision }] : [];
-      });
+  const send = useCallback(
+    (items: BatchItem[], retryOf?: number) => {
       if (!items.length) return;
-      const id = Date.now();
-      setBatches((current) => [...current, { id, submittedAt: id, status: 'queued', items }]);
-      const update = (change: (batch: Batch) => Batch) =>
-        setBatches((current) => current.map((batch) => (batch.id === id ? change(batch) : batch)));
-      const schedule = (delay: number, step: () => void) => {
-        timers.current.push(setTimeout(step, delay));
-      };
-      schedule(1500, () => update((batch) => ({ ...batch, status: 'processing' })));
-      schedule(3500 + items.length * 500, () => {
-        const summary = summarize(items);
-        const failed = Object.values(summary).some((resource) => resource.failed > 0);
-        update((batch) => ({
-          ...batch,
-          summary,
-          status: failed ? 'complete with errors' : 'complete',
-        }));
-      });
+      const at = Date.now();
+      const summary = summarize(items);
+      const plan: StoredBatch['plan'] = failNextRun
+        ? { outcome: 'failed' }
+        : {
+            outcome: Object.values(summary).some((r) => r.failed > 0)
+              ? 'complete with errors'
+              : 'complete',
+            summary,
+          };
+      setFailNextRun(false);
+      setStored((current) => [
+        ...current,
+        {
+          id: at,
+          submittedAt: at,
+          startsAt: at + 1500,
+          finishesAt: at + 3500 + items.length * 500,
+          items,
+          retryOf,
+          plan,
+        },
+      ]);
+      setNow(at);
     },
-    [decisions, summarize]
+    [failNextRun, summarize]
   );
 
-  const reset = useCallback(() => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    setDecisions(new Map());
-    setBatches([]);
+  const submit = useCallback(
+    (correlationIds: string[]) =>
+      send(
+        correlationIds.flatMap((correlationId) => {
+          const decision = decisions.get(correlationId);
+          return decision?.kind === 'match' ? [{ correlationId, decision }] : [];
+        })
+      ),
+    [decisions, send]
+  );
+
+  const retry = useCallback(
+    (batchId: number) => {
+      const batch = batches.find((b) => b.id === batchId);
+      // Only students this batch still speaks for: not ones decided again since.
+      if (batch)
+        send(
+          batch.items.filter((it) => batchOf(it.correlationId)?.id === batchId),
+          batchId
+        );
+    },
+    [batches, batchOf, send]
+  );
+
+  const searchOf = useCallback((correlationId: string) => searches.get(correlationId), [searches]);
+  const setSearch = useCallback((correlationId: string, search: SearchState) => {
+    setSearches((current) => new Map(current).set(correlationId, search));
   }, []);
+
+  const reset = useCallback(() => {
+    setDecisions(new Map());
+    setStored([]);
+    setSearches(new Map());
+    setFailNextRun(false);
+    save(job.id, null);
+  }, [job.id]);
 
   const session: Session = {
     job,
@@ -225,6 +360,11 @@ export const ReviewSessionProvider = ({
     statusOf,
     batchOf,
     submit,
+    retry,
+    searchOf,
+    setSearch,
+    failNextRun,
+    setFailNextRun,
     reset,
   };
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
@@ -242,8 +382,8 @@ export const suggestedCandidates = (group: GetStudentInputDetailsDto): Candidate
       source: 'suggestion' as const,
     }));
 
-/** How many assessment records a student has in the file: one or two, in this prototype. */
-const assessmentsFor = (correlationId: string) => 1 + (parseInt(correlationId.slice(-1), 16) % 2);
+/** How many records a student has in the file: one or two, in this prototype. */
+const recordsFor = (correlationId: string) => 1 + (parseInt(correlationId.slice(-1), 16) % 2);
 
 /** Every resource's counts added up, e.g. across all of a job's batches. */
 export const totalOf = (summary: Record<string, ResourceSummary> | undefined) =>

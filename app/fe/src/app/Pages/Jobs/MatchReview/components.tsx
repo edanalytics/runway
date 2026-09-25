@@ -23,6 +23,7 @@ import { SearchHit, searchRoster, SearchTerms, termsFrom } from './mockIdrs';
 import {
   Batch,
   Candidate,
+  isFinished,
   loadedOf,
   StudentStatus,
   totalOf,
@@ -283,7 +284,7 @@ const time = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 
 const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
-  const { groups } = useReviewSession();
+  const { groups, retry } = useReviewSession();
   const [open, setOpen] = useState(false);
   const nameOf = (correlationId: string) => {
     const group = groups.find((g) => g.correlationId === correlationId);
@@ -300,15 +301,26 @@ const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
         </Box>
         <Box
           fontSize="0.9rem"
-          color={batch.status === 'complete with errors' ? 'pink.100' : undefined}
+          color={
+            batch.status === 'complete with errors' || batch.status === 'failed'
+              ? 'pink.100'
+              : undefined
+          }
         >
           {batch.status === 'queued' && 'Queued for reprocessing'}
           {batch.status === 'processing' && 'Reprocessing'}
           {batch.status === 'complete' && 'Complete'}
           {batch.status === 'complete with errors' && 'Complete with errors'}
+          {batch.status === 'failed' && 'Run failed'}
         </Box>
       </HStack>
-      {!isDone && (
+      {batch.status === 'failed' && (
+        <HStack marginTop="200" gap="300" fontSize="0.9rem" flexWrap="wrap">
+          <Box>The run failed before reporting a summary, so nothing was attempted.</Box>
+          <SecondaryButton onClick={() => retry(batch.id)}>Retry this batch</SecondaryButton>
+        </HStack>
+      )}
+      {!isFinished(batch) && (
         <Progress
           marginTop="200"
           size="xs"
@@ -380,8 +392,8 @@ export const ReviewProgress = () => {
     groups.filter((g) => statusOf(g.correlationId) === status).length;
   const excluded = count('excluded');
   const reprocessed = count('reprocessed');
-  const unfinished = batches.filter((b) => b.status === 'queued' || b.status === 'processing');
-  const failed = batches.reduce((sum, b) => sum + totalOf(b.summary).failed, 0);
+  // Batches, not a record total: across retries, summed failures overcount.
+  const failed = batches.filter((b) => b.status === 'complete with errors').length;
   const isDone = groups.length > 0 && excluded + reprocessed === groups.length;
   return (
     <HStack
@@ -411,9 +423,7 @@ export const ReviewProgress = () => {
       </Box>
       {failed > 0 && (
         <Box color="pink.100">
-          {failed} assessment {failed === 1 ? 'record' : 'records'} failed to load across{' '}
-          {batches.filter((b) => totalOf(b.summary).failed > 0).length} of{' '}
-          {batches.length - unfinished.length} finished batches
+          {failed} {failed === 1 ? 'batch' : 'batches'} reported delivery errors
         </Box>
       )}
     </HStack>

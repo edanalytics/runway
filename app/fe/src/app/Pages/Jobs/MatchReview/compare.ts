@@ -27,6 +27,7 @@ const text = (value: JsonValue | undefined): string | null =>
     ? String(value)
     : null;
 
+/** IDs as written, with their type when the roster gives one: "state S-4102". */
 const idsOf = (value: JsonValue | undefined): string[] => {
   if (!Array.isArray(value)) {
     const single = text(value);
@@ -35,7 +36,7 @@ const idsOf = (value: JsonValue | undefined): string[] => {
   return value
     .map((entry) =>
       entry && typeof entry === 'object' && !Array.isArray(entry) && 'id_value' in entry
-        ? text(entry.id_value)
+        ? [text(entry.id_type), text(entry.id_value)].filter(Boolean).join(' ') || null
         : text(entry)
     )
     .filter((id): id is string => id !== null);
@@ -49,15 +50,6 @@ const compareText = (a: string | null, b: string | null): Agreement => {
   if (!a || !b) return 'unknown';
   return a.toLowerCase() === b.toLowerCase() ? 'same' : 'different';
 };
-
-/**
- * Only evidence for a match: the file's local IDs and the roster's state IDs
- * usually come from different systems, so no shared ID says nothing.
- */
-const compareIds = (file: string[], roster: string[]): Agreement =>
-  file.some((id) => roster.some((other) => other.toLowerCase() === id.toLowerCase()))
-    ? 'same'
-    : 'unknown';
 
 export const compare = (
   file: StudentInputDetailsJson,
@@ -88,7 +80,9 @@ export const compare = (
       label: 'Student IDs',
       file: fileIds.join(', ') || null,
       roster: rosterIds.join(', ') || null,
-      agreement: compareIds(fileIds, rosterIds),
+      // The file's IDs and the roster's come from different identifier
+      // systems, so equal strings aren't evidence either way.
+      agreement: 'unknown',
     },
   ];
   return { fields, summary: summarize(fields) };
@@ -104,7 +98,7 @@ const summarize = (fields: ComparedField[]) => {
   const named = (agreement: Agreement) =>
     fields
       .filter((field) => field.agreement === agreement)
-      .map((field) => (field.label === 'Student IDs' ? 'a student ID' : field.label.toLowerCase()));
+      .map((field) => field.label.toLowerCase());
   const same = named('same');
   const different = named('different');
   const parts = [

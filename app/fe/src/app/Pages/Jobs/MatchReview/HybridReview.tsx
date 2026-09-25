@@ -241,6 +241,8 @@ const ReadySummary = ({ ready }: { ready: GetStudentInputDetailsDto[] }) => {
 
 const glyph: Record<StudentStatus, string> = {
   'to-review': '○',
+  'set-aside': '◌',
+  'run-failed': '!',
   ready: '●',
   reprocessing: '…',
   reprocessed: '✓',
@@ -654,7 +656,9 @@ const FindView = ({ group, actions }: { group: GetStudentInputDetailsDto; action
         bg="blue.600"
       >
         <Box fontWeight="600">
-          {issues.length ? 'Why IDRS may have missed them' : 'Nothing looks wrong in your file'}
+          {issues.length
+            ? 'Why IDRS may have missed them'
+            : 'No missing or invalid values detected in these fields'}
         </Box>
         {issues.map((issue) => (
           <Box key={issue}>{issue}</Box>

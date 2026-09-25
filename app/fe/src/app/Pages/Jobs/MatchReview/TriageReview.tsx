@@ -352,6 +352,8 @@ const statusText = (status: StudentStatus, decision: Decision | undefined) => {
   if (status === 'reprocessing') return 'Reprocessing…';
   if (status === 'reprocessed') return `Reprocessed with ${chosen}`;
   if (status === 'excluded') return 'Excluded: not in roster';
+  if (status === 'set-aside') return 'Set aside';
+  if (status === 'run-failed') return 'Run failed';
   if (!decision) return '';
   return `Matched ${chosen}`;
 };
