@@ -39,6 +39,7 @@ import { ReviewSessionProvider } from './MatchReview/reviewSession';
 import { FocusReview } from './MatchReview/FocusReview';
 import { TriageReview } from './MatchReview/TriageReview';
 import { QuestionReview } from './MatchReview/QuestionReview';
+import { HybridReview } from './MatchReview/HybridReview';
 
 // Chakra's default selected tab uses blue.600, which this theme makes a
 // background color.
@@ -164,6 +165,7 @@ export const JobViewPage = () => {
             <Tab _selected={selectedTab}>Review: focus</Tab>
             <Tab _selected={selectedTab}>Review: triage</Tab>
             <Tab _selected={selectedTab}>Review: yes / no</Tab>
+            <Tab _selected={selectedTab}>Review: by decision type</Tab>
           </TabList>
           <TabPanels>
             <TabPanel paddingX="0" paddingY="400">
@@ -228,6 +230,9 @@ export const JobViewPage = () => {
             </TabPanel>
             <TabPanel paddingX="0" paddingY="400">
               <QuestionReview />
+            </TabPanel>
+            <TabPanel paddingX="0" paddingY="400">
+              <HybridReview />
             </TabPanel>
           </TabPanels>
         </Tabs>
