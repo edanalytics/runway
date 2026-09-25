@@ -211,10 +211,16 @@ export const JobViewPage = () => {
               >
                 ⋯
               </MenuButton>
-              <MenuList>
+              <MenuList bg="blue.700" borderColor="blue.50-40" color="blue.50">
                 {reviewTabs.map(({ label, tucked }, i) =>
                   tucked ? (
-                    <MenuItem key={label} onClick={() => setTabIndex(i + 1)}>
+                    <MenuItem
+                      key={label}
+                      bg="blue.700"
+                      _hover={{ bg: 'blue.600' }}
+                      _focus={{ bg: 'blue.600' }}
+                      onClick={() => setTabIndex(i + 1)}
+                    >
                       {label}
                     </MenuItem>
                   ) : null
