@@ -284,6 +284,8 @@ model Run {
   summary                   Json?              @db.Json
   /// [UnmatchedStudentsInfo]
   unmatchedStudentsInfo     Json?              @map("unmatched_students_info")
+  ecsTaskArn                String?            @map("ecs_task_arn")
+  taskSize                  EcsTaskSize?       @map("task_size")
   userRunCreatedByIdTouser  User?              @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   job                       Job                @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   userRunModifiedByIdTouser User?              @relation("run_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
@@ -509,4 +511,12 @@ enum IdMatchingMode {
   id_based_fuzzy_background
 
   @@map("id_matching_mode")
+}
+
+enum EcsTaskSize {
+  small
+  medium
+  large
+
+  @@map("ecs_task_size")
 }
