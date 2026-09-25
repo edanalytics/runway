@@ -302,6 +302,99 @@ export const SearchPanel = ({
   );
 };
 
+/**
+ * When no suggestion fits, or there were none: two ways forward, set apart
+ * so searching and excluding never read as the same kind of step.
+ */
+export const NoSuggestionFits = ({
+  group,
+  suggestionCount,
+  onBack,
+  onUse,
+  onExclude,
+  children,
+}: {
+  group: GetStudentInputDetailsDto;
+  suggestionCount: number;
+  /** Back to the suggestions, when the reviewer came from them. */
+  onBack?: () => void;
+  onUse: (candidate: Candidate) => void;
+  onExclude: () => void;
+  /** Context shown above the options, e.g. problems in the file. */
+  children?: ReactNode;
+}) => (
+  <VStack alignItems="stretch" gap="300">
+    <HStack justifyContent="space-between" gap="300" flexWrap="wrap">
+      <Box textStyle="h5">
+        {suggestionCount === 0
+          ? 'No suggestions for this student'
+          : suggestionCount === 1
+          ? 'Not the suggested student'
+          : 'None of the suggestions'}
+      </Box>
+      {onBack && (
+        <QuietButton onClick={onBack}>
+          ← Back to {suggestionCount === 1 ? 'the suggestion' : 'the suggestions'}
+        </QuietButton>
+      )}
+    </HStack>
+    {children}
+    <OptionBox
+      title="Search the roster"
+      detail="Look them up with corrected details, or their student unique ID if you know it. Using a result matches them and moves on."
+    >
+      <SearchPanel group={group} onPick={onUse} heading={null} />
+    </OptionBox>
+    <HStack gap="300" opacity="0.7" fontSize="0.85rem">
+      <Box flex="1" borderTopWidth="1px" borderColor="blue.50-40" />
+      <Box>or</Box>
+      <Box flex="1" borderTopWidth="1px" borderColor="blue.50-40" />
+    </HStack>
+    <OptionBox
+      title="Exclude this record from the job"
+      detail="For junk data, or a student who isn't in the roster. Their records won't be reprocessed. You can undo this."
+      tone="caution"
+    >
+      <SecondaryButton
+        alignSelf="flex-start"
+        borderColor="pink.100"
+        color="pink.100"
+        onClick={onExclude}
+      >
+        Exclude from this job
+      </SecondaryButton>
+    </OptionBox>
+  </VStack>
+);
+
+/** One of the ways forward when no suggestion fits, set apart from the other. */
+const OptionBox = ({
+  title,
+  detail,
+  tone,
+  children,
+}: {
+  title: string;
+  detail: string;
+  tone?: 'caution';
+  children: ReactNode;
+}) => (
+  <VStack
+    alignItems="stretch"
+    gap="200"
+    padding="300"
+    borderRadius="6px"
+    borderWidth="1px"
+    borderColor={tone === 'caution' ? 'pink.100' : 'blue.50-40'}
+  >
+    <Box textStyle="h6">{title}</Box>
+    <Box fontSize="0.85rem" opacity="0.85">
+      {detail}
+    </Box>
+    {children}
+  </VStack>
+);
+
 const time = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 

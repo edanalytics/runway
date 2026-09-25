@@ -12,19 +12,17 @@ import {
   VStack,
 } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto, JsonValue } from '@edanalytics/models';
-import { KeyboardEvent, ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { compare, ComparedField, Comparison } from './compare';
 import {
   AgreementMark,
   BatchActivity,
-  ComparisonTable,
   DesignIntro,
   FileLine,
+  NoSuggestionFits,
   PrimaryButton,
   QuietButton,
   ReviewProgress,
-  ScoreBadge,
-  SearchPanel,
   SecondaryButton,
   studentName,
 } from './components';
@@ -47,18 +45,19 @@ const typeOf = (group: GetStudentInputDetailsDto): DecisionType => {
   return count === 0 ? 'find' : count === 1 ? 'verify' : 'choose';
 };
 
-const types: { type: DecisionType; title: string; question: string }[] = [
-  { type: 'verify', title: 'Verify', question: 'One suggestion. Is it the same student?' },
-  { type: 'choose', title: 'Choose', question: 'Several suggestions. Which one, if any?' },
-  { type: 'find', title: 'Find', question: 'No suggestions. Can you find them?' },
+const types: { type: DecisionType; title: string }[] = [
+  { type: 'verify', title: 'Verify' },
+  { type: 'choose', title: 'Choose' },
+  { type: 'find', title: 'Find' },
 ];
 
 const isOpen = (status: StudentStatus) => status === 'to-review';
 
 export const HybridReview = () => {
-  const { groups, isLoading, isError, statusOf, submit } = useReviewSession();
+  const { groups, isLoading, isError, statusOf, decisions, submit } = useReviewSession();
   const [type, setType] = useState<DecisionType | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showReady, setShowReady] = useState(true);
 
   // Start on the first kind of decision that has anyone waiting.
   useEffect(() => {
@@ -93,11 +92,11 @@ export const HybridReview = () => {
     <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="1000">
       <DesignIntro
         title="Focus by decision type"
-        bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work one kind of decision at a time, each with a view built for it: verifying one suggestion puts the differences first, choosing lines the suggestions up side by side, and finding starts from why IDRS may have missed them."
+        bet="The Executor already matched the easy ones, so everyone here needs a real decision. Work one kind of decision at a time, each with a view built for it: verifying one suggestion puts the differences first, choosing lines the suggestions up side by side, and finding starts from why they may not have been found."
       />
       <ReviewProgress />
       <HStack width="100%" gap="300" alignItems="stretch">
-        {types.map(({ type: t, title, question }) => {
+        {types.map(({ type: t, title }) => {
           const all = groups.filter((g) => typeOf(g) === t);
           const waiting = all.filter((g) => isOpen(statusOf(g.correlationId))).length;
           const isSelected = t === type;
@@ -123,12 +122,13 @@ export const HybridReview = () => {
               <HStack justifyContent="space-between" width="100%">
                 <Box textStyle="h5">{title}</Box>
                 <Box fontSize="0.9rem" opacity={all.length ? 1 : 0.6}>
-                  {all.length === 0 ? 'none' : waiting ? `${waiting} to decide` : 'all decided'}
+                  {all.length === 0
+                    ? 'none'
+                    : waiting
+                    ? `${waiting} ${waiting === 1 ? 'student' : 'students'}`
+                    : 'all decided'}
                 </Box>
               </HStack>
-              <Box fontSize="0.85rem" opacity="0.85">
-                {question}
-              </Box>
             </VStack>
           );
         })}
@@ -196,11 +196,12 @@ export const HybridReview = () => {
         <BatchActivity emptyText="Nothing submitted yet." />
       </VStack>
 
-      <HStack
+      <VStack
         position="sticky"
         bottom="0"
         width="100%"
-        justifyContent="space-between"
+        alignItems="stretch"
+        gap="200"
         padding="300"
         bg="blue.700"
         borderTopWidth="1px"
@@ -208,20 +209,65 @@ export const HybridReview = () => {
         borderRadius="6px"
         boxShadow="0 -4px 12px rgba(0,0,0,0.3)"
       >
-        <Box>
-          {ready.length ? (
-            <ReadySummary ready={ready} />
-          ) : (
-            'Decisions collect here until you submit them. Submit as often as you like.'
-          )}
-        </Box>
-        <PrimaryButton
-          isDisabled={!ready.length}
-          onClick={() => submit(ready.map((g) => g.correlationId))}
-        >
-          Submit {ready.length || ''} for reprocessing
-        </PrimaryButton>
-      </HStack>
+        <HStack justifyContent="space-between" gap="300">
+          <Box>
+            {ready.length ? (
+              <ReadySummary ready={ready} />
+            ) : (
+              'Matches collect here, from every kind of decision, until you submit them.'
+            )}
+          </Box>
+          <HStack gap="200">
+            {ready.length > 0 && (
+              <QuietButton onClick={() => setShowReady(!showReady)}>
+                {showReady ? 'Hide list' : 'Show list'}
+              </QuietButton>
+            )}
+            <PrimaryButton
+              isDisabled={!ready.length}
+              onClick={() => submit(ready.map((g) => g.correlationId))}
+            >
+              Submit {ready.length || ''} for reprocessing
+            </PrimaryButton>
+          </HStack>
+        </HStack>
+        {/* Every match waiting to go, whichever pane it was made in. */}
+        {showReady && ready.length > 0 && (
+          <HStack gap="200" flexWrap="wrap">
+            {ready.map((g) => {
+              const decision = decisions.get(g.correlationId);
+              const t = typeOf(g);
+              return (
+                <HStack
+                  as="button"
+                  key={g.correlationId}
+                  onClick={() => {
+                    setType(t);
+                    setSelectedId(g.correlationId);
+                  }}
+                  gap="200"
+                  paddingX="200"
+                  paddingY="100"
+                  borderRadius="4px"
+                  borderWidth="1px"
+                  borderColor={
+                    g.correlationId === selected?.correlationId ? 'blue.50' : 'blue.50-40'
+                  }
+                  _hover={{ bg: 'blue.600' }}
+                  fontSize="0.85rem"
+                  title={`Open in ${types.find((x) => x.type === t)?.title}`}
+                >
+                  <Box fontWeight="600">{studentName(g.inputDetails)}</Box>
+                  <Box opacity="0.85">
+                    → {decision?.kind === 'match' ? decision.candidate.studentUniqueId : ''}
+                  </Box>
+                  <Box opacity="0.6">{types.find((x) => x.type === t)?.title}</Box>
+                </HStack>
+              );
+            })}
+          </HStack>
+        )}
+      </VStack>
     </VStack>
   );
 };
@@ -282,6 +328,11 @@ const QueueRow = ({
           {decision.candidate.studentUniqueId}
         </Box>
       )}
+      {status === 'excluded' && (
+        <Box fontSize="0.75rem" opacity="0.8">
+          excluded
+        </Box>
+      )}
     </HStack>
   );
 };
@@ -335,7 +386,7 @@ const FocusFor = ({
             ? `${batch ? 'Reprocessed with' : 'You matched this student to'} ${
                 decision.candidate.studentUniqueId
               }${decision.candidate.source === 'search' ? ', found by searching' : ''}.`
-            : "Excluded: not in the roster. Their assessments won't be loaded."}
+            : "Excluded from this job. Their assessments won't be loaded."}
         </Box>
         {batch?.status === 'complete with errors' && (
           <Box fontSize="0.9rem" opacity="0.85">
@@ -360,7 +411,7 @@ const FocusFor = ({
           From your file
         </Box>
         <Box textStyle="h4">{studentName(group.inputDetails)}</Box>
-        <FileLine details={group.inputDetails} />
+        <FileLine details={group.inputDetails} withName={false} />
         {/* Find explains these in its own terms. */}
         {type !== 'find' &&
           fileIssues(group).map((issue) => (
@@ -379,170 +430,47 @@ type Actions = {
   notInRoster: () => void;
 };
 
-/** Keys only act while focus is inside the view, never in a text field. */
-const shortcuts = (handlers: Record<string, () => void>) => (event: KeyboardEvent) => {
-  if ((event.target as HTMLElement).closest('input')) return;
-  handlers[event.key]?.();
-};
-
-/** Search and "not in roster": where every view ends up when the suggestions don't fit. */
-const Fallback = ({
-  group,
-  actions,
-  heading,
-}: {
-  group: GetStudentInputDetailsDto;
-  actions: Actions;
-  heading: string;
-}) => (
-  <VStack alignItems="flex-start" gap="300" width="100%">
-    <SearchPanel group={group} onPick={actions.match} heading={heading} />
-    <HStack gap="300" paddingTop="200">
-      <SecondaryButton onClick={actions.notInRoster}>Exclude: not in roster</SecondaryButton>
-      <Box fontSize="0.85rem" opacity="0.8">
-        Excluded students aren't reprocessed; their assessments won't load.
-      </Box>
-    </HStack>
-  </VStack>
+/** Stays on this student and opens the other ways forward. */
+const NoneFitButton = ({ count, onClick }: { count: number; onClick: () => void }) => (
+  <HStack gap="300">
+    <SecondaryButton onClick={onClick}>
+      {count === 1 ? 'Not this student' : 'None of these'}
+    </SecondaryButton>
+    <Box fontSize="0.8rem" opacity="0.7">
+      Then search the roster, or exclude the record.
+    </Box>
+  </HStack>
 );
 
-// Verify ---------------------------------------------------------------------
-
-const describe = (field: ComparedField) =>
-  `${field.file ?? 'missing'} in your file, ${field.roster ?? 'missing'} in the roster`;
-
 /**
- * One suggestion, and IDRS wasn't sure enough to match it. Lead with the
- * reason it wasn't sure: what differs, and what couldn't be compared.
+ * The file against each suggestion, one column each, so the eye runs across
+ * a row. With several, rows where the suggestions disagree are marked.
  */
-const VerifyView = ({ group, actions }: { group: GetStudentInputDetailsDto; actions: Actions }) => {
-  const [candidate] = suggestedCandidates(group);
-  const [rejected, setRejected] = useState(false);
-  const comparison = compare(group.inputDetails, candidate.rosterDetails);
-  const differs = comparison.fields.filter((f) => f.agreement === 'different');
-  const unknown = comparison.fields.filter(
-    (f) => f.agreement === 'unknown' && f.label !== 'Student IDs'
-  );
-
-  if (rejected) {
-    return (
-      <VStack alignItems="flex-start" gap="300" tabIndex={-1} outline="none">
-        <HStack gap="300">
-          <Box textStyle="h5">Not {candidate.studentUniqueId}. Can you find them?</Box>
-          <QuietButton onClick={() => setRejected(false)}>Back to the suggestion</QuietButton>
-        </HStack>
-        <Fallback group={group} actions={actions} heading="Search with corrected details" />
-      </VStack>
-    );
-  }
-
-  return (
-    <VStack
-      alignItems="stretch"
-      gap="300"
-      tabIndex={-1}
-      outline="none"
-      onKeyDown={shortcuts({ y: () => actions.match(candidate), n: () => setRejected(true) })}
-    >
-      <HStack gap="300" alignItems="baseline">
-        <Box textStyle="h5">Is this {candidate.studentUniqueId} the same student?</Box>
-        <ScoreBadge score={candidate.score} />
-      </HStack>
-      <VStack
-        alignItems="flex-start"
-        gap="100"
-        padding="300"
-        borderRadius="6px"
-        borderLeftWidth="3px"
-        borderColor={differs.length ? 'pink.100' : 'blue.50-40'}
-        bg="blue.600"
-      >
-        {differs.length ? (
-          <>
-            <Box fontWeight="600">What differs</Box>
-            {differs.map((f) => (
-              <HStack key={f.label} gap="200" alignItems="baseline">
-                <AgreementMark agreement={f.agreement} />
-                <Box>
-                  {f.label}: {describe(f)}
-                </Box>
-              </HStack>
-            ))}
-          </>
-        ) : (
-          <Box fontWeight="600">Every field that could be compared is identical.</Box>
-        )}
-        {unknown.length > 0 && (
-          <Box fontSize="0.9rem" opacity="0.85">
-            Couldn't compare {unknown.map((f) => f.label.toLowerCase()).join(' or ')}: missing on
-            one side.
-          </Box>
-        )}
-      </VStack>
-      <ComparisonTable comparison={comparison} rosterHeading={candidate.studentUniqueId} />
-      <HStack gap="300" paddingTop="200">
-        <PrimaryButton onClick={() => actions.match(candidate)}>
-          Yes, same student (y)
-        </PrimaryButton>
-        <SecondaryButton onClick={() => setRejected(true)}>No (n)</SecondaryButton>
-      </HStack>
-    </VStack>
-  );
-};
-
-// Choose ---------------------------------------------------------------------
-
-/**
- * Several suggestions in one table, one column each, so the eye runs across
- * a row. Rows where the suggestions disagree are the ones that decide it.
- */
-const ChooseView = ({ group, actions }: { group: GetStudentInputDetailsDto; actions: Actions }) => {
-  const candidates = suggestedCandidates(group);
+const SuggestionTable = ({
+  group,
+  candidates,
+  onlyDeciding = false,
+  onUse,
+}: {
+  group: GetStudentInputDetailsDto;
+  candidates: Candidate[];
+  onlyDeciding?: boolean;
+  onUse: (candidate: Candidate) => void;
+}) => {
   const comparisons: Comparison[] = candidates.map((c) =>
     compare(group.inputDetails, c.rosterDetails)
   );
-  const [onlyDeciding, setOnlyDeciding] = useState(false);
-  const [rejected, setRejected] = useState(false);
   const rows = comparisons[0].fields.map((field, index) => {
     const cells = comparisons.map((c) => c.fields[index]);
     const deciding =
-      new Set(cells.map((c) => c.agreement)).size > 1 ||
-      new Set(cells.map((c) => c.roster)).size > 1;
+      candidates.length > 1 &&
+      (new Set(cells.map((c) => c.agreement)).size > 1 ||
+        new Set(cells.map((c) => c.roster)).size > 1);
     return { label: field.label, file: field.file, cells, deciding };
   });
   const shown = onlyDeciding ? rows.filter((r) => r.deciding) : rows;
-
-  if (rejected) {
-    return (
-      <VStack alignItems="flex-start" gap="300">
-        <HStack gap="300">
-          <Box textStyle="h5">None of the {candidates.length}. Can you find them?</Box>
-          <QuietButton onClick={() => setRejected(false)}>Back to the suggestions</QuietButton>
-        </HStack>
-        <Fallback group={group} actions={actions} heading="Search with corrected details" />
-      </VStack>
-    );
-  }
-
-  const keys: Record<string, () => void> = { '0': () => setRejected(true) };
-  candidates.forEach((c, i) => {
-    keys[String(i + 1)] = () => actions.match(c);
-  });
-
   return (
-    <VStack alignItems="stretch" gap="300" tabIndex={-1} outline="none" onKeyDown={shortcuts(keys)}>
-      <HStack justifyContent="space-between">
-        <Box textStyle="h5">Which of these {candidates.length} is the same student?</Box>
-        <HStack as="label" gap="200" fontSize="0.85rem" cursor="pointer">
-          <Switch
-            size="sm"
-            colorScheme="green"
-            isChecked={onlyDeciding}
-            onChange={() => setOnlyDeciding(!onlyDeciding)}
-          />
-          <Box>Only rows that tell them apart</Box>
-        </HStack>
-      </HStack>
+    <>
       <Box overflowX="auto">
         <Table size="sm" sx={{ td: { paddingX: '200' }, th: { paddingX: '200' } }}>
           <Thead>
@@ -551,11 +479,11 @@ const ChooseView = ({ group, actions }: { group: GetStudentInputDetailsDto; acti
               <Th color="blue.50" textTransform="none" fontSize="0.8rem">
                 In your file
               </Th>
-              {candidates.map((c, i) => (
+              {candidates.map((c) => (
                 <Th key={c.studentUniqueId} color="blue.50" textTransform="none" fontSize="0.8rem">
-                  {i + 1}. {c.studentUniqueId}
+                  {c.studentUniqueId}
                   <Box fontWeight="normal" opacity="0.8">
-                    IDRS score {c.score}
+                    Match score {c.score}
                   </Box>
                 </Th>
               ))}
@@ -575,7 +503,7 @@ const ChooseView = ({ group, actions }: { group: GetStudentInputDetailsDto; acti
                 <Td>{row.file ?? '—'}</Td>
                 {row.cells.map((cell, i) => (
                   <Td key={candidates[i].studentUniqueId}>
-                    <HStack gap="100">
+                    <HStack gap="200">
                       <AgreementMark agreement={cell.agreement} />
                       <Box>{cell.roster ?? '—'}</Box>
                     </HStack>
@@ -586,9 +514,9 @@ const ChooseView = ({ group, actions }: { group: GetStudentInputDetailsDto; acti
             <Tr>
               <Td />
               <Td />
-              {candidates.map((c, i) => (
+              {candidates.map((c) => (
                 <Td key={c.studentUniqueId}>
-                  <PrimaryButton onClick={() => actions.match(c)}>Match ({i + 1})</PrimaryButton>
+                  <PrimaryButton onClick={() => onUse(c)}>Use suggestion</PrimaryButton>
                 </Td>
               ))}
             </Tr>
@@ -600,9 +528,123 @@ const ChooseView = ({ group, actions }: { group: GetStudentInputDetailsDto; acti
           Nothing tells them apart: every row reads the same across suggestions.
         </Box>
       )}
-      <HStack>
-        <SecondaryButton onClick={() => setRejected(true)}>None of these (0)</SecondaryButton>
+    </>
+  );
+};
+
+// Verify ---------------------------------------------------------------------
+
+const describe = (field: ComparedField) =>
+  `${field.file ?? 'missing'} in your file, ${field.roster ?? 'missing'} in the roster`;
+
+/**
+ * One suggestion that wasn't a strong enough match to use automatically.
+ * Lead with why: what differs, and what couldn't be compared.
+ */
+const VerifyView = ({ group, actions }: { group: GetStudentInputDetailsDto; actions: Actions }) => {
+  const [candidate] = suggestedCandidates(group);
+  const [noneFit, setNoneFit] = useState(false);
+  const comparison = compare(group.inputDetails, candidate.rosterDetails);
+  const differs = comparison.fields.filter((f) => f.agreement === 'different');
+  const unknown = comparison.fields.filter(
+    (f) => f.agreement === 'unknown' && f.label !== 'Student IDs'
+  );
+
+  if (noneFit) {
+    return (
+      <NoSuggestionFits
+        group={group}
+        suggestionCount={1}
+        onBack={() => setNoneFit(false)}
+        onUse={actions.match}
+        onExclude={actions.notInRoster}
+      />
+    );
+  }
+
+  return (
+    <VStack alignItems="stretch" gap="300">
+      <VStack
+        alignItems="flex-start"
+        gap="100"
+        padding="300"
+        borderRadius="6px"
+        borderLeftWidth="3px"
+        borderColor={differs.length ? 'pink.100' : 'blue.50-40'}
+        bg="blue.600"
+      >
+        {differs.length ? (
+          <>
+            <Box fontWeight="600">What differs</Box>
+            {differs.map((f) => (
+              <HStack key={f.label} gap="200" alignItems="center">
+                <AgreementMark agreement={f.agreement} />
+                <Box>
+                  {f.label}: {describe(f)}
+                </Box>
+              </HStack>
+            ))}
+          </>
+        ) : (
+          <Box fontWeight="600">Every field that could be compared is identical.</Box>
+        )}
+        {unknown.length > 0 && (
+          <Box fontSize="0.9rem" opacity="0.85">
+            Couldn't compare {unknown.map((f) => f.label.toLowerCase()).join(' or ')}: missing on
+            one side.
+          </Box>
+        )}
+      </VStack>
+      <SuggestionTable group={group} candidates={[candidate]} onUse={actions.match} />
+      <NoneFitButton count={1} onClick={() => setNoneFit(true)} />
+    </VStack>
+  );
+};
+
+// Choose ---------------------------------------------------------------------
+
+/** Several suggestions lined up in one table. */
+const ChooseView = ({ group, actions }: { group: GetStudentInputDetailsDto; actions: Actions }) => {
+  const candidates = suggestedCandidates(group);
+  const [onlyDeciding, setOnlyDeciding] = useState(false);
+  const [noneFit, setNoneFit] = useState(false);
+
+  if (noneFit) {
+    return (
+      <NoSuggestionFits
+        group={group}
+        suggestionCount={candidates.length}
+        onBack={() => setNoneFit(false)}
+        onUse={actions.match}
+        onExclude={actions.notInRoster}
+      />
+    );
+  }
+
+  return (
+    <VStack alignItems="stretch" gap="300">
+      <HStack justifyContent="space-between">
+        {/* The count matters when a suggestion is past the fold. */}
+        <Box fontSize="0.85rem" opacity="0.8">
+          {candidates.length} suggestions
+        </Box>
+        <HStack as="label" gap="200" fontSize="0.85rem" cursor="pointer">
+          <Switch
+            size="sm"
+            colorScheme="green"
+            isChecked={onlyDeciding}
+            onChange={() => setOnlyDeciding(!onlyDeciding)}
+          />
+          <Box>Only rows that tell them apart</Box>
+        </HStack>
       </HStack>
+      <SuggestionTable
+        group={group}
+        candidates={candidates}
+        onlyDeciding={onlyDeciding}
+        onUse={actions.match}
+      />
+      <NoneFitButton count={candidates.length} onClick={() => setNoneFit(true)} />
     </VStack>
   );
 };
@@ -622,7 +664,7 @@ const realDate = (value: string) => {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 };
 
-/** Likely reasons IDRS found no one, from the file record alone. */
+/** Likely reasons nobody was suggested, from the file record alone. */
 const fileIssues = (group: GetStudentInputDetailsDto) => {
   const d = group.inputDetails;
   const issues: string[] = [];
@@ -635,16 +677,16 @@ const fileIssues = (group: GetStudentInputDetailsDto) => {
   return issues;
 };
 
-/**
- * No suggestions. Start from why IDRS may have missed them, then search.
- * "Not in roster" sits beside the search, not behind it: sometimes the
- * student really isn't there.
- */
+/** No suggestions. Start from what in the file may have kept them from being found. */
 const FindView = ({ group, actions }: { group: GetStudentInputDetailsDto; actions: Actions }) => {
   const issues = fileIssues(group);
   return (
-    <VStack alignItems="stretch" gap="300">
-      <Box textStyle="h5">IDRS suggested no one. Can you find them?</Box>
+    <NoSuggestionFits
+      group={group}
+      suggestionCount={0}
+      onUse={actions.match}
+      onExclude={actions.notInRoster}
+    >
       <VStack
         alignItems="flex-start"
         gap="100"
@@ -656,7 +698,7 @@ const FindView = ({ group, actions }: { group: GetStudentInputDetailsDto; action
       >
         <Box fontWeight="600">
           {issues.length
-            ? 'Why IDRS may have missed them'
+            ? 'Why they may not have been found'
             : 'No missing or invalid values detected in these fields'}
         </Box>
         {issues.map((issue) => (
@@ -667,11 +709,7 @@ const FindView = ({ group, actions }: { group: GetStudentInputDetailsDto; action
             They may be new, enrolled under a different name, or not in the roster.
           </Box>
         )}
-        <Box fontSize="0.85rem" opacity="0.8">
-          A student unique ID, if you know it, finds exactly one student.
-        </Box>
       </VStack>
-      <Fallback group={group} actions={actions} heading="Search the roster" />
-    </VStack>
+    </NoSuggestionFits>
   );
 };
