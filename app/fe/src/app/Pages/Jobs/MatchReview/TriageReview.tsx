@@ -1,0 +1,375 @@
+import { Box, Checkbox, HStack, Spinner, VStack } from '@chakra-ui/react';
+import { GetStudentInputDetailsDto } from '@edanalytics/models';
+import { ReactNode, useState } from 'react';
+import { compare, Comparison } from './compare';
+import {
+  AgreementMark,
+  BatchActivity,
+  ComparisonTable,
+  DesignIntro,
+  Evidence,
+  FileLine,
+  PrimaryButton,
+  QuietButton,
+  SearchPanel,
+  SecondaryButton,
+  StrengthBadge,
+  studentName,
+} from './components';
+import {
+  Candidate,
+  Decision,
+  StudentStatus,
+  suggestedCandidates,
+  useReviewSession,
+} from './reviewSession';
+
+/*
+ * PROTOTYPE, design 2: Triage. Everyone at once, sorted by the kind of
+ * decision they need. The bet: most unmatched students are obvious once the
+ * evidence is lined up, so let reviewers clear those in bulk and spend their
+ * attention on the few that need choosing or finding.
+ */
+
+type Lane = 'confirm' | 'choose' | 'find';
+
+type Triaged = {
+  group: GetStudentInputDetailsDto;
+  candidates: Candidate[];
+  comparisons: Comparison[];
+  lane: Lane;
+};
+
+/**
+ * One strong suggestion that no other suggestion rivals is a confirm; any
+ * suggestions otherwise are a choice; none at all is a find.
+ */
+const triage = (group: GetStudentInputDetailsDto): Triaged => {
+  const candidates = suggestedCandidates(group);
+  const comparisons = candidates.map((candidate) =>
+    compare(group.inputDetails, candidate.rosterDetails)
+  );
+  const strong = comparisons.filter((comparison) => comparison.strength === 'strong').length;
+  const lane: Lane =
+    candidates.length === 0
+      ? 'find'
+      : strong === 1 && comparisons[0].strength === 'strong'
+      ? 'confirm'
+      : candidates.length === 1 && comparisons[0].strength === 'possible'
+      ? 'confirm'
+      : 'choose';
+  return { group, candidates, comparisons, lane };
+};
+
+const lanes: { lane: Lane; title: string; hint: string }[] = [
+  {
+    lane: 'confirm',
+    title: 'Confirm',
+    hint: 'One suggestion stands out. Check the evidence and accept them together.',
+  },
+  {
+    lane: 'choose',
+    title: 'Choose',
+    hint: 'Several suggestions, or none that stands out. Open a student to pick.',
+  },
+  {
+    lane: 'find',
+    title: 'Find',
+    hint: 'IDRS suggested no one. Search with corrected details, or leave them out.',
+  },
+];
+
+export const TriageReview = () => {
+  const { groups, isLoading, isError, statusOf, decisions, decide, submit } = useReviewSession();
+  // Unchecking is the reviewer's doubt; everything starts accepted.
+  const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
+
+  if (isLoading) return <Spinner color="blue.50" />;
+  if (isError) return <Box>Couldn't load unmatched students.</Box>;
+  if (!groups.length) return <Box>No unmatched students for this assessment.</Box>;
+
+  const triaged = groups.map(triage);
+  const open = (t: Triaged) => ['to-review', 'failed'].includes(statusOf(t.group.correlationId));
+  const ready = groups.filter((group) => statusOf(group.correlationId) === 'ready');
+  const confirmable = triaged.filter(
+    // A student whose accepted match failed to load needs a fresh look, not a re-accept.
+    (t) =>
+      t.lane === 'confirm' &&
+      statusOf(t.group.correlationId) === 'to-review' &&
+      !unchecked.has(t.group.correlationId)
+  );
+  const matches = ready.filter((g) => decisions.get(g.correlationId)?.kind === 'match').length;
+
+  const toggle = (id: string) =>
+    setUnchecked((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
+  return (
+    <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="1000">
+      <DesignIntro
+        title="Triage: everyone at once"
+        bet="Most students are obvious once the evidence is lined up. Clear the obvious ones in bulk, then spend your attention on the students who need choosing or finding. Decide in any order; submit whenever you like, as often as you like."
+      />
+      {lanes.map(({ lane, title, hint }) => {
+        const members = triaged.filter((t) => t.lane === lane);
+        if (!members.length) return null;
+        const remaining = members.filter(open).length;
+        return (
+          <VStack key={lane} alignItems="stretch" width="100%" gap="200">
+            <HStack justifyContent="space-between" alignItems="flex-end">
+              <VStack alignItems="flex-start" gap="0">
+                <Box textStyle="h5">
+                  {title}{' '}
+                  <Box as="span" opacity="0.7" fontWeight="normal">
+                    {remaining} of {members.length} to decide
+                  </Box>
+                </Box>
+                <Box fontSize="0.85rem" opacity="0.8">
+                  {hint}
+                </Box>
+              </VStack>
+              {lane === 'confirm' && (
+                <PrimaryButton
+                  isDisabled={!confirmable.length}
+                  onClick={() =>
+                    confirmable.forEach((t) =>
+                      decide(t.group.correlationId, { kind: 'match', candidate: t.candidates[0] })
+                    )
+                  }
+                >
+                  Accept {confirmable.length} checked
+                </PrimaryButton>
+              )}
+            </HStack>
+            <VStack alignItems="stretch" layerStyle="contentBox" padding="0" gap="0">
+              {members.map((t) => (
+                <TriageRow
+                  key={t.group.correlationId}
+                  triaged={t}
+                  checked={!unchecked.has(t.group.correlationId)}
+                  onToggle={() => toggle(t.group.correlationId)}
+                />
+              ))}
+            </VStack>
+          </VStack>
+        );
+      })}
+      <VStack alignItems="flex-start" width="100%" gap="200">
+        <Box textStyle="h5">Reprocessing</Box>
+        <BatchActivity emptyText="Nothing submitted yet." />
+      </VStack>
+      <HStack
+        position="sticky"
+        bottom="0"
+        width="100%"
+        justifyContent="space-between"
+        padding="300"
+        bg="blue.700"
+        borderTopWidth="1px"
+        borderColor="blue.50-40"
+        borderRadius="6px"
+        boxShadow="0 -4px 12px rgba(0,0,0,0.3)"
+      >
+        <Box>
+          {ready.length
+            ? `${ready.length} decided and not yet submitted: ${matches} to load, ${
+                ready.length - matches
+              } to leave out.`
+            : 'Decide some students, then submit them together.'}
+        </Box>
+        <PrimaryButton
+          isDisabled={!ready.length}
+          onClick={() => submit(ready.map((g) => g.correlationId))}
+        >
+          Submit {ready.length || ''} for reprocessing
+        </PrimaryButton>
+      </HStack>
+    </VStack>
+  );
+};
+
+const TriageRow = ({
+  triaged,
+  checked,
+  onToggle,
+}: {
+  triaged: Triaged;
+  checked: boolean;
+  onToggle: () => void;
+}) => {
+  const { group, candidates, comparisons, lane } = triaged;
+  const { statusOf, decisions, decide, undo, lastSubmission } = useReviewSession();
+  const [expanded, setExpanded] = useState(false);
+  const id = group.correlationId;
+  const status = statusOf(id);
+  const decision = decisions.get(id);
+  const isOpen = status === 'to-review' || status === 'failed';
+
+  const choose = (candidate: Candidate) => {
+    decide(id, { kind: 'match', candidate });
+    setExpanded(false);
+  };
+  const notInRoster = () => {
+    decide(id, { kind: 'not-in-roster' });
+    setExpanded(false);
+  };
+
+  let right: ReactNode;
+  if (!isOpen) {
+    right = (
+      <HStack gap="200">
+        <Box fontSize="0.9rem" color={status === 'loaded' ? 'green.100' : undefined}>
+          {statusText(status, decision)}
+        </Box>
+        {status === 'ready' && <QuietButton onClick={() => undo(id)}>Undo</QuietButton>}
+      </HStack>
+    );
+  } else if (lane === 'confirm') {
+    right = (
+      <QuietButton onClick={() => setExpanded(!expanded)}>
+        {expanded ? 'Hide' : 'Details'}
+      </QuietButton>
+    );
+  } else {
+    right = (
+      <SecondaryButton onClick={() => setExpanded(!expanded)}>
+        {expanded ? 'Close' : lane === 'choose' ? `Choose from ${candidates.length}` : 'Find'}
+      </SecondaryButton>
+    );
+  }
+
+  return (
+    <Box
+      borderBottomWidth="1px"
+      borderColor="blue.50-40"
+      _last={{ borderBottomWidth: 0 }}
+      opacity={isOpen ? 1 : 0.75}
+    >
+      <HStack paddingX="300" paddingY="200" gap="300" minHeight="3rem">
+        {lane === 'confirm' && (
+          <Checkbox
+            isChecked={status === 'to-review' && checked}
+            isDisabled={status !== 'to-review'}
+            onChange={onToggle}
+            colorScheme="green"
+            aria-label={`Accept the match for ${studentName(group.inputDetails)}`}
+          />
+        )}
+        <VStack alignItems="flex-start" gap="0" width="16rem" flexShrink={0}>
+          <Box fontWeight="600">{studentName(group.inputDetails)}</Box>
+          <FileLine details={group.inputDetails} />
+        </VStack>
+        <Box flex="1" minWidth="0">
+          {status === 'failed' && (
+            <Box fontSize="0.85rem" color="pink.100">
+              Didn't load: {lastSubmission(id)?.reason}
+            </Box>
+          )}
+          {lane === 'confirm' && (
+            <HStack gap="300" flexWrap="wrap">
+              <Box fontWeight="600">{candidates[0].studentUniqueId}</Box>
+              <Chips comparison={comparisons[0]} />
+              <StrengthBadge strength={comparisons[0].strength} />
+            </HStack>
+          )}
+          {lane === 'choose' && (
+            <Box fontSize="0.9rem" opacity="0.85">
+              {candidates.length === 1
+                ? `One weak suggestion: ${comparisons[0].summary}`
+                : `${candidates.length} suggestions. Best: ${
+                    candidates[0].studentUniqueId
+                  }, ${comparisons[0].summary.toLowerCase()}`}
+            </Box>
+          )}
+          {lane === 'find' && (
+            <Box fontSize="0.9rem" opacity="0.85">
+              No suggestions.
+            </Box>
+          )}
+        </Box>
+        {right}
+      </HStack>
+      {expanded && isOpen && (
+        <Box paddingX="300" paddingBottom="300" paddingLeft={lane === 'confirm' ? '800' : '300'}>
+          {lane === 'confirm' && (
+            <VStack alignItems="flex-start" gap="200" maxWidth="40rem">
+              <ComparisonTable
+                comparison={comparisons[0]}
+                rosterHeading={candidates[0].studentUniqueId}
+              />
+              <HStack gap="200">
+                <PrimaryButton onClick={() => choose(candidates[0])}>Accept this one</PrimaryButton>
+                <SecondaryButton onClick={notInRoster}>Not in roster</SecondaryButton>
+              </HStack>
+            </VStack>
+          )}
+          {lane === 'choose' && (
+            <VStack alignItems="stretch" gap="300">
+              <HStack alignItems="stretch" gap="300" overflowX="auto" paddingBottom="200">
+                {candidates.map((candidate, index) => (
+                  <VStack
+                    key={candidate.studentUniqueId}
+                    alignItems="flex-start"
+                    gap="200"
+                    padding="300"
+                    bg="blue.600"
+                    borderRadius="6px"
+                    minWidth="20rem"
+                    flex="1"
+                  >
+                    <Evidence comparison={comparisons[index]} />
+                    <ComparisonTable
+                      comparison={comparisons[index]}
+                      rosterHeading={candidate.studentUniqueId}
+                    />
+                    <PrimaryButton onClick={() => choose(candidate)} marginTop="auto">
+                      Match {candidate.studentUniqueId}
+                    </PrimaryButton>
+                  </VStack>
+                ))}
+              </HStack>
+              <HStack gap="200">
+                <SecondaryButton onClick={notInRoster}>
+                  None of these: not in roster
+                </SecondaryButton>
+              </HStack>
+              <SearchPanel group={group} onPick={choose} heading="Or search for someone else" />
+            </VStack>
+          )}
+          {lane === 'find' && (
+            <VStack alignItems="flex-start" gap="300">
+              <SearchPanel group={group} onPick={choose} />
+              <SecondaryButton onClick={notInRoster}>Not in roster: leave them out</SecondaryButton>
+            </VStack>
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+/** Field verdicts in a line, for scanning many rows. */
+const Chips = ({ comparison }: { comparison: Comparison }) => (
+  <HStack gap="300" fontSize="0.8rem">
+    {comparison.fields
+      .filter((field) => field.agreement !== 'unknown' || field.label !== 'Student IDs')
+      .map((field) => (
+        <HStack key={field.label} gap="100">
+          <AgreementMark agreement={field.agreement} />
+          <Box opacity="0.85">{field.label}</Box>
+        </HStack>
+      ))}
+  </HStack>
+);
+
+const statusText = (status: StudentStatus, decision: Decision | undefined) => {
+  const chosen = decision?.kind === 'match' ? decision.candidate.studentUniqueId : '';
+  if (status === 'reprocessing') return 'Reprocessing…';
+  if (status === 'loaded') return `Loaded as ${chosen}`;
+  if (status === 'left-out') return 'Left out';
+  if (!decision) return '';
+  return decision.kind === 'match' ? `Matched ${chosen}` : 'Not in roster';
+};
