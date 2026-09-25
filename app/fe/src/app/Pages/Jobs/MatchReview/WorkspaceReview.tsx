@@ -68,8 +68,8 @@ const statusLabel: Record<StudentStatus, string> = {
   excluded: 'Excluded',
 };
 
-type StatusFilter = 'open' | 'to-review' | 'ready' | 'excluded' | 'submitted' | 'all';
-type CountFilter = 'any' | 'none' | 'one' | 'several';
+type StatusFilter = 'open' | 'to-review' | 'ready' | 'excluded' | 'submitted';
+type CountFilter = 'none' | 'one' | 'several';
 
 const statusFilters: { key: StatusFilter; label: string; includes: StudentStatus[] }[] = [
   {
@@ -81,15 +81,9 @@ const statusFilters: { key: StatusFilter; label: string; includes: StudentStatus
   { key: 'ready', label: 'Match saved', includes: ['ready'] },
   { key: 'excluded', label: 'Excluded', includes: ['excluded'] },
   { key: 'submitted', label: 'Submitted', includes: ['reprocessing', 'reprocessed', 'run-failed'] },
-  {
-    key: 'all',
-    label: 'All',
-    includes: ['to-review', 'ready', 'reprocessing', 'reprocessed', 'run-failed', 'excluded'],
-  },
 ];
 
 const countFilters: { key: CountFilter; label: string; test: (n: number) => boolean }[] = [
-  { key: 'any', label: 'Any number', test: () => true },
   { key: 'none', label: 'No suggestions', test: (n) => n === 0 },
   { key: 'one', label: 'One', test: (n) => n === 1 },
   { key: 'several', label: 'Several', test: (n) => n > 1 },
@@ -190,8 +184,9 @@ const selectedKey = (jobId: number) => `runway.match-review-prototype.${jobId}.s
 
 export const WorkspaceReview = () => {
   const { job, groups, isLoading, isError, statusOf, decisions } = useReviewSession();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
-  const [countFilter, setCountFilter] = useState<CountFilter>('any');
+  // null means that filter is off. Clicking the active chip turns it off.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter | null>('open');
+  const [countFilter, setCountFilter] = useState<CountFilter | null>(null);
   const [selectedId, setSelectedIdState] = useState<string | null>(() => {
     try {
       return window.localStorage.getItem(selectedKey(job.id));
@@ -211,19 +206,19 @@ export const WorkspaceReview = () => {
   const [reviewing, setReviewing] = useState(false);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
 
-  const includes = statusFilters.find((f) => f.key === statusFilter)?.includes ?? [];
+  const includes = statusFilters.find((f) => f.key === statusFilter)?.includes;
   const countTest = countFilters.find((f) => f.key === countFilter)?.test ?? (() => true);
   const terms = query.trim().toLowerCase();
   const queue = groups.filter(
     (g) =>
-      includes.includes(statusOf(g.correlationId)) &&
+      (!includes || includes.includes(statusOf(g.correlationId))) &&
       countTest(suggestionsOf(g).length) &&
       (!terms || searchText(g).includes(terms))
   );
-  const filtered = statusFilter !== 'open' || countFilter !== 'any' || !!terms;
+  const filtered = statusFilter !== 'open' || countFilter !== null || !!terms;
   const clearFilters = () => {
     setStatusFilter('open');
-    setCountFilter('any');
+    setCountFilter(null);
     setQuery('');
   };
 
@@ -284,13 +279,15 @@ export const WorkspaceReview = () => {
                 ).length,
               }))}
               value={statusFilter}
-              onChange={(key) => setStatusFilter(key as StatusFilter)}
+              onChange={(key) =>
+                setStatusFilter(key === statusFilter ? null : (key as StatusFilter))
+              }
             />
             <FilterChips
               label="Suggestions"
               options={countFilters.map(({ key, label }) => ({ key, label }))}
               value={countFilter}
-              onChange={(key) => setCountFilter(key as CountFilter)}
+              onChange={(key) => setCountFilter(key === countFilter ? null : (key as CountFilter))}
             />
           </VStack>
           <HStack justifyContent="space-between" fontSize="0.8rem" opacity="0.8">
@@ -371,33 +368,6 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
   const { groups, statusOf, batches } = useReviewSession();
   const count = (...statuses: StudentStatus[]) =>
     groups.filter((g) => statuses.includes(statusOf(g.correlationId))).length;
-  const unresolved = count('to-review', 'run-failed');
-  const running = batches.filter((b) => !isFinished(b)).length;
-  const withErrors = batches.filter((b) => b.status === 'complete with errors').length;
-  const done = groups.length > 0 && count('excluded', 'reprocessed') === groups.length;
-
-  let message: string;
-  if (done) {
-    message = withErrors
-      ? `Review done. ${withErrors} ${
-          withErrors === 1 ? 'batch' : 'batches'
-        } reported delivery errors.`
-      : 'Review done: every record is excluded or has been reprocessed with its match.';
-  } else if (!unresolved && !readyCount && running) {
-    message = `All decisions submitted; ${running} ${
-      running === 1 ? 'batch' : 'batches'
-    } still running.`;
-  } else {
-    message = [
-      unresolved && `${unresolved} unresolved`,
-      readyCount &&
-        `${readyCount} saved ${readyCount === 1 ? 'match' : 'matches'} not yet submitted`,
-      running && `${running} ${running === 1 ? 'batch' : 'batches'} running`,
-    ]
-      .filter(Boolean)
-      .join(' · ');
-  }
-
   const tiles: { label: string; value: number }[] = [
     { label: 'Needs review', value: count('to-review') },
     { label: 'Matches to submit', value: readyCount },
@@ -424,9 +394,6 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
           Review and submit {readyCount || ''} {readyCount === 1 ? 'match' : 'matches'}
         </PrimaryButton>
       </HStack>
-      <Box fontSize="0.9rem" color={done && withErrors ? 'pink.100' : undefined}>
-        {message}
-      </Box>
       {batches.length > 0 && (
         <VStack
           alignItems="stretch"
@@ -435,10 +402,6 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
           borderTopWidth="1px"
           borderColor="blue.50-40"
         >
-          <Box fontSize="0.8rem" opacity="0.8">
-            Batches, newest first. Each reports its own run's counts; a run can't say which students
-            any failed records belong to.
-          </Box>
           {[...batches].reverse().map((batch) => (
             <BatchSummary key={batch.id} batch={batch} number={batches.indexOf(batch) + 1} />
           ))}
@@ -472,6 +435,7 @@ const BatchSummary = ({ batch, number }: { batch: Batch; number: number }) => {
         <Box width="1rem" opacity="0.8">
           {open ? '▾' : '▸'}
         </Box>
+        <BatchIcon status={batch.status} />
         <Box fontWeight="600">Batch {number}</Box>
         <Box opacity="0.85">
           {batch.items.length} {batch.items.length === 1 ? 'student' : 'students'} · submitted{' '}
@@ -482,8 +446,34 @@ const BatchSummary = ({ batch, number }: { batch: Batch; number: number }) => {
           {isFinished(batch) ? batchStatusLabel[batch.status] : 'Running'}
         </Box>
       </HStack>
-      {open && <BatchCard batch={batch} number={number} />}
+      {open && <BatchCard batch={batch} number={number} compact />}
     </VStack>
+  );
+};
+
+/** Complete, complete with errors, failed, or still running, at a glance. */
+const BatchIcon = ({ status }: { status: Batch['status'] }) => {
+  if (status === 'queued' || status === 'processing') {
+    return <Spinner size="xs" color="blue.50" aria-label="Running" />;
+  }
+  const icon = {
+    complete: { glyph: '✓', color: 'green.100', label: 'Complete' },
+    'complete with errors': { glyph: '⚠', color: 'pink.100', label: 'Complete with errors' },
+    failed: { glyph: '✕', color: 'pink.100', label: 'Run failed' },
+  }[status];
+  return (
+    <Box
+      as="span"
+      role="img"
+      aria-label={icon.label}
+      title={icon.label}
+      color={icon.color}
+      fontWeight="700"
+      width="1rem"
+      textAlign="center"
+    >
+      {icon.glyph}
+    </Box>
   );
 };
 
@@ -503,7 +493,7 @@ const FilterChips = ({
 }: {
   label: string;
   options: { key: string; label: string; count?: number }[];
-  value: string;
+  value: string | null;
   onChange: (key: string) => void;
 }) => (
   <HStack gap="100" flexWrap="wrap" rowGap="100">
@@ -715,9 +705,9 @@ const Workspace = ({
 
       {!isSubmitted && (
         <VStack alignItems="stretch" gap="200">
-          <QuietButton alignSelf="flex-start" paddingX="0" onClick={() => setSearching(!searching)}>
-            {searching ? 'Hide roster search' : 'Search the roster yourself'}
-          </QuietButton>
+          <SecondaryButton alignSelf="flex-start" onClick={() => setSearching(!searching)}>
+            {searching ? 'Hide roster search' : 'Search the roster'}
+          </SecondaryButton>
           {searching && (
             <Search
               group={group}
@@ -762,14 +752,10 @@ const Workspace = ({
           ) : (
             // The same actions, in the same places, for every record.
             <HStack gap="300" flexWrap="wrap">
-              <PrimaryButton
-                isDisabled={!selected || selected.studentUniqueId === saved}
-                onClick={save}
-              >
-                {selected
-                  ? `Save match: ${selected.studentUniqueId} (s)`
-                  : 'Select a student to save a match'}
-              </PrimaryButton>
+              <QuietButton color="pink.100" onClick={() => setConfirmingExclude(true)}>
+                Exclude from this job… (x)
+              </QuietButton>
+              <Box flex="1" />
               {decision && (
                 <QuietButton
                   onClick={() => {
@@ -785,10 +771,14 @@ const Workspace = ({
                   Clear decision
                 </QuietButton>
               )}
-              <Box flex="1" />
-              <QuietButton color="pink.100" onClick={() => setConfirmingExclude(true)}>
-                Exclude from this job… (x)
-              </QuietButton>
+              <PrimaryButton
+                isDisabled={!selected || selected.studentUniqueId === saved}
+                onClick={save}
+              >
+                {selected
+                  ? `Save match: ${selected.studentUniqueId} (s)`
+                  : 'Select a student to save a match'}
+              </PrimaryButton>
             </HStack>
           )}
         </VStack>
@@ -900,6 +890,8 @@ const EvidenceTable = ({
   saved: string | null;
   onSelect?: (candidate: Candidate) => void;
 }) => {
+  // Details only the roster has are a click away, so the compared rows read cleanly.
+  const [showRosterOnly, setShowRosterOnly] = useState(false);
   // With many candidates, compare a shortlist; the full list stays one click away.
   const [shortlist, setShortlist] = useState<string[]>(() =>
     candidates.slice(0, MAX_COMPARED).map((c) => c.studentUniqueId)
@@ -990,39 +982,45 @@ const EvidenceTable = ({
             </Tr>
           </Thead>
           <Tbody>
-            {rows.map((row, rowIndex) => (
-              <Tr
-                key={row.label}
-                borderTopWidth={rowIndex === 3 ? '2px' : undefined}
-                borderColor="blue.50-40"
-              >
-                <Td whiteSpace="nowrap" opacity="0.85">
-                  {row.label}
-                  {!row.compared && (
-                    <Box fontSize="0.7rem" opacity="0.8">
-                      {row.label === 'Student IDs'
-                        ? 'not compared: different ID systems'
-                        : 'roster only'}
-                    </Box>
-                  )}
-                </Td>
-                <Td>{fileValue[row.label] ?? <Missing compared={row.compared} />}</Td>
-                {shown.map((c, i) => {
-                  const value = row.roster(c.rosterDetails);
-                  return (
-                    <Td
-                      key={c.studentUniqueId}
-                      bg={selected === c.studentUniqueId ? 'blue.600' : undefined}
-                    >
-                      <HStack gap="100" alignItems="baseline">
-                        {row.compared && <AgreementMark agreement={agreementOf(row.label, i)} />}
-                        <Box>{value ?? <Missing compared={row.compared} />}</Box>
-                      </HStack>
-                    </Td>
-                  );
-                })}
-              </Tr>
-            ))}
+            {rows
+              .filter((row) => row.compared || showRosterOnly)
+              .map((row) => (
+                <Tr key={row.label}>
+                  <Td whiteSpace="nowrap" opacity="0.85">
+                    {row.label}
+                  </Td>
+                  <Td>{fileValue[row.label] ?? <Missing compared={row.compared} />}</Td>
+                  {shown.map((c, i) => {
+                    const value = row.roster(c.rosterDetails);
+                    return (
+                      <Td
+                        key={c.studentUniqueId}
+                        bg={selected === c.studentUniqueId ? 'blue.600' : undefined}
+                      >
+                        <HStack gap="100" alignItems="baseline">
+                          {row.compared && <AgreementMark agreement={agreementOf(row.label, i)} />}
+                          <Box>{value ?? <Missing compared={row.compared} />}</Box>
+                        </HStack>
+                      </Td>
+                    );
+                  })}
+                </Tr>
+              ))}
+            <Tr>
+              <Td colSpan={2 + shown.length} paddingY="100">
+                <QuietButton
+                  size="xs"
+                  paddingX="0"
+                  onClick={() => setShowRosterOnly(!showRosterOnly)}
+                  aria-expanded={showRosterOnly}
+                >
+                  {showRosterOnly ? '▾ Hide roster details' : '▸ Roster details'}
+                </QuietButton>
+                <Box as="span" fontSize="0.75rem" opacity="0.6" marginLeft="200">
+                  middle name, student IDs, school years · shown, not compared
+                </Box>
+              </Td>
+            </Tr>
             <Tr>
               <Td opacity="0.85" fontSize="0.8rem">
                 Match score
@@ -1067,10 +1065,6 @@ const EvidenceTable = ({
             )}
           </Tbody>
         </Table>
-      </Box>
-      <Box fontSize="0.75rem" opacity="0.7">
-        = identical ignoring case and surrounding spaces · ≠ not identical · · nothing to compare.
-        Neither a difference nor a missing value proves a mismatch.
       </Box>
     </VStack>
   );

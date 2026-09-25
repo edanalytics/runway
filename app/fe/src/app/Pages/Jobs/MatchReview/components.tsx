@@ -398,7 +398,16 @@ const OptionBox = ({
 const time = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 
-export const BatchCard = ({ batch, number }: { batch: Batch; number: number }) => {
+export const BatchCard = ({
+  batch,
+  number,
+  compact = false,
+}: {
+  batch: Batch;
+  number: number;
+  /** Leave out the heading line when a summary row above already shows it. */
+  compact?: boolean;
+}) => {
   const { groups, retry } = useReviewSession();
   const [open, setOpen] = useState(false);
   const nameOf = (correlationId: string) => {
@@ -409,26 +418,29 @@ export const BatchCard = ({ batch, number }: { batch: Batch; number: number }) =
   const isDone = batch.status === 'complete' || batch.status === 'complete with errors';
   return (
     <Box width="100%" padding="300" borderRadius="6px" bg="blue.600">
-      <HStack justifyContent="space-between" gap="300" flexWrap="wrap">
-        <Box fontWeight="600">
-          Batch {number} · {batch.items.length} {batch.items.length === 1 ? 'student' : 'students'}{' '}
-          · submitted {time(batch.submittedAt)}
-        </Box>
-        <Box
-          fontSize="0.9rem"
-          color={
-            batch.status === 'complete with errors' || batch.status === 'failed'
-              ? 'pink.100'
-              : undefined
-          }
-        >
-          {batch.status === 'queued' && 'Queued for reprocessing'}
-          {batch.status === 'processing' && 'Reprocessing'}
-          {batch.status === 'complete' && 'Complete'}
-          {batch.status === 'complete with errors' && 'Complete with errors'}
-          {batch.status === 'failed' && 'Run failed'}
-        </Box>
-      </HStack>
+      {!compact && (
+        <HStack justifyContent="space-between" gap="300" flexWrap="wrap">
+          <Box fontWeight="600">
+            Batch {number} · {batch.items.length}{' '}
+            {batch.items.length === 1 ? 'student' : 'students'} · submitted{' '}
+            {time(batch.submittedAt)}
+          </Box>
+          <Box
+            fontSize="0.9rem"
+            color={
+              batch.status === 'complete with errors' || batch.status === 'failed'
+                ? 'pink.100'
+                : undefined
+            }
+          >
+            {batch.status === 'queued' && 'Queued for reprocessing'}
+            {batch.status === 'processing' && 'Reprocessing'}
+            {batch.status === 'complete' && 'Complete'}
+            {batch.status === 'complete with errors' && 'Complete with errors'}
+            {batch.status === 'failed' && 'Run failed'}
+          </Box>
+        </HStack>
+      )}
       {batch.status === 'failed' && (
         <HStack marginTop="200" gap="300" fontSize="0.9rem" flexWrap="wrap">
           <Box>The run failed before reporting a summary, so nothing was attempted.</Box>
