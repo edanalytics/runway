@@ -986,7 +986,7 @@ const StudentTable = ({
   );
 };
 
-/** The review pane opened beneath a row, set apart from the table around it. */
+/** The review pane opened beneath a row, framed to set it apart from the table around it. */
 const InlinePane = ({
   position,
   onPrevious,
@@ -1008,15 +1008,16 @@ const InlinePane = ({
 }) => (
   <Box
     marginX="300"
-    marginTop="0"
+    marginTop="200"
     marginBottom="400"
     padding="400"
-    bg="blue.800"
-    borderWidth="1px"
-    borderTopWidth="0"
-    borderColor="blue.100"
-    borderBottomRadius="8px"
-    boxShadow="0 8px 20px rgba(0,0,0,0.35)"
+    // The page's own surface, so the panel's colors read as they do
+    // everywhere else; the frame is what sets it apart from the rows.
+    bg="blue.700"
+    borderWidth="2px"
+    borderColor="blue.200"
+    borderRadius="8px"
+    boxShadow="0 6px 18px rgba(0,0,0,0.35)"
     // Keys act on this student; Esc closes the pane.
     onKeyDown={(event: KeyboardEvent) => {
       if ((event.target as HTMLElement).closest('input, textarea')) return;
