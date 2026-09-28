@@ -61,6 +61,7 @@ export class JobsController {
         runs: true,
         files: true,
         createdBy: true,
+        _count: { select: { studentInputDetails: true } },
       },
     });
 
@@ -83,6 +84,7 @@ export class JobsController {
             runUpdate: true,
           },
         },
+        _count: { select: { studentInputDetails: true } },
       },
     });
 
@@ -285,6 +287,7 @@ export class JobsController {
           include: {
             files: true,
             runs: true,
+            _count: { select: { studentInputDetails: true } },
           },
         })
         .catch(() => {

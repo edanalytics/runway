@@ -143,4 +143,52 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(res.body).toEqual([]);
     });
   });
+
+  describe('the job’s status', () => {
+    let cookies: string;
+    beforeEach(async () => {
+      ({ cookies } = await authHelper.login(idpA, userA, tenantA));
+    });
+
+    it('counts the groups awaiting a match on the job and in the job list', async () => {
+      await report(runA.id, [
+        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+        { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
+      ]);
+
+      const job = await request(app.getHttpServer())
+        .get(`/jobs/${jobA.id}`)
+        .set('Cookie', [cookies]);
+      const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
+
+      expect(job.body.studentsToMatchCount).toBe(2);
+      expect(list.body.find((j: { id: number }) => j.id === jobA.id).studentsToMatchCount).toBe(2);
+    });
+
+    it('counts none for a job with no match results', async () => {
+      const job = await request(app.getHttpServer())
+        .get(`/jobs/${jobA.id}`)
+        .set('Cookie', [cookies]);
+
+      expect(job.body.studentsToMatchCount).toBe(0);
+    });
+
+    it('lets a successful run with students to match be resolved, as complete with errors', async () => {
+      // Resolving is allowed only from 'complete with errors'.
+      await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+      const resolve = () =>
+        request(app.getHttpServer())
+          .put(`/jobs/${jobA.id}/resolve`)
+          .set('Cookie', [cookies])
+          .send({ isResolved: true });
+
+      expect((await resolve()).status).toBe(400);
+
+      await report(runA.id, [
+        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+      ]);
+
+      expect((await resolve()).status).toBe(200);
+    });
+  });
 });

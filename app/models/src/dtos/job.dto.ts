@@ -98,6 +98,15 @@ export class GetJobDto
   @Expose()
   isResolved: boolean;
 
+  /**
+   * How many groups of student details the Executor sent for review. Read
+   * from Prisma's `_count` on the way out of the API, and from the field
+   * itself when the frontend rebuilds the DTO from JSON.
+   */
+  @Expose()
+  @Transform(({ obj, value }) => obj._count?.studentInputDetails ?? value ?? 0)
+  studentsToMatchCount: number;
+
   @Expose()
   apiClientName: string | null;
 
@@ -143,7 +152,10 @@ export class GetJobDto
       return null;
     }
 
-    if (status === 'success' && (this.hasUnmatchedStudents || this.hasResourceErrors)) {
+    if (
+      status === 'success' &&
+      (this.hasUnmatchedStudents || this.hasStudentsToMatch || this.hasResourceErrors)
+    ) {
       return 'complete with errors';
     }
     return status;
@@ -154,8 +166,15 @@ export class GetJobDto
     return status === 'resolved' || status === 'complete with errors';
   }
 
+  get hasStudentsToMatch() {
+    return this.studentsToMatchCount > 0;
+  }
+
   get hasUnmatchedStudents() {
-    return this.lastRun?.unmatchedStudentsInfo?.count !== undefined && this.lastRun?.unmatchedStudentsInfo?.count > 0;
+    return (
+      this.lastRun?.unmatchedStudentsInfo?.count !== undefined &&
+      this.lastRun?.unmatchedStudentsInfo?.count > 0
+    );
   }
 
   get hasResourceErrors() {
