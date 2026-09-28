@@ -64,13 +64,17 @@ class IDRSClient:
                 # Report counts
                 sent += len(batch)
                 matched += len(match)
-                self.logger.info(f'{sent} candidates sent to the IDRS; {matched} matches returned')
-
-            return matches
-        
+                self.logger.info(f'{sent} candidates sent to the IDRS; {matched} matches returned')     
         except Exception as e:
             self.logger.error(f"Candidates not posted: {e}")
             raise
+
+        # Raise an exception if we did not receive any matches.
+        if len(matches) == 0:
+            self.logger.error("No IDRS Matches returned")
+            raise ValueError("No IDRS Matches returned")
+                    
+        return matches
 
     def query_idrs(self, candidates_path):
         '''Get IDRS config, send candidates and return an output set'''
