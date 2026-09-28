@@ -1,4 +1,5 @@
 import json
+from executor.config import IDRS_BATCH_SIZE
 
 class IDRSClient:
 
@@ -31,23 +32,44 @@ class IDRSClient:
             self.logger.error(f'IDRS credentials not returned: {e}')
             raise
 
-    def post_candidates(self, idrs_conn_info, candidates):
-        '''send candidates to the IDRS API'''
-        try:
-            resp=self.conn.post(
-                url=idrs_conn_info['url'],
-                headers={"Authorization": f"Bearer {idrs_conn_info['token']}"},
-                json=candidates
-            ) 
+    @staticmethod
+    def batch_inputs(candidates, batch_size):
+        '''batch inputs to an arbitrary size before sending to the IDRS'''   
+        for position in range(0, len(candidates), batch_size):
+            yield candidates[position:position+batch_size]
 
-            resp.raise_for_status()
-            matches=resp.json()
-            self.logger.info('Matches received from IDRS!')
+    def post_candidates(self, idrs_conn_info, candidates):
+        '''send candidates to the IDRS'''
+        try:
+            # Initialize
+            matches = []
+            sent = 0 
+            matched = 0   
+
+            # Chunk out candidates and send to the IDRS
+            for batch in self.batch_inputs(candidates, IDRS_BATCH_SIZE):
+
+                resp=self.conn.post(
+                    url=idrs_conn_info['url'],
+                    headers={"Authorization": f"Bearer {idrs_conn_info['token']}"},
+                    json=batch
+                ) 
+
+                resp.raise_for_status()
+
+                # Handle matches
+                match = resp.json()
+                matches.extend(match)
+
+                # Report counts
+                sent += len(batch)
+                matched += len(match)
+                self.logger.info(f'{sent} candidates sent to the IDRS; {matched} matches returned')
 
             return matches
         
         except Exception as e:
-            self.logger.info(f"Candidates not posted: {e}")
+            self.logger.error(f"Candidates not posted: {e}")
             raise
 
     def query_idrs(self, candidates_path):
@@ -58,7 +80,7 @@ class IDRSClient:
             with open(candidates_path, 'r') as file:
                 candidates = [json.loads(line) for line in file]
         except Exception as e:
-            self.logger.info(f"Error reading candidates: {e}")
+            self.logger.error(f"Error reading candidates: {e}")
             raise
 
         # validate our payload
