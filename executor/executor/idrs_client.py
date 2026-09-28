@@ -5,11 +5,11 @@ class IDRSClient:
 
     def __init__(self, logger, conn, identity_url):
         # The logger to use to capture outputs
-        self.logger=logger
+        self.logger = logger
         # The session to use for handling requests
-        self.conn=conn
+        self.conn = conn
         # The URL for the IDRS
-        self.identity_url=identity_url
+        self.identity_url = identity_url
 
     def validate_candidates(self, candidates):
         '''method to validate that we are sending data that conforms to IDRS API specs'''
@@ -19,11 +19,11 @@ class IDRSClient:
         '''return the IDRS credentials based on matching mode'''
         try:
             idrs_resp = self.conn.get(
-                self.identity_url
+                url=self.identity_url
             )   
 
             idrs_resp.raise_for_status() 
-            idrs_conn_info=idrs_resp.json()
+            idrs_conn_info = idrs_resp.json()
             self.logger.info('Received IDRS credentials')
 
             return idrs_conn_info
@@ -49,7 +49,7 @@ class IDRSClient:
             # Chunk out candidates and send to the IDRS
             for batch in self.batch_inputs(candidates, IDRS_BATCH_SIZE):
 
-                resp=self.conn.post(
+                resp = self.conn.post(
                     url=idrs_conn_info['url'],
                     headers={"Authorization": f"Bearer {idrs_conn_info['token']}"},
                     json=batch
@@ -87,9 +87,9 @@ class IDRSClient:
         self.validate_candidates(candidates)
 
         # Capture the credentials
-        creds=self.get_credentials()
+        creds = self.get_credentials()
 
         # Send the candidates and capture the matches
-        matches=self.post_candidates(creds, candidates)
+        matches = self.post_candidates(creds, candidates)
 
         return matches
