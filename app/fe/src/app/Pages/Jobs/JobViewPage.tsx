@@ -45,6 +45,7 @@ import { TriageReview } from './MatchReview/TriageReview';
 import { QuestionReview } from './MatchReview/QuestionReview';
 import { HybridReview } from './MatchReview/HybridReview';
 import { WorkspaceReview } from './MatchReview/WorkspaceReview';
+import { ReviewNotice } from './MatchReview/ReviewNotice';
 
 // Chakra's default selected tab uses blue.600, which this theme makes a
 // background color.
@@ -262,6 +263,14 @@ export const JobViewPage = () => {
                       <JobError key={error.id} err={error} />
                     ))}
                     {!!job.hasUnmatchedStudents && <UnmatchedStudents job={job} />}
+                    {/* PROTOTYPE: review starts on the focus tab. */}
+                    <ReviewNotice
+                      onReview={() =>
+                        setTabIndex(
+                          1 + reviewTabs.findIndex((t) => t.label === 'Unmatched Students (focus)')
+                        )
+                      }
+                    />
                   </JobViewSection>
                   {!!job.resourceSummaries && (
                     <JobViewSection title="Summary">
