@@ -73,6 +73,8 @@ Schema changes follow this workflow (all commands run from `app/`):
 
 **Do not edit `schema.prisma` directly** — it is generated from the database via `prisma:pull-and-generate`. The SQL migration is the source of truth.
 
+The one exception is typing JSON columns with `prisma-json-types-generator`: add a `/// [TypeName]` line directly above the field, and declare `TypeName` in the `PrismaJson` namespace in `app/api/src/types/prisma.d.ts`. Re-introspection preserves these annotations on existing fields, so they survive `prisma:pull-and-generate`. Types shared with the frontend belong in `app/models`, aliased from `prisma.d.ts`.
+
 Migrations run automatically at the start of the integration test suite. If tests fail with schema errors, a missing or mismatched migration is the likely cause.
 
 ## Architecture
@@ -205,7 +207,7 @@ All of this applies to the `id_based` and `id_based_fuzzy_background` modes. Pur
 
 How student identities are resolved is a per-partner setting, `id_matching_mode`, snapshotted onto each job at creation (`JobsService.createJob` writes it explicitly; the column default is migration safety only). Every run of a job uses that snapshot, so changing the partner setting affects only jobs created afterwards. There is no configuration UI yet.
 
-| Mode | Authoritative path | Roster matching | `appUrls.identityService` |
+| Mode | Authoritative path | Roster matching | `appUrls.identityService` / `appUrls.studentMatchResults` |
 |---|---|---|---|
 | `id_based` | Existing ID-based processing | ODS / EDU / S3 as above | absent |
 | `id_based_fuzzy_background` | Existing ID-based processing | ODS / EDU / S3 as above | present |
@@ -225,6 +227,35 @@ The executor step is a hard prerequisite, not an ordering preference. An executo
 
 The config and secret steps are owned by the cloud engineering team and happen outside this repo: neither `IDRS_OAUTH_TOKEN_URL` nor `IDRS_URL` is threaded through `cloudformation/` (unlike `OAUTH2_ISSUER` or `UM_CONFIG_SECRET`), and the per-partner `{ENVLABEL}-idrs-connection-info-{partnerId}` secrets are provisioned directly. Don't add the stack wiring here — coordinate with cloud eng instead.
 
+#### Student match results
+
+The Executor posts IDRS match results — each group of input details with the suggestions IDRS returned for it — to `POST /api/earthbeam/jobs/:runId/student-match-results` (`StudentMatchResultsService`), advertised as `appUrls.studentMatchResults` alongside the identity service. Today it sends only students IDRS could not resolve. Sending auto-matched students too would need a way to record the automatic resolution; otherwise they would look like students awaiting review. It is unrelated to the older `unmatchedIds` callback.
+
+The body is a JSON array of `EarthbeamApiStudentMatchResultDto` (`app/models`): a `correlation_id` (opaque, 1–128 characters), a `candidate` object of input details, and a possibly empty `matches` array whose entries carry a `student_unique_id`, a numeric `score` and roster details. It is stored exactly as sent, with unknown keys kept and nothing normalized, so fields IDRS adds later are already stored when the app starts using them, and malformed details — which may be why a record needs review — survive verbatim.
+
+Three tables hold it: `student_input_details`, keyed by `(job_id, correlation_id)`; `student_match_result`, one row per input group per run, present even when the run found no suggestions; and `student_match_suggestion`, keyed by `(result_id, ordinal)`, a position within a result rather than a student identity. Job, partner and tenant come from the authenticated run, never the body, and composite `(run_id, job_id)` foreign keys enforce it.
+
+**Validation.** The DTO checks the shape, and the columns the fields land in back it up. One rule is the DTO's alone: that `matches` is an array, since the array lands in no column; without the check, a missing `matches` would be stored as "IDRS found nothing". Any rejection rolls back the whole request.
+
+**Duplicate correlation ids** within a request aren't checked: the DTO can't see across records, and the Executor sends one entry per correlation id. If it ever sent duplicates, a shared id means the same input and therefore the same matches. Duplicates without matches collapse into one input row and one result. Duplicates with matches collide on the suggestion primary key, so the request fails with nothing written. Stored data could be wrong only if a correlation id were attached to the wrong input or matches at the source, which the app doesn't guard against.
+
+| Status | Meaning |
+|---|---|
+| 201 | Stored, or a retry that changed nothing. Empty body. The same as the other Executor callbacks, one of which the Executor checks for exactly 201 |
+| 400 | The body doesn't match the DTO. `message` names each failing record by index and rule, e.g. `[3] matches must be an array`, never a value. The app doesn't log 400s, so the Executor should log this body |
+| 401 / 403 | Missing token, or a token for a different run |
+| 404 | No such run |
+| 413 | Body over the JSON parser limit: Nest's default, pending the agreed cap (below) |
+| 500 | The database rejected the payload, or persistence failed. Nothing was written. The app logs the SQLSTATE, never the message, since a constraint violation's detail quotes the failing row. A payload containing a NUL character (`\u0000`) always lands here, since PostgreSQL's `jsonb` cannot store one; retrying the same bytes fails the same way |
+
+**Retries and runs.** A retry re-sends exactly what was already sent; the Executor never re-queries IDRS for a group it has reported. So a retry is a no-op: the first report of a group wins, and nothing stored is rewritten. A job's first run is the one that extracts input details and calls IDRS, so it establishes every input row. Results are keyed by run so that a later search of the same input, such as rematching (not yet built), adds history rather than overwriting it.
+
+Each request is one transaction, for atomicity: a failure between the three inserts would otherwise leave a result with no suggestions, which looks like a genuine no-match and which a retry cannot repair. No row lock is taken: every insert is `ON CONFLICT DO NOTHING` against a unique key, so overlapping requests, such as a timed-out retry racing its original, still store one consistent dataset.
+
+This endpoint never changes run state; acting on a failure is the Executor's job. In `fuzzy` it fails the run; in `id_based_fuzzy_background` it stops only the background processing. That mode is watched through app and Executor logs, with no background-failure UI.
+
+**Outstanding:** the request byte limit is not yet set. The endpoint currently runs under Nest's default JSON parser, so a large batch is rejected by that default rather than by an agreed limit. Confirm the cap and any record cap with cloud engineering and the Executor, then register a route-scoped parser for this route only — check the `SizeRestrictions_BODY` rule in `cloudformation/templates/0-waf.yml` against deployed behavior rather than assuming the app-side constant is sufficient.
+
 ### S3 Path Structure
 
 ```
@@ -236,7 +267,7 @@ __rosters/{partnerId}/{tenantCode}/{schoolYearEndYear}/*
 ## Development Conventions
 
 - **Commits**: lowercase subject + body explaining the "why"
-- **API**: NestJS controller → service → repository pattern
+- **API**: NestJS controller → service. Services use Prisma directly, including for transactions and raw SQL; there is no separate repository layer
 - **Error handling**: Services return result objects (`{ status: 'SUCCESS', data }` / `{ status: 'ERROR', code }`) for expected failure modes; unexpected errors throw. Controllers map error results to HTTP exceptions. Services should not import or throw HTTP exceptions.
 - **FE**: Chakra UI v2 with custom design tokens; prefer inline readable code over extracted helpers for short logic
 - **Icons**: `app/fe/src/assets/icons/`

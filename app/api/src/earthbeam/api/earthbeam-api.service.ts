@@ -17,6 +17,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
   earthbeamIdentityServiceEndpoint,
+  earthbeamStudentMatchResultsEndpoint,
   earthbeamOutputFilesEndpoint,
   earthbeamRosterEndpoint,
   earthbeamStatusUpdateEndpoint,
@@ -179,7 +180,12 @@ export class EarthbeamApiService {
           ? { roster: `${executorBaseUrl}/${earthbeamRosterEndpoint(runId)}` }
           : {}),
         ...(needsIdentityService
-          ? { identityService: `${executorBaseUrl}/${earthbeamIdentityServiceEndpoint(runId)}` }
+          ? {
+              identityService: `${executorBaseUrl}/${earthbeamIdentityServiceEndpoint(runId)}`,
+              studentMatchResults: `${executorBaseUrl}/${earthbeamStudentMatchResultsEndpoint(
+                runId
+              )}`,
+            }
           : {}),
       },
       crossYearMatchAvailable,
