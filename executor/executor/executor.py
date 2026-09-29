@@ -671,7 +671,6 @@ class JobExecutor:
             raise
 
         # Upload IDRS Matches to S3
-        artifact.IDRS_MATCHES.needs_upload=True
         self.upload_artifact(artifact.IDRS_MATCHES)
         self.logger.info('matches.json uploaded!')
 
