@@ -314,10 +314,13 @@ export const NoSuggestionFits = ({
   onBack,
   onUse,
   onExclude,
+  search,
   children,
 }: {
   group: GetStudentInputDetailsDto;
   suggestionCount: number;
+  /** A tab's own search, in place of the default one. */
+  search?: ReactNode;
   /** Back to the suggestions, when the reviewer came from them. */
   onBack?: () => void;
   onUse: (candidate: Candidate) => void;
@@ -345,7 +348,7 @@ export const NoSuggestionFits = ({
       title="Search the roster"
       detail="Look them up with corrected details, or their student unique ID if you know it. Using a result matches them and moves on."
     >
-      <SearchPanel group={group} onPick={onUse} heading={null} />
+      {search ?? <SearchPanel group={group} onPick={onUse} heading={null} />}
     </OptionBox>
     <HStack gap="300" opacity="0.7" fontSize="0.85rem">
       <Box flex="1" borderTopWidth="1px" borderColor="blue.50-40" />

@@ -36,6 +36,7 @@ import {
   BatchCard,
   DesignIntro,
   PrimaryButton,
+  NoSuggestionFits,
   PrototypeControls,
   QuietButton,
   SecondaryButton,
@@ -391,17 +392,17 @@ export const WorkspaceReview = ({
       {layout === 'inline' ? (
         <DesignIntro
           title="Review workspace, expanding rows"
-          bet="The whole list stays a table, and reviewing happens in place: open a row and the review pane unfolds beneath it, framed apart from the rows, while the rest of the table stays in view. Using a suggestion saves it and moves the pane to the next student to review. Sort by any column, search and filter as usual. Keyboard: j/k to move between rows, x to exclude, Esc to close."
+          bet="The whole list stays a table, and reviewing happens in place: open a row and the review pane unfolds beneath it, framed apart from the rows, while the rest of the table stays in view. Using a suggestion saves it and moves the pane to the next student to review. Sort by any column, search and filter as usual. Keyboard: j/k to move between rows, Esc to close."
         />
       ) : layout === 'table' ? (
         <DesignIntro
           title="Review workspace, table first"
-          bet="The workspace, starting from the whole list as a table: sort by any column, search and filter, and see every student's status at a glance. Open a student and the table condenses into a side list next to the full review panel, like opening a thread or a ticket; go back to the table whenever you want the big picture. Keyboard: j/k to move, x to exclude, Esc for the table."
+          bet="The workspace, starting from the whole list as a table: sort by any column, search and filter, and see every student's status at a glance. Open a student and the table condenses into a side list next to the full review panel, like opening a thread or a ticket; go back to the table whenever you want the big picture. Keyboard: j/k to move, Esc for the table."
         />
       ) : (
         <DesignIntro
           title="Review workspace"
-          bet="One searchable, filterable list and one workspace, built for a careful choice. Every candidate is lined up against your file in its own band, with roster details a click away and roster search always available. Use a suggestion (or a search result) in one step, or exclude junk records; saved matches get their second look in the list you review before submitting. Keyboard: j/k to move, x to exclude."
+          bet="One searchable, filterable list and one workspace, built for a careful choice. Every candidate is lined up against your file in its own band, with roster details a click away and roster search always available. Use a suggestion in one step, or say none fit and then search the roster or exclude the record; saved matches get their second look in the list you review before submitting. Keyboard: j/k to move."
         />
       )}
       <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
@@ -1133,8 +1134,8 @@ const Workspace = ({
   const isSubmitted = status === 'reprocessing' || status === 'reprocessed';
   const suggestions = suggestionsOf(group);
 
-  const [confirmingExclude, setConfirmingExclude] = useState(false);
-  const [searching, setSearching] = useState(suggestions.length === 0);
+  // Saying none fit stays on this student and opens search and exclude.
+  const [noneFit, setNoneFit] = useState(false);
 
   // A match found by searching stays in view beside the suggestions.
   const fromSearch =
@@ -1162,16 +1163,24 @@ const Workspace = ({
       advance: true,
     });
   };
+  const clear = () => {
+    const previous = decision;
+    undo(id);
+    onSaved({
+      message: `Cleared the decision for ${name}.`,
+      undo: restore(previous),
+      advance: false,
+    });
+  };
   const exclude = () => {
     const previous = decision;
     decide(id, { kind: 'not-in-roster' });
-    setConfirmingExclude(false);
+    setNoneFit(false);
     onSaved({ message: `Excluded ${name} from this job.`, undo: restore(previous), advance: true });
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
     if ((event.target as HTMLElement).closest('input, textarea') || isSubmitted) return;
-    if (event.key === 'x') setConfirmingExclude(true);
   };
 
   const issues = fileIssues(group);
@@ -1204,87 +1213,43 @@ const Workspace = ({
         reference={`Job ${job.id}${batch ? ` · batch ${batchNumber}` : ''}`}
       />
 
-      <VStack alignItems="stretch" gap="200">
-        {/* The count matters when a suggestion is past the fold. */}
-        <Box fontSize="0.85rem" opacity="0.8">
-          {suggestions.length === 0
-            ? 'No suggestions'
-            : `${suggestions.length} ${suggestions.length === 1 ? 'suggestion' : 'suggestions'}`}
-        </Box>
-        {candidates.length > 0 && (
+      {(noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
+        <NoSuggestionFits
+          group={group}
+          suggestionCount={suggestions.length}
+          onBack={candidates.length ? () => setNoneFit(false) : undefined}
+          onUse={use}
+          onExclude={exclude}
+          search={<Search group={group} saved={saved} onUse={use} />}
+        >
+          {decision && (
+            <QuietButton alignSelf="flex-start" onClick={clear}>
+              Clear decision
+            </QuietButton>
+          )}
+        </NoSuggestionFits>
+      ) : (
+        <VStack alignItems="stretch" gap="200">
+          {/* The count matters when a suggestion is past the fold. */}
+          <Box fontSize="0.85rem" opacity="0.8">
+            {`${suggestions.length} ${suggestions.length === 1 ? 'suggestion' : 'suggestions'}`}
+          </Box>
           <EvidenceTable
             group={group}
             candidates={candidates}
             saved={saved}
             onUse={isSubmitted ? undefined : use}
           />
-        )}
-      </VStack>
-
-      {!isSubmitted && (
-        <VStack alignItems="stretch" gap="200">
-          <SecondaryButton alignSelf="flex-start" onClick={() => setSearching(!searching)}>
-            {searching ? 'Hide roster search' : 'Search the roster'}
-          </SecondaryButton>
-          {searching && <Search group={group} saved={saved} onUse={use} />}
-        </VStack>
-      )}
-
-      {!isSubmitted && (
-        <VStack
-          alignItems="stretch"
-          gap="300"
-          paddingTop="300"
-          borderTopWidth="1px"
-          borderColor="blue.50-40"
-        >
-          {confirmingExclude ? (
-            <VStack
-              alignItems="stretch"
-              gap="200"
-              padding="300"
-              borderRadius="6px"
-              borderWidth="1px"
-              borderColor="pink.100"
-            >
-              <Box fontSize="0.9rem">
-                Exclude {name} from this job? Use this for junk data, or a student who isn't in the
-                roster. Their records won't be reprocessed. You can undo it, and it doesn't carry
-                over to other jobs.
+          {!isSubmitted && (
+            <HStack gap="300" paddingTop="100">
+              <SecondaryButton onClick={() => setNoneFit(true)}>
+                {candidates.length === 1 ? 'Not this student' : 'None of these'}
+              </SecondaryButton>
+              <Box fontSize="0.8rem" opacity="0.7">
+                Then search the roster, or exclude the record.
               </Box>
-              <HStack gap="200">
-                <SecondaryButton borderColor="pink.100" color="pink.100" onClick={exclude}>
-                  Exclude from this job
-                </SecondaryButton>
-                <QuietButton onClick={() => setConfirmingExclude(false)}>Cancel</QuietButton>
-              </HStack>
-            </VStack>
-          ) : (
-            // The same actions, in the same places, for every record.
-            <HStack gap="300" flexWrap="wrap">
-              <QuietButton
-                color="pink.100"
-                title="Exclude this record from the job (x)"
-                onClick={() => setConfirmingExclude(true)}
-              >
-                Exclude record
-              </QuietButton>
               <Box flex="1" />
-              {decision && (
-                <QuietButton
-                  onClick={() => {
-                    const previous = decision;
-                    undo(id);
-                    onSaved({
-                      message: `Cleared the decision for ${name}.`,
-                      undo: restore(previous),
-                      advance: false,
-                    });
-                  }}
-                >
-                  Clear decision
-                </QuietButton>
-              )}
+              {decision && <QuietButton onClick={clear}>Clear decision</QuietButton>}
             </HStack>
           )}
         </VStack>
@@ -1688,7 +1653,7 @@ const Search = ({
   );
 
   return (
-    <VStack alignItems="stretch" gap="300" padding="300" borderRadius="6px" bg="blue.600">
+    <VStack alignItems="stretch" gap="300">
       <SimpleGrid columns={{ base: 2, md: 4 }} gap="200">
         {field('first_name', 'First name')}
         {field('last_name', 'Last name')}
