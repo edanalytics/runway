@@ -24,6 +24,7 @@ import {
 import {
   GetStudentInputDetailsDto,
   JsonValue,
+  StudentInputDetailsJson,
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
 import { Fragment, KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
@@ -1734,6 +1735,52 @@ const Search = ({
 
 // Submitting -------------------------------------------------------------------
 
+/**
+ * A record as three lines, name, birth date and IDs, laid out the same for
+ * the file and the roster so the two read across. Given the file to compare
+ * `against`, the name and birth date carry the usual = / ≠ marks.
+ */
+const RecordLines = ({
+  details,
+  against,
+}: {
+  details: StudentInputDetailsJson | StudentRosterDetailsJson;
+  against?: StudentInputDetailsJson;
+}) => {
+  const fields = against ? compare(against, details as StudentRosterDetailsJson).fields : null;
+  const agreement = (label: string): Agreement =>
+    fields?.find((f) => f.label === label)?.agreement ?? 'unknown';
+  // The name is the same only if both parts are; any part that differs, differs.
+  const nameMark: Agreement = [agreement('First name'), agreement('Last name')].includes(
+    'different'
+  )
+    ? 'different'
+    : agreement('First name') === 'same' && agreement('Last name') === 'same'
+    ? 'same'
+    : 'unknown';
+  const line = (content: ReactNode, mark?: Agreement | null, bold = false) => (
+    <HStack gap="200" minHeight="1.75rem" alignItems="center">
+      {mark !== undefined &&
+        (mark ? <AgreementMark agreement={mark} /> : <Box width="1.5rem" flexShrink={0} />)}
+      <Box fontWeight={bold ? '600' : 'normal'} fontSize={bold ? '0.95rem' : '0.85rem'}>
+        {content}
+      </Box>
+    </HStack>
+  );
+  const marks = !!against;
+  return (
+    <VStack alignItems="stretch" gap="0">
+      {line(studentName(details), marks ? nameMark : undefined, true)}
+      {line(
+        `born ${valueText(details.birth_date) ?? '—'}`,
+        marks ? agreement('Date of birth') : undefined
+      )}
+      {/* IDs come from different systems, so they're shown, not marked. */}
+      {line(`IDs ${valueText(details.student_ids) ?? '—'}`, marks ? null : undefined)}
+    </VStack>
+  );
+};
+
 /** A compact checkpoint: what will be reprocessed, with a way back to the evidence. */
 const SubmitReview = ({
   isOpen,
@@ -1820,17 +1867,20 @@ const SubmitReview = ({
                 return (
                   <Tr key={group.correlationId}>
                     <Td>
-                      <Box fontWeight="600">{studentName(group.inputDetails)}</Box>
-                      <Box fontSize="0.75rem" opacity="0.8">
-                        {secondId(group)}
-                      </Box>
+                      <RecordLines details={group.inputDetails} />
                     </Td>
                     <Td>
-                      <Box>{candidate?.studentUniqueId}</Box>
-                      <Box fontSize="0.75rem" opacity="0.8">
-                        {candidate && studentName(candidate.rosterDetails)}
-                        {candidate?.source === 'search' && ' · found by search'}
-                      </Box>
+                      {candidate && (
+                        <RecordLines
+                          details={candidate.rosterDetails}
+                          against={group.inputDetails}
+                        />
+                      )}
+                      {candidate?.source === 'search' && (
+                        <Box fontSize="0.75rem" opacity="0.8">
+                          Found by search
+                        </Box>
+                      )}
                       {decision && decision.decidedBy !== 'you' && (
                         <Box fontSize="0.75rem" color="purple.200">
                           Saved by {decision.decidedBy}
