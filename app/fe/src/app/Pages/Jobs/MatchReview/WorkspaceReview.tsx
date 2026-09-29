@@ -1,8 +1,6 @@
 import {
   Box,
   Checkbox,
-  FormControl,
-  FormLabel,
   HStack,
   Input,
   Modal,
@@ -38,6 +36,7 @@ import {
   PrimaryButton,
   NoSuggestionFits,
   PrototypeControls,
+  SearchField,
   QuietButton,
   SecondaryButton,
   studentName,
@@ -1633,23 +1632,14 @@ const Search = ({
     setSearching(false);
   };
   const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
-    <FormControl>
-      <FormLabel
-        fontSize="0.8rem"
-        marginBottom="100"
-        htmlFor={`search-${key}-${group.correlationId}`}
-      >
-        {label}
-      </FormLabel>
-      <Input
-        id={`search-${key}-${group.correlationId}`}
-        size="sm"
-        value={terms[key]}
-        placeholder={placeholder}
-        onChange={(event) => setTerms({ ...terms, [key]: event.target.value })}
-        onKeyDown={(event) => event.key === 'Enter' && run()}
-      />
-    </FormControl>
+    <SearchField
+      id={`search-${key}-${group.correlationId}`}
+      label={label}
+      value={terms[key]}
+      placeholder={placeholder}
+      onChange={(value) => setTerms({ ...terms, [key]: value })}
+      onEnter={run}
+    />
   );
 
   return (
@@ -1658,7 +1648,7 @@ const Search = ({
         {field('first_name', 'First name')}
         {field('last_name', 'Last name')}
         {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
-        {field('student_unique_id', 'Student unique ID', 'finds exactly one')}
+        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
       </SimpleGrid>
       <HStack gap="300">
         <SecondaryButton onClick={run} isLoading={searching}>

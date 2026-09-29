@@ -209,6 +209,62 @@ export const QuietButton = (props: React.ComponentProps<typeof Button>) => (
 );
 
 /**
+ * A roster-search field. The theme's form labels are bold and bright; here
+ * the label is small and muted and the value is what stands out, since the
+ * reviewer is reading and correcting values.
+ */
+export const SearchField = ({
+  id,
+  label,
+  value,
+  placeholder,
+  onChange,
+  onEnter,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
+  onEnter: () => void;
+}) => (
+  <FormControl variant="plain">
+    <FormLabel
+      htmlFor={id}
+      textStyle="body"
+      fontSize="0.75rem"
+      fontWeight="normal"
+      color="blue.50"
+      opacity="0.7"
+      marginBottom="100"
+    >
+      {label}
+    </FormLabel>
+    <Input
+      id={id}
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => event.key === 'Enter' && onEnter()}
+      fontSize="1rem"
+      color="blue.50"
+      bg="blue.800"
+      paddingX="200"
+      paddingY="100"
+      borderWidth="1px"
+      borderColor="blue.50-40"
+      borderRadius="6px"
+      _placeholder={{ color: 'blue.50', opacity: 0.45 }}
+      _hover={{ borderColor: 'blue.50' }}
+      _focusVisible={{
+        borderColor: 'blue.100',
+        boxShadow: '0 0 0 1px var(--chakra-colors-blue-100)',
+      }}
+    />
+  </FormControl>
+);
+
+/**
  * Search the roster yourself, starting from the file's details. Results are
  * judged against the file, not the search terms: the file record is what
  * will be loaded, whatever it took to find the student.
@@ -232,18 +288,14 @@ export const SearchPanel = ({
     setSearching(false);
   };
   const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
-    <FormControl>
-      <FormLabel fontSize="0.8rem" marginBottom="100">
-        {label}
-      </FormLabel>
-      <Input
-        size="sm"
-        value={terms[key]}
-        placeholder={placeholder}
-        onChange={(event) => setTerms({ ...terms, [key]: event.target.value })}
-        onKeyDown={(event) => event.key === 'Enter' && run()}
-      />
-    </FormControl>
+    <SearchField
+      id={`search-${key}-${group.correlationId}`}
+      label={label}
+      value={terms[key]}
+      placeholder={placeholder}
+      onChange={(value) => setTerms({ ...terms, [key]: value })}
+      onEnter={run}
+    />
   );
 
   return (
@@ -253,7 +305,7 @@ export const SearchPanel = ({
         {field('first_name', 'First name')}
         {field('last_name', 'Last name')}
         {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
-        {field('student_unique_id', 'Student unique ID', 'narrows to one')}
+        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
       </SimpleGrid>
       <HStack gap="300">
         <SecondaryButton onClick={run} isLoading={searching}>
@@ -346,7 +398,7 @@ export const NoSuggestionFits = ({
     {children}
     <OptionBox
       title="Search the roster"
-      detail="Look them up with corrected details, or their student unique ID if you know it. Using a result matches them and moves on."
+      detail="Look them up with corrected details, and any IDs you have for them. Using a result matches them and moves on."
     >
       {search ?? <SearchPanel group={group} onPick={onUse} heading={null} />}
     </OptionBox>

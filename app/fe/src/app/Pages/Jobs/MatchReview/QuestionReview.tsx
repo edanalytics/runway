@@ -162,8 +162,8 @@ const Question = ({
               : 'IDRS suggested no one. Can you find them?'}
           </Box>
           <Box fontSize="0.9rem" opacity="0.85">
-            Correct the details, or enter their student unique ID if you know it. If they aren't in
-            the roster, their record can't be loaded.
+            Correct the details, and add any IDs you have for them. If they aren't in the roster,
+            their record can't be loaded.
           </Box>
           <SearchPanel
             group={group}

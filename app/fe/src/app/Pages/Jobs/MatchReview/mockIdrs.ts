@@ -83,28 +83,44 @@ export type SearchTerms = {
   first_name: string;
   last_name: string;
   birth_date: string;
-  student_unique_id: string;
+  /** Any IDs the reviewer has, separated by commas or spaces. */
+  student_ids: string;
 };
 
 export type SearchHit = RosterStudent & { score: number };
 
+/** Every ID the roster has for a student: their unique ID and any others. */
+const idsOf = (student: RosterStudent) => [
+  student.studentUniqueId,
+  ...(Array.isArray(student.rosterDetails.student_ids)
+    ? student.rosterDetails.student_ids.map((id) =>
+        id && typeof id === 'object' && !Array.isArray(id) && 'id_value' in id
+          ? String(id.id_value)
+          : String(id)
+      )
+    : []),
+];
+
 /**
- * A student unique ID narrows the search to that one student. Otherwise,
- * anyone whose name and date of birth come close enough, best first.
+ * Like the identity service, takes any IDs alongside the details. A student
+ * with one of those IDs comes first; others follow if their name and date
+ * of birth come close enough, best first.
  */
 export const searchRoster = async (
   roster: RosterStudent[],
   terms: SearchTerms
 ): Promise<SearchHit[]> => {
   await new Promise((resolve) => setTimeout(resolve, 700));
-  const id = terms.student_unique_id.trim().toLowerCase();
-  if (id) {
-    return roster
-      .filter((student) => student.studentUniqueId.toLowerCase() === id)
-      .map((student) => ({ ...student, score: 1 }));
-  }
+  const wanted = terms.student_ids
+    .split(/[\s,]+/)
+    .map((id) => id.trim().toLowerCase())
+    .filter(Boolean);
+  const byId = roster
+    .filter((student) => idsOf(student).some((id) => wanted.includes(id.toLowerCase())))
+    .map((student) => ({ ...student, score: 1 }));
   const weight = { same: 1, close: 0.6, different: 0, unknown: 0 };
-  return roster
+  const byDetails = roster
+    .filter((student) => !byId.some((hit) => hit.studentUniqueId === student.studentUniqueId))
     .map((student) => {
       const first = compareNames(terms.first_name || null, text(student.rosterDetails.first_name));
       const last = compareNames(terms.last_name || null, text(student.rosterDetails.last_name));
@@ -113,8 +129,8 @@ export const searchRoster = async (
       return { ...student, score: Math.round(score * 100) / 100 };
     })
     .filter((hit) => hit.score >= 0.5)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .sort((a, b) => b.score - a.score);
+  return [...byId, ...byDetails].slice(0, 5);
 };
 
 // A crude stand-in for IDRS's own scoring: what counts as close is the
@@ -162,7 +178,7 @@ export const termsFrom = (file: StudentInputDetailsJson): SearchTerms => ({
   first_name: text(file.first_name) ?? '',
   last_name: text(file.last_name) ?? '',
   birth_date: text(file.birth_date) ?? '',
-  student_unique_id: '',
+  student_ids: Array.isArray(file.student_ids) ? file.student_ids.map(String).join(', ') : '',
 });
 
 // Re-exported so search results are judged against the file, like suggestions.
