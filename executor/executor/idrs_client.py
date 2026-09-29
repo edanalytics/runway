@@ -1,9 +1,13 @@
 import json
+import logging
+import requests
+from collections.abc import Iterator
 from executor.config import IDRS_BATCH_SIZE
+
 
 class IDRSClient:
 
-    def __init__(self, logger, conn, identity_url):
+    def __init__(self, logger: logging.Logger, conn: requests.Session, identity_url: str):
         # The logger to use to capture outputs
         self.logger = logger
         # The session to use for handling requests
@@ -11,11 +15,11 @@ class IDRSClient:
         # The URL for the IDRS
         self.identity_url = identity_url
 
-    def validate_candidates(self, candidates):
+    def validate_candidates(self, candidates: list[dict]) -> None:
         '''method to validate that we are sending data that conforms to IDRS API specs'''
         pass
 
-    def get_credentials(self):
+    def get_credentials(self) -> dict:
         '''return the IDRS credentials based on matching mode'''
         try:
             idrs_resp = self.conn.get(
@@ -33,12 +37,12 @@ class IDRSClient:
             raise
 
     @staticmethod
-    def batch_inputs(candidates, batch_size):
+    def batch_inputs(candidates: list[dict], batch_size: int) -> Iterator[list[dict]]:
         '''batch inputs to an arbitrary size before sending to the IDRS'''   
         for position in range(0, len(candidates), batch_size):
             yield candidates[position:position+batch_size]
 
-    def post_candidates(self, idrs_conn_info, candidates):
+    def post_candidates(self, idrs_conn_info: dict, candidates: list[dict]) -> list[dict]:
         '''send candidates to the IDRS'''
         try:
             # Initialize
@@ -76,7 +80,7 @@ class IDRSClient:
                     
         return matches
 
-    def query_idrs(self, candidates_path):
+    def query_idrs(self, candidates_path: str) -> list[dict]:
         '''Get IDRS config, send candidates and return an output set'''
 
         # load up the candidates
