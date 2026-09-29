@@ -124,6 +124,19 @@ const statusOrder: StudentStatus[] = [
   'excluded',
 ];
 
+/** The split view's list groups, in the order work moves through them. */
+const sections: { title: string; statuses: StudentStatus[] }[] = [
+  { title: 'To review', statuses: ['to-review'] },
+  { title: 'Run failed', statuses: ['run-failed'] },
+  { title: 'Ready to submit', statuses: ['ready'] },
+  { title: 'Reprocessing', statuses: ['reprocessing'] },
+  { title: 'Reprocessed', statuses: ['reprocessed'] },
+  { title: 'Excluded', statuses: ['excluded'] },
+];
+
+const sectionIndex = (status: StudentStatus) =>
+  sections.findIndex((section) => section.statuses.includes(status));
+
 const sortBy =
   ({ key, descending }: Sort, statusOf: (id: string) => StudentStatus) =>
   (a: GetStudentInputDetailsDto, b: GetStudentInputDetailsDto) => {
@@ -260,7 +273,10 @@ export const WorkspaceReview = ({
 }) => {
   const { job, groups, isLoading, isError, statusOf, decisions } = useReviewSession();
   // null means that filter is off. Clicking the active chip turns it off.
-  const [statusFilter, setStatusFilter] = useState<StatusFilter | null>('open');
+  // The split view groups the list by status instead of filtering by it.
+  const grouped = layout === 'split';
+  const defaultStatus: StatusFilter | null = grouped ? null : 'open';
+  const [statusFilter, setStatusFilter] = useState<StatusFilter | null>(defaultStatus);
   const [countFilter, setCountFilter] = useState<CountFilter | null>(null);
   const [selectedId, setSelectedIdState] = useState<string | null>(() => {
     try {
@@ -301,10 +317,16 @@ export const WorkspaceReview = ({
         countTest(suggestionsOf(g).length) &&
         (!terms || searchText(g).includes(terms))
     )
-    .sort(sortBy(sort, statusOf));
-  const filtered = statusFilter !== 'open' || countFilter !== null || !!terms;
+    .sort(sortBy(sort, statusOf))
+    // Grouped, the list reads section by section, so previous and next do too.
+    .sort((a, b) =>
+      grouped
+        ? sectionIndex(statusOf(a.correlationId)) - sectionIndex(statusOf(b.correlationId))
+        : 0
+    );
+  const filtered = statusFilter !== defaultStatus || countFilter !== null || !!terms;
   const clearFilters = () => {
-    setStatusFilter('open');
+    setStatusFilter(defaultStatus);
     setCountFilter(null);
     setQuery('');
   };
@@ -347,20 +369,22 @@ export const WorkspaceReview = ({
   );
   const filterChips = (
     <>
-      <FilterChips
-        label="Status"
-        options={statusFilters.map(({ key, label }) => ({
-          key,
-          label,
-          count: groups.filter((g) =>
-            (statusFilters.find((f) => f.key === key)?.includes ?? []).includes(
-              statusOf(g.correlationId)
-            )
-          ).length,
-        }))}
-        value={statusFilter}
-        onChange={(key) => setStatusFilter(key === statusFilter ? null : (key as StatusFilter))}
-      />
+      {!grouped && (
+        <FilterChips
+          label="Status"
+          options={statusFilters.map(({ key, label }) => ({
+            key,
+            label,
+            count: groups.filter((g) =>
+              (statusFilters.find((f) => f.key === key)?.includes ?? []).includes(
+                statusOf(g.correlationId)
+              )
+            ).length,
+          }))}
+          value={statusFilter}
+          onChange={(key) => setStatusFilter(key === statusFilter ? null : (key as StatusFilter))}
+        />
+      )}
       <FilterChips
         label="Suggestions"
         options={countFilters.map(({ key, label }) => ({ key, label }))}
@@ -549,16 +573,38 @@ export const WorkspaceReview = ({
                   </QuietButton>
                 </Box>
               )}
-              {queue.map((group) => (
-                <QueueRow
-                  key={group.correlationId}
-                  group={group}
-                  decision={decisions.get(group.correlationId)}
-                  status={statusOf(group.correlationId)}
-                  isSelected={group.correlationId === selected.correlationId}
-                  onSelect={() => setSelectedId(group.correlationId)}
-                />
-              ))}
+              {(grouped ? sections : [{ title: '', statuses: statusOrder }]).map(
+                ({ title, statuses }) => {
+                  const members = queue.filter((g) => statuses.includes(statusOf(g.correlationId)));
+                  if (!members.length) return null;
+                  return (
+                    <VStack key={title || 'all'} alignItems="stretch" gap="0" marginBottom="200">
+                      {grouped && (
+                        <Box
+                          fontSize="0.8rem"
+                          fontWeight="600"
+                          opacity="0.8"
+                          paddingX="200"
+                          paddingY="100"
+                        >
+                          {title} ({members.length})
+                        </Box>
+                      )}
+                      {members.map((group) => (
+                        <QueueRow
+                          key={group.correlationId}
+                          group={group}
+                          decision={decisions.get(group.correlationId)}
+                          status={statusOf(group.correlationId)}
+                          showStatus={!grouped}
+                          isSelected={group.correlationId === selected.correlationId}
+                          onSelect={() => setSelectedId(group.correlationId)}
+                        />
+                      ))}
+                    </VStack>
+                  );
+                }
+              )}
             </VStack>
           </VStack>
           <Box
@@ -834,12 +880,15 @@ const QueueRow = ({
   group,
   decision,
   status,
+  showStatus,
   isSelected,
   onSelect,
 }: {
   group: GetStudentInputDetailsDto;
   decision: Decision | undefined;
   status: StudentStatus;
+  /** Off when a group heading already says it. */
+  showStatus: boolean;
   isSelected: boolean;
   onSelect: () => void;
 }) => {
@@ -864,9 +913,11 @@ const QueueRow = ({
     >
       <HStack justifyContent="space-between" gap="200">
         <Box fontWeight="600">{studentName(group.inputDetails)}</Box>
-        <Box fontSize="0.75rem" opacity="0.85" whiteSpace="nowrap">
-          {statusLabel[status]}
-        </Box>
+        {showStatus && (
+          <Box fontSize="0.75rem" opacity="0.85" whiteSpace="nowrap">
+            {statusLabel[status]}
+          </Box>
+        )}
       </HStack>
       <HStack justifyContent="space-between" gap="200" fontSize="0.75rem" opacity="0.75">
         <Box>{secondId(group)}</Box>
