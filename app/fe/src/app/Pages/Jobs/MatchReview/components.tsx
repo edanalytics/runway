@@ -209,9 +209,9 @@ export const QuietButton = (props: React.ComponentProps<typeof Button>) => (
 );
 
 /**
- * A roster-search field. The theme's form labels are bold and bright; here
- * the label is small and muted and the value is what stands out, since the
- * reviewer is reading and correcting values.
+ * A roster-search field in the theme's input style. The theme's labels are
+ * bold and bright; here the label is small and muted so the value, which
+ * the reviewer is reading and correcting, stands out.
  */
 export const SearchField = ({
   id,
@@ -228,7 +228,7 @@ export const SearchField = ({
   onChange: (value: string) => void;
   onEnter: () => void;
 }) => (
-  <FormControl variant="plain">
+  <FormControl>
     <FormLabel
       htmlFor={id}
       textStyle="body"
@@ -242,24 +242,11 @@ export const SearchField = ({
     </FormLabel>
     <Input
       id={id}
+      size="sm"
       value={value}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={(event) => event.key === 'Enter' && onEnter()}
-      fontSize="1rem"
-      color="blue.50"
-      bg="blue.800"
-      paddingX="200"
-      paddingY="100"
-      borderWidth="1px"
-      borderColor="blue.50-40"
-      borderRadius="6px"
-      _placeholder={{ color: 'blue.50', opacity: 0.45 }}
-      _hover={{ borderColor: 'blue.50' }}
-      _focusVisible={{
-        borderColor: 'blue.100',
-        boxShadow: '0 0 0 1px var(--chakra-colors-blue-100)',
-      }}
     />
   </FormControl>
 );
