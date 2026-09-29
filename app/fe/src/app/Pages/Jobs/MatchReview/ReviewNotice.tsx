@@ -2,6 +2,7 @@ import { Box, HStack } from '@chakra-ui/react';
 import { IconExclamation } from '../../../../assets/icons';
 import { PrimaryButton, QuietButton } from './components';
 import { StudentStatus, useReviewSession } from './reviewSession';
+import { USUAL_MAXIMUM } from './WorkspaceReview';
 
 /*
  * PROTOTYPE. The job page's pointer to unmatched-student review, driven by
@@ -52,6 +53,13 @@ export const ReviewNotice = ({ onReview }: { onReview: () => void }) => {
           ready > 0 &&
           ` ${plural(ready, 'match is', 'matches are')} saved and waiting to be submitted.`}
       </Box>
+      {groups.length > USUAL_MAXIMUM && (
+        <Box textStyle="body" marginBottom="300" color="purple.200">
+          That's more than a file usually has, which often points to a problem with the file itself
+          (such as the wrong ID column or school year). Fixing and uploading it again may be
+          quicker.
+        </Box>
+      )}
       <PrimaryButton onClick={onReview}>
         {toReview ? 'Review unmatched students' : 'Review and submit'}
       </PrimaryButton>

@@ -605,7 +605,7 @@ export const PrototypeControls = () => {
           isChecked={simulateLarge}
           onChange={(e) => setSimulateLarge(e.target.checked)}
         >
-          Simulate a large job (240 more students)
+          Simulate a large file (30 more students)
         </Checkbox>
         <QuietButton
           size="xs"

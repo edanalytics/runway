@@ -29,11 +29,11 @@ import {
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
 import { Fragment, KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { CheckIcon, CopyIcon } from '@chakra-ui/icons';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
   BatchCard,
-  ComparisonTable,
   DesignIntro,
   PrimaryButton,
   PrototypeControls,
@@ -219,19 +219,23 @@ const copy = (value: string) => {
   navigator.clipboard?.writeText(value).catch(() => undefined);
 };
 
-const CopyButton = ({ value, label = 'Copy' }: { value: string; label?: string }) => {
+const CopyButton = ({ value, label }: { value: string; label?: string }) => {
   const [copied, setCopied] = useState(false);
   return (
     <QuietButton
       size="xs"
+      paddingX="100"
+      minWidth="0"
       onClick={() => {
         copy(value);
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       }}
-      aria-label={`Copy ${value}`}
+      aria-label={copied ? 'Copied' : `Copy ${value}`}
+      title={copied ? 'Copied' : `Copy ${value}`}
+      leftIcon={label ? copied ? <CheckIcon /> : <CopyIcon /> : undefined}
     >
-      {copied ? 'Copied' : label}
+      {label ?? (copied ? <CheckIcon /> : <CopyIcon />)}
     </QuietButton>
   );
 };
@@ -387,17 +391,17 @@ export const WorkspaceReview = ({
       {layout === 'inline' ? (
         <DesignIntro
           title="Review workspace, expanding rows"
-          bet="The whole list stays a table, and reviewing happens in place: open a row and the full review pane unfolds beneath it, set apart from the rows, while the rest of the table stays in view above and below. Saving moves the pane to the next student to review. Sort by any column, search and filter as usual. Keyboard: j/k to move between rows, s to save, x to exclude, Esc to close."
+          bet="The whole list stays a table, and reviewing happens in place: open a row and the review pane unfolds beneath it, framed apart from the rows, while the rest of the table stays in view. Using a suggestion saves it and moves the pane to the next student to review. Sort by any column, search and filter as usual. Keyboard: j/k to move between rows, x to exclude, Esc to close."
         />
       ) : layout === 'table' ? (
         <DesignIntro
           title="Review workspace, table first"
-          bet="The workspace, starting from the whole list as a table: sort by any column, search and filter, and see every student's status at a glance. Open a student and the table condenses into a side list next to the full review panel, like opening a thread or a ticket; go back to the table whenever you want the big picture. Keyboard: j/k to move, s to save, x to exclude, Esc for the table."
+          bet="The workspace, starting from the whole list as a table: sort by any column, search and filter, and see every student's status at a glance. Open a student and the table condenses into a side list next to the full review panel, like opening a thread or a ticket; go back to the table whenever you want the big picture. Keyboard: j/k to move, x to exclude, Esc for the table."
         />
       ) : (
         <DesignIntro
           title="Review workspace"
-          bet="One searchable, filterable list and one workspace, built for a careful choice first. Every candidate is lined up against your file, roster details are a click away, and roster search is always available. Select a student, then save the match, or exclude junk records; review and submit saved matches at a stopping point, and follow each batch from the summary above. Keyboard: j/k to move, s to save, x to exclude."
+          bet="One searchable, filterable list and one workspace, built for a careful choice. Every candidate is lined up against your file in its own band, with roster details a click away and roster search always available. Use a suggestion (or a search result) in one step, or exclude junk records; saved matches get their second look in the list you review before submitting. Keyboard: j/k to move, x to exclude."
         />
       )}
       <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
@@ -635,6 +639,7 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
   const count = (...statuses: StudentStatus[]) =>
     groups.filter((g) => statuses.includes(statusOf(g.correlationId))).length;
   const decided = groups.length - count('to-review', 'run-failed');
+  const tooMany = groups.length > USUAL_MAXIMUM;
   const tiles: { label: string; value: number }[] = [
     { label: 'Needs review', value: count('to-review') },
     { label: 'Matches to submit', value: readyCount },
@@ -644,6 +649,7 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
 
   return (
     <VStack alignItems="stretch" gap="200" layerStyle="contentBox" padding="300">
+      {tooMany && <TooManyNote count={groups.length} />}
       <HStack justifyContent="space-between" flexWrap="wrap" gap="300">
         <HStack gap="500" flexWrap="wrap">
           {tiles.map((tile) => (
@@ -694,6 +700,29 @@ const Overview = ({ readyCount, onReview }: { readyCount: number; onReview: () =
     </VStack>
   );
 };
+
+/**
+ * A file usually has no more than 15-20 students to match. Many more points
+ * at a problem with the file itself, better fixed there than one by one.
+ */
+export const USUAL_MAXIMUM = 20;
+
+export const TooManyNote = ({ count }: { count: number }) => (
+  <Box
+    padding="300"
+    borderRadius="6px"
+    borderWidth="1px"
+    borderColor="purple.200"
+    fontSize="0.9rem"
+    role="note"
+  >
+    <Box fontWeight="600">{count} students couldn't be matched, more than a file usually has</Box>
+    <Box opacity="0.9">
+      That often means a problem with the file itself, such as the wrong ID column or school year.
+      It may be quicker to fix and upload the file again than to review each student.
+    </Box>
+  </Box>
+);
 
 /** One line per batch; expands to its counts and students. */
 const BatchSummary = ({ batch, number }: { batch: Batch; number: number }) => {
@@ -1104,17 +1133,17 @@ const Workspace = ({
   const isSubmitted = status === 'reprocessing' || status === 'reprocessed';
   const suggestions = suggestionsOf(group);
 
-  // The candidate the reviewer has selected but not yet saved. Never defaulted.
-  const [selected, setSelected] = useState<Candidate | null>(null);
-  const [found, setFound] = useState<Candidate | null>(
-    decision?.kind === 'match' && decision.candidate.source === 'search' ? decision.candidate : null
-  );
   const [confirmingExclude, setConfirmingExclude] = useState(false);
   const [searching, setSearching] = useState(suggestions.length === 0);
 
+  // A match found by searching stays in view beside the suggestions.
+  const fromSearch =
+    decision?.kind === 'match' && decision.candidate.source === 'search'
+      ? decision.candidate
+      : null;
   const candidates =
-    found && !suggestions.some((c) => c.studentUniqueId === found.studentUniqueId)
-      ? [...suggestions, found]
+    fromSearch && !suggestions.some((c) => c.studentUniqueId === fromSearch.studentUniqueId)
+      ? [...suggestions, fromSearch]
       : suggestions;
   const saved = decision?.kind === 'match' ? decision.candidate.studentUniqueId : null;
   const name = studentName(group.inputDetails);
@@ -1123,12 +1152,12 @@ const Workspace = ({
   const restore = (previous: Decision | undefined) => () =>
     previous ? decide(id, previous) : undo(id);
 
-  const save = () => {
-    if (!selected) return;
+  // One step: the submit list is where matches get their second look.
+  const use = (candidate: Candidate) => {
     const previous = decision;
-    decide(id, { kind: 'match', candidate: selected });
+    decide(id, { kind: 'match', candidate });
     onSaved({
-      message: `Saved ${selected.studentUniqueId} as the match for ${name}.`,
+      message: `Saved ${candidate.studentUniqueId} as the match for ${name}.`,
       undo: restore(previous),
       advance: true,
     });
@@ -1142,7 +1171,6 @@ const Workspace = ({
 
   const onKeyDown = (event: KeyboardEvent) => {
     if ((event.target as HTMLElement).closest('input, textarea') || isSubmitted) return;
-    if (event.key === 's') save();
     if (event.key === 'x') setConfirmingExclude(true);
   };
 
@@ -1187,9 +1215,8 @@ const Workspace = ({
           <EvidenceTable
             group={group}
             candidates={candidates}
-            selected={selected?.studentUniqueId ?? null}
             saved={saved}
-            onSelect={isSubmitted ? undefined : setSelected}
+            onUse={isSubmitted ? undefined : use}
           />
         )}
       </VStack>
@@ -1199,15 +1226,7 @@ const Workspace = ({
           <SecondaryButton alignSelf="flex-start" onClick={() => setSearching(!searching)}>
             {searching ? 'Hide roster search' : 'Search the roster'}
           </SecondaryButton>
-          {searching && (
-            <Search
-              group={group}
-              onSelect={(candidate) => {
-                setFound(candidate);
-                setSelected(candidate);
-              }}
-            />
-          )}
+          {searching && <Search group={group} saved={saved} onUse={use} />}
         </VStack>
       )}
 
@@ -1266,15 +1285,6 @@ const Workspace = ({
                   Clear decision
                 </QuietButton>
               )}
-              <PrimaryButton
-                isDisabled={!selected || selected.studentUniqueId === saved}
-                title="Save match (s)"
-                onClick={save}
-              >
-                {selected
-                  ? `Save match: ${selected.studentUniqueId}`
-                  : 'Select a student to save a match'}
-              </PrimaryButton>
             </HStack>
           )}
         </VStack>
@@ -1408,36 +1418,45 @@ const rows: Row[] = [
 
 const MAX_COMPARED = 3;
 
+const rosterDetailsKey = 'runway.match-review-prototype.roster-details';
+
 /**
  * The file against every candidate, aligned, so the eye runs across a row.
- * Nothing is hidden: a conflict all candidates share stays in view, and
- * roster-only details are shown even with nothing to compare them to.
+ * Each candidate's column is its own tinted band, so one student's details
+ * read together. Nothing is hidden: a conflict all candidates share stays in
+ * view, and roster-only details are a click away.
  */
 const EvidenceTable = ({
   group,
   candidates,
-  selected,
   saved,
-  onSelect,
+  onUse,
 }: {
   group: GetStudentInputDetailsDto;
   candidates: Candidate[];
-  selected: string | null;
   saved: string | null;
-  onSelect?: (candidate: Candidate) => void;
+  onUse?: (candidate: Candidate) => void;
 }) => {
-  // Details only the roster has are a click away, so the compared rows read cleanly.
-  const [showRosterOnly, setShowRosterOnly] = useState(false);
+  // Details only the roster has are a click away; remembered across students.
+  const [showRosterOnly, setShowRosterOnlyState] = useState(() => {
+    try {
+      return window.localStorage.getItem(rosterDetailsKey) === 'open';
+    } catch {
+      return false;
+    }
+  });
+  const setShowRosterOnly = (open: boolean) => {
+    setShowRosterOnlyState(open);
+    try {
+      window.localStorage.setItem(rosterDetailsKey, open ? 'open' : 'closed');
+    } catch {
+      // A remembered preference is a convenience.
+    }
+  };
   // With many candidates, compare a shortlist; the full list stays one click away.
   const [shortlist, setShortlist] = useState<string[]>(() =>
     candidates.slice(0, MAX_COMPARED).map((c) => c.studentUniqueId)
   );
-  useEffect(() => {
-    const last = candidates[candidates.length - 1];
-    if (last?.source === 'search' && !shortlist.includes(last.studentUniqueId)) {
-      setShortlist((list) => [...list.slice(-(MAX_COMPARED - 1)), last.studentUniqueId]);
-    }
-  }, [candidates, shortlist]);
   const shown =
     candidates.length > MAX_COMPARED
       ? candidates.filter((c) => shortlist.includes(c.studentUniqueId))
@@ -1453,6 +1472,15 @@ const EvidenceTable = ({
   };
   const agreementOf = (label: string, index: number): Agreement =>
     comparisons[index].fields.find((f) => f.label === label)?.agreement ?? 'unknown';
+  // The band behind each candidate's column; a saved match's band is outlined.
+  const band = (c: Candidate) => ({
+    bg: 'blue.600',
+    borderBottomWidth: '0',
+    boxShadow:
+      saved === c.studentUniqueId
+        ? 'inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
+        : undefined,
+  });
 
   const renderRow = (row: Row) => (
     <Tr key={row.label}>
@@ -1463,7 +1491,7 @@ const EvidenceTable = ({
       {shown.map((c, i) => {
         const value = row.roster(c.rosterDetails);
         return (
-          <Td key={c.studentUniqueId} bg={selected === c.studentUniqueId ? 'blue.600' : undefined}>
+          <Td key={c.studentUniqueId} {...band(c)}>
             <HStack gap="100" alignItems="baseline">
               {row.compared ? (
                 <AgreementMark agreement={agreementOf(row.label, i)} />
@@ -1510,7 +1538,13 @@ const EvidenceTable = ({
       <Box overflowX="auto">
         <Table
           size="sm"
-          sx={{ td: { paddingX: '200', verticalAlign: 'top' }, th: { paddingX: '200' } }}
+          sx={{
+            // Separate cells, so each candidate's band has space around it.
+            borderCollapse: 'separate',
+            borderSpacing: '0.5rem 0',
+            td: { paddingX: '200', verticalAlign: 'top', borderColor: 'blue.50-40' },
+            th: { paddingX: '200' },
+          }}
         >
           <Thead>
             <Tr>
@@ -1518,35 +1552,38 @@ const EvidenceTable = ({
               <Th color="blue.50" textTransform="none" fontSize="0.8rem">
                 In your file
               </Th>
-              {shown.map((c) => {
-                const isSelected = selected === c.studentUniqueId;
-                return (
-                  <Th
-                    key={c.studentUniqueId}
-                    color="blue.50"
-                    textTransform="none"
-                    fontSize="0.8rem"
-                    bg={isSelected ? 'blue.600' : undefined}
-                    borderTopRadius="6px"
-                  >
-                    <HStack gap="100">
-                      <Box>{c.studentUniqueId}</Box>
-                      <CopyButton value={c.studentUniqueId} />
-                    </HStack>
-                    <Box fontWeight="normal" opacity="0.8">
-                      {c.source === 'search' ? 'Found by your search' : 'Suggestion'}
-                      {saved === c.studentUniqueId && ' · saved match'}
-                    </Box>
-                  </Th>
-                );
-              })}
+              {shown.map((c) => (
+                <Th
+                  key={c.studentUniqueId}
+                  color="blue.50"
+                  textTransform="none"
+                  fontSize="0.8rem"
+                  borderTopRadius="8px"
+                  paddingTop="200"
+                  {...band(c)}
+                  boxShadow={
+                    saved === c.studentUniqueId
+                      ? 'inset 0 2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
+                      : undefined
+                  }
+                >
+                  <HStack gap="100">
+                    <Box>{c.studentUniqueId}</Box>
+                    <CopyButton value={c.studentUniqueId} />
+                  </HStack>
+                  <Box fontWeight="normal" opacity="0.8">
+                    {c.source === 'search' ? 'Found by your search' : 'Suggestion'}
+                    {c.score !== null && ` · match score ${c.score}`}
+                  </Box>
+                </Th>
+              ))}
             </Tr>
           </Thead>
           <Tbody>
             {rows.filter((row) => !row.rosterOnly).map(renderRow)}
             {/* The toggle stays put; roster details open beneath it. */}
             <Tr>
-              <Td colSpan={2 + shown.length} paddingY="100">
+              <Td paddingY="100" colSpan={2}>
                 <QuietButton
                   size="xs"
                   paddingX="0"
@@ -1559,50 +1596,40 @@ const EvidenceTable = ({
                   middle name, school years
                 </Box>
               </Td>
+              {shown.map((c) => (
+                <Td key={c.studentUniqueId} {...band(c)} />
+              ))}
             </Tr>
             {showRosterOnly && rows.filter((row) => row.rosterOnly).map(renderRow)}
             <Tr>
-              <Td opacity="0.85" fontSize="0.8rem">
-                Match score
-              </Td>
+              <Td />
               <Td />
               {shown.map((c) => (
                 <Td
                   key={c.studentUniqueId}
-                  fontSize="0.8rem"
-                  opacity="0.85"
-                  bg={selected === c.studentUniqueId ? 'blue.600' : undefined}
+                  {...band(c)}
+                  borderBottomRadius="8px"
+                  paddingBottom="300"
+                  boxShadow={
+                    saved === c.studentUniqueId
+                      ? 'inset 0 -2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
+                      : undefined
+                  }
                 >
-                  {c.score ?? '—'}
+                  {saved === c.studentUniqueId ? (
+                    <Box fontWeight="600" color="green.100" paddingY="100">
+                      ✓ Saved match
+                    </Box>
+                  ) : (
+                    onUse && (
+                      <PrimaryButton onClick={() => onUse(c)}>
+                        {c.source === 'search' ? 'Use this student' : 'Use suggestion'}
+                      </PrimaryButton>
+                    )
+                  )}
                 </Td>
               ))}
             </Tr>
-            {onSelect && (
-              <Tr>
-                <Td />
-                <Td />
-                {shown.map((c) => {
-                  const isSelected = selected === c.studentUniqueId;
-                  return (
-                    <Td
-                      key={c.studentUniqueId}
-                      bg={isSelected ? 'blue.600' : undefined}
-                      borderBottomRadius="6px"
-                    >
-                      {isSelected ? (
-                        <PrimaryButton aria-pressed onClick={() => onSelect(c)}>
-                          ✓ Selected
-                        </PrimaryButton>
-                      ) : (
-                        <SecondaryButton aria-pressed={false} onClick={() => onSelect(c)}>
-                          Select
-                        </SecondaryButton>
-                      )}
-                    </Td>
-                  );
-                })}
-              </Tr>
-            )}
           </Tbody>
         </Table>
       </Box>
@@ -1619,10 +1646,12 @@ const Missing = ({ compared }: { compared: boolean }) => (
 /** Search, remembered per student so a trip to the SIS doesn't lose it. */
 const Search = ({
   group,
-  onSelect,
+  saved,
+  onUse,
 }: {
   group: GetStudentInputDetailsDto;
-  onSelect: (candidate: Candidate) => void;
+  saved: string | null;
+  onUse: (candidate: Candidate) => void;
 }) => {
   const { roster, searchOf, setSearch } = useReviewSession();
   const remembered = searchOf(group.correlationId);
@@ -1675,39 +1704,23 @@ const Search = ({
           roster.
         </Box>
       </HStack>
-      {hits && !searching && (
-        <VStack alignItems="stretch" gap="200">
-          {hits.length === 0 && <Box>No one in the roster matches those details.</Box>}
-          {hits.map((hit) => (
-            <HStack
-              key={hit.studentUniqueId}
-              alignItems="flex-start"
-              gap="300"
-              padding="200"
-              borderRadius="4px"
-              bg="blue.700"
-            >
-              <Box flex="1" minWidth="0">
-                <ComparisonTable
-                  comparison={compare(group.inputDetails, hit.rosterDetails)}
-                  rosterHeading={`${hit.studentUniqueId} · search score ${hit.score}`}
-                />
-              </Box>
-              <SecondaryButton
-                onClick={() =>
-                  onSelect({
-                    studentUniqueId: hit.studentUniqueId,
-                    rosterDetails: hit.rosterDetails,
-                    score: hit.score,
-                    source: 'search',
-                  })
-                }
-              >
-                Add to comparison
-              </SecondaryButton>
-            </HStack>
-          ))}
-        </VStack>
+      {hits && !searching && hits.length === 0 && (
+        <Box>No one in the roster matches those details.</Box>
+      )}
+      {hits && !searching && hits.length > 0 && (
+        <Box bg="blue.700" borderRadius="6px" padding="200">
+          <EvidenceTable
+            group={group}
+            candidates={hits.map((hit) => ({
+              studentUniqueId: hit.studentUniqueId,
+              rosterDetails: hit.rosterDetails,
+              score: hit.score,
+              source: 'search' as const,
+            }))}
+            saved={saved}
+            onUse={onUse}
+          />
+        </Box>
       )}
     </VStack>
   );

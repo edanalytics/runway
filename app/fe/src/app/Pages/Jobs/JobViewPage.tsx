@@ -56,10 +56,10 @@ const selectedTab = { color: 'blue.50', borderColor: 'blue.50' };
 const reviewTabs: { label: string; tucked: boolean }[] = [
   { label: 'Unmatched Students (side by side)', tucked: true },
   { label: 'Unmatched Students (stacked)', tucked: true },
-  { label: 'Unmatched Students (focus)', tucked: false },
+  { label: 'Unmatched Students (focus)', tucked: true },
   { label: 'Unmatched Students (triage)', tucked: true },
   { label: 'Unmatched Students (yes / no)', tucked: true },
-  { label: 'Unmatched Students (grouped)', tucked: false },
+  { label: 'Unmatched Students (grouped)', tucked: true },
   { label: 'Unmatched Students (workspace)', tucked: false },
   { label: 'Unmatched Students (table)', tucked: true },
   { label: 'Unmatched Students (expanding rows)', tucked: false },
@@ -263,11 +263,14 @@ export const JobViewPage = () => {
                       <JobError key={error.id} err={error} />
                     ))}
                     {!!job.hasUnmatchedStudents && <UnmatchedStudents job={job} />}
-                    {/* PROTOTYPE: review starts on the focus tab. */}
+                    {/* PROTOTYPE: review starts on the workspace tab. */}
                     <ReviewNotice
                       onReview={() =>
                         setTabIndex(
-                          1 + reviewTabs.findIndex((t) => t.label === 'Unmatched Students (focus)')
+                          1 +
+                            reviewTabs.findIndex(
+                              (t) => t.label === 'Unmatched Students (workspace)'
+                            )
                         )
                       }
                     />
