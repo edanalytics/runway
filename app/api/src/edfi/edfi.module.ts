@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
 import { EdfiService } from './edfi.service';
 import { HttpModule } from '@nestjs/axios';
-import { AppConfigModule } from '../config/app-config.module';
 
 @Module({
-  imports: [HttpModule, AppConfigModule],
+  imports: [HttpModule],
   providers: [EdfiService],
   exports: [EdfiService],
 })

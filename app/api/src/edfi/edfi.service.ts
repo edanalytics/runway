@@ -64,7 +64,9 @@ export class EdfiService {
       ? connectionInfo.host.slice(0, -1)
       : connectionInfo.host;
 
-    const res = await lastValueFrom(this.httpService.get(baseApiUrl, this.requestConfig(baseApiUrl)));
+    const res = await lastValueFrom(
+      this.httpService.get(baseApiUrl, this.requestConfig(baseApiUrl))
+    );
     if (res.status !== 200) {
       throw new Error('Failed to get auth endpoint');
     }
@@ -107,7 +109,9 @@ export class EdfiService {
     } catch (e) {
       const blocked = findDisallowedUrlError(e);
       if (blocked) {
-        this.logger.warn(`Blocked ODS request for host ${describeHost(connectionInfo.host)}: ${blocked.message}`);
+        this.logger.warn(
+          `Blocked ODS request for host ${describeHost(connectionInfo.host)}: ${blocked.message}`
+        );
       }
       return { status: 'ERROR', type: 'AUTH' };
     }

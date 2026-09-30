@@ -2,6 +2,7 @@ import { HttpService } from '@nestjs/axios';
 import axios from 'axios';
 import dns from 'dns';
 import http from 'http';
+import ipaddr from 'ipaddr.js';
 import type { LookupAddress } from 'dns';
 import type { AddressInfo } from 'net';
 import { AppConfigService } from '../config/app-config.service';
@@ -12,19 +13,6 @@ import {
   isPublicAddress,
   publicOnlyLookup,
 } from './outbound-url-guard';
-
-// Addresses the ipaddr.js mock classifies as public, so a test can stand up a "public" ODS on loopback.
-const mockPublicAddresses = new Set<string>();
-jest.mock('ipaddr.js', () => {
-  const actual = jest.requireActual('ipaddr.js');
-  return {
-    ...actual,
-    process: (address: string) =>
-      mockPublicAddresses.has(address) ? { range: () => 'unicast' } : actual.process(address),
-  };
-});
-
-afterEach(() => mockPublicAddresses.clear());
 
 describe('isPublicAddress', () => {
   it.each([
@@ -59,20 +47,24 @@ describe('assertAllowedUrl', () => {
     expect(() => assertAllowedUrl(url)).toThrow(DisallowedUrlError);
   });
 
-  it.each(['https://api.ed-fi.org/v7.1/api', 'http://93.184.216.34/', 'https://[2606:4700::1111]/'])(
-    'allows %s',
-    (url) => {
-      expect(() => assertAllowedUrl(url)).not.toThrow();
-    }
-  );
+  it.each([
+    'https://api.ed-fi.org/v7.1/api',
+    'http://93.184.216.34/',
+    'https://[2606:4700::1111]/',
+  ])('allows %s', (url) => {
+    expect(() => assertAllowedUrl(url)).not.toThrow();
+  });
 });
 
 describe('publicOnlyLookup', () => {
   const resolveTo = (addresses: LookupAddress[]) =>
     jest
       .spyOn(dns, 'lookup')
-      .mockImplementation(((_host: string, _options: unknown, cb: (e: null, a: LookupAddress[]) => void) =>
-        cb(null, addresses)) as unknown as typeof dns.lookup);
+      .mockImplementation(((
+        _host: string,
+        _options: unknown,
+        cb: (e: null, a: LookupAddress[]) => void
+      ) => cb(null, addresses)) as unknown as typeof dns.lookup);
 
   afterEach(() => jest.restoreAllMocks());
 
@@ -143,7 +135,8 @@ describe('EdfiService.testConnection', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
-  const connect = (host: string) => service.testConnection({ host, clientId: 'id', clientSecret: 'secret' });
+  const connect = (host: string) =>
+    service.testConnection({ host, clientId: 'id', clientSecret: 'secret' });
   // Nothing listens on 127.0.0.2, so if the guard let a request through it would fail without a warning.
   const privateUrl = () => `http://127.0.0.2:${port}/`;
 
@@ -154,7 +147,11 @@ describe('EdfiService.testConnection', () => {
   });
 
   it.each([
-    ['a URL with userinfo and query', 'http://user:pass-value@127.0.0.1/?key=key-value', 'http://127.0.0.1'],
+    [
+      'a URL with userinfo and query',
+      'http://user:pass-value@127.0.0.1/?key=key-value',
+      'http://127.0.0.1',
+    ],
     ['an unparseable host', 'pass-value key-value', '(unparseable URL)'],
   ])('logs only the origin of %s', async (_label, host, logged) => {
     await connect(host);
@@ -174,7 +171,17 @@ describe('EdfiService.testConnection', () => {
   });
 
   describe('with a public ODS', () => {
-    beforeEach(() => mockPublicAddresses.add('127.0.0.1'));
+    // Classify the test server's address as public, so a "public" ODS can run on loopback.
+    beforeEach(() => {
+      const realProcess = ipaddr.process;
+      jest
+        .spyOn(ipaddr, 'process')
+        .mockImplementation((address) =>
+          address === '127.0.0.1'
+            ? ({ range: () => 'unicast' } as unknown as ReturnType<typeof ipaddr.process>)
+            : realProcess.call(ipaddr, address)
+        );
+    });
 
     it('connects through the guard', async () => {
       expect(await connect(`http://127.0.0.1:${port}`)).toEqual({ status: 'SUCCESS' });
