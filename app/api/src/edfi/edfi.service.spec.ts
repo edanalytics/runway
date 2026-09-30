@@ -153,6 +153,15 @@ describe('EdfiService.testConnection', () => {
     expect(warnings).toEqual([expect.stringContaining('127.0.0.1')]);
   });
 
+  it.each([
+    ['a URL with userinfo and query', 'http://user:pass-value@127.0.0.1/?key=key-value', 'http://127.0.0.1'],
+    ['an unparseable host', 'pass-value key-value', '(unparseable URL)'],
+  ])('logs only the origin of %s', async (_label, host, logged) => {
+    await connect(host);
+    expect(warnings).toEqual([expect.stringContaining(`host ${logged}:`)]);
+    expect(warnings[0]).not.toMatch(/pass-value|key-value/);
+  });
+
   it('does not request a hostname that resolves to loopback', async () => {
     expect(await connect(`http://localhost:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
     expect(requests).toEqual([]);

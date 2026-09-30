@@ -13,6 +13,16 @@ import {
 // Overall deadline per request, so a slow or unresponsive host doesn't hold it open.
 const REQUEST_TIMEOUT_MS = 10_000;
 
+// For logging, reduce a user-entered host to its origin, since the field may hold userinfo,
+// query parameters, or text pasted into the wrong field.
+const describeHost = (host: string) => {
+  try {
+    return new URL(host).origin;
+  } catch {
+    return '(unparseable URL)';
+  }
+};
+
 interface IEdfiConnection {
   host: string;
   clientId: string;
@@ -97,7 +107,7 @@ export class EdfiService {
     } catch (e) {
       const blocked = findDisallowedUrlError(e);
       if (blocked) {
-        this.logger.warn(`Blocked ODS request for host ${connectionInfo.host}: ${blocked.message}`);
+        this.logger.warn(`Blocked ODS request for host ${describeHost(connectionInfo.host)}: ${blocked.message}`);
       }
       return { status: 'ERROR', type: 'AUTH' };
     }
