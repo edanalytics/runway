@@ -82,6 +82,12 @@ Parameters:
   OAuth2Issuer:
     Type: String
     Description: URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function.
+  IdrsOauthTokenUrl:
+    Type: String
+    Description: URL of the Auth0 instance that IDRS uses as its auth server. Distinct from OAuth2Issuer, which is the issuer Runway trusts.
+  IdrsUrl:
+    Type: String
+    Description: URL of the IDRS instance Runway works with.
     
 Conditions:
   EnableHealthCheck: !Not [!Equals [!Ref SNSTopicArn, '']]
@@ -581,6 +587,12 @@ Resources:
         - Namespace: aws:elasticbeanstalk:application:environment
           OptionName: OAUTH2_ISSUER
           Value: !Ref OAuth2Issuer
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: IDRS_OAUTH_TOKEN_URL
+          Value: !Ref IdrsOauthTokenUrl
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: IDRS_URL
+          Value: !Ref IdrsUrl
         - Namespace: aws:elasticbeanstalk:application:environment
           OptionName: UM_CONFIG_SECRET
           Value: !Sub '${EnvLabel}-UMConfigSecret'

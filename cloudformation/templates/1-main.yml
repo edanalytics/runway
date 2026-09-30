@@ -43,6 +43,8 @@ Metadata:
           - BeanstalkPlatformUpdateTime
           - BundleBranch
           - OAuth2Issuer
+          - IdrsOauthTokenUrl
+          - IdrsUrl
       - Label:
           default: S3 Cloudfront Information
         Parameters: 
@@ -352,6 +354,12 @@ Parameters:
   OAuth2Issuer:
     Type: String
     Description: 'URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function.'
+  IdrsOauthTokenUrl:
+    Type: String
+    Description: 'URL of the Auth0 instance that IDRS uses as its auth server. Distinct from OAuth2Issuer, which is the issuer Runway trusts.'
+  IdrsUrl:
+    Type: String
+    Description: 'URL of the IDRS instance Runway works with.'
 
 Mappings:
   PostgreSQLInformation:
@@ -429,6 +437,8 @@ Resources:
         ApplicationEventsToSlackFunctionArn: !If [EnableSlackAlerting, !GetAtt 'LambdaFunctionsStack.Outputs.ApplicationEventsToSlackFunctionArn', '']
         SlackWebhookURL: !If [EnableSlackAlerting, !Ref SlackWebhookURL, '']
         OAuth2Issuer: !Ref OAuth2Issuer
+        IdrsOauthTokenUrl: !Ref IdrsOauthTokenUrl
+        IdrsUrl: !Ref IdrsUrl
   LambdaFunctionsStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
@@ -564,4 +574,4 @@ Resources:
 Outputs:
   TemplateVersion:
     Description: The version of the cloudformation template
-    Value: '2.1.0'
+    Value: '2.1.1'
