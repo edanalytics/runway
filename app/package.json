@@ -154,6 +154,7 @@
     "prisma-case-format": "^2.2.1",
     "prisma-json-types-generator": "^3.0.4",
     "rollup-plugin-visualizer": "^5.12.0",
+    "selfsigned": "^5.5.0",
     "storybook": "7.6.20",
     "supertest": "^6.3.4",
     "ts-jest": "^29.1.0",

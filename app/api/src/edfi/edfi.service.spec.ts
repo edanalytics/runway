@@ -1,16 +1,19 @@
 import { HttpService } from '@nestjs/axios';
 import axios from 'axios';
 import dns from 'dns';
-import http from 'http';
+import type http from 'http';
+import https from 'https';
 import ipaddr from 'ipaddr.js';
 import type { LookupAddress } from 'dns';
 import type { AddressInfo } from 'net';
+import { generate as generateCert } from 'selfsigned';
 import { AppConfigService } from '../config/app-config.service';
 import { EdfiService } from './edfi.service';
 import {
   assertAllowedUrl,
   DisallowedUrlError,
   isPublicAddress,
+  publicOnlyHttpsAgent,
   publicOnlyLookup,
 } from './outbound-url-guard';
 
@@ -34,12 +37,13 @@ describe('isPublicAddress', () => {
 
 describe('assertAllowedUrl', () => {
   it.each([
-    'http://127.0.0.1/',
-    'http://2130706433/', // decimal 127.0.0.1
-    'http://0x7f.1/', // hex shorthand 127.0.0.1
-    'http://169.254.169.254/',
-    'http://[::1]/',
-    'http://[::ffff:127.0.0.1]/',
+    'https://127.0.0.1/',
+    'https://2130706433/', // decimal 127.0.0.1
+    'https://0x7f.1/', // hex shorthand 127.0.0.1
+    'https://169.254.169.254/',
+    'https://[::1]/',
+    'https://[::ffff:127.0.0.1]/',
+    'http://ods.example.com/',
     'ftp://example.com/',
     'https://user:pass@example.com/',
     'not a url',
@@ -49,7 +53,7 @@ describe('assertAllowedUrl', () => {
 
   it.each([
     'https://api.ed-fi.org/v7.1/api',
-    'http://93.184.216.34/',
+    'https://93.184.216.34/',
     'https://[2606:4700::1111]/',
   ])('allows %s', (url) => {
     expect(() => assertAllowedUrl(url)).not.toThrow();
@@ -95,13 +99,15 @@ describe('publicOnlyLookup', () => {
 });
 
 describe('EdfiService.testConnection', () => {
-  let server: http.Server;
+  let server: https.Server;
   let port: number;
   let requests: string[];
   let respond: (req: http.IncomingMessage, res: http.ServerResponse) => void;
   let isDev: boolean;
   let service: EdfiService;
   let warnings: string[];
+  // Dev requests skip the guard, so they use this agent instead of publicOnlyHttpsAgent.
+  let devHttpsAgent: https.Agent;
 
   const json = (res: http.ServerResponse, body: unknown) => {
     res.setHeader('content-type', 'application/json');
@@ -111,7 +117,15 @@ describe('EdfiService.testConnection', () => {
     json(res, req.method === 'POST' ? { access_token: 'token' } : {});
 
   beforeAll(async () => {
-    server = http.createServer((req, res) => {
+    // Self-signed cert for localhost / 127.0.0.1. Both agents trust it; Jest gives each test
+    // file its own module registry, so the change to the guard's agent stays in this file.
+    const { cert, private: key } = await generateCert(
+      [{ name: 'commonName', value: 'localhost' }],
+      { algorithm: 'sha256' }
+    );
+    publicOnlyHttpsAgent.options.ca = cert;
+    devHttpsAgent = new https.Agent({ ca: cert });
+    server = https.createServer({ key, cert }, (req, res) => {
       requests.push(`${req.method} ${req.url}`);
       respond(req, res);
     });
@@ -126,7 +140,8 @@ describe('EdfiService.testConnection', () => {
     respond = odsResponse;
     isDev = false;
     const appConfig = { isDevEnvironment: () => isDev } as AppConfigService;
-    service = new EdfiService(new HttpService(axios.create()), appConfig);
+    const httpService = new HttpService(axios.create({ httpsAgent: devHttpsAgent }));
+    service = new EdfiService(httpService, appConfig);
     warnings = [];
     jest
       .spyOn((service as any).logger, 'warn')
@@ -138,10 +153,10 @@ describe('EdfiService.testConnection', () => {
   const connect = (host: string) =>
     service.testConnection({ host, clientId: 'id', clientSecret: 'secret' });
   // Nothing listens on 127.0.0.2, so if the guard let a request through it would fail without a warning.
-  const privateUrl = () => `http://127.0.0.2:${port}/`;
+  const privateUrl = () => `https://127.0.0.2:${port}/`;
 
   it('does not request a loopback IP literal', async () => {
-    expect(await connect(`http://127.0.0.1:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
+    expect(await connect(`https://127.0.0.1:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
     expect(requests).toEqual([]);
     expect(warnings).toEqual([expect.stringContaining('127.0.0.1')]);
   });
@@ -149,8 +164,8 @@ describe('EdfiService.testConnection', () => {
   it.each([
     [
       'a URL with userinfo and query',
-      'http://user:pass-value@127.0.0.1/?key=key-value',
-      'http://127.0.0.1',
+      'https://user:pass-value@127.0.0.1/?key=key-value',
+      'https://127.0.0.1',
     ],
     ['an unparseable host', 'pass-value key-value', '(unparseable URL)'],
   ])('logs only the origin of %s', async (_label, host, logged) => {
@@ -160,13 +175,13 @@ describe('EdfiService.testConnection', () => {
   });
 
   it('does not request a hostname that resolves to loopback', async () => {
-    expect(await connect(`http://localhost:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
+    expect(await connect(`https://localhost:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
     expect(requests).toEqual([]);
   });
 
   it('allows private addresses in dev', async () => {
     isDev = true;
-    expect(await connect(`http://127.0.0.1:${port}`)).toEqual({ status: 'SUCCESS' });
+    expect(await connect(`https://127.0.0.1:${port}`)).toEqual({ status: 'SUCCESS' });
     expect(requests).toEqual(['GET /', 'POST /oauth/token']);
   });
 
@@ -184,7 +199,7 @@ describe('EdfiService.testConnection', () => {
     });
 
     it('connects through the guard', async () => {
-      expect(await connect(`http://127.0.0.1:${port}`)).toEqual({ status: 'SUCCESS' });
+      expect(await connect(`https://127.0.0.1:${port}`)).toEqual({ status: 'SUCCESS' });
       expect(requests).toEqual(['GET /', 'POST /oauth/token']);
       expect(warnings).toEqual([]);
     });
@@ -194,13 +209,13 @@ describe('EdfiService.testConnection', () => {
         res.writeHead(302, { location: privateUrl() });
         res.end();
       };
-      expect(await connect(`http://127.0.0.1:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
+      expect(await connect(`https://127.0.0.1:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
       expect(warnings).toEqual([expect.stringContaining('127.0.0.2')]);
     });
 
     it('does not use an oauth URL that points to a non-public address', async () => {
       respond = (req, res) => json(res, { urls: { oauth: privateUrl() } });
-      expect(await connect(`http://127.0.0.1:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
+      expect(await connect(`https://127.0.0.1:${port}`)).toEqual({ status: 'ERROR', type: 'AUTH' });
       expect(requests).toEqual(['GET /']);
       expect(warnings).toEqual([expect.stringContaining('127.0.0.2')]);
     });

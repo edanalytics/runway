@@ -1,11 +1,10 @@
 import { isIP, type LookupFunction } from 'net';
 import { lookup as dnsLookup } from 'dns';
-import http from 'http';
 import https from 'https';
 import ipaddr from 'ipaddr.js';
 
 /**
- * Restricts outbound requests to user-supplied URLs (e.g. an ODS host) to http(s)
+ * Restricts outbound requests to user-supplied URLs (e.g. an ODS host) to https
  * destinations that resolve only to public addresses.
  */
 
@@ -40,7 +39,8 @@ export const assertAllowedUrl = (rawUrl: string): URL => {
   } catch {
     throw new DisallowedUrlError('Invalid URL');
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+  // https only: these requests can carry credentials.
+  if (url.protocol !== 'https:') {
     throw new DisallowedUrlError(`Protocol not allowed: ${url.protocol}`);
   }
   if (url.username || url.password) {
@@ -75,5 +75,4 @@ export const publicOnlyLookup: LookupFunction = (hostname, options, callback) =>
   });
 };
 
-export const publicOnlyHttpAgent = new http.Agent({ lookup: publicOnlyLookup });
 export const publicOnlyHttpsAgent = new https.Agent({ lookup: publicOnlyLookup });

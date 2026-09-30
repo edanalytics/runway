@@ -6,7 +6,6 @@ import { AppConfigService } from '../config/app-config.service';
 import {
   assertAllowedUrl,
   findDisallowedUrlError,
-  publicOnlyHttpAgent,
   publicOnlyHttpsAgent,
 } from './outbound-url-guard';
 
@@ -40,8 +39,8 @@ export class EdfiService {
 
   /**
    * The ODS host is user-supplied and the auth endpoint comes from the host's response.
-   * Outside of dev (where the ODS is often on localhost), limit requests to both to public
-   * addresses, including across redirects.
+   * Outside of dev (where the ODS is often on localhost), limit requests to both to https
+   * and public addresses, including across redirects.
    */
   private requestConfig(url: string): AxiosRequestConfig {
     const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -49,7 +48,6 @@ export class EdfiService {
     assertAllowedUrl(url);
     return {
       signal,
-      httpAgent: publicOnlyHttpAgent,
       httpsAgent: publicOnlyHttpsAgent,
       // A proxy would resolve the host itself, so the agents' address check wouldn't apply.
       proxy: false,
