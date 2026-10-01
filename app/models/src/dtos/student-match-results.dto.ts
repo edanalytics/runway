@@ -69,7 +69,21 @@ type StudentInputDetailsWithResults = StudentInputDetails & {
   results: (StudentMatchResult & { suggestions: StudentMatchSuggestion[] })[];
 };
 
-export const toGetStudentInputDetailsDto = makeSerializerCustomType<
-  GetStudentInputDetailsDto,
-  StudentInputDetailsWithResults
->(GetStudentInputDetailsDto);
+/**
+ * A job's students to match, up to the review limit. Past it, `students` is
+ * null and only the count comes back: that many means something is wrong
+ * with the file, not a queue anyone will review.
+ */
+export class GetStudentMatchResultsDto {
+  @Expose()
+  count: number;
+
+  @Expose()
+  @Type(() => GetStudentInputDetailsDto)
+  students: GetStudentInputDetailsDto[] | null;
+}
+
+export const toGetStudentMatchResultsDto = makeSerializerCustomType<
+  GetStudentMatchResultsDto,
+  { count: number; students: StudentInputDetailsWithResults[] | null }
+>(GetStudentMatchResultsDto);

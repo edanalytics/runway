@@ -15,6 +15,13 @@ import { AppConfigService } from '../config/app-config.service';
 import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 
+/**
+ * Far more than a reviewer will work through (typically under 10, at most a
+ * few hundred). Past it, the file itself needs fixing. At the limit, with ten
+ * suggestions each, the response is about 3.5 MB.
+ */
+export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
+
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
@@ -44,11 +51,19 @@ export class JobsService {
     return lastRun?.runError;
   }
 
+  /** Overridable so tests can reach the limit without seeding 1,000 students. */
+  studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
+
   /**
-   * Every group of input details for the job, with each run's result for it
-   * and each result's suggestions in order.
+   * The job's students to match, each with every run's result for it and each
+   * result's suggestions in order. Past the review limit, only the count.
    */
   async getStudentMatchResults(jobId: Job['id']) {
+    const count = await this.prisma.studentInputDetails.count({ where: { jobId } });
+    if (count > this.studentMatchReviewLimit) {
+      return { count, students: null };
+    }
+
     const inputs = await this.prisma.studentInputDetails.findMany({
       where: { jobId },
       orderBy: { correlationId: 'asc' },
@@ -61,13 +76,17 @@ export class JobsService {
     });
     // Prisma names each relation after its table; the API calls them results
     // and suggestions.
-    return inputs.map(({ studentMatchResult, ...input }) => ({
-      ...input,
-      results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
-        ...result,
-        suggestions: studentMatchSuggestion,
+    // Counted again from what was fetched, in case results arrived in between.
+    return {
+      count: inputs.length,
+      students: inputs.map(({ studentMatchResult, ...input }) => ({
+        ...input,
+        results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
+          ...result,
+          suggestions: studentMatchSuggestion,
+        })),
       })),
-    }));
+    };
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<

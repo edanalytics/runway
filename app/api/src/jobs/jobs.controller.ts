@@ -30,7 +30,7 @@ import {
   toGetJobDto,
   toGetOutputFileDto,
   toGetRunUpdateDto,
-  toGetStudentInputDetailsDto,
+  toGetStudentMatchResultsDto,
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
@@ -311,7 +311,7 @@ export class JobsController {
   @Get(':jobId/student-match-results')
   @AllowMetatenant('job.metatenant.read')
   async getStudentMatchResults(@Param('jobId', ParseIntPipe) jobId: number) {
-    return toGetStudentInputDetailsDto(await this.jobService.getStudentMatchResults(jobId));
+    return toGetStudentMatchResultsDto(await this.jobService.getStudentMatchResults(jobId));
   }
 
   @Get(':jobId/notes')
