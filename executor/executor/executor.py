@@ -128,6 +128,9 @@ class JobExecutor:
             self.map_descriptors()
 
             # Conditionally run matching processes based on the job matching mode
+            # id_based is the default matching mode, set in unpack_job
+            # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
+            # when the matching_mode is fuzzy, we run earthmover with a separate wrapper in the match_candidates method
             if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
                 self.orchestrate_earthmover()
             
