@@ -413,9 +413,7 @@ export class JobsService {
     });
 
     let startResult: ExecutorStartResult;
-    let startResult: ExecutorStartResult;
     try {
-      startResult = await this.executor.start(run);
       startResult = await this.executor.start(run);
     } catch (e) {
       this.logger.error(`Failed to start run ${run.id}: ${e}`);
