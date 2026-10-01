@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Inject,
   InternalServerErrorException,
@@ -12,8 +13,10 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { PrismaClient } from '@prisma/client';
@@ -23,6 +26,7 @@ import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership
 import type { Tenant as TTenant, User } from '@prisma/client';
 import {
   GetJobDto,
+  GetSessionDataDto,
   NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
@@ -310,7 +314,15 @@ export class JobsController {
 
   @Get(':jobId/student-match-results')
   @AllowMetatenant('job.metatenant.read')
-  async getStudentMatchResults(@Param('jobId', ParseIntPipe) jobId: number) {
+  async getStudentMatchResults(@Param('jobId', ParseIntPipe) jobId: number, @Req() req: Request) {
+    // Background mode is for admins checking IDRS's suggestions before a
+    // partner switches to fuzzy. The check depends on the job, so it can't
+    // be a route decorator.
+    const isAdminOnly = req.job?.idMatchingMode === 'id_based_fuzzy_background';
+    const session = plainToInstance(GetSessionDataDto, req.user);
+    if (isAdminOnly && !session.privileges.has('job.match-results.background.read')) {
+      throw new ForbiddenException('Forbidden');
+    }
     return toGetStudentMatchResultsDto(await this.jobService.getStudentMatchResults(jobId));
   }
 
