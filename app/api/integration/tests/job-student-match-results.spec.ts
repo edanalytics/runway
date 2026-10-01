@@ -10,6 +10,7 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { GetJobDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
+import { JobsService } from 'api/src/jobs/jobs.service';
 
 describe('GET /jobs/:jobId/student-match-results', () => {
   let jobA: Job;
@@ -61,7 +62,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       ({ cookies } = await authHelper.login(idpA, userA, tenantA));
     });
 
-    it('returns each group with every run’s result and its suggestions in order', async () => {
+    it('returns each student with every run’s result and its suggestions in order', async () => {
       await report(runA.id, [
         {
           correlation_id: 'corr-1',
@@ -85,69 +86,114 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual([
-        {
-          correlationId: 'corr-1',
-          sourceRunId: runA.id,
-          createdOn: expect.any(String),
-          inputDetails: { first_name: 'Ada', last_name: 'Lovelace' },
-          results: [
-            {
-              id: expect.any(String),
-              runId: runA.id,
-              createdOn: expect.any(String),
-              suggestions: [
-                {
-                  ordinal: 0,
-                  studentUniqueId: 'SUID-1',
-                  score: 0.97,
-                  rosterDetails: { first_name: 'Ada' },
-                },
-                {
-                  ordinal: 1,
-                  studentUniqueId: 'SUID-2',
-                  score: 0.42,
-                  rosterDetails: { first_name: 'Adah' },
-                },
-              ],
-            },
-            {
-              id: expect.any(String),
-              runId: runB.id,
-              createdOn: expect.any(String),
-              suggestions: [
-                {
-                  ordinal: 0,
-                  studentUniqueId: 'SUID-9',
-                  score: 0.5,
-                  rosterDetails: { first_name: 'Ada' },
-                },
-              ],
-            },
-          ],
-        },
-        {
-          correlationId: 'corr-2',
-          sourceRunId: runA.id,
-          createdOn: expect.any(String),
-          inputDetails: { first_name: 'Grace' },
-          results: [
-            {
-              id: expect.any(String),
-              runId: runA.id,
-              createdOn: expect.any(String),
-              suggestions: [],
-            },
-          ],
-        },
-      ]);
+      expect(res.body).toEqual({
+        count: 2,
+        students: [
+          {
+            correlationId: 'corr-1',
+            sourceRunId: runA.id,
+            createdOn: expect.any(String),
+            inputDetails: { first_name: 'Ada', last_name: 'Lovelace' },
+            results: [
+              {
+                id: expect.any(String),
+                runId: runA.id,
+                createdOn: expect.any(String),
+                suggestions: [
+                  {
+                    ordinal: 0,
+                    studentUniqueId: 'SUID-1',
+                    score: 0.97,
+                    rosterDetails: { first_name: 'Ada' },
+                  },
+                  {
+                    ordinal: 1,
+                    studentUniqueId: 'SUID-2',
+                    score: 0.42,
+                    rosterDetails: { first_name: 'Adah' },
+                  },
+                ],
+              },
+              {
+                id: expect.any(String),
+                runId: runB.id,
+                createdOn: expect.any(String),
+                suggestions: [
+                  {
+                    ordinal: 0,
+                    studentUniqueId: 'SUID-9',
+                    score: 0.5,
+                    rosterDetails: { first_name: 'Ada' },
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            correlationId: 'corr-2',
+            sourceRunId: runA.id,
+            createdOn: expect.any(String),
+            inputDetails: { first_name: 'Grace' },
+            results: [
+              {
+                id: expect.any(String),
+                runId: runA.id,
+                createdOn: expect.any(String),
+                suggestions: [],
+              },
+            ],
+          },
+        ],
+      });
     });
 
-    it('returns an empty list for a job with no match results', async () => {
+    it('returns no students for a job with no match results', async () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual([]);
+      expect(res.body).toEqual({ count: 0, students: [] });
+    });
+
+    describe('past the review limit', () => {
+      // So many students to match means something is wrong with the file,
+      // not a queue anyone will review, so only the count comes back.
+      let limit: jest.ReplaceProperty<number>;
+      beforeEach(() => {
+        limit = jest.replaceProperty(app.get(JobsService), 'studentMatchReviewLimit', 2);
+      });
+      afterEach(() => limit.restore());
+
+      it('returns the count without the students', async () => {
+        await report(
+          runA.id,
+          ['corr-1', 'corr-2', 'corr-3'].map((correlation_id) => ({
+            correlation_id,
+            candidate: { first_name: 'Ada' },
+            matches: [],
+          }))
+        );
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ count: 3, students: null });
+      });
+
+      it('returns the students up to the limit', async () => {
+        await report(
+          runA.id,
+          ['corr-1', 'corr-2'].map((correlation_id) => ({
+            correlation_id,
+            candidate: { first_name: 'Ada' },
+            matches: [],
+          }))
+        );
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(res.body.count).toBe(2);
+        expect(res.body.students).toHaveLength(2);
+      });
     });
   });
 
@@ -157,7 +203,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       ({ cookies } = await authHelper.login(idpA, userA, tenantA));
     });
 
-    it('counts the groups awaiting a match on the job and in the job list', async () => {
+    it('counts the students awaiting a match on the job and in the job list', async () => {
       await report(runA.id, [
         { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
         { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
