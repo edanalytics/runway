@@ -26,14 +26,12 @@ export class GetRunDto
   summary: Prisma.JsonValue | null;
 
   @Expose()
-  ecsTaskArn: string | null;
-
-  @Expose()
-  taskSize: EcsTaskSize | null;
-
-  @Expose()
   @Type(() => UnmatchedStudentsInfoDto)
   unmatchedStudentsInfo: UnmatchedStudentsInfoDto | null;
+
+  //not exposed
+  ecsTaskArn: string | null;
+  taskSize: EcsTaskSize | null;
 }
 
 export class UnmatchedStudentsInfoDto {
