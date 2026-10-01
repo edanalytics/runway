@@ -110,6 +110,16 @@ describe('ExecutorAwsService', () => {
     expect(ecsSend.mock.calls[0][0].input.taskDefinition).toBe('large-task-arn');
   });
 
+  it('returns the launched task ARN and the size it chose', async () => {
+    fileService.getFileSize.mockResolvedValueOnce(40 * MB).mockResolvedValueOnce(60 * MB);
+    ecsSend.mockResolvedValue({ failures: [], tasks: [{ taskArn: 'task-arn' }] });
+
+    await expect(service.start(run)).resolves.toEqual({
+      ecsTaskArn: 'task-arn',
+      taskSize: 'large',
+    });
+  });
+
   it('fails the start when a file size lookup fails', async () => {
     fileService.getFileSize.mockRejectedValue(new Error('S3 unavailable'));
 
