@@ -65,11 +65,13 @@ export class JobsController {
         runs: true,
         files: true,
         createdBy: true,
-        _count: { select: { studentInputDetails: true } },
       },
     });
+    const counts = await this.jobService.countStudentsToMatch(jobs.map((job) => job.id));
 
-    return toGetJobDto(jobs);
+    return toGetJobDto(
+      jobs.map((job) => ({ ...job, studentsToMatchCount: counts.get(job.id) ?? 0 }))
+    );
   }
 
   @Get(':jobId')
