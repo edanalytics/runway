@@ -107,6 +107,10 @@ export class GetJobDto
   @Transform(({ obj, value }) => obj._count?.studentInputDetails ?? value ?? 0)
   studentsToMatchCount: number;
 
+  /** Snapshotted from the partner when the job was created. */
+  @Expose()
+  idMatchingMode: $Enums.IdMatchingMode;
+
   @Expose()
   apiClientName: string | null;
 
@@ -166,8 +170,13 @@ export class GetJobDto
     return status === 'resolved' || status === 'complete with errors';
   }
 
+  /**
+   * Only in fuzzy mode do students to match leave records undelivered. In
+   * fuzzy background mode the ID-based run has already delivered, and review
+   * is read-only, so they don't affect the job's status.
+   */
   get hasStudentsToMatch() {
-    return this.studentsToMatchCount > 0;
+    return this.idMatchingMode === 'fuzzy' && this.studentsToMatchCount > 0;
   }
 
   get hasUnmatchedStudents() {
@@ -238,7 +247,6 @@ export class GetJobDto
   fileBucketOrHost: string | null;
   fileBasePath: string | null;
   configStatus: $Enums.JobConfigStatus; // TODO, remove prop and column, no longer needed
-  idMatchingMode: $Enums.IdMatchingMode; // snapshotted from the partner at creation; executor-only, no UI yet
 }
 
 export const toGetJobDto = makeSerializerCustomType<GetJobDto, DtoableJob>(GetJobDto);
