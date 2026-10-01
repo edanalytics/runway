@@ -74,11 +74,11 @@ export class JobsService {
         },
       },
     });
-    // Prisma names each relation after its table; the API calls them results
-    // and suggestions.
-    // Counted again from what was fetched, in case results arrived in between.
     return {
+      // Counted again from what was fetched, in case results arrived in between.
       count: inputs.length,
+      // Prisma names each relation after its table; the API calls them results
+      // and suggestions.
       students: inputs.map(({ studentMatchResult, ...input }) => ({
         ...input,
         results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({

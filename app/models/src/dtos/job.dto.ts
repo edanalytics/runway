@@ -99,7 +99,7 @@ export class GetJobDto
   isResolved: boolean;
 
   /**
-   * How many groups of student details the Executor sent for review. Read
+   * How many students the Executor sent for review. Read
    * from Prisma's `_count` on the way out of the API, and from the field
    * itself when the frontend rebuilds the DTO from JSON.
    */
