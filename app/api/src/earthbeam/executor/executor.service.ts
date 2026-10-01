@@ -1,9 +1,9 @@
-import { EcsTaskSize, Job, JobFile, Run, SchoolYear } from '@prisma/client';
+import { Job, JobFile, Run, SchoolYear } from '@prisma/client';
 
 // Null for executors that don't launch an ECS task (the local ones).
 export type ExecutorStartResult = {
   ecsTaskArn: string | null;
-  taskSize: EcsTaskSize | null;
+  taskSize: string | null;
 };
 
 export interface ExecutorService {

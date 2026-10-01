@@ -1,6 +1,6 @@
 import { Expose, Type } from 'class-transformer';
 import { DtoGetBase, GetDto } from '../utils/get-base.dto';
-import { EcsTaskSize, Prisma, Run, RunStatus } from '@prisma/client';
+import { Prisma, Run, RunStatus } from '@prisma/client';
 import { makeSerializer } from '../utils';
 import { IsOptional } from 'class-validator';
 export class GetRunDto
@@ -31,7 +31,7 @@ export class GetRunDto
 
   //not exposed
   ecsTaskArn: string | null;
-  taskSize: EcsTaskSize | null;
+  taskSize: string | null;
 }
 
 export class UnmatchedStudentsInfoDto {
