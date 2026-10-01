@@ -8,6 +8,8 @@ import { tenantA, tenantB } from '../fixtures/context-fixtures/tenant-fixtures';
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
+import { GetJobDto } from '@edanalytics/models';
+import { plainToInstance } from 'class-transformer';
 
 describe('GET /jobs/:jobId/student-match-results', () => {
   let jobA: Job;
@@ -25,7 +27,12 @@ describe('GET /jobs/:jobId/student-match-results', () => {
   };
 
   beforeEach(async () => {
-    const seeded = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+    const seeded = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+    });
     jobA = seeded;
     runA = seeded.runs[0];
     endpoint = `/jobs/${jobA.id}/student-match-results`;
@@ -189,6 +196,57 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       ]);
 
       expect((await resolve()).status).toBe(200);
+    });
+
+    it('carries the job’s matching mode', async () => {
+      const job = await request(app.getHttpServer())
+        .get(`/jobs/${jobA.id}`)
+        .set('Cookie', [cookies]);
+
+      expect(job.body.idMatchingMode).toBe('fuzzy');
+    });
+
+    describe('in fuzzy background mode', () => {
+      // The ID-based run already delivered, and review is read-only, so
+      // students to match say nothing about the job's outcome.
+      let backgroundJob: Awaited<ReturnType<typeof seedJob>>;
+      beforeEach(async () => {
+        backgroundJob = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          idMatchingMode: 'id_based_fuzzy_background',
+          runStatus: 'success',
+        });
+        await report(backgroundJob.runs[0].id, [
+          { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+        ]);
+      });
+
+      it('counts the students but keeps the job’s status', async () => {
+        const job = await request(app.getHttpServer())
+          .get(`/jobs/${backgroundJob.id}`)
+          .set('Cookie', [cookies]);
+        const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
+        const listed = list.body.find((j: { id: number }) => j.id === backgroundJob.id);
+
+        // Status is computed by the DTO, so rebuild it as the frontend does.
+        const [onJob, inList] = [job.body, listed].map((body) => plainToInstance(GetJobDto, body));
+
+        expect(onJob.studentsToMatchCount).toBe(1);
+        expect(inList.studentsToMatchCount).toBe(1);
+        expect(onJob.status).toBe('success');
+        expect(inList.status).toBe('success');
+      });
+
+      it('doesn’t let the job be resolved over them', async () => {
+        const res = await request(app.getHttpServer())
+          .put(`/jobs/${backgroundJob.id}/resolve`)
+          .set('Cookie', [cookies])
+          .send({ isResolved: true });
+
+        expect(res.status).toBe(400);
+      });
     });
   });
 });
