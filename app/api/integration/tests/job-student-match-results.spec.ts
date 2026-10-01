@@ -4,7 +4,7 @@ import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-ap
 import { seedJob } from '../factories/job-factory';
 import { bundleA } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigB2526 } from '../fixtures/context-fixtures/ods-fixture';
-import { tenantA, tenantB } from '../fixtures/context-fixtures/tenant-fixtures';
+import { tenantA, tenantB, tenantDGlobal } from '../fixtures/context-fixtures/tenant-fixtures';
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
@@ -194,6 +194,68 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         expect(res.body.count).toBe(2);
         expect(res.body.students).toHaveLength(2);
       });
+    });
+  });
+
+  describe('in fuzzy background mode', () => {
+    // Background mode exists for admins to check suggestions before a partner
+    // switches to fuzzy, so its results are theirs alone.
+    const USER = 'runway.test.user';
+    const PARTNER_ADMIN = ['runway.test.user', 'runway.test.partneradmin'];
+    const SUPPORT_USER = ['runway.test.user', 'runway.test.supportuser'];
+
+    const seedBackgroundJob = async (
+      tenant: typeof tenantA | typeof tenantB,
+      odsConfig: typeof odsConfigA2425 | typeof odsConfigB2526
+    ) => {
+      const job = await seedJob({
+        odsConfig,
+        bundle: bundleA,
+        tenant,
+        idMatchingMode: 'id_based_fuzzy_background',
+      });
+      await report(job.runs[0].id, [
+        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+      ]);
+      return job;
+    };
+
+    const read = async (jobId: number, tenant: typeof tenantA, roles: string | string[]) => {
+      const { cookies } = await authHelper.login(idpA, userA, tenant, roles);
+      return request(app.getHttpServer())
+        .get(`/jobs/${jobId}/student-match-results`)
+        .set('Cookie', [cookies]);
+    };
+
+    it.each([
+      { role: 'a partner admin', roles: PARTNER_ADMIN },
+      { role: 'a support user', roles: SUPPORT_USER },
+    ])('returns the results to $role', async ({ roles }) => {
+      const job = await seedBackgroundJob(tenantA, odsConfigA2425);
+
+      const res = await read(job.id, tenantA, roles);
+
+      expect(res.status).toBe(200);
+      expect(res.body.count).toBe(1);
+      expect(res.body.students).toHaveLength(1);
+    });
+
+    it('refuses a user without an admin role', async () => {
+      const job = await seedBackgroundJob(tenantA, odsConfigA2425);
+
+      const res = await read(job.id, tenantA, USER);
+
+      expect(res.status).toBe(403);
+      expect(res.body.students).toBeUndefined();
+    });
+
+    it('returns the results to a support user reading across tenants', async () => {
+      const job = await seedBackgroundJob(tenantB, odsConfigB2526);
+
+      const res = await read(job.id, tenantDGlobal, SUPPORT_USER);
+
+      expect(res.status).toBe(200);
+      expect(res.body.count).toBe(1);
     });
   });
 
