@@ -280,6 +280,30 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(list.body.find((j: { id: number }) => j.id === jobA.id).studentsToMatchCount).toBe(2);
     });
 
+    it('counts each listed job’s own students', async () => {
+      const seedFuzzyJob = () =>
+        seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          idMatchingMode: 'fuzzy',
+        });
+      const [jobB, jobC] = [await seedFuzzyJob(), await seedFuzzyJob()];
+      await report(runA.id, [
+        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+        { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
+      ]);
+      await report(jobB.runs[0].id, [
+        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+      ]);
+
+      const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
+      const countOf = (id: number) =>
+        list.body.find((j: { id: number }) => j.id === id).studentsToMatchCount;
+
+      expect([countOf(jobA.id), countOf(jobB.id), countOf(jobC.id)]).toEqual([2, 1, 0]);
+    });
+
     it('counts none for a job with no match results', async () => {
       const job = await request(app.getHttpServer())
         .get(`/jobs/${jobA.id}`)
