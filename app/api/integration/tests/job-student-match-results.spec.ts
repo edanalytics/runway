@@ -325,6 +325,26 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       ({ cookies } = await authHelper.login(idpA, userA, tenantA));
     });
 
+    /** The job as read on its own and in the list, rebuilt as the frontend does: status is computed by the DTO. */
+    const readJob = async (jobId: number) => {
+      const job = await request(app.getHttpServer()).get(`/jobs/${jobId}`).set('Cookie', [cookies]);
+      const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
+      const listed = list.body.find((j: { id: number }) => j.id === jobId);
+      return [job.body, listed].map((body) => plainToInstance(GetJobDto, body));
+    };
+
+    it('shows a fuzzy job with students to match as complete with errors', async () => {
+      await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+      await report(runA.id, [
+        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+      ]);
+
+      const [onJob, inList] = await readJob(jobA.id);
+
+      expect(onJob.status).toBe('complete with errors');
+      expect(inList.status).toBe('complete with errors');
+    });
+
     it('counts the students awaiting a match on the job and in the job list', async () => {
       await report(runA.id, [
         { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
@@ -416,14 +436,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
 
       it('counts the students but keeps the job’s status', async () => {
-        const job = await request(app.getHttpServer())
-          .get(`/jobs/${backgroundJob.id}`)
-          .set('Cookie', [cookies]);
-        const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
-        const listed = list.body.find((j: { id: number }) => j.id === backgroundJob.id);
-
-        // Status is computed by the DTO, so rebuild it as the frontend does.
-        const [onJob, inList] = [job.body, listed].map((body) => plainToInstance(GetJobDto, body));
+        const [onJob, inList] = await readJob(backgroundJob.id);
 
         expect(onJob.studentsToMatchCount).toBe(1);
         expect(inList.studentsToMatchCount).toBe(1);
