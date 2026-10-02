@@ -147,6 +147,46 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
     });
 
+    it('orders students by correlation id, results by run and suggestions by ordinal', async () => {
+      // Everything goes in out of order, so only the query's ordering can
+      // put it right: the later run reports first, corr-2 before corr-1.
+      const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+      const noMatches = (correlation_id: string) => ({
+        correlation_id,
+        candidate: { first_name: 'Ada' },
+        matches: [],
+      });
+      await report(runB.id, [noMatches('corr-2'), noMatches('corr-1')]);
+      await report(runA.id, [noMatches('corr-1')]);
+      // The callback numbers suggestions in the order it stores them, so
+      // store them directly, ordinal 1 first.
+      const { id: resultId } = await prisma.studentMatchResult.findUniqueOrThrow({
+        where: {
+          jobId_correlationId_runId: { jobId: jobA.id, correlationId: 'corr-1', runId: runA.id },
+        },
+      });
+      for (const ordinal of [1, 0]) {
+        await prisma.studentMatchSuggestion.create({
+          data: {
+            resultId,
+            ordinal,
+            studentUniqueId: `SUID-${ordinal}`,
+            rosterDetails: {},
+            score: 0.5,
+          },
+        });
+      }
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+      const [corr1, corr2] = res.body.students;
+      expect([corr1.correlationId, corr2.correlationId]).toEqual(['corr-1', 'corr-2']);
+      expect(corr1.results.map((r: { runId: number }) => r.runId)).toEqual([runA.id, runB.id]);
+      expect(corr1.results[0].suggestions.map((s: { ordinal: number }) => s.ordinal)).toEqual([
+        0, 1,
+      ]);
+    });
+
     it('returns no students for a job with no match results', async () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
