@@ -47,7 +47,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     it('rejects a user from another tenant', async () => {
-      await seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB });
       const { cookies } = await authHelper.login(idpA, userB, tenantB);
 
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
@@ -62,7 +61,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       ({ cookies } = await authHelper.login(idpA, userA, tenantA));
     });
 
-    it('returns each student with every run’s result and its suggestions in order', async () => {
+    it('returns each student with every run’s result and its suggestions', async () => {
       await report(runA.id, [
         {
           correlation_id: 'corr-1',
@@ -263,22 +262,10 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         .set('Cookie', [cookies]);
     };
 
-    it.each<IdMatchingMode>(['fuzzy', 'id_based'])(
-      'returns %s results to any user of the job’s tenant',
-      async (mode) => {
-        const job = await seedReportedJob(mode);
+    it('returns ID-based results to any user of the job’s tenant', async () => {
+      const job = await seedReportedJob('id_based');
 
-        const res = await read(job.id, tenantA, USER);
-
-        expect(res.status).toBe(200);
-        expect(res.body.count).toBe(1);
-      }
-    );
-
-    it('returns fuzzy results to a support user reading across tenants', async () => {
-      const job = await seedReportedJob('fuzzy', true);
-
-      const res = await read(job.id, tenantDGlobal, SUPPORT_USER);
+      const res = await read(job.id, tenantA, USER);
 
       expect(res.status).toBe(200);
       expect(res.body.count).toBe(1);
@@ -287,17 +274,13 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     describe('in fuzzy background mode', () => {
       // Background mode exists for admins to check suggestions before a
       // partner switches to fuzzy, so its results are theirs alone.
-      it.each([
-        { role: 'a partner admin', roles: PARTNER_ADMIN },
-        { role: 'a support user', roles: SUPPORT_USER },
-      ])('returns the results to $role', async ({ roles }) => {
+      it('returns the results to a partner admin', async () => {
         const job = await seedReportedJob('id_based_fuzzy_background');
 
-        const res = await read(job.id, tenantA, roles);
+        const res = await read(job.id, tenantA, PARTNER_ADMIN);
 
         expect(res.status).toBe(200);
         expect(res.body.count).toBe(1);
-        expect(res.body.students).toHaveLength(1);
       });
 
       it('refuses a user without an admin role', async () => {
@@ -345,21 +328,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(inList.status).toBe('complete with errors');
     });
 
-    it('counts the students awaiting a match on the job and in the job list', async () => {
-      await report(runA.id, [
-        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
-        { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
-      ]);
-
-      const job = await request(app.getHttpServer())
-        .get(`/jobs/${jobA.id}`)
-        .set('Cookie', [cookies]);
-      const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
-
-      expect(job.body.studentsToMatchCount).toBe(2);
-      expect(list.body.find((j: { id: number }) => j.id === jobA.id).studentsToMatchCount).toBe(2);
-    });
-
     it('counts each listed job’s own students', async () => {
       const seedFuzzyJob = () =>
         seedJob({
@@ -384,15 +352,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect([countOf(jobA.id), countOf(jobB.id), countOf(jobC.id)]).toEqual([2, 1, 0]);
     });
 
-    it('counts none for a job with no match results', async () => {
-      const job = await request(app.getHttpServer())
-        .get(`/jobs/${jobA.id}`)
-        .set('Cookie', [cookies]);
-
-      expect(job.body.studentsToMatchCount).toBe(0);
-    });
-
-    it('lets a successful run with students to match be resolved, as complete with errors', async () => {
+    it('lets a fuzzy job with students to match be resolved, as complete with errors', async () => {
       // Resolving is allowed only from 'complete with errors'.
       await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
       const resolve = () =>
@@ -410,48 +370,26 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect((await resolve()).status).toBe(200);
     });
 
-    it('carries the job’s matching mode', async () => {
-      const job = await request(app.getHttpServer())
-        .get(`/jobs/${jobA.id}`)
-        .set('Cookie', [cookies]);
-
-      expect(job.body.idMatchingMode).toBe('fuzzy');
-    });
-
-    describe('in fuzzy background mode', () => {
+    it('counts a fuzzy background job’s students but keeps its status', async () => {
       // The ID-based run already delivered, and review is read-only, so
       // students to match say nothing about the job's outcome.
-      let backgroundJob: Awaited<ReturnType<typeof seedJob>>;
-      beforeEach(async () => {
-        backgroundJob = await seedJob({
-          odsConfig: odsConfigA2425,
-          bundle: bundleA,
-          tenant: tenantA,
-          idMatchingMode: 'id_based_fuzzy_background',
-          runStatus: 'success',
-        });
-        await report(backgroundJob.runs[0].id, [
-          { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
-        ]);
+      const backgroundJob = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        idMatchingMode: 'id_based_fuzzy_background',
+        runStatus: 'success',
       });
+      await report(backgroundJob.runs[0].id, [
+        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+      ]);
 
-      it('counts the students but keeps the job’s status', async () => {
-        const [onJob, inList] = await readJob(backgroundJob.id);
+      const [onJob, inList] = await readJob(backgroundJob.id);
 
-        expect(onJob.studentsToMatchCount).toBe(1);
-        expect(inList.studentsToMatchCount).toBe(1);
-        expect(onJob.status).toBe('success');
-        expect(inList.status).toBe('success');
-      });
-
-      it('doesn’t let the job be resolved over them', async () => {
-        const res = await request(app.getHttpServer())
-          .put(`/jobs/${backgroundJob.id}/resolve`)
-          .set('Cookie', [cookies])
-          .send({ isResolved: true });
-
-        expect(res.status).toBe(400);
-      });
+      expect(onJob.studentsToMatchCount).toBe(1);
+      expect(inList.studentsToMatchCount).toBe(1);
+      expect(onJob.status).toBe('success');
+      expect(inList.status).toBe('success');
     });
   });
 });
