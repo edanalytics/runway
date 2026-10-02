@@ -15,6 +15,13 @@ import { AppConfigService } from '../config/app-config.service';
 import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 
+/**
+ * Far more than a reviewer will work through (typically under 10, at most a
+ * few hundred). Past it, the file itself needs fixing. At the limit, with ten
+ * suggestions each, the response is about 3.5 MB.
+ */
+export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
+
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
@@ -42,6 +49,59 @@ export class JobsService {
       include: { runError: true },
     });
     return lastRun?.runError;
+  }
+
+  /**
+   * Students to match per job, for the jobs list. Prisma's `_count` would
+   * aggregate the whole table on every list load, since Postgres can't push
+   * the list's filter into it. This reads only the listed jobs, by primary key.
+   * Jobs with none are absent from the map.
+   */
+  async countStudentsToMatch(jobIds: Job['id'][]) {
+    const counts = await this.prisma.studentInputDetails.groupBy({
+      by: ['jobId'],
+      where: { jobId: { in: jobIds } },
+      _count: true,
+    });
+    return new Map(counts.map(({ jobId, _count }) => [jobId, _count]));
+  }
+
+  /** Overridable so tests can reach the limit without seeding 1,000 students. */
+  studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
+
+  /**
+   * The job's students to match, each with every run's result for it and each
+   * result's suggestions in order.
+   */
+  async getStudentMatchResults(jobId: Job['id']) {
+    const count = await this.prisma.studentInputDetails.count({ where: { jobId } });
+    if (count > this.studentMatchReviewLimit) {
+      return { count, students: null };
+    }
+
+    const inputs = await this.prisma.studentInputDetails.findMany({
+      where: { jobId },
+      orderBy: { correlationId: 'asc' },
+      include: {
+        studentMatchResult: {
+          orderBy: { runId: 'asc' },
+          include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
+        },
+      },
+    });
+    return {
+      // Counted again from what was fetched, in case results arrived in between.
+      count: inputs.length,
+      // Prisma names each relation after its table; the API calls them results
+      // and suggestions.
+      students: inputs.map(({ studentMatchResult, ...input }) => ({
+        ...input,
+        results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
+          ...result,
+          suggestions: studentMatchSuggestion,
+        })),
+      })),
+    };
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<

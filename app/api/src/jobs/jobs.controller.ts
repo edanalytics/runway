@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Inject,
   InternalServerErrorException,
@@ -12,8 +13,10 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { PrismaClient } from '@prisma/client';
@@ -23,6 +26,7 @@ import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership
 import type { Tenant as TTenant, User } from '@prisma/client';
 import {
   GetJobDto,
+  GetSessionDataDto,
   NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
@@ -30,6 +34,7 @@ import {
   toGetJobDto,
   toGetOutputFileDto,
   toGetRunUpdateDto,
+  toGetStudentMatchResultsDto,
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
@@ -62,8 +67,11 @@ export class JobsController {
         createdBy: true,
       },
     });
+    const counts = await this.jobService.countStudentsToMatch(jobs.map((job) => job.id));
 
-    return toGetJobDto(jobs);
+    return toGetJobDto(
+      jobs.map((job) => ({ ...job, studentsToMatchCount: counts.get(job.id) ?? 0 }))
+    );
   }
 
   @Get(':jobId')
@@ -82,6 +90,7 @@ export class JobsController {
             runUpdate: true,
           },
         },
+        _count: { select: { studentInputDetails: true } },
       },
     });
 
@@ -120,15 +129,20 @@ export class JobsController {
   @Get(':jobId/output-files/input_no_student_id_match.csv')
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForUnmatchedStudentsOutputFile(
-    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('jobId', new ParseIntPipe()) jobId: number
   ) {
-    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, 'input_no_student_id_match.csv');
+    const url = await this.jobService.getDownloadUrlForOutputFile(
+      jobId,
+      'input_no_student_id_match.csv'
+    );
     if (!url) {
-      return new NotFoundException(`File not found for job ${jobId} and file input_no_student_id_match.csv`);
+      return new NotFoundException(
+        `File not found for job ${jobId} and file input_no_student_id_match.csv`
+      );
     }
     return url;
   }
-  
+
   @Get(':jobId/output-files/:fileName')
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
@@ -279,6 +293,7 @@ export class JobsController {
           include: {
             files: true,
             runs: true,
+            _count: { select: { studentInputDetails: true } },
           },
         })
         .catch(() => {
@@ -297,6 +312,23 @@ export class JobsController {
     });
 
     return;
+  }
+
+  @Get(':jobId/student-match-results')
+  @AllowMetatenant('job.metatenant.read')
+  async getStudentMatchResults(@Param('jobId', ParseIntPipe) jobId: number, @Req() req: Request) {
+    // Who may read depends on the job's mode (see AGENTS.md), so the check
+    // can't be a route decorator.
+    if (!req.job) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    const isAdminOnly = req.job.idMatchingMode === 'id_based_fuzzy_background';
+    const session = plainToInstance(GetSessionDataDto, req.user);
+    if (isAdminOnly && !session.privileges.has('job.match-results.background.read')) {
+      throw new ForbiddenException('Forbidden');
+    }
+    return toGetStudentMatchResultsDto(await this.jobService.getStudentMatchResults(jobId));
   }
 
   @Get(':jobId/notes')
