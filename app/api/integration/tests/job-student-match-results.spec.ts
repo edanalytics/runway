@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { Job, Run } from '@prisma/client';
+import { IdMatchingMode, Job, Run } from '@prisma/client';
 import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-api-auth.service';
 import { seedJob } from '../factories/job-factory';
 import { bundleA } from '../fixtures/em-bundle-fixtures';
@@ -237,22 +237,18 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
   });
 
-  describe('in fuzzy background mode', () => {
-    // Background mode exists for admins to check suggestions before a partner
-    // switches to fuzzy, so its results are theirs alone.
+  describe('access by matching mode', () => {
     const USER = 'runway.test.user';
     const PARTNER_ADMIN = ['runway.test.user', 'runway.test.partneradmin'];
     const SUPPORT_USER = ['runway.test.user', 'runway.test.supportuser'];
 
-    const seedBackgroundJob = async (
-      tenant: typeof tenantA | typeof tenantB,
-      odsConfig: typeof odsConfigA2425 | typeof odsConfigB2526
-    ) => {
+    /** A job in this mode with one student reported. Tenant B when `inTenantB`. */
+    const seedReportedJob = async (idMatchingMode: IdMatchingMode, inTenantB = false) => {
       const job = await seedJob({
-        odsConfig,
+        odsConfig: inTenantB ? odsConfigB2526 : odsConfigA2425,
         bundle: bundleA,
-        tenant,
-        idMatchingMode: 'id_based_fuzzy_background',
+        tenant: inTenantB ? tenantB : tenantA,
+        idMatchingMode,
       });
       await report(job.runs[0].id, [
         { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
@@ -267,35 +263,59 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         .set('Cookie', [cookies]);
     };
 
-    it.each([
-      { role: 'a partner admin', roles: PARTNER_ADMIN },
-      { role: 'a support user', roles: SUPPORT_USER },
-    ])('returns the results to $role', async ({ roles }) => {
-      const job = await seedBackgroundJob(tenantA, odsConfigA2425);
+    it.each<IdMatchingMode>(['fuzzy', 'id_based'])(
+      'returns %s results to any user of the job’s tenant',
+      async (mode) => {
+        const job = await seedReportedJob(mode);
 
-      const res = await read(job.id, tenantA, roles);
+        const res = await read(job.id, tenantA, USER);
 
-      expect(res.status).toBe(200);
-      expect(res.body.count).toBe(1);
-      expect(res.body.students).toHaveLength(1);
-    });
+        expect(res.status).toBe(200);
+        expect(res.body.count).toBe(1);
+      }
+    );
 
-    it('refuses a user without an admin role', async () => {
-      const job = await seedBackgroundJob(tenantA, odsConfigA2425);
-
-      const res = await read(job.id, tenantA, USER);
-
-      expect(res.status).toBe(403);
-      expect(res.body.students).toBeUndefined();
-    });
-
-    it('returns the results to a support user reading across tenants', async () => {
-      const job = await seedBackgroundJob(tenantB, odsConfigB2526);
+    it('returns fuzzy results to a support user reading across tenants', async () => {
+      const job = await seedReportedJob('fuzzy', true);
 
       const res = await read(job.id, tenantDGlobal, SUPPORT_USER);
 
       expect(res.status).toBe(200);
       expect(res.body.count).toBe(1);
+    });
+
+    describe('in fuzzy background mode', () => {
+      // Background mode exists for admins to check suggestions before a
+      // partner switches to fuzzy, so its results are theirs alone.
+      it.each([
+        { role: 'a partner admin', roles: PARTNER_ADMIN },
+        { role: 'a support user', roles: SUPPORT_USER },
+      ])('returns the results to $role', async ({ roles }) => {
+        const job = await seedReportedJob('id_based_fuzzy_background');
+
+        const res = await read(job.id, tenantA, roles);
+
+        expect(res.status).toBe(200);
+        expect(res.body.count).toBe(1);
+        expect(res.body.students).toHaveLength(1);
+      });
+
+      it('refuses a user without an admin role', async () => {
+        const job = await seedReportedJob('id_based_fuzzy_background');
+
+        const res = await read(job.id, tenantA, USER);
+
+        expect(res.status).toBe(403);
+      });
+
+      it('returns the results to a support user reading across tenants', async () => {
+        const job = await seedReportedJob('id_based_fuzzy_background', true);
+
+        const res = await read(job.id, tenantDGlobal, SUPPORT_USER);
+
+        expect(res.status).toBe(200);
+        expect(res.body.count).toBe(1);
+      });
     });
   });
 
