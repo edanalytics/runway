@@ -99,9 +99,10 @@ export class GetJobDto
   isResolved: boolean;
 
   /**
-   * How many students the Executor sent for review. Read
-   * from Prisma's `_count` on the way out of the API, and from the field
-   * itself when the frontend rebuilds the DTO from JSON.
+   * How many students the Executor sent for review. A job read must supply
+   * it, or a fuzzy job silently reads as success: Prisma's `_count` for one
+   * job, or the field itself, as the jobs list sets it from
+   * `JobsService.countStudentsToMatch` and the frontend gets it from JSON.
    */
   @Expose()
   @Transform(({ obj, value }) => obj._count?.studentInputDetails ?? value ?? 0)

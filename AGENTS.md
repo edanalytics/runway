@@ -260,7 +260,7 @@ The frontend reads a job's students to match from `GET /api/jobs/:jobId/student-
 
 There is no pagination, by design. A real review queue is under 10 students, a few hundred at most; thousands means the file needs fixing, not reviewing. Past `MATCH_REVIEW_STUDENT_LIMIT` (1,000) the endpoint returns the count with `students: null` and doesn't fetch them. At the limit, with ten suggestions each, the response is about 3.5 MB.
 
-A job's `idMatchingMode` decides who reads its results and whether they affect its status. Job reads expose the mode.
+A job's `idMatchingMode` decides who reads its results and whether they affect its status. Job reads expose the mode. Status is computed by `GetJobDto` from `studentsToMatchCount`, so any job read that feeds a status must supply the count, or a fuzzy job silently reads as `success`: include Prisma's `_count` of `studentInputDetails` for one job, and use `JobsService.countStudentsToMatch` for many, since `_count` on a list aggregates the whole table.
 
 - **`fuzzy`**: any user who can read the job can read the results. Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `studentsToMatchCount`, and a successful run with any makes the job's status `complete with errors`, which can be marked resolved, as with the older unmatched IDs.
 - **`id_based_fuzzy_background`**: only `PartnerAdmin` and `SupportUser`, through `job.match-results.background.read`. The mode exists for them to check suggestions before a partner switches to fuzzy. The ID-based run has already delivered, so `studentsToMatchCount` is reported but leaves the status alone.

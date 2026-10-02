@@ -320,7 +320,11 @@ export class JobsController {
     // Background mode is for admins checking IDRS's suggestions before a
     // partner switches to fuzzy. The check depends on the job, so it can't
     // be a route decorator.
-    const isAdminOnly = req.job?.idMatchingMode === 'id_based_fuzzy_background';
+    if (!req.job) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    const isAdminOnly = req.job.idMatchingMode === 'id_based_fuzzy_background';
     const session = plainToInstance(GetSessionDataDto, req.user);
     if (isAdminOnly && !session.privileges.has('job.match-results.background.read')) {
       throw new ForbiddenException('Forbidden');
