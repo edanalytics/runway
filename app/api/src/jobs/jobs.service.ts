@@ -71,7 +71,7 @@ export class JobsService {
 
   /**
    * The job's students to match, each with every run's result for it and each
-   * result's suggestions in order. Past the review limit, only the count.
+   * result's suggestions in order.
    */
   async getStudentMatchResults(jobId: Job['id']) {
     const count = await this.prisma.studentInputDetails.count({ where: { jobId } });

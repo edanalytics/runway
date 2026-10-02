@@ -194,8 +194,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     describe('past the review limit', () => {
-      // So many students to match means something is wrong with the file,
-      // not a queue anyone will review, so only the count comes back.
       let limit: jest.ReplaceProperty<number>;
       beforeEach(() => {
         limit = jest.replaceProperty(app.get(JobsService), 'studentMatchReviewLimit', 2);
@@ -272,8 +270,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     describe('in fuzzy background mode', () => {
-      // Background mode exists for admins to check suggestions before a
-      // partner switches to fuzzy, so its results are theirs alone.
       it('returns the results to a partner admin', async () => {
         const job = await seedReportedJob('id_based_fuzzy_background');
 
@@ -353,7 +349,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     it('lets a fuzzy job with students to match be resolved, as complete with errors', async () => {
-      // Resolving is allowed only from 'complete with errors'.
+      // An unresolved job can be resolved only from 'complete with errors'.
       await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
       const resolve = () =>
         request(app.getHttpServer())
@@ -371,8 +367,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     it('counts a fuzzy background job’s students but keeps its status', async () => {
-      // The ID-based run already delivered, and review is read-only, so
-      // students to match say nothing about the job's outcome.
       const backgroundJob = await seedJob({
         odsConfig: odsConfigA2425,
         bundle: bundleA,

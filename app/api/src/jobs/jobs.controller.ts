@@ -317,9 +317,8 @@ export class JobsController {
   @Get(':jobId/student-match-results')
   @AllowMetatenant('job.metatenant.read')
   async getStudentMatchResults(@Param('jobId', ParseIntPipe) jobId: number, @Req() req: Request) {
-    // Background mode is for admins checking IDRS's suggestions before a
-    // partner switches to fuzzy. The check depends on the job, so it can't
-    // be a route decorator.
+    // Who may read depends on the job's mode (see AGENTS.md), so the check
+    // can't be a route decorator.
     if (!req.job) {
       // Set by the job middleware; fail closed if it ever isn't.
       throw new InternalServerErrorException('No job on the request');

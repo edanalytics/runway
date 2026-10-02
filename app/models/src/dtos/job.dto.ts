@@ -99,10 +99,10 @@ export class GetJobDto
   isResolved: boolean;
 
   /**
-   * How many students the Executor sent for review. A job read must supply
-   * it, or a fuzzy job silently reads as success: Prisma's `_count` for one
-   * job, or the field itself, as the jobs list sets it from
-   * `JobsService.countStudentsToMatch` and the frontend gets it from JSON.
+   * How many students the Executor sent for review. Read from Prisma's
+   * `_count` for one job, or from the field itself: the jobs list sets it from
+   * `JobsService.countStudentsToMatch`, and the frontend gets it from JSON. A
+   * read that supplies neither gets 0, so a fuzzy job reads as success.
    */
   @Expose()
   @Transform(({ obj, value }) => obj._count?.studentInputDetails ?? value ?? 0)
@@ -173,8 +173,7 @@ export class GetJobDto
 
   /**
    * Only in fuzzy mode do students to match leave records undelivered. In
-   * fuzzy background mode the ID-based run has already delivered, and review
-   * is read-only, so they don't affect the job's status.
+   * fuzzy background mode the ID-based run has already delivered them.
    */
   get hasStudentsToMatch() {
     return this.idMatchingMode === 'fuzzy' && this.studentsToMatchCount > 0;
