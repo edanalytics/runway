@@ -66,9 +66,6 @@ export class JobsService {
 
     const inputs = await this.prisma.studentInputDetails.findMany({
       where: { jobId },
-      // Stable, not meaningful: correlation ids are opaque, and this is the
-      // primary key's order. The client chooses a display order.
-      orderBy: { correlationId: 'asc' },
       include: {
         studentMatchResult: {
           orderBy: { runId: 'asc' },
@@ -76,6 +73,12 @@ export class JobsService {
         },
       },
     });
+    // In the order first reported, which is the input file's: the callback
+    // stores a batch's results in the order sent, so their ids follow it.
+    // Every student has a result, stored with its details.
+    const firstReported = ({ studentMatchResult: results }: (typeof inputs)[number]) =>
+      results.reduce((min, { id }) => (id < min ? id : min), results[0].id);
+    inputs.sort((a, b) => Number(firstReported(a) - firstReported(b)));
     return {
       // Counted again from what was fetched, in case results arrived in between.
       count: inputs.length,
