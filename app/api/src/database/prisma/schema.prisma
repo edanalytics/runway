@@ -562,11 +562,3 @@ enum IdMatchingMode {
 
   @@map("id_matching_mode")
 }
-
-enum EcsTaskSize {
-  small
-  medium
-  large
-
-  @@map("ecs_task_size")
-}

@@ -21,6 +21,7 @@ import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { DtoableJob, GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
 import { FileService } from 'api/src/files/file.service';
+import { JobLogsService } from 'api/src/jobs/job-logs.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
 import { Job, JobNote } from '@prisma/client';
@@ -469,6 +470,112 @@ describe('GET /jobs/:id/output-files', () => {
         );
       });
     });
+  });
+});
+
+describe('GET /jobs/:id/logs', () => {
+  const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
+  const USER_ROLE = 'runway.test.user';
+  const endpoint = (id: number) => `/jobs/${id}/logs`;
+  const logs = { events: [{ timestamp: 1000, message: 'hello' }], nextCursor: 'f/1' };
+
+  let jobA: DtoableJob;
+  let jobB: DtoableJob;
+  let getLogsMock: jest.SpyInstance;
+
+  beforeEach(async () => {
+    [jobA, jobB] = await Promise.all([
+      seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA }),
+      seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB }),
+    ]);
+  });
+
+  afterEach(() => {
+    getLogsMock?.mockRestore();
+  });
+
+  it('should reject unauthenticated requests', async () => {
+    const res = await request(app.getHttpServer()).get(endpoint(jobA.id));
+    expect(res.status).toBe(401);
+  });
+
+  // The test env has no CloudWatch, so these stub the service and check only who reaches it
+  describe('authorization', () => {
+    beforeEach(() => {
+      getLogsMock = jest
+        .spyOn(JobLogsService.prototype, 'getLogs')
+        .mockResolvedValue({ status: 'SUCCESS', data: logs });
+    });
+
+    it.each([
+      {
+        description: 'SupportUser in the job’s tenant -> allowed',
+        sessionTenant: tenantA,
+        resourceJob: () => jobA,
+        roles: SUPPORT_ROLES,
+        expectedStatus: 200,
+      },
+      {
+        description: 'non-SupportUser in the job’s tenant -> forbidden',
+        sessionTenant: tenantA,
+        resourceJob: () => jobA,
+        roles: USER_ROLE,
+        expectedStatus: 403,
+      },
+      {
+        description: 'SupportUser in a different non-global tenant -> forbidden',
+        sessionTenant: tenantA,
+        resourceJob: () => jobB,
+        roles: SUPPORT_ROLES,
+        expectedStatus: 403,
+      },
+      {
+        description: 'SupportUser in a global tenant of the same partner -> allowed',
+        sessionTenant: tenantDGlobal,
+        resourceJob: () => jobB,
+        roles: SUPPORT_ROLES,
+        expectedStatus: 200,
+      },
+      {
+        description: 'non-SupportUser in a global tenant of the same partner -> forbidden',
+        sessionTenant: tenantDGlobal,
+        resourceJob: () => jobB,
+        roles: USER_ROLE,
+        expectedStatus: 403,
+      },
+    ])('$description', async ({ sessionTenant, resourceJob, roles, expectedStatus }) => {
+      const cookie = (await authHelper.login(idpA, userA, sessionTenant, roles)).cookies;
+
+      const res = await request(app.getHttpServer())
+        .get(endpoint(resourceJob().id))
+        .set('Cookie', [cookie]);
+
+      expect(res.status).toBe(expectedStatus);
+      if (expectedStatus === 200) {
+        expect(res.body).toEqual(logs);
+      } else {
+        expect(getLogsMock).not.toHaveBeenCalled();
+      }
+    });
+
+    it('passes the cursor through to the service', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+      await request(app.getHttpServer())
+        .get(`${endpoint(jobA.id)}?cursor=f%2F1`)
+        .set('Cookie', [cookie]);
+
+      expect(getLogsMock).toHaveBeenCalledWith(jobA.id, 'f/1');
+    });
+  });
+
+  it('should return 404 when the latest run has no recorded executor task', async () => {
+    const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+    const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookie]);
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe(`No executor task recorded for the latest run of job ${jobA.id}`);
   });
 });
 

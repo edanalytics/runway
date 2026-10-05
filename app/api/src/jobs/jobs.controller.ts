@@ -12,12 +12,14 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { PrismaClient } from '@prisma/client';
 import { JobsService } from './jobs.service';
+import { JobLogsService } from './job-logs.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
 import type { Tenant as TTenant, User } from '@prisma/client';
@@ -47,7 +49,8 @@ export class JobsController {
   private logger = new Logger(JobsController.name);
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
-    private jobService: JobsService
+    private jobService: JobsService,
+    private jobLogsService: JobLogsService
   ) {}
 
   @Get()
@@ -162,6 +165,24 @@ export class JobsController {
   ) {
     const errors = await this.jobService.getErrors(jobId);
     return errors ? toJobErrorWrapperDto(errors) : null;
+  }
+
+  @Get(':jobId/logs')
+  @AllowMetatenant('job.metatenant.logs.read')
+  @Authorize('job.logs.read')
+  async getLogs(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Query('cursor') cursor?: string
+  ) {
+    const result = await this.jobLogsService.getLogs(jobId, cursor);
+    if (result.status === 'ERROR') {
+      throw new NotFoundException(
+        result.code === 'NO_TASK'
+          ? `No executor task recorded for the latest run of job ${jobId}`
+          : `Executor logs not found for the latest run of job ${jobId}`
+      );
+    }
+    return result.data;
   }
 
   /**
