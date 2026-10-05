@@ -335,9 +335,9 @@ export class JobsController {
       // Set by the job middleware; fail closed if it ever isn't.
       throw new InternalServerErrorException('No job on the request');
     }
-    const isAdminOnly = req.job.idMatchingMode === 'id_based_fuzzy_background';
+    const isFuzzyBackground = req.job.idMatchingMode === 'id_based_fuzzy_background';
     const session = plainToInstance(GetSessionDataDto, req.user);
-    if (isAdminOnly && !session.privileges.has('job.match-results.background.read')) {
+    if (isFuzzyBackground && !session.privileges.has('job.match-results.background.read')) {
       throw new ForbiddenException('Forbidden');
     }
     return toGetStudentMatchResultsDto(await this.jobService.getStudentMatchResults(jobId));
