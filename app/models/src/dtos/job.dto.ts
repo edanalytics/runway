@@ -157,7 +157,7 @@ export class GetJobDto
 
     if (
       status === 'success' &&
-      (this.hasUnmatchedStudents || this.hasStudentsToMatch || this.hasResourceErrors)
+      (this.hasIdBasedUnmatchedStudents || this.hasFuzzyStudentsToMatch || this.hasResourceErrors)
     ) {
       return 'complete with errors';
     }
@@ -170,14 +170,20 @@ export class GetJobDto
   }
 
   /**
-   * Only in fuzzy mode do students to match leave records undelivered. In
-   * fuzzy background mode the ID-based run has already delivered them.
+   * Fuzzy mode: students waiting for a reviewer to pick their match in Runway,
+   * whose records aren't delivered until then. Never in fuzzy background mode,
+   * where the ID-based run has already delivered them.
    */
-  get hasStudentsToMatch() {
+  get hasFuzzyStudentsToMatch() {
     return this.idMatchingMode === 'fuzzy' && (this.studentsToMatchCount ?? 0) > 0;
   }
 
-  get hasUnmatchedStudents() {
+  /**
+   * ID-based matching (`id_based`, and the ID-based run of fuzzy background
+   * mode): students whose IDs the last run couldn't find. The user fixes the
+   * IDs in the file and reprocesses it.
+   */
+  get hasIdBasedUnmatchedStudents() {
     return (
       this.lastRun?.unmatchedStudentsInfo?.count !== undefined &&
       this.lastRun?.unmatchedStudentsInfo?.count > 0
