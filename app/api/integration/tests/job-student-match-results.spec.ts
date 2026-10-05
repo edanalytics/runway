@@ -8,7 +8,7 @@ import { tenantA, tenantB, tenantDGlobal } from '../fixtures/context-fixtures/te
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
-import { GetJobDto } from '@edanalytics/models';
+import { GetJobDto, GetSessionDataDto, PrivilegeKey } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { JobsService } from 'api/src/jobs/jobs.service';
 
@@ -52,6 +52,27 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
       expect(res.status).toBe(403);
+    });
+
+    it('rejects a user without the match results privilege', async () => {
+      // Every role has it, so take it from the session.
+      const { get } = Object.getOwnPropertyDescriptor(GetSessionDataDto.prototype, 'privileges')!;
+      const privileges = jest
+        .spyOn(GetSessionDataDto.prototype, 'privileges', 'get')
+        .mockImplementation(function (this: GetSessionDataDto) {
+          const granted: Set<PrivilegeKey> = get!.call(this);
+          granted.delete('job.match-results.read');
+          return granted;
+        });
+      try {
+        const { cookies } = await authHelper.login(idpA, userA, tenantA);
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(res.status).toBe(403);
+      } finally {
+        privileges.mockRestore();
+      }
     });
   });
 
