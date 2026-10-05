@@ -66,6 +66,8 @@ export class JobsService {
 
     const inputs = await this.prisma.studentInputDetails.findMany({
       where: { jobId },
+      // Stable, not meaningful: correlation ids are opaque, and this is the
+      // primary key's order. The client chooses a display order.
       orderBy: { correlationId: 'asc' },
       include: {
         studentMatchResult: {
