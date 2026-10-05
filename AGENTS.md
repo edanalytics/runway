@@ -256,7 +256,7 @@ This endpoint never changes run state; acting on a failure is the Executor's job
 
 **Outstanding:** the request byte limit is not yet set. The endpoint currently runs under Nest's default JSON parser, so a large batch is rejected by that default rather than by an agreed limit. Confirm the cap and any record cap with cloud engineering and the Executor, then register a route-scoped parser for this route only — check the `SizeRestrictions_BODY` rule in `cloudformation/templates/0-waf.yml` against deployed behavior rather than assuming the app-side constant is sufficient.
 
-`GET /api/jobs/:jobId/student-match-results` (`JobsService.getStudentMatchResults`) returns a job's students to match, for review; no frontend reads it yet. It is tenant-scoped like the job's other reads. It returns `{ count, students }`: each student's input details, ordered by correlation id, with every run's result for it, ordered by run, and each result's suggestions in ordinal order. Result ids come back as strings because they are `BIGINT`, and scores as numbers. The details and roster JSON come back as stored, in snake_case.
+`GET /api/jobs/:jobId/student-match-results` (`JobsService.getStudentMatchResults`) returns a job's students to match, for review; no frontend reads it yet. It is tenant-scoped like the job's other reads, and needs `job.match-results.read`, which every role has. It returns `{ count, students }`: each student's input details, ordered by correlation id, with every run's result for it, ordered by run, and each result's suggestions in ordinal order. Result ids come back as strings because they are `BIGINT`, and scores as numbers. The details and roster JSON come back as stored, in snake_case.
 
 There is no pagination. A real review queue is under 10 students, a few hundred at most; thousands means the file needs fixing, not reviewing. Past `MATCH_REVIEW_STUDENT_LIMIT` (1,000) the endpoint returns the count with `students: null` and doesn't fetch them.
 
@@ -265,7 +265,7 @@ Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `
 The mode decides who reads the results and whether they affect the status:
 
 - **`id_based_fuzzy_background`**: only `PartnerAdmin` and `SupportUser`, through `job.match-results.background.read`. The mode exists for them to check suggestions before a partner switches to fuzzy. The ID-based run has already delivered, so the count leaves the status alone.
-- **`fuzzy`** (and `id_based`): any user who can read the job. In fuzzy mode, a successful last run with any students to match makes the job `complete with errors`, which can be marked resolved, as with unmatched student IDs.
+- **`fuzzy`** (and `id_based`): any user with `job.match-results.read`. In fuzzy mode, a successful last run with any students to match makes the job `complete with errors`, which can be marked resolved, as with unmatched student IDs.
 
 ### S3 Path Structure
 

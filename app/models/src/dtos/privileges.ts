@@ -10,4 +10,5 @@ export type PrivilegeKey =
   | 'job.metatenant.read'
   | 'job.metatenant.update'
   | 'job.metatenant.output-files.read'
+  | 'job.match-results.read'
   | 'job.match-results.background.read';
