@@ -80,7 +80,8 @@ export class JobsService {
       results.reduce((min, { id }) => (id < min ? id : min), results[0].id);
     inputs.sort((a, b) => Number(firstReported(a) - firstReported(b)));
     return {
-      // Counted again from what was fetched, in case results arrived in between.
+      // The fetched length, not the first count: students reported between the
+      // two queries would make count and students disagree.
       count: inputs.length,
       // Prisma names each relation after its table; the API calls them results
       // and suggestions.
