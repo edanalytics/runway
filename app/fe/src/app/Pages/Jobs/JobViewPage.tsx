@@ -60,9 +60,10 @@ const reviewTabs: { label: string; tucked: boolean }[] = [
   { label: 'Unmatched Students (triage)', tucked: true },
   { label: 'Unmatched Students (yes / no)', tucked: true },
   { label: 'Unmatched Students (grouped)', tucked: true },
-  { label: 'Unmatched Students (workspace)', tucked: false },
+  { label: 'Unmatched Students (Sidebar)', tucked: false },
+  { label: 'Unmatched Students (Tracker)', tucked: false },
   { label: 'Unmatched Students (table)', tucked: true },
-  { label: 'Unmatched Students (expanding rows)', tucked: false },
+  { label: 'Unmatched Students (Rows)', tucked: false },
 ];
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
@@ -268,9 +269,7 @@ export const JobViewPage = () => {
                       onReview={() =>
                         setTabIndex(
                           1 +
-                            reviewTabs.findIndex(
-                              (t) => t.label === 'Unmatched Students (workspace)'
-                            )
+                            reviewTabs.findIndex((t) => t.label === 'Unmatched Students (Sidebar)')
                         )
                       }
                     />
@@ -311,6 +310,9 @@ export const JobViewPage = () => {
             </TabPanel>
             <TabPanel paddingX="0" paddingY="400">
               <WorkspaceReview />
+            </TabPanel>
+            <TabPanel paddingX="0" paddingY="400">
+              <WorkspaceReview layout="topbar" />
             </TabPanel>
             <TabPanel paddingX="0" paddingY="400">
               <WorkspaceReview layout="table" />

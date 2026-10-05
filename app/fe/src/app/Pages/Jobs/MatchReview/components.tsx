@@ -18,7 +18,7 @@ import {
   VStack,
 } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto, StudentInputDetailsJson } from '@edanalytics/models';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare, Comparison } from './compare';
 import { SearchHit, searchRoster, SearchTerms, termsFrom } from './mockIdrs';
 import {
@@ -608,6 +608,42 @@ export const ReviewProgress = () => {
  * Simulations for how processing can go: a run that fails outright, a
  * submission that meets a conflicting change, and another reviewer's match.
  */
+const orientationKey = 'runway.match-review-prototype.suggestion-orientation';
+
+/** PROTOTYPE: suggestions side by side as columns, or stacked as rows. */
+export type Orientation = 'columns' | 'rows';
+const orientationEvent = 'match-review-orientation';
+
+const readOrientation = (): Orientation => {
+  try {
+    return window.localStorage.getItem(orientationKey) === 'rows' ? 'rows' : 'columns';
+  } catch {
+    return 'columns';
+  }
+};
+
+/**
+ * Which way suggestions run, remembered across students and kept in step
+ * between the comparison and the search results on the same page.
+ */
+export const useOrientation = () => {
+  const [orientation, setState] = useState<Orientation>(readOrientation);
+  useEffect(() => {
+    const sync = (event: Event) => setState((event as CustomEvent<Orientation>).detail);
+    window.addEventListener(orientationEvent, sync);
+    return () => window.removeEventListener(orientationEvent, sync);
+  }, []);
+  const setOrientation = (next: Orientation) => {
+    try {
+      window.localStorage.setItem(orientationKey, next);
+    } catch {
+      // A remembered preference is a convenience.
+    }
+    window.dispatchEvent(new CustomEvent(orientationEvent, { detail: next }));
+  };
+  return [orientation, setOrientation] as const;
+};
+
 export const PrototypeControls = () => {
   const {
     groups,
@@ -624,47 +660,70 @@ export const PrototypeControls = () => {
   const other = groups.find(
     (g) => statusOf(g.correlationId) === 'to-review' && suggestedCandidates(g).length > 0
   );
+  // Folded by default, so they don't sit between a view and its controls.
+  const [open, setOpen] = useState(false);
+  const [orientation, setOrientation] = useOrientation();
   return (
     <VStack alignItems="flex-start" fontSize="0.8rem" opacity="0.75" gap="100">
-      <HStack gap="300" flexWrap="wrap">
-        <Box>Prototype:</Box>
-        <Checkbox
-          size="sm"
-          isChecked={failNextRun}
-          onChange={(e) => setFailNextRun(e.target.checked)}
-        >
-          Next batch's run fails outright
-        </Checkbox>
-        <Checkbox
-          size="sm"
-          isChecked={conflictNextSubmit}
-          onChange={(e) => setConflictNextSubmit(e.target.checked)}
-        >
-          Next submission finds a conflicting change
-        </Checkbox>
-        <Checkbox
-          size="sm"
-          isChecked={simulateLarge}
-          onChange={(e) => setSimulateLarge(e.target.checked)}
-        >
-          Simulate a large file (30 more students)
-        </Checkbox>
-        <QuietButton
-          size="xs"
-          isDisabled={!other}
-          onClick={() =>
-            other &&
-            decide(
-              other.correlationId,
-              { kind: 'match', candidate: suggestedCandidates(other)[0] },
-              'another reviewer'
-            )
-          }
-        >
-          Another reviewer saves a match
-        </QuietButton>
+      <HStack
+        as="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        gap="100"
+        _hover={{ opacity: 1 }}
+      >
+        <Box width="0.8rem">{open ? '▾' : '▸'}</Box>
+        <Box>Prototype controls</Box>
       </HStack>
-      <Box>Decisions persist in this browser; reload to try leaving and coming back.</Box>
+      {open && (
+        <>
+          <HStack gap="300" flexWrap="wrap">
+            <Checkbox
+              size="sm"
+              isChecked={failNextRun}
+              onChange={(e) => setFailNextRun(e.target.checked)}
+            >
+              Next batch's run fails outright
+            </Checkbox>
+            <Checkbox
+              size="sm"
+              isChecked={conflictNextSubmit}
+              onChange={(e) => setConflictNextSubmit(e.target.checked)}
+            >
+              Next submission finds a conflicting change
+            </Checkbox>
+            <Checkbox
+              size="sm"
+              isChecked={simulateLarge}
+              onChange={(e) => setSimulateLarge(e.target.checked)}
+            >
+              Simulate a large file (30 more students)
+            </Checkbox>
+            <Checkbox
+              size="sm"
+              isChecked={orientation === 'rows'}
+              onChange={(e) => setOrientation(e.target.checked ? 'rows' : 'columns')}
+            >
+              Show suggestions as rows (workspace views)
+            </Checkbox>
+            <QuietButton
+              size="xs"
+              isDisabled={!other}
+              onClick={() =>
+                other &&
+                decide(
+                  other.correlationId,
+                  { kind: 'match', candidate: suggestedCandidates(other)[0] },
+                  'another reviewer'
+                )
+              }
+            >
+              Another reviewer saves a match
+            </QuietButton>
+          </HStack>
+          <Box>Decisions persist in this browser; reload to try leaving and coming back.</Box>
+        </>
+      )}
     </VStack>
   );
 };
