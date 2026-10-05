@@ -260,7 +260,7 @@ This endpoint never changes run state; acting on a failure is the Executor's job
 
 There is no pagination. A real review queue is under 10 students, a few hundred at most; thousands means the file needs fixing, not reviewing. Past `MATCH_REVIEW_STUDENT_LIMIT` (1,000) the endpoint returns the count with `students: null` and doesn't fetch them.
 
-Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `studentsToMatchCount`. Status is computed by `GetJobDto` from both, so any job read that feeds a status must supply the count, or a fuzzy job silently reads as `success`: include Prisma's `_count` of `studentInputDetails` for one job, and a `groupBy` on the listed job ids for many, as `GET /api/jobs` does (an included `_count` there would aggregate the whole table).
+Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `studentsToMatchCount`. Status is computed by `GetJobDto` from both, so any job read that feeds a status must set `studentsToMatchCount` on what it passes to `toGetJobDto`, or a fuzzy job silently reads as `success`: from Prisma's `_count` of `studentInputDetails` for one job, and a `groupBy` on the listed job ids for many, as `GET /api/jobs` does (an included `_count` there would aggregate the whole table).
 
 The mode decides who reads the results and whether they affect the status:
 

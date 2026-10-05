@@ -37,6 +37,7 @@ export class JobInputParamDto extends GetJobTemplateInputParamDto {
 export type DtoableJob = Job & {
   files: JobFile[];
   runs?: Array<Run & { runError?: RunError[]; }>;
+  studentsToMatchCount?: number;
 };
 export type TJobDisplayStatus =
   | Exclude<GetRunDto['status'], null>
@@ -99,14 +100,11 @@ export class GetJobDto
   isResolved: boolean;
 
   /**
-   * How many students the Executor sent for review. Read from Prisma's
-   * `_count` for one job, or from the field itself: the jobs list sets it from
-   * a separate `groupBy`, and the frontend gets it from JSON. A read that
-   * supplies neither gets 0, so a fuzzy job reads as success.
+   * How many students the Executor sent for review. A read that doesn't supply
+   * it leaves it undefined, so a fuzzy job reads as success.
    */
   @Expose()
-  @Transform(({ obj, value }) => obj._count?.studentInputDetails ?? value ?? 0)
-  studentsToMatchCount: number;
+  studentsToMatchCount?: number;
 
   /** Snapshotted from the partner when the job was created. */
   @Expose()
@@ -176,7 +174,7 @@ export class GetJobDto
    * fuzzy background mode the ID-based run has already delivered them.
    */
   get hasStudentsToMatch() {
-    return this.idMatchingMode === 'fuzzy' && this.studentsToMatchCount > 0;
+    return this.idMatchingMode === 'fuzzy' && (this.studentsToMatchCount ?? 0) > 0;
   }
 
   get hasUnmatchedStudents() {

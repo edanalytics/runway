@@ -109,7 +109,7 @@ export class JobsController {
       return new NotFoundException(`Job not found: ${jobId}`);
     }
 
-    return toGetJobDto(job);
+    return toGetJobDto({ ...job, studentsToMatchCount: job._count.studentInputDetails });
   }
 
   @Get(':jobId/files/:templateKey')
@@ -297,21 +297,20 @@ export class JobsController {
     @Param('jobId', ParseIntPipe) jobId: GetJobDto['id'],
     @Body() resolveJobDto: PutJobResolveDto
   ) {
-    const job = toGetJobDto(
-      await this.prisma.job
-        .findUniqueOrThrow({
-          where: { id: jobId },
-          include: {
-            files: true,
-            runs: true,
-            _count: { select: { studentInputDetails: true } },
-          },
-        })
-        .catch(() => {
-          // not founds should be thrown before we get to the handler, but just in case
-          throw new NotFoundException(`Job not found: ${jobId}`);
-        })
-    );
+    const found = await this.prisma.job
+      .findUniqueOrThrow({
+        where: { id: jobId },
+        include: {
+          files: true,
+          runs: true,
+          _count: { select: { studentInputDetails: true } },
+        },
+      })
+      .catch(() => {
+        // not founds should be thrown before we get to the handler, but just in case
+        throw new NotFoundException(`Job not found: ${jobId}`);
+      });
+    const job = toGetJobDto({ ...found, studentsToMatchCount: found._count.studentInputDetails });
 
     if (!job.isStatusChangeable) {
       throw new BadRequestException(`Job is not changeable: ${jobId}`);
