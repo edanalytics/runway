@@ -5,6 +5,7 @@ import {
   GetLogEventsCommand,
   ResourceNotFoundException,
 } from '@aws-sdk/client-cloudwatch-logs';
+import { GetJobLogsDto } from '@edanalytics/models';
 import { PRISMA_READ_ONLY } from '../database';
 import { AppConfigService } from '../config/app-config.service';
 import {
@@ -19,10 +20,8 @@ const PAGE_SIZE = 1000;
 // before handing the cursor back, rather than following them indefinitely.
 const MAX_REQUESTS_PER_PAGE = 5;
 
-export type JobLogEvent = { timestamp: number | null; message: string };
-
 export type GetJobLogsResult =
-  | { status: 'SUCCESS'; data: { events: JobLogEvent[]; nextCursor: string | null } }
+  | { status: 'SUCCESS'; data: GetJobLogsDto }
   | { status: 'ERROR'; code: 'NO_TASK' | 'STREAM_NOT_FOUND' };
 
 @Injectable()

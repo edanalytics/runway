@@ -8,10 +8,11 @@ import {
   JobErrorWrapperDto,
   PutJobResolveDto,
   GetOutputFileDto,
+  GetJobLogsDto,
 } from '@edanalytics/models';
 import { EntityQueryBuilder } from './builder';
 import { apiClient, methods } from '../methods';
-import { useQueryClient } from '@tanstack/react-query';
+import { infiniteQueryOptions, useQueryClient } from '@tanstack/react-query';
 
 export const jobQueries = new EntityQueryBuilder({ classNamePlural: 'Jobs' })
   .getAll({ ResDto: GetJobDto })
@@ -86,3 +87,16 @@ export const useInvalidateJobQueries = (jobId: string | number) => {
     queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${jobId}`] });
   };
 };
+
+export const getJobLogs = (jobId: string) =>
+  infiniteQueryOptions({
+    queryKey: ['jobs', jobId, 'logs'],
+    queryFn: ({ pageParam }) =>
+      methods.getOne(`/jobs/${jobId}/logs`, GetJobLogsDto, {
+        params: pageParam ? { cursor: pageParam } : undefined,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    // A 404 means there are no logs for this job's latest run; retrying won't change that
+    retry: false,
+  });

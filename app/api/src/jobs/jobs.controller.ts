@@ -28,6 +28,7 @@ import {
   NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
+  toGetJobLogsDto,
   PutJobResolveDto,
   toGetJobDto,
   toGetOutputFileDto,
@@ -182,7 +183,7 @@ export class JobsController {
           : `Executor logs not found for the latest run of job ${jobId}`
       );
     }
-    return result.data;
+    return toGetJobLogsDto(result.data);
   }
 
   /**

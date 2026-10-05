@@ -19,6 +19,7 @@ import { ResourceSummary } from './JobViewComponents/ResourceSummary';
 import { UnmatchedStudents } from './JobViewComponents/UnmatchedStudents';
 import { JobConfiguration } from './JobViewComponents/JobConfiguration';
 import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
+import { JobLogs } from './JobViewComponents/JobLogs';
 import { JobNotes } from './JobNotes/JobNotes';
 import { useMe } from '../../api/queries/me.queries';
 
@@ -45,6 +46,7 @@ export const JobViewPage = () => {
   const { data: errors } = useQuery(getJobErrors(assessmentId));
   const { data: me } = useMe();
   const canViewOutputFiles = me?.privileges?.has('job.output-files.read') ?? false;
+  const canViewLogs = me?.privileges?.has('job.logs.read') ?? false;
   const canViewCrossTenantJobs = me?.privileges?.has('job.metatenant.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
@@ -170,6 +172,11 @@ export const JobViewPage = () => {
         {canViewOutputFiles && (
           <JobViewSection title="Output Files">
             <JobOutputFiles job={job} />
+          </JobViewSection>
+        )}
+        {canViewLogs && (
+          <JobViewSection title="Executor Logs">
+            <JobLogs job={job} />
           </JobViewSection>
         )}
       </VStack>
