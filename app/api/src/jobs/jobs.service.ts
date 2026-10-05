@@ -51,21 +51,6 @@ export class JobsService {
     return lastRun?.runError;
   }
 
-  /**
-   * Students to match per job, for the jobs list. Prisma's `_count` would
-   * aggregate the whole table on every list load, since Postgres can't push
-   * the list's filter into it. This reads only the listed jobs, by primary key.
-   * Jobs with none are absent from the map.
-   */
-  async countStudentsToMatch(jobIds: Job['id'][]) {
-    const counts = await this.prisma.studentInputDetails.groupBy({
-      by: ['jobId'],
-      where: { jobId: { in: jobIds } },
-      _count: true,
-    });
-    return new Map(counts.map(({ jobId, _count }) => [jobId, _count]));
-  }
-
   /** Overridable so tests can reach the limit without seeding 1,000 students. */
   studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
 

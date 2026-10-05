@@ -101,8 +101,8 @@ export class GetJobDto
   /**
    * How many students the Executor sent for review. Read from Prisma's
    * `_count` for one job, or from the field itself: the jobs list sets it from
-   * `JobsService.countStudentsToMatch`, and the frontend gets it from JSON. A
-   * read that supplies neither gets 0, so a fuzzy job reads as success.
+   * a separate `groupBy`, and the frontend gets it from JSON. A read that
+   * supplies neither gets 0, so a fuzzy job reads as success.
    */
   @Expose()
   @Transform(({ obj, value }) => obj._count?.studentInputDetails ?? value ?? 0)

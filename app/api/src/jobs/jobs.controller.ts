@@ -67,7 +67,18 @@ export class JobsController {
         createdBy: true,
       },
     });
-    const counts = await this.jobService.countStudentsToMatch(jobs.map((job) => job.id));
+    // Counted separately: an included _count would aggregate all of
+    // student_input_details on every load, since Postgres can't push the
+    // list's filter into it. This reads only the listed jobs, by primary key.
+    const counts = new Map(
+      (
+        await this.prisma.studentInputDetails.groupBy({
+          by: ['jobId'],
+          where: { jobId: { in: jobs.map((job) => job.id) } },
+          _count: true,
+        })
+      ).map(({ jobId, _count }) => [jobId, _count])
+    );
 
     return toGetJobDto(
       jobs.map((job) => ({ ...job, studentsToMatchCount: counts.get(job.id) ?? 0 }))
