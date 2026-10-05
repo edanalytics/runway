@@ -5,7 +5,6 @@ import { compare } from './compare';
 import {
   BatchActivity,
   ComparisonTable,
-  DesignIntro,
   Evidence,
   FileLine,
   NoSuggestionFits,
@@ -136,10 +135,6 @@ export const FocusReview = () => {
       onKeyDown={onKeyDown}
       outline="none"
     >
-      <DesignIntro
-        title="Focus: one student at a time"
-        bet="One student at a time, in a single flow whatever the number of suggestions: use one, or say none fit, then search the roster or exclude the record. Deciding moves you straight on to the next student, and a banner names what you decided and who's up now, with Undo. Saved matches gather at the top of the list, next to the button that submits them. Keyboard: j/k to move, u to undo."
-      />
       <ReviewProgress />
       <HStack alignItems="flex-start" width="100%" gap="400">
         <VStack

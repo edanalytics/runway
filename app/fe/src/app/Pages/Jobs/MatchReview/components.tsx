@@ -722,6 +722,7 @@ export const PrototypeControls = () => {
             </QuietButton>
           </HStack>
           <Box>Decisions persist in this browser; reload to try leaving and coming back.</Box>
+          <ResetPrototype />
         </>
       )}
     </VStack>
@@ -774,50 +775,5 @@ export const ResetPrototype = () => {
     <QuietButton onClick={reset} fontSize="0.8rem" opacity="0.7">
       Reset prototype
     </QuietButton>
-  );
-};
-
-/** A heading for a design, with the bet it makes; the bet collapses. */
-export const DesignIntro = ({ title, bet }: { title: string; bet: string }) => {
-  const key = `runway.match-review-prototype.intro.${title}`;
-  const [open, setOpen] = useState(() => {
-    try {
-      return window.localStorage.getItem(key) !== 'collapsed';
-    } catch {
-      return true;
-    }
-  });
-  const toggle = () => {
-    setOpen(!open);
-    try {
-      window.localStorage.setItem(key, open ? 'collapsed' : 'open');
-    } catch {
-      // Remembering this is a convenience.
-    }
-  };
-  return (
-    <HStack width="100%" justifyContent="space-between" alignItems="flex-start" gap="300">
-      <VStack alignItems="flex-start" gap="100">
-        <HStack
-          as="button"
-          onClick={toggle}
-          aria-expanded={open}
-          gap="200"
-          alignItems="baseline"
-          textAlign="left"
-        >
-          <Box width="1rem" opacity="0.8" fontSize="0.9rem">
-            {open ? '▾' : '▸'}
-          </Box>
-          <Box textStyle="h4">{title}</Box>
-        </HStack>
-        {open && (
-          <Box opacity="0.8" maxWidth="50rem" paddingLeft="300">
-            {bet}
-          </Box>
-        )}
-      </VStack>
-      <ResetPrototype />
-    </HStack>
   );
 };

@@ -17,7 +17,6 @@ import { compare, ComparedField, Comparison } from './compare';
 import {
   AgreementMark,
   BatchActivity,
-  DesignIntro,
   FileLine,
   NoSuggestionFits,
   OthersMatchesNote,
@@ -108,10 +107,6 @@ export const HybridReview = () => {
 
   return (
     <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="500">
-      <DesignIntro
-        title="Grouped by suggestions"
-        bet="Students grouped by what the matching returned (one suggestion, several, or none), each group with a view tuned to it: one suggestion leads with what differs, several are lined up side by side, and none starts from what in the file may have kept them from being found. Nothing moves on by itself: a decision shows what you chose, and Next (or Enter) takes you on. Saved matches from every group collect in the bar below, ready to submit."
-      />
       <ReviewProgress />
       <HStack width="100%" gap="300" alignItems="stretch">
         {types.map(({ type: t, title }) => {

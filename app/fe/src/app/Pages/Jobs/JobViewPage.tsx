@@ -178,6 +178,11 @@ export const JobViewPage = () => {
           </Box>
         )}
       </Box>
+      {/* Notes sit above the tabs, so they're in view whichever tab is open,
+          and close under the job's summary rather than a full gap below it. */}
+      <Box width="100%" marginTop="-2rem">
+        <JobNotes job={job} />
+      </Box>
       {/* PROTOTYPE: the review tabs share one in-memory session. */}
       <ReviewSessionProvider job={job}>
         <Tabs
@@ -235,7 +240,6 @@ export const JobViewPage = () => {
           <TabPanels>
             <TabPanel paddingX="0" paddingY="400">
               <VStack width="100%" alignItems="flex-start" gap="500">
-                <JobNotes job={job} />
                 <VStack
                   width="100%"
                   alignItems="flex-start"

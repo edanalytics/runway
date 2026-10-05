@@ -6,7 +6,6 @@ import {
   AgreementMark,
   BatchActivity,
   ComparisonTable,
-  DesignIntro,
   Evidence,
   FileLine,
   OthersMatchesNote,
@@ -100,10 +99,6 @@ export const TriageReview = () => {
 
   return (
     <VStack alignItems="flex-start" width="100%" gap="400" paddingBottom="500">
-      <DesignIntro
-        title="Triage: everyone at once"
-        bet="Everyone on one page, in lanes by suggestion count, so the whole job is visible at once. Students with one suggestion can be accepted in bulk; the others open in place to choose or search. Decide in any order and submit whenever you like from the bar below."
-      />
       <ReviewProgress />
       {lanes.map(({ lane, title, hint }) => {
         const members = triaged.filter((t) => t.lane === lane);

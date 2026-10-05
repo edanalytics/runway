@@ -5,7 +5,6 @@ import { compare } from './compare';
 import {
   BatchActivity,
   ComparisonTable,
-  DesignIntro,
   Evidence,
   FileLine,
   OthersMatchesNote,
@@ -48,10 +47,6 @@ export const QuestionReview = () => {
 
   return (
     <VStack alignItems="flex-start" width="100%" gap="400">
-      <DesignIntro
-        title="Yes / no: one question at a time"
-        bet="One question at a time, with only one roster student on screen: is this the same student? Suggestions come highest match score first; no brings up the next, and when they run out the question becomes whether you can find them. It ends on a summary of your answers to check before submitting."
-      />
       <VStack alignItems="stretch" width="100%" gap="100">
         <HStack justifyContent="space-between" fontSize="0.9rem">
           <Box>

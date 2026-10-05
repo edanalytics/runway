@@ -33,7 +33,6 @@ import { Agreement, compare } from './compare';
 import {
   AgreementMark,
   BatchCard,
-  DesignIntro,
   PrimaryButton,
   NoSuggestionFits,
   useOrientation,
@@ -461,27 +460,6 @@ export const WorkspaceReview = ({
 
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
-      {layout === 'inline' ? (
-        <DesignIntro
-          title="Review workspace, expanding rows"
-          bet="The whole list stays a table, and reviewing happens in place: open a row and the review pane unfolds beneath it, framed apart from the rows, while the rest of the table stays in view. Using a suggestion saves it and moves the pane to the next student to review. Sort by any column, search and filter as usual. Keyboard: j/k to move between rows, Esc to close."
-        />
-      ) : layout === 'table' ? (
-        <DesignIntro
-          title="Review workspace, table first"
-          bet="The workspace, starting from the whole list as a table: sort by any column, search and filter, and see every student's status at a glance. Open a student and the table condenses into a side list next to the full review panel, like opening a thread or a ticket; go back to the table whenever you want the big picture. Keyboard: j/k to move, Esc for the table."
-        />
-      ) : layout === 'topbar' ? (
-        <DesignIntro
-          title="Review workspace, progress on top"
-          bet="The side list holds only the students still waiting for a decision. Everything after a decision lives in the bar on top: the matches you've saved, ready to check and submit, then the records you excluded and what you've submitted, batch by batch. Pick a count to see those students; open one to look again or change it. Keyboard: j/k to move."
-        />
-      ) : (
-        <DesignIntro
-          title="Review workspace, progress in the list"
-          bet="One searchable list, grouped by where each student stands, beside one workspace built for a careful choice. Saved matches gather in the list next to the button that submits them; reprocessed and excluded students fold away until you want them. The top shows only what you've submitted, batch by batch. Keyboard: j/k to move."
-        />
-      )}
       {layout === 'split' ? (
         <BatchesPanel />
       ) : layout === 'topbar' ? (
