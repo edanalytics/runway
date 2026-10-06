@@ -620,6 +620,37 @@ describe('POST /jobs', () => {
       expect(job?.sendToOds).toBe(true);
     });
 
+    it('stores the template from the bundle', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpoint)
+        .set('Cookie', [sessionA.cookie])
+        .send(postJobDto);
+
+      const job = await prisma.job.findUniqueOrThrow({ where: { id: res.body.id } });
+      expect(job.template).toStrictEqual({
+        name: 'bundle-a',
+        path: 'bundle/a',
+        files: [
+          {
+            name: 'Assessment data',
+            templateKey: 'INPUT_FILE',
+            isRequired: true,
+            fileType: ['csv', 'txt'],
+          },
+        ],
+        params: [
+          { name: 'School Year', templateKey: 'API_YEAR', isRequired: true },
+          {
+            name: 'Reporting Data Format',
+            templateKey: 'FORMAT',
+            isRequired: true,
+            allowedValues: ['Standard', 'End-of-Course', 'Alternate', 'End-of-Course Alternate'],
+          },
+        ],
+        reportResources: ['studentAssessments'],
+      });
+    });
+
     it("snapshots the partner's matching mode onto the job", async () => {
       // The seeded partner is id_based, so the fuzzy value asserted below can
       // only have come from the update. Seed data is refreshed before each
