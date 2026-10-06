@@ -265,10 +265,7 @@ export class EarthbeamApiService {
        * to abstract
        */
       const unmatchedStudentsInfo = run.unmatchedStudentsInfo;
-      const resourceErrors = getResourceErrors(
-        run.summary,
-        plainToInstance(GetJobTemplateDto, run.job.template).reportResources
-      );
+      const resourceErrors = getResourceErrors(run.summary, run.job.template.reportResources);
       const hasResourceErrors = resourceErrors.length > 0;
       const resourceErrorString = hasResourceErrors
         ? resourceErrors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',')

@@ -346,7 +346,7 @@ export class JobsService {
         odsId: input.odsId,
         sendToOds: input.sendToOds,
         schoolYearId: input.schoolYearId,
-        template: instanceToPlain(toGetJobTemplateDto(bundle)),
+        template: instanceToPlain(toGetJobTemplateDto(bundle)) as PrismaJson.JobTemplate,
         inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
         idMatchingMode: partner.idMatchingMode,

@@ -49,7 +49,7 @@ export const seedJob = async (
       sendToOds,
       idMatchingMode,
       inputParams: postJobDto.inputParams,
-      template: instanceToPlain(postJobDto.template),
+      template: instanceToPlain(postJobDto.template) as PrismaJson.JobTemplate,
       tenantCode: tenant.code,
       partnerId: tenant.partnerId,
       fileProtocol: 's3',
