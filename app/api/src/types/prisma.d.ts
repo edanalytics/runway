@@ -10,7 +10,8 @@ declare global {
     type UnmatchedStudentsInfo = { name: string; type: string; count?: number } | null;
     // Use JobInputParamDto as the element type - Prisma JSON stores plain objects matching this shape
     type JobInputParams = JobInputParamDto[];
-    // Stored as instanceToPlain of the DTO, which has no getters, so the shape matches
+    // The DTO as stored. It has only plain fields, so its type fits the JSON;
+    // a getter or method added to it would not be in the stored JSON.
     type JobTemplate = GetJobTemplateDto;
     type RunOutputFileSetFiles = string[];
     type StudentInputDetailsJson = InputDetails;
