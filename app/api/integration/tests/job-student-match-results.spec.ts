@@ -39,7 +39,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     endpoint = `/jobs/${jobA.id}/student-match-results`;
   });
 
-  describe('authentication', () => {
+  describe('authentication and authorization', () => {
     it('rejects an unauthenticated request', async () => {
       const res = await request(app.getHttpServer()).get(endpoint);
 
