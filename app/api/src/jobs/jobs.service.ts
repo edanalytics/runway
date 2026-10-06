@@ -9,7 +9,6 @@ import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/cli
 import { FileService } from '../files/file.service';
 import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
-import { instanceToPlain } from 'class-transformer';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
 import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
@@ -346,7 +345,7 @@ export class JobsService {
         odsId: input.odsId,
         sendToOds: input.sendToOds,
         schoolYearId: input.schoolYearId,
-        template: instanceToPlain(toGetJobTemplateDto(bundle)) as PrismaJson.JobTemplate,
+        template: toGetJobTemplateDto(bundle),
         inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
         idMatchingMode: partner.idMatchingMode,
