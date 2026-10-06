@@ -195,7 +195,8 @@ export class GetJobDto
   }
 
   get resourceSummaries() {
-    return getResourceSummaries(this.lastRun?.summary);
+    const summary = this.lastRun?.summary;
+    return summary ? getResourceSummaries(summary) : undefined;
   }
 
   get displayStartedOn() {
@@ -226,28 +227,25 @@ export const toGetJobDto = makeSerializerCustomType<GetJobDto, DtoableJob>(GetJo
 
 /** A run's per-resource record counts. */
 export const getResourceSummaries = (
-  summary: GetRunDto['summary'] | undefined
-): Record<string, { skipped: number; failed: number; success: number }> | undefined => {
+  summary: NonNullable<GetRunDto['summary']>
+): Record<string, { skipped: number; failed: number; success: number }> =>
   // Tidy up the summary object and eventually handle different types of summaries
-  return summary
-    ? Object.fromEntries(
-        Object.entries(summary).map(([resource, summary]) => {
-          const skipped = summary['records_skipped'] ?? 0;
-          const failed = summary['records_failed'] ?? 0;
-          const success = Math.max(0, (summary['records_processed'] ?? 0) - skipped - failed); // if we get lighbeam data that's off, just show 0 rather than a negative number
-          return [resource, { skipped, failed, success }];
-        })
-      )
-    : undefined;
-};
+  Object.fromEntries(
+    Object.entries(summary).map(([resource, summary]) => {
+      const skipped = summary['records_skipped'] ?? 0;
+      const failed = summary['records_failed'] ?? 0;
+      const success = Math.max(0, (summary['records_processed'] ?? 0) - skipped - failed); // if we get lighbeam data that's off, just show 0 rather than a negative number
+      return [resource, { skipped, failed, success }];
+    })
+  );
 
 /** The resources with failed records in a run's summary that the bundle reports on. */
 export const getResourceErrors = (
   summary: GetRunDto['summary'] | undefined,
   reportResources: string[] | null | undefined
 ) => {
-  const resourceSummaries = getResourceSummaries(summary);
-  const failedResources = Object.entries(resourceSummaries ?? {})
+  const resourceSummaries = summary ? getResourceSummaries(summary) : {};
+  const failedResources = Object.entries(resourceSummaries)
     .filter(([_, summary]) => summary.failed > 0)
     .map(([resource]) => resource);
 
@@ -257,12 +255,12 @@ export const getResourceErrors = (
     .filter((resource) => reportableResources.includes(resource))
     .map((reportableFailedResource) => ({
       resource: reportableFailedResource,
-      failed: resourceSummaries?.[reportableFailedResource]?.failed ?? 0,
+      failed: resourceSummaries[reportableFailedResource]?.failed ?? 0,
       total:
-        resourceSummaries?.[reportableFailedResource].success ??
+        resourceSummaries[reportableFailedResource].success ??
         0 +
-          (resourceSummaries?.[reportableFailedResource]?.skipped ?? 0) +
-          (resourceSummaries?.[reportableFailedResource]?.failed ?? 0),
+          (resourceSummaries[reportableFailedResource]?.skipped ?? 0) +
+          (resourceSummaries[reportableFailedResource]?.failed ?? 0),
     }));
 };
 
