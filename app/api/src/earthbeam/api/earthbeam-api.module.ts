@@ -6,6 +6,8 @@ import { AppConfigModule } from 'api/src/config/app-config.module';
 import { EarthbeamApiAuthModule } from './auth/earthbeam-api-auth.module';
 import { EarthbeamApiService } from './earthbeam-api.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
+import { IdrsCredentialsService } from './idrs-credentials.service';
+import { StudentMatchResultsService } from './student-match-results.service';
 import { FileModule } from 'api/src/files/file.module';
 import { EventEmitterModule } from 'api/src/event-emitter/event-emitter.module';
 
@@ -18,7 +20,12 @@ import { EventEmitterModule } from 'api/src/event-emitter/event-emitter.module';
     FileModule,
     EventEmitterModule
   ],
-  providers: [EarthbeamApiService, EduSnowflakePoolService],
+  providers: [
+    EarthbeamApiService,
+    EduSnowflakePoolService,
+    IdrsCredentialsService,
+    StudentMatchResultsService,
+  ],
   controllers: [EarthbeamApiController],
   exports: [EduSnowflakePoolService],
 })

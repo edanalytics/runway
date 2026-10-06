@@ -14,6 +14,7 @@ export const makePartnerUserTenantContext = (tag: string) => {
     idpId: idp.id,
     descriptorNamespace: null,
     crossYearMatchingEnabled: false,
+    idMatchingMode: 'id_based',
     managedBy: null,
     deletedOn: null,
   };

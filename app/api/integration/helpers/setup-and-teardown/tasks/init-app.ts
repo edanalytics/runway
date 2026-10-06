@@ -46,7 +46,11 @@ export const initApp = async function () {
     // Mock external API token verification to use local test keys
     await initExternalApiTokenMock();
     const externalApiAuthService = moduleFixture.get(ExternalApiAuthService);
-    jest.spyOn(externalApiAuthService, 'getKeySet').mockResolvedValue(getLocalJWKS());
+    // Assigned rather than jest.spyOn, for the same reason as the OIDC mock
+    // above: a jest.restoreAllMocks() in any test would put the real key-set
+    // fetch back. Harmless today, since onModuleInit caches the result before
+    // any test runs, but it is the same trap.
+    externalApiAuthService.getKeySet = jest.fn().mockResolvedValue(getLocalJWKS());
 
     const app = moduleFixture.createNestApplication();
 

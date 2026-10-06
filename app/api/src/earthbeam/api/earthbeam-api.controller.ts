@@ -10,6 +10,7 @@ import {
   Logger,
   NotFoundException,
   Param,
+  ParseArrayPipe,
   ParseIntPipe,
   Post,
   Req,
@@ -25,9 +26,13 @@ import {
   EarthbeamApiStatusPayloadDto,
   EarthbeamApiUnmatchedIdsPayloadDto,
   JsonValue,
+  toEarthbeamApiIdentityServiceResponseDto,
   toEarthbeamApiJobResponseDto,
+  EarthbeamApiStudentMatchResultDto,
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
+import { StudentMatchResultsService } from './student-match-results.service';
+import { IdrsCredentialsService } from './idrs-credentials.service';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -45,7 +50,9 @@ export class EarthbeamApiController {
     private readonly earthbeamApiService: EarthbeamApiService,
     @Inject(PRISMA_ANONYMOUS) private prisma: PrismaClient,
     private readonly fileService: FileService,
-    private readonly eduPool: EduSnowflakePoolService
+    private readonly eduPool: EduSnowflakePoolService,
+    private readonly idrs: IdrsCredentialsService,
+    private readonly studentMatchResults: StudentMatchResultsService
   ) {}
 
   @Get(':runId')
@@ -67,6 +74,51 @@ export class EarthbeamApiController {
     }
 
     return toEarthbeamApiJobResponseDto(result.data);
+  }
+
+  /**
+   * Just-in-time IDRS credentials for the executor. The run-scoped bearer
+   * token is the whole trust boundary: it names the run, hence the partner
+   * whose connection info may be returned. No matching-mode check, no
+   * run-status check (background fuzzy work continues past `done`) and no
+   * one-call limit — see AGENTS.md for why.
+   */
+  @Get(':runId/identity-service')
+  async identityService(@Param('runId', ParseIntPipe) runId: number) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      select: { job: { select: { partnerId: true, tenantCode: true } } },
+    });
+    if (!run) {
+      throw new NotFoundException(`Run not found: ${runId}`);
+    }
+    const { partnerId, tenantCode } = run.job;
+
+    const startedAt = Date.now();
+    try {
+      const credentials = await this.idrs.getCredentials(partnerId);
+      this.logger.log(
+        `identity service: runId=${runId} partnerId=${partnerId} result=success durationMs=${
+          Date.now() - startedAt
+        }`
+      );
+      // The executor uses this URL as-is, so hand over the full search route
+      // rather than the base. The configured base stays untouched elsewhere —
+      // it also serves as the OAuth audience, which must match verbatim.
+      const url = `${credentials.url.replace(/\/+$/, '')}/partners/${encodeURIComponent(
+        partnerId
+      )}/tenants/${encodeURIComponent(tenantCode)}/students/search`;
+      return toEarthbeamApiIdentityServiceResponseDto({ token: credentials.token, url });
+    } catch (err) {
+      // Every mode and every failure lands here. The executor only distinguishes 200
+      // from non-200, so diagnosis comes from this log, never the status.
+      this.logger.error(
+        `identity service: runId=${runId} partnerId=${partnerId} durationMs=${
+          Date.now() - startedAt
+        } cause=${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
+      );
+      throw new InternalServerErrorException('identity_service_unavailable');
+    }
   }
 
   @Get(':runId/roster')
@@ -287,5 +339,37 @@ export class EarthbeamApiController {
       });
 
     return { uid: outputFileSet.uid };
+  }
+
+  /**
+   * Match results from the Executor's IDRS searches (see AGENTS.md). Never
+   * changes run state: acting on a failure is the Executor's job.
+   *
+   * Rejections are not logged; the 400 names each failing record by index
+   * (stopAtFirstError: false adds it) for the Executor to log.
+   */
+  @Post(':runId/student-match-results')
+  async reportStudentMatchResults(
+    @Param('runId', ParseIntPipe) runId: number,
+    @Body(new ParseArrayPipe({ items: EarthbeamApiStudentMatchResultDto, stopAtFirstError: false }))
+    records: EarthbeamApiStudentMatchResultDto[]
+  ) {
+    let result;
+    try {
+      result = await this.studentMatchResults.ingest(runId, records);
+    } catch {
+      // Logged safely by the service; anything more specific could quote
+      // student data back to the caller.
+      throw new InternalServerErrorException('Failed to save student match results');
+    }
+
+    if (result.status === 'ERROR') {
+      // An unmapped error code is a compile error here, not a 201.
+      if (result.code === 'NOT_FOUND') {
+        throw new NotFoundException(`Run not found: ${runId}`);
+      }
+      const unhandled: never = result.code;
+      throw new InternalServerErrorException(`Unhandled ingestion outcome: ${unhandled}`);
+    }
   }
 }

@@ -281,6 +281,14 @@ export class JobsService {
     });
 
     // ─── Create job ─────────────────────────────────────────────────────────
+    // Snapshot the partner's matching mode so every run of this job uses the
+    // mode in effect at creation. Read explicitly — the column default is
+    // migration safety, not the creation path.
+    const partner = await prisma.partner.findUniqueOrThrow({
+      where: { id: tenant.partnerId },
+      select: { idMatchingMode: true },
+    });
+
     const job = await prisma.job.create({
       data: {
         name: bundle.display_name,
@@ -290,6 +298,7 @@ export class JobsService {
         template: instanceToPlain(toGetJobTemplateDto(bundle)),
         inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
+        idMatchingMode: partner.idMatchingMode,
         tenantCode: tenant.code,
         partnerId: tenant.partnerId,
         apiIssuer: apiClient?.issuer,
