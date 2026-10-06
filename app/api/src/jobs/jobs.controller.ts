@@ -276,7 +276,7 @@ export class JobsController {
 
     const res = await this.jobService.startJob(updatedJob, this.prisma);
     if (res.result === 'JOB_STARTED') {
-      return toGetJobDto(updatedJob);
+      return;
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
     } else if (res.result === 'JOB_IN_PROGRESS') {
