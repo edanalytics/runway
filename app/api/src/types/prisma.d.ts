@@ -1,4 +1,4 @@
-import type { JobInputParamDto } from '@edanalytics/runway-models';
+import type { JobInputParamDto } from '@edanalytics/models';
 import type {
   StudentInputDetailsJson as InputDetails,
   StudentRosterDetailsJson as RosterDetails,
