@@ -232,6 +232,34 @@ describe('GET /jobs/:id', () => {
       expect(resA.body.id).toEqual(jobA.id);
     });
 
+    it('shows failed resources the bundle reports on as complete with errors', async () => {
+      // bundleA reports studentAssessments only, so students' failures don't count.
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: {
+          status: 'success',
+          summary: {
+            studentAssessments: { records_processed: 10, records_failed: 2 },
+            students: { records_processed: 5, records_failed: 5 },
+          },
+        },
+      });
+
+      const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
+      const job = plainToInstance(GetJobDto, res.body);
+
+      expect(job.resourceErrors.map(({ resource }) => resource)).toEqual(['studentAssessments']);
+      expect(job.status).toBe('complete with errors');
+    });
+
+    it('has no resource summaries when the last run has no summary', async () => {
+      const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
+      const job = plainToInstance(GetJobDto, res.body);
+
+      expect(job.resourceSummaries).toBeUndefined();
+      expect(job.hasResourceErrors).toBe(false);
+    });
+
     it('should return sendToOds=false for a no-ODS job', async () => {
       const noOdsJob = await seedJob({
         sendToOds: false,
