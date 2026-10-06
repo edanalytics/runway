@@ -16,7 +16,7 @@ export const Route = createFileRoute('/ods-configs/$odsConfigId/connection')({
     ]);
     const yearConfig = yearConfigs.find((y) => y.schoolYearId === odsConfig.schoolYearId);
     if (!yearConfig?.sendToOds) {
-      return redirect({ to: '/ods-configs' });
+      throw redirect({ to: '/ods-configs' });
     }
   },
   component: OdsConfigConnectionEditPage,
