@@ -19,7 +19,7 @@ import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { makePostJobDto } from '../factories/job-input-factory';
 import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
-import { DtoableJob, GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
+import { GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
 import { FileService } from 'api/src/files/file.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
@@ -28,6 +28,8 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
+
+type SeededJob = Awaited<ReturnType<typeof seedJob>>;
 
 describe('GET /jobs', () => {
   const endpoint = '/jobs';
@@ -40,7 +42,7 @@ describe('GET /jobs', () => {
     const sessionA = sessionCookie('jobs-spec');
     const sessionX = sessionCookie('jobs-spec-x');
 
-    let aJobs: DtoableJob[] = [];
+    let aJobs: SeededJob[] = [];
     beforeEach(async () => {
       // A starts with jobs, X starts with none
       await sessionStore.set(sessionA.sid, sessionData(userA, tenantA));
@@ -145,7 +147,7 @@ describe('GET /jobs', () => {
     });
 
     it('should return a list of jobs for each tenant', async () => {
-      const xJobs: DtoableJob[] = [
+      const xJobs: SeededJob[] = [
         await seedJob({
           odsConfig: odsConfigX2425,
           bundle: bundleX,
@@ -340,9 +342,9 @@ describe('GET /jobs/:id/output-files', () => {
   const USER_ROLE = 'runway.test.user';
   const endpoint = (id: number) => `/jobs/${id}/output-files`;
 
-  let jobA: DtoableJob;
-  let jobB: DtoableJob;
-  let jobEGlobal: DtoableJob;
+  let jobA: SeededJob;
+  let jobB: SeededJob;
+  let jobEGlobal: SeededJob;
 
   beforeEach(async () => {
     [jobA, jobB, jobEGlobal] = await Promise.all([
@@ -480,8 +482,8 @@ describe('GET /jobs/:id/output-files/*', () => {
   const otherFileEndpoint = (id: number, fileName: string) => `/jobs/${id}/output-files/${fileName}`;
 
   // jobA belongs to tenantA, jobB to tenantB -- both non-global children of tenantDGlobal
-  let jobA: DtoableJob;
-  let jobB: DtoableJob;
+  let jobA: SeededJob;
+  let jobB: SeededJob;
 
   beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
@@ -863,8 +865,8 @@ describe('POST /jobs', () => {
 
 describe('PUT /jobs/:id/resolve', () => {
   const endpoint = (id: number) => `/jobs/${id}/resolve`;
-  let jobA: DtoableJob;
-  let jobB: DtoableJob;
+  let jobA: SeededJob;
+  let jobB: SeededJob;
 
   beforeEach(async () => {
     [jobA, jobB] = await Promise.all([
@@ -977,12 +979,13 @@ describe('PUT /jobs/:id/resolve', () => {
         },
       });
 
-      const statusBefore = toGetJobDto(
-        await prisma.job.findUniqueOrThrow({
+      const statusBefore = toGetJobDto({
+        ...(await prisma.job.findUniqueOrThrow({
           where: { id: jobA.id },
           include: { runs: true, files: true },
-        })
-      ).status;
+        })),
+        studentsToMatchCount: 0,
+      }).status;
       if (!statusBefore) {
         // sanity check
         throw new Error(`Job ${jobA.id} has no status`);
@@ -1007,7 +1010,7 @@ describe('PUT /jobs/:id/resolve', () => {
         include: { runs: { include: { runOutputFile: true } }, files: true },
       });
 
-      const statusAfter = toGetJobDto(revertedJob).status;
+      const statusAfter = toGetJobDto({ ...revertedJob, studentsToMatchCount: 0 }).status;
       expect(statusAfter).toBe(statusBefore);
     });
   });
@@ -1015,7 +1018,7 @@ describe('PUT /jobs/:id/resolve', () => {
 
 describe('GET /jobs/:id/notes', () => {
   const endpoint = (id: number) => `/jobs/${id}/notes`;
-  let jobA: DtoableJob;
+  let jobA: SeededJob;
   let noteA1: JobNote;
   let noteA2: JobNote;
   beforeEach(async () => {
@@ -1108,7 +1111,7 @@ describe('GET /jobs/:id/notes', () => {
 
 describe('POST /jobs/:id/notes', () => {
   const endpoint = (id: number) => `/jobs/${id}/notes`;
-  let jobA: DtoableJob;
+  let jobA: SeededJob;
 
   beforeEach(async () => {
     jobA = await seedJob({
@@ -1226,7 +1229,7 @@ describe('POST /jobs/:id/notes', () => {
 
 describe('PUT /jobs/:id/notes/:noteId', () => {
   const endpoint = (id: number, noteId: number) => `/jobs/${id}/notes/${noteId}`;
-  let jobA: DtoableJob;
+  let jobA: SeededJob;
   let noteA: JobNote;
   beforeEach(async () => {
     jobA = await seedJob({
@@ -1367,7 +1370,7 @@ describe('PUT /jobs/:id/notes/:noteId', () => {
 
 describe('DELETE /jobs/:id/notes/:noteId', () => {
   const endpoint = (id: number, noteId: number) => `/jobs/${id}/notes/${noteId}`;
-  let jobA: DtoableJob;
+  let jobA: SeededJob;
   let noteA1: JobNote;
   let noteA2: JobNote;
   beforeEach(async () => {

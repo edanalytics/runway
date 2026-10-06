@@ -37,7 +37,7 @@ export class JobInputParamDto extends GetJobTemplateInputParamDto {
 export type DtoableJob = Job & {
   files: JobFile[];
   runs?: Array<Run & { runError?: RunError[]; }>;
-  studentsToMatchCount?: number;
+  studentsToMatchCount: number;
 };
 export type TJobDisplayStatus =
   | Exclude<GetRunDto['status'], null>
@@ -99,13 +99,9 @@ export class GetJobDto
   @Expose()
   isResolved: boolean;
 
-  /**
-   * How many students the Executor sent for review. Set it on any read whose
-   * status is used: left unset, a fuzzy job with students to match wrongly
-   * shows success.
-   */
+  /** How many students the Executor sent for review. */
   @Expose()
-  studentsToMatchCount?: number;
+  studentsToMatchCount: number;
 
   /** Snapshotted from the partner when the job was created. */
   @Expose()
@@ -176,7 +172,7 @@ export class GetJobDto
    * where the ID-based run has already delivered them.
    */
   get hasFuzzyStudentsToMatch() {
-    return this.idMatchingMode === 'fuzzy' && (this.studentsToMatchCount ?? 0) > 0;
+    return this.idMatchingMode === 'fuzzy' && this.studentsToMatchCount > 0;
   }
 
   /**
