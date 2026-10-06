@@ -100,8 +100,9 @@ export class GetJobDto
   isResolved: boolean;
 
   /**
-   * How many students the Executor sent for review. A read that doesn't supply
-   * it leaves it undefined, so a fuzzy job reads as success.
+   * How many students the Executor sent for review. Set it on any read whose
+   * status is used: left unset, a fuzzy job with students to match wrongly
+   * shows success.
    */
   @Expose()
   studentsToMatchCount?: number;
