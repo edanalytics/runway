@@ -42,6 +42,8 @@ Please note that descriptions, values, and available parameters may evolve over 
 - **BeanstalkPlatformUpdateTime** - Beanstalk Platform update day and time (in UTC) using the format 'Day:HH:MM' (e.g., Wed:15:30). Platform updates will be disabled if no value is specified. 
 - **BundleBranch** - Name of the bundle branch in the [earthmover Ed-Fi bundles repository](https://github.com/edanalytics/earthmover_edfi_bundles).
 - **OAuth2Issuer** - URL of the identity provider that issues access tokens for external API requests. If not set, API access is disabled; the web application continues to function
+- **IdrsOauthTokenUrl** - URL of the Auth0 instance that IDRS uses as its auth server (the issuer IDRS trusts). Separate from **OAuth2Issuer**, which is the issuer Runway trusts; the two can differ.
+- **IdrsUrl** - URL of the IDRS instance Runway works with.
 
 **S3 Cloudfront Information**
 - **S3FrontEndBucket** - Name of the S3 bucket containing the front end web files.
