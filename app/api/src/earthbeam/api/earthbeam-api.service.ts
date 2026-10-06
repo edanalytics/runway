@@ -2,7 +2,7 @@ import {
   EarthbeamApiJobResponseDto,
   GetJobTemplateDto,
   JobInputParamDto,
-  toGetJobDto,
+  getResourceErrors,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
@@ -251,9 +251,8 @@ export class EarthbeamApiService {
        *    So here, we're just making sure that whatever data ends up in Slack is data we
        *    decided would be OK there.
        * 2. We can simplify some data for EventBridge rules, like calling out if a run would have
-       *    a "completed with errors" status. This is a hodge-podge currently. It uses the DTO
-       *    because the DTO has some getters and helpful formatting. But it uses run.job for
-       *    other things because the DTO doesn't include all info we want to send to Slack.
+       *    a "completed with errors" status. This is a hodge-podge currently. It shares
+       *    getResourceErrors with the job DTO, and uses run.job for other things.
        *    And for other things (e.g. run output files), we reference a local variable since
        *    we have it handy and don't really need to do a round trip. Perhaps it'll make sense
        *    to rationalize all this, but I don't want to alter the surrounding code too much to
@@ -265,10 +264,12 @@ export class EarthbeamApiService {
        * obtrusive to do elsewhere, but I want to wait until we have another instance before attempting
        * to abstract
        */
-      const jobDto = toGetJobDto({ ...run.job, runs: [run] });
-
       const unmatchedStudentsInfo = run.unmatchedStudentsInfo;
-      const { hasResourceErrors, resourceErrors } = jobDto;
+      const resourceErrors = getResourceErrors(
+        run.summary,
+        plainToInstance(GetJobTemplateDto, run.job.template).reportResources
+      );
+      const hasResourceErrors = resourceErrors.length > 0;
       const resourceErrorString = hasResourceErrors
         ? resourceErrors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',')
         : '';
@@ -307,7 +308,7 @@ export class EarthbeamApiService {
         input: {
           assessment: assessmentType,
           files: assessmentFiles,
-          params: jobDto.inputParams?.map(({ name, value }) => ({ name, value })),
+          params: run.job.inputParams?.map(({ name, value }) => ({ name, value })),
         },
         result: {
           hasUnmatchedStudents,

@@ -195,39 +195,11 @@ export class GetJobDto
     return this.resourceErrors.length > 0;
   }
   get resourceErrors() {
-    const failedResources = Object.entries(this.resourceSummaries ?? {})
-      .filter(([_, summary]) => summary.failed > 0)
-      .map(([resource]) => resource);
-
-    const reportableResources = this.template.reportResources ?? [];
-
-    return failedResources
-      .filter((resource) => reportableResources.includes(resource))
-      .map((reportableFailedResource) => ({
-        resource: reportableFailedResource,
-        failed: this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0,
-        total:
-          this.resourceSummaries?.[reportableFailedResource].success ??
-          0 +
-            (this.resourceSummaries?.[reportableFailedResource]?.skipped ?? 0) +
-            (this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0),
-      }));
+    return getResourceErrors(this.lastRun?.summary, this.template.reportResources);
   }
 
-  get resourceSummaries():
-    | Record<string, { skipped: number; failed: number; success: number }>
-    | undefined {
-    // Tidy up the summary object and eventually handle different types of summaries
-    return this.lastRun?.summary
-      ? Object.fromEntries(
-          Object.entries(this.lastRun.summary).map(([resource, summary]) => {
-            const skipped = summary['records_skipped'] ?? 0;
-            const failed = summary['records_failed'] ?? 0;
-            const success = Math.max(0, (summary['records_processed'] ?? 0) - skipped - failed); // if we get lighbeam data that's off, just show 0 rather than a negative number
-            return [resource, { skipped, failed, success }];
-          })
-        )
-      : undefined;
+  get resourceSummaries() {
+    return getResourceSummaries(this.lastRun?.summary);
   }
 
   get displayStartedOn() {
@@ -255,6 +227,48 @@ export class GetJobDto
 }
 
 export const toGetJobDto = makeSerializerCustomType<GetJobDto, DtoableJob>(GetJobDto);
+
+/** A run's per-resource record counts. */
+export const getResourceSummaries = (
+  summary: GetRunDto['summary'] | undefined
+): Record<string, { skipped: number; failed: number; success: number }> | undefined => {
+  // Tidy up the summary object and eventually handle different types of summaries
+  return summary
+    ? Object.fromEntries(
+        Object.entries(summary).map(([resource, summary]) => {
+          const skipped = summary['records_skipped'] ?? 0;
+          const failed = summary['records_failed'] ?? 0;
+          const success = Math.max(0, (summary['records_processed'] ?? 0) - skipped - failed); // if we get lighbeam data that's off, just show 0 rather than a negative number
+          return [resource, { skipped, failed, success }];
+        })
+      )
+    : undefined;
+};
+
+/** The resources with failed records in a run's summary that the bundle reports on. */
+export const getResourceErrors = (
+  summary: GetRunDto['summary'] | undefined,
+  reportResources: string[] | null | undefined
+) => {
+  const resourceSummaries = getResourceSummaries(summary);
+  const failedResources = Object.entries(resourceSummaries ?? {})
+    .filter(([_, summary]) => summary.failed > 0)
+    .map(([resource]) => resource);
+
+  const reportableResources = reportResources ?? [];
+
+  return failedResources
+    .filter((resource) => reportableResources.includes(resource))
+    .map((reportableFailedResource) => ({
+      resource: reportableFailedResource,
+      failed: resourceSummaries?.[reportableFailedResource]?.failed ?? 0,
+      total:
+        resourceSummaries?.[reportableFailedResource].success ??
+        0 +
+          (resourceSummaries?.[reportableFailedResource]?.skipped ?? 0) +
+          (resourceSummaries?.[reportableFailedResource]?.failed ?? 0),
+    }));
+};
 
 export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto> {
   @Expose()
