@@ -70,6 +70,8 @@ class IDRSClient:
     @staticmethod
     def coerce_student_id(student_id: str) -> str | None:
         '''coerce student id values to str. Otherwise return None.'''
+        if isinstance(student_id, int):
+            return str(student_id)
         if isinstance(student_id, str):
             return student_id
         return None
@@ -117,7 +119,7 @@ class IDRSClient:
 
         dedupe_count = len(coerced) - len(cleaned)
         if dedupe_count > 0:
-            self.logger.info(f'{dedupe_count} correlation ids were dropped')
+            self.logger.info(f'{dedupe_count} duplicate correlation ids were removed')
         
         return cleaned
 
@@ -135,7 +137,7 @@ class IDRSClient:
                 self.logger.error(error)
             raise ValidationError(f"{len(errors)} candidates failed validation!")
         else:
-            self.logger.info(f"{len(candidates)} were validated!")        
+            self.logger.info(f"{len(candidates)} candidates were validated!")        
         
     def post_candidates(self, idrs_conn_info: dict, candidates: list[dict]) -> list[dict]:
         '''send candidates to the IDRS'''
