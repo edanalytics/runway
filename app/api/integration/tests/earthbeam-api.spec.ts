@@ -845,7 +845,7 @@ describe('Earthbeam API', () => {
           const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
           expect(payload.completedWithErrors).toBe(true);
           expect(payload.result.hasResourceErrors).toBe(true);
-          expect(payload.summary).toContain('studentAssessments (2/');
+          expect(payload.summary).toContain('studentAssessments (2/10)');
           expect(payload.summary).not.toContain('students (');
           expect(payload.input.params).toEqual(
             inputParams?.map(({ name, value }) => ({ name, value }))
