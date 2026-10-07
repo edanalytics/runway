@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 // Global type declarations for integration tests
+/* eslint-disable no-var -- properties of globalThis can only be declared with `var` */
 declare global {
   var __TEARDOWN_MESSAGE__: string;
   var app: INestApplication;

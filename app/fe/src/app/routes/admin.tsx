@@ -7,7 +7,7 @@ export const Route = createFileRoute('/admin')({
     const me = await opts.context.queryClient.ensureQueryData(meQuery);
     const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
     if (!isPartnerAdmin) {
-      return redirect({ to: '/' });
+      throw redirect({ to: '/' });
     }
   },
   component: AdminPage,
