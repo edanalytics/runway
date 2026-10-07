@@ -252,11 +252,10 @@ export class EarthbeamApiService {
        *    decided would be OK there.
        * 2. We can simplify some data for EventBridge rules, like calling out if a run would have
        *    a "completed with errors" status. This is a hodge-podge currently. It shares
-       *    getResourceErrors with the job DTO, and uses run.job for other things.
-       *    And for other things (e.g. run output files), we reference a local variable since
-       *    we have it handy and don't really need to do a round trip. Perhaps it'll make sense
-       *    to rationalize all this, but I don't want to alter the surrounding code too much to
-       *    make that happen given what we're doing with these events longterm is still a bit uncertain.
+       *    getResourceErrors with the job DTO, and uses run.job for other things. Perhaps it'll
+       *    make sense to rationalize all this, but I don't want to alter the surrounding code too
+       *    much to make that happen given what we're doing with these events longterm is still a
+       *    bit uncertain.
        *
        * It's messy right now and I think that's OK. If/as we emit events elsewhere, I'd like to
        * to clean this up. Ideally, emitting an event takes just one line and doesn't draw attention
@@ -271,9 +270,6 @@ export class EarthbeamApiService {
         ? resourceErrors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',')
         : '';
 
-      const hasUnmatchedStudents = outputFiles.some(
-        (file) => file.name === 'input_no_student_id_match.csv'
-      );
       const odsUrl = run.job.odsConfig?.activeConnection?.host;
       const assessmentType = run.job.name;
       const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
@@ -297,18 +293,18 @@ export class EarthbeamApiService {
         jobId: run.job.id,
         status: run.status,
         completedWithErrors:
-          run.status === 'success' && (hasResourceErrors || hasUnmatchedStudents),
+          run.status === 'success' && (hasResourceErrors || unmatchedStudentCount > 0),
         sendToOds: run.job.sendToOds,
         odsUrl,
         schoolYear: run.job.schoolYearId,
-        unmatchedStudentsCount: unmatchedStudentsInfo?.count ?? 0,
+        unmatchedStudentsCount: unmatchedStudentCount,
         input: {
           assessment: assessmentType,
           files: assessmentFiles,
           params: run.job.inputParams?.map(({ name, value }) => ({ name, value })),
         },
         result: {
-          hasUnmatchedStudents,
+          hasUnmatchedStudents: unmatchedStudentCount > 0,
           hasResourceErrors,
           resourceSummary: run.summary,
           errors: run.runError.map(({ code, payload }) => ({
