@@ -852,6 +852,25 @@ describe('Earthbeam API', () => {
           );
         });
 
+        it('should report unmatched students from the count the Executor sent', async () => {
+          await prisma.run.update({
+            where: { id: runA.id },
+            data: {
+              unmatchedStudentsInfo: { name: 'student_id', type: 'studentUniqueId', count: 3 },
+            },
+          });
+
+          await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload.completedWithErrors).toBe(true);
+          expect(payload.result.hasUnmatchedStudents).toBe(true);
+          expect(payload.unmatchedStudentsCount).toBe(3);
+        });
+
         it('should include user info if the job was initiated by a user', async () => {
           // Normally the created by user is populated in the DB by a PG trigger when the row is created,
           // but our seeding doesn't set up the context for the trigger to work. Eventually, I'd
