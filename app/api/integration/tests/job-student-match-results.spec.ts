@@ -82,7 +82,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       ({ cookies } = await authHelper.login(idpA, userA, tenantA));
     });
 
-    it('returns each student with every run’s result and its suggestions', async () => {
+    it('returns each student with its result and suggestions', async () => {
       await report(runA.id, [
         {
           correlation_id: 'corr-1',
@@ -93,14 +93,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           ],
         },
         { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
-      ]);
-      const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
-      await report(runB.id, [
-        {
-          correlation_id: 'corr-1',
-          candidate: { first_name: 'Ada', last_name: 'Lovelace' },
-          matches: [{ student_unique_id: 'SUID-9', score: 0.5, first_name: 'Ada' }],
-        },
       ]);
 
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
@@ -134,19 +126,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
                   },
                 ],
               },
-              {
-                id: expect.any(String),
-                runId: runB.id,
-                createdOn: expect.any(String),
-                suggestions: [
-                  {
-                    ordinal: 0,
-                    studentUniqueId: 'SUID-9',
-                    score: 0.5,
-                    rosterDetails: { first_name: 'Ada' },
-                  },
-                ],
-              },
             ],
           },
           {
@@ -168,6 +147,8 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     it('orders students by correlation id, results by run and suggestions by ordinal', async () => {
+      // Only a job's first run reports today, but a later one may someday
+      // search again, and its results are kept alongside.
       // Everything goes in out of order, so only the query's ordering can
       // put it right: the later run reports first, corr-2 before corr-1.
       const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
