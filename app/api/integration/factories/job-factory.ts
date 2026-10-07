@@ -4,7 +4,6 @@ import { IEarthmoverBundle } from '@edanalytics/models';
 import { makePostJobDto } from './job-input-factory';
 import { makeJobTemplate } from './job-template-factory';
 import { randomString } from '../fixtures/utils/random-string';
-import { instanceToPlain } from 'class-transformer';
 
 export const seedJob = async (
   params: {
@@ -49,7 +48,7 @@ export const seedJob = async (
       sendToOds,
       idMatchingMode,
       inputParams: postJobDto.inputParams,
-      template: instanceToPlain(postJobDto.template),
+      template: postJobDto.template,
       tenantCode: tenant.code,
       partnerId: tenant.partnerId,
       fileProtocol: 's3',

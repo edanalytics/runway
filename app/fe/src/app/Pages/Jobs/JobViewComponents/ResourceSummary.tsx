@@ -60,7 +60,7 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
                   : 'Runway processed all resources successfully.'}
               </Box>
             </HStack>
-            {!!job.hasUnmatchedStudents && (
+            {!!job.hasIdBasedUnmatchedStudents && (
               <Box marginTop="200" textStyle="body">
                 The summary below does not include resources with unmatched student IDs.
               </Box>

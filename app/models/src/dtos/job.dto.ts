@@ -37,6 +37,7 @@ export class JobInputParamDto extends GetJobTemplateInputParamDto {
 export type DtoableJob = Job & {
   files: JobFile[];
   runs?: Array<Run & { runError?: RunError[]; }>;
+  studentsToMatchCount: number;
 };
 export type TJobDisplayStatus =
   | Exclude<GetRunDto['status'], null>
@@ -98,6 +99,14 @@ export class GetJobDto
   @Expose()
   isResolved: boolean;
 
+  /** How many students the Executor sent for review. */
+  @Expose()
+  studentsToMatchCount: number;
+
+  /** Snapshotted from the partner when the job was created. */
+  @Expose()
+  idMatchingMode: $Enums.IdMatchingMode;
+
   @Expose()
   apiClientName: string | null;
 
@@ -143,7 +152,10 @@ export class GetJobDto
       return null;
     }
 
-    if (status === 'success' && (this.hasUnmatchedStudents || this.hasResourceErrors)) {
+    if (
+      status === 'success' &&
+      (this.hasIdBasedUnmatchedStudents || this.hasFuzzyStudentsToMatch || this.hasResourceErrors)
+    ) {
       return 'complete with errors';
     }
     return status;
@@ -154,47 +166,37 @@ export class GetJobDto
     return status === 'resolved' || status === 'complete with errors';
   }
 
-  get hasUnmatchedStudents() {
-    return this.lastRun?.unmatchedStudentsInfo?.count !== undefined && this.lastRun?.unmatchedStudentsInfo?.count > 0;
+  /**
+   * Fuzzy mode: students waiting for a reviewer to pick their match in Runway,
+   * whose records aren't delivered until then. Never in fuzzy background mode,
+   * where the ID-based run has already delivered them.
+   */
+  get hasFuzzyStudentsToMatch() {
+    return this.idMatchingMode === 'fuzzy' && this.studentsToMatchCount > 0;
+  }
+
+  /**
+   * ID-based matching (`id_based`, and the ID-based run of fuzzy background
+   * mode): students whose IDs the last run couldn't find. The user fixes the
+   * IDs in the file and reprocesses it.
+   */
+  get hasIdBasedUnmatchedStudents() {
+    return (
+      this.lastRun?.unmatchedStudentsInfo?.count !== undefined &&
+      this.lastRun?.unmatchedStudentsInfo?.count > 0
+    );
   }
 
   get hasResourceErrors() {
     return this.resourceErrors.length > 0;
   }
   get resourceErrors() {
-    const failedResources = Object.entries(this.resourceSummaries ?? {})
-      .filter(([_, summary]) => summary.failed > 0)
-      .map(([resource]) => resource);
-
-    const reportableResources = this.template.reportResources ?? [];
-
-    return failedResources
-      .filter((resource) => reportableResources.includes(resource))
-      .map((reportableFailedResource) => ({
-        resource: reportableFailedResource,
-        failed: this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0,
-        total:
-          this.resourceSummaries?.[reportableFailedResource].success ??
-          0 +
-            (this.resourceSummaries?.[reportableFailedResource]?.skipped ?? 0) +
-            (this.resourceSummaries?.[reportableFailedResource]?.failed ?? 0),
-      }));
+    return getResourceErrors(this.lastRun?.summary, this.template.reportResources);
   }
 
-  get resourceSummaries():
-    | Record<string, { skipped: number; failed: number; success: number }>
-    | undefined {
-    // Tidy up the summary object and eventually handle different types of summaries
-    return this.lastRun?.summary
-      ? Object.fromEntries(
-          Object.entries(this.lastRun.summary).map(([resource, summary]) => {
-            const skipped = summary['records_skipped'] ?? 0;
-            const failed = summary['records_failed'] ?? 0;
-            const success = Math.max(0, (summary['records_processed'] ?? 0) - skipped - failed); // if we get lighbeam data that's off, just show 0 rather than a negative number
-            return [resource, { skipped, failed, success }];
-          })
-        )
-      : undefined;
+  get resourceSummaries() {
+    const summary = this.lastRun?.summary;
+    return summary ? getResourceSummaries(summary) : undefined;
   }
 
   get displayStartedOn() {
@@ -219,10 +221,39 @@ export class GetJobDto
   fileBucketOrHost: string | null;
   fileBasePath: string | null;
   configStatus: $Enums.JobConfigStatus; // TODO, remove prop and column, no longer needed
-  idMatchingMode: $Enums.IdMatchingMode; // snapshotted from the partner at creation; executor-only, no UI yet
 }
 
 export const toGetJobDto = makeSerializerCustomType<GetJobDto, DtoableJob>(GetJobDto);
+
+/** A run's per-resource record counts. */
+export const getResourceSummaries = (
+  summary: NonNullable<GetRunDto['summary']>
+): Record<string, { skipped: number; failed: number; success: number }> =>
+  // Tidy up the summary object and eventually handle different types of summaries
+  Object.fromEntries(
+    Object.entries(summary).map(([resource, summary]) => {
+      const skipped = summary['records_skipped'] ?? 0;
+      const failed = summary['records_failed'] ?? 0;
+      const success = Math.max(0, (summary['records_processed'] ?? 0) - skipped - failed); // if we get lighbeam data that's off, just show 0 rather than a negative number
+      return [resource, { skipped, failed, success }];
+    })
+  );
+
+/** The resources with failed records in a run's summary that the bundle reports on. */
+export const getResourceErrors = (
+  summary: GetRunDto['summary'] | undefined,
+  reportResources: string[] | null | undefined
+) => {
+  const reportableResources = reportResources ?? [];
+
+  return Object.entries(summary ? getResourceSummaries(summary) : {})
+    .filter(([resource, { failed }]) => failed > 0 && reportableResources.includes(resource))
+    .map(([resource, { skipped, failed, success }]) => ({
+      resource,
+      failed,
+      total: success + skipped + failed,
+    }));
+};
 
 export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto> {
   @Expose()

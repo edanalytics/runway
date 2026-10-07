@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Inject,
   InternalServerErrorException,
@@ -12,8 +13,10 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { PrismaClient } from '@prisma/client';
@@ -23,6 +26,7 @@ import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership
 import type { Tenant as TTenant, User } from '@prisma/client';
 import {
   GetJobDto,
+  GetSessionDataDto,
   NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
@@ -30,6 +34,7 @@ import {
   toGetJobDto,
   toGetOutputFileDto,
   toGetRunUpdateDto,
+  toGetStudentMatchResultsDto,
   toJobErrorWrapperDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
@@ -62,8 +67,22 @@ export class JobsController {
         createdBy: true,
       },
     });
+    // Counted separately: an included _count would aggregate all of
+    // student_input_details on every load, since Postgres can't push the
+    // list's filter into it. This reads only the listed jobs, by primary key.
+    const counts = new Map(
+      (
+        await this.prisma.studentInputDetails.groupBy({
+          by: ['jobId'],
+          where: { jobId: { in: jobs.map((job) => job.id) } },
+          _count: true,
+        })
+      ).map(({ jobId, _count }) => [jobId, _count])
+    );
 
-    return toGetJobDto(jobs);
+    return toGetJobDto(
+      jobs.map((job) => ({ ...job, studentsToMatchCount: counts.get(job.id) ?? 0 }))
+    );
   }
 
   @Get(':jobId')
@@ -82,6 +101,7 @@ export class JobsController {
             runUpdate: true,
           },
         },
+        _count: { select: { studentInputDetails: true } },
       },
     });
 
@@ -89,7 +109,7 @@ export class JobsController {
       return new NotFoundException(`Job not found: ${jobId}`);
     }
 
-    return toGetJobDto(job);
+    return toGetJobDto({ ...job, studentsToMatchCount: job._count.studentInputDetails });
   }
 
   @Get(':jobId/files/:templateKey')
@@ -120,15 +140,20 @@ export class JobsController {
   @Get(':jobId/output-files/input_no_student_id_match.csv')
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForUnmatchedStudentsOutputFile(
-    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('jobId', new ParseIntPipe()) jobId: number
   ) {
-    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, 'input_no_student_id_match.csv');
+    const url = await this.jobService.getDownloadUrlForOutputFile(
+      jobId,
+      'input_no_student_id_match.csv'
+    );
     if (!url) {
-      return new NotFoundException(`File not found for job ${jobId} and file input_no_student_id_match.csv`);
+      return new NotFoundException(
+        `File not found for job ${jobId} and file input_no_student_id_match.csv`
+      );
     }
     return url;
   }
-  
+
   @Get(':jobId/output-files/:fileName')
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
@@ -251,7 +276,11 @@ export class JobsController {
 
     const res = await this.jobService.startJob(updatedJob, this.prisma);
     if (res.result === 'JOB_STARTED') {
-      return toGetJobDto(updatedJob);
+      // The frontend's put helpers require a response DTO, though nothing reads
+      // this one, so the count is a placeholder. Returning nothing here, from
+      // resolve and from note updates needs those helpers to allow empty
+      // responses: a separate cleanup.
+      return toGetJobDto({ ...updatedJob, studentsToMatchCount: 0 });
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
     } else if (res.result === 'JOB_IN_PROGRESS') {
@@ -272,20 +301,20 @@ export class JobsController {
     @Param('jobId', ParseIntPipe) jobId: GetJobDto['id'],
     @Body() resolveJobDto: PutJobResolveDto
   ) {
-    const job = toGetJobDto(
-      await this.prisma.job
-        .findUniqueOrThrow({
-          where: { id: jobId },
-          include: {
-            files: true,
-            runs: true,
-          },
-        })
-        .catch(() => {
-          // not founds should be thrown before we get to the handler, but just in case
-          throw new NotFoundException(`Job not found: ${jobId}`);
-        })
-    );
+    const found = await this.prisma.job
+      .findUniqueOrThrow({
+        where: { id: jobId },
+        include: {
+          files: true,
+          runs: true,
+          _count: { select: { studentInputDetails: true } },
+        },
+      })
+      .catch(() => {
+        // not founds should be thrown before we get to the handler, but just in case
+        throw new NotFoundException(`Job not found: ${jobId}`);
+      });
+    const job = toGetJobDto({ ...found, studentsToMatchCount: found._count.studentInputDetails });
 
     if (!job.isStatusChangeable) {
       throw new BadRequestException(`Job is not changeable: ${jobId}`);
@@ -297,6 +326,24 @@ export class JobsController {
     });
 
     return;
+  }
+
+  @Get(':jobId/student-match-results')
+  @AllowMetatenant('job.metatenant.read')
+  @Authorize('job.match-results.read')
+  async getStudentMatchResults(@Param('jobId', ParseIntPipe) jobId: number, @Req() req: Request) {
+    // Who may read depends on the job's mode (see AGENTS.md), so the check
+    // can't be a route decorator.
+    if (!req.job) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    const isFuzzyBackground = req.job.idMatchingMode === 'id_based_fuzzy_background';
+    const session = plainToInstance(GetSessionDataDto, req.user);
+    if (isFuzzyBackground && !session.privileges.has('job.match-results.background.read')) {
+      throw new ForbiddenException('Forbidden');
+    }
+    return toGetStudentMatchResultsDto(await this.jobService.getStudentMatchResults(jobId));
   }
 
   @Get(':jobId/notes')

@@ -3,6 +3,7 @@ import type {
   StudentRosterDetailsJson as RosterDetails,
 } from '../dtos/earthbeam-api.dto';
 import type { JobInputParamDto } from '../dtos/job.dto';
+import type { GetJobTemplateDto } from '../dtos/job-template.dto';
 
 /*
 
@@ -43,6 +44,9 @@ declare global {
     type UnmatchedStudentsInfo = { name: string; type: string; count?: number } | null;
     // Use JobInputParamDto as the element type - Prisma JSON stores plain objects matching this shape
     type JobInputParams = JobInputParamDto[];
+    // The DTO as stored. It has only plain fields, so its type fits the JSON;
+    // a getter or method added to it would not be in the stored JSON.
+    type JobTemplate = GetJobTemplateDto;
     type RunOutputFileSetFiles = string[];
     // The lightbeam run summary, stored as the executor posts it
     type RunSummary = JsonValue;
