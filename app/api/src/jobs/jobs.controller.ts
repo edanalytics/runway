@@ -276,7 +276,11 @@ export class JobsController {
 
     const res = await this.jobService.startJob(updatedJob, this.prisma);
     if (res.result === 'JOB_STARTED') {
-      return;
+      // The frontend's put helpers require a response DTO, though nothing reads
+      // this one, so the count is a placeholder. Returning nothing here, from
+      // resolve and from note updates needs those helpers to allow empty
+      // responses: a separate cleanup.
+      return toGetJobDto({ ...updatedJob, studentsToMatchCount: 0 });
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
     } else if (res.result === 'JOB_IN_PROGRESS') {
