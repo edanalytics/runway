@@ -253,15 +253,10 @@ export const getResourceErrors = (
 
   return failedResources
     .filter((resource) => reportableResources.includes(resource))
-    .map((reportableFailedResource) => ({
-      resource: reportableFailedResource,
-      failed: resourceSummaries[reportableFailedResource]?.failed ?? 0,
-      total:
-        resourceSummaries[reportableFailedResource].success ??
-        0 +
-          (resourceSummaries[reportableFailedResource]?.skipped ?? 0) +
-          (resourceSummaries[reportableFailedResource]?.failed ?? 0),
-    }));
+    .map((resource) => {
+      const { skipped, failed, success } = resourceSummaries[resource];
+      return { resource, failed, total: success + skipped + failed };
+    });
 };
 
 export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto> {
