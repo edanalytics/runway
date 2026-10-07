@@ -1,7 +1,6 @@
 services:
   test-db:
     image: postgres:15
-    container_name: runway-test-db
     env_file:
       - ../../../.env.test
     environment:
@@ -10,7 +9,8 @@ services:
       # Override port because pg should listen on 5432 internally
       POSTGRES_PORT: 5432
     ports:
-      - '5433:5432' # Use different port to avoid conflicts
+      # Host port from .env.test (5433, clear of the dev DB) or .env.test.local
+      - '${POSTGRES_PORT}:5432'
     healthcheck:
       # requiring a host *should* fix the issue where pg_isready responds true prematurely
       # but if it doesn't, the commented out test below should work

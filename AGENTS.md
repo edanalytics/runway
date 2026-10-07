@@ -46,6 +46,8 @@ npm run api:test
 npm run api:test:integration:local
 ```
 
+To run integration suites in more than one git worktree at once, give each worktree its own test DB port and Compose project in `app/api/.env.test.local` (see `app/api/integration/README.md`).
+
 **Unit tests** (no DB or Docker required):
 
 ```bash

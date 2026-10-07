@@ -13,6 +13,14 @@ export const loadEnvVars = () => {
 
     console.log('🔄 Loading env vars from', envPath);
     config({ path: envPath, override: true });
+
+    // Optional, gitignored per-checkout overrides. Each git worktree sets its own
+    // POSTGRES_PORT and COMPOSE_PROJECT_NAME here so suites can run concurrently.
+    const localEnvPath = join(__dirname, '../../../../.env.test.local');
+    if (fs.existsSync(localEnvPath)) {
+      console.log('🔄 Loading env var overrides from', localEnvPath);
+      config({ path: localEnvPath, override: true });
+    }
     console.log('✅ Env vars loaded');
   } catch (error) {
     console.error('❌ Failed to load env vars:', error);
