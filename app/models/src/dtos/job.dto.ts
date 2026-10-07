@@ -244,19 +244,15 @@ export const getResourceErrors = (
   summary: GetRunDto['summary'] | undefined,
   reportResources: string[] | null | undefined
 ) => {
-  const resourceSummaries = summary ? getResourceSummaries(summary) : {};
-  const failedResources = Object.entries(resourceSummaries)
-    .filter(([_, summary]) => summary.failed > 0)
-    .map(([resource]) => resource);
-
   const reportableResources = reportResources ?? [];
 
-  return failedResources
-    .filter((resource) => reportableResources.includes(resource))
-    .map((resource) => {
-      const { skipped, failed, success } = resourceSummaries[resource];
-      return { resource, failed, total: success + skipped + failed };
-    });
+  return Object.entries(summary ? getResourceSummaries(summary) : {})
+    .filter(([resource, { failed }]) => failed > 0 && reportableResources.includes(resource))
+    .map(([resource, { skipped, failed, success }]) => ({
+      resource,
+      failed,
+      total: success + skipped + failed,
+    }));
 };
 
 export class PostJobDto extends DtoPostBase implements PostDto<IBaseJobDto> {
