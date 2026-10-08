@@ -19,7 +19,7 @@ describe('JobLogsService', () => {
   beforeEach(() => {
     findFirst = jest.fn().mockResolvedValue({ ecsTaskArn, taskSize: 'large' });
     const appConfig = {
-      get: jest.fn((key: string) => ({ ENVLABEL: 'env', AWS_REGION: 'us-east-2' })[key]),
+      get: jest.fn((key: string) => ({ ENVLABEL: 'env', AWS_REGION: 'us-east-2' }[key])),
     };
     service = new JobLogsService(
       { run: { findFirst } } as unknown as PrismaClient,
@@ -53,12 +53,26 @@ describe('JobLogsService', () => {
     expect(logsSend).not.toHaveBeenCalled();
   });
 
-  it('returns the events and a cursor that resumes after them', async () => {
-    logsSend.mockResolvedValue(page('f/2', ['one', 'two']));
+  const requestedLimits = () => logsSend.mock.calls.map(([command]) => command.input.limit);
+
+  it('returns a full page without checking for the end', async () => {
+    const messages = Array.from({ length: 10000 }, (_, i) => `line ${i}`);
+    logsSend.mockResolvedValueOnce(page('f/2', messages));
 
     const result = await service.getLogs(1, 'f/1');
 
     expect(requestedTokens()).toEqual(['f/1']);
+    expect(result).toMatchObject({ data: { nextCursor: 'f/2', atEnd: false } });
+    expect((result as { data: { events: unknown[] } }).data.events).toHaveLength(10000);
+  });
+
+  it('fills a short page until CloudWatch reports the end, then returns a cursor for later lines', async () => {
+    logsSend.mockResolvedValueOnce(page('f/2', ['one', 'two'])).mockResolvedValueOnce(page('f/2'));
+
+    const result = await service.getLogs(1, 'f/1');
+
+    expect(requestedTokens()).toEqual(['f/1', 'f/2']);
+    expect(requestedLimits()).toEqual([10000, 9998]);
     expect(result).toEqual({
       status: 'SUCCESS',
       data: {
@@ -67,52 +81,51 @@ describe('JobLogsService', () => {
           { timestamp: 1001, message: 'two' },
         ],
         nextCursor: 'f/2',
+        atEnd: true,
       },
     });
   });
 
-  it('returns a null cursor when CloudWatch hands back the token it was given', async () => {
-    logsSend.mockResolvedValue(page('f/1'));
+  it('reports the end with the same cursor when no lines have been written since', async () => {
+    logsSend.mockResolvedValueOnce(page('f/1'));
 
     await expect(service.getLogs(1, 'f/1')).resolves.toEqual({
       status: 'SUCCESS',
-      data: { events: [], nextCursor: null },
+      data: { events: [], nextCursor: 'f/1', atEnd: true },
     });
   });
 
-  it('returns a null cursor with the last events when that page also ends the stream', async () => {
-    logsSend.mockResolvedValue(page('f/1', ['last']));
-
-    const result = await service.getLogs(1, 'f/1');
-
-    expect(result).toMatchObject({ data: { events: [{ message: 'last' }], nextCursor: null } });
-  });
-
-  it('follows empty pages mid-stream until it finds events', async () => {
+  it('follows empty pages mid-stream', async () => {
     logsSend
       .mockResolvedValueOnce(page('f/1'))
       .mockResolvedValueOnce(page('f/2'))
-      .mockResolvedValueOnce(page('f/3', ['found']));
+      .mockResolvedValueOnce(page('f/3', ['found']))
+      .mockResolvedValueOnce(page('f/3'));
 
     const result = await service.getLogs(1);
 
-    expect(requestedTokens()).toEqual([undefined, 'f/1', 'f/2']);
-    expect(result).toMatchObject({ data: { events: [{ message: 'found' }], nextCursor: 'f/3' } });
+    expect(requestedTokens()).toEqual([undefined, 'f/1', 'f/2', 'f/3']);
+    expect(result).toMatchObject({
+      data: { events: [{ message: 'found' }], nextCursor: 'f/3', atEnd: true },
+    });
   });
 
-  it('stops following empty pages after five requests and returns a cursor to resume from', async () => {
+  it('stops after five requests and returns a cursor to resume from', async () => {
     let n = 0;
-    logsSend.mockImplementation(async () => page(`f/${++n}`));
+    logsSend.mockImplementation(async () => page(`f/${++n}`, ['more']));
 
     const result = await service.getLogs(1);
 
     expect(logsSend).toHaveBeenCalledTimes(5);
-    expect(result).toEqual({ status: 'SUCCESS', data: { events: [], nextCursor: 'f/5' } });
+    expect(result).toMatchObject({ data: { nextCursor: 'f/5', atEnd: false } });
   });
 
   it('returns STREAM_NOT_FOUND when CloudWatch has no such stream', async () => {
     logsSend.mockRejectedValue(
-      new ResourceNotFoundException({ message: 'The specified log stream does not exist.', $metadata: {} })
+      new ResourceNotFoundException({
+        message: 'The specified log stream does not exist.',
+        $metadata: {},
+      })
     );
 
     await expect(service.getLogs(1)).resolves.toEqual({

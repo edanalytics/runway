@@ -96,6 +96,7 @@ export const getJobLogs = (jobId: string) =>
         params: pageParam ? { cursor: pageParam } : undefined,
       }),
     initialPageParam: null as string | null,
+    // Also set at the end of the logs, where it fetches lines written since
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     // A 404 means there are no logs for this job's latest run; retrying won't change that
     retry: false,

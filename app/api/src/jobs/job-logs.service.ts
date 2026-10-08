@@ -6,7 +6,7 @@ import {
   GetLogEventsCommandOutput,
   ResourceNotFoundException,
 } from '@aws-sdk/client-cloudwatch-logs';
-import { GetJobLogsDto } from '@edanalytics/models';
+import { GetJobLogEventDto, GetJobLogsDto } from '@edanalytics/models';
 import { PRISMA_READ_ONLY } from '../database';
 import { AppConfigService } from '../config/app-config.service';
 import {
@@ -16,10 +16,11 @@ import {
 } from '../earthbeam/executor/executor-task-names';
 import { MockExecutorLogsClient } from './job-logs.mock-client';
 
-const PAGE_SIZE = 1000;
-// GetLogEvents can return empty pages before the end of a stream, so a page
-// with no events doesn't mean there are none left. Follow a few of them
-// before handing the cursor back, rather than following them indefinitely.
+const PAGE_SIZE = 10000;
+// GetLogEvents can return short or empty pages before the end of a stream, so
+// keep requesting until the page is full or CloudWatch reports the end, which
+// costs one extra request at the end. Cap the requests rather than following
+// short pages indefinitely.
 const MAX_REQUESTS_PER_PAGE = 5;
 
 export type GetJobLogsResult =
@@ -43,7 +44,9 @@ export class JobLogsService {
   }
 
   // Executor logs for the job's latest run, oldest first. Pass the returned
-  // cursor back to get the next page; it is null once the stream is exhausted.
+  // cursor back to get the next page. atEnd marks the current end of the
+  // stream; while the executor is still writing, the cursor picks up lines
+  // written since.
   async getLogs(jobId: Job['id'], cursor?: string): Promise<GetJobLogsResult> {
     const lastRun = await this.prisma.run.findFirst({
       where: { jobId },
@@ -64,8 +67,9 @@ export class JobLogsService {
     const logGroupName = executorLogGroupName(envLabel, lastRun.taskSize);
     const logStreamName = executorLogStreamName(envLabel, lastRun.taskSize, lastRun.ecsTaskArn);
 
+    const events: GetJobLogEventDto[] = [];
     let token = cursor;
-    for (let i = 0; i < MAX_REQUESTS_PER_PAGE; i++) {
+    for (let i = 0; i < MAX_REQUESTS_PER_PAGE && events.length < PAGE_SIZE; i++) {
       let response;
       try {
         response = await this.logsClient.send(
@@ -73,7 +77,7 @@ export class JobLogsService {
             logGroupName,
             logStreamName,
             startFromHead: true,
-            limit: PAGE_SIZE,
+            limit: PAGE_SIZE - events.length,
             nextToken: token,
           })
         );
@@ -86,20 +90,21 @@ export class JobLogsService {
         throw e;
       }
 
+      events.push(
+        ...(response.events ?? []).map((e) => ({
+          timestamp: e.timestamp ?? null,
+          message: e.message ?? '',
+        }))
+      );
+
       // At the end of a stream, CloudWatch returns the token it was given
       const nextToken = response.nextForwardToken;
-      const atEnd = !nextToken || nextToken === token;
-      const events = (response.events ?? []).map((e) => ({
-        timestamp: e.timestamp ?? null,
-        message: e.message ?? '',
-      }));
-
-      if (events.length || atEnd) {
-        return { status: 'SUCCESS', data: { events, nextCursor: atEnd ? null : nextToken } };
+      if (!nextToken || nextToken === token) {
+        return { status: 'SUCCESS', data: { events, nextCursor: token ?? null, atEnd: true } };
       }
       token = nextToken;
     }
 
-    return { status: 'SUCCESS', data: { events: [], nextCursor: token ?? null } };
+    return { status: 'SUCCESS', data: { events, nextCursor: token ?? null, atEnd: false } };
   }
 }
