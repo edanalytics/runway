@@ -1,7 +1,12 @@
-import { ResourceNotFoundException } from '@aws-sdk/client-cloudwatch-logs';
+import {
+  CloudWatchLogsClient,
+  InvalidParameterException,
+  ResourceNotFoundException,
+} from '@aws-sdk/client-cloudwatch-logs';
 import { PrismaClient } from '@prisma/client';
 import { AppConfigService } from '../config/app-config.service';
 import { JobLogsService } from './job-logs.service';
+import { MockExecutorLogsClient } from './job-logs.mock-client';
 
 describe('JobLogsService', () => {
   const ecsTaskArn = 'arn:aws:ecs:us-east-2:123456789012:task/env-cluster/abc123';
@@ -134,9 +139,49 @@ describe('JobLogsService', () => {
     });
   });
 
+  it('returns INVALID_CURSOR when CloudWatch rejects the cursor it was given', async () => {
+    logsSend.mockRejectedValue(
+      new InvalidParameterException({ message: 'bad token', $metadata: {} })
+    );
+
+    await expect(service.getLogs(1, 'not-a-token')).resolves.toEqual({
+      status: 'ERROR',
+      code: 'INVALID_CURSOR',
+    });
+  });
+
+  it('throws when CloudWatch rejects a request that had no cursor', async () => {
+    logsSend.mockRejectedValue(
+      new InvalidParameterException({ message: 'bad group', $metadata: {} })
+    );
+
+    await expect(service.getLogs(1)).rejects.toThrow('bad group');
+  });
+
   it('throws other CloudWatch errors', async () => {
     logsSend.mockRejectedValue(new Error('AccessDeniedException'));
 
     await expect(service.getLogs(1)).rejects.toThrow('AccessDeniedException');
   });
+
+  // The mock must never stand in for CloudWatch in a deployed environment
+  it.each([
+    { mockSetting: 'mock', isDev: true, client: MockExecutorLogsClient },
+    { mockSetting: 'mock', isDev: false, client: CloudWatchLogsClient },
+    { mockSetting: undefined, isDev: true, client: CloudWatchLogsClient },
+  ])(
+    'reads from $client.name when LOCAL_EXECUTOR_LOGS=$mockSetting and dev is $isDev',
+    ({ mockSetting, isDev, client }) => {
+      const appConfig = {
+        get: jest.fn((key: string) => ({ LOCAL_EXECUTOR_LOGS: mockSetting }[key])),
+        isDevEnvironment: () => isDev,
+      };
+      const selected = new JobLogsService(
+        {} as PrismaClient,
+        appConfig as unknown as AppConfigService
+      );
+
+      expect((selected as any).logsClient).toBeInstanceOf(client);
+    }
+  );
 });

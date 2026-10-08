@@ -246,6 +246,8 @@ describe('GET /jobs/:id', () => {
       const after = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       expect(after.body.runs[0].hasEcsTask).toBe(true);
       expect(JSON.stringify(after.body)).not.toContain(ecsTaskArn);
+      // The browser re-runs the DTO's transform on the response, which no longer has the ARN
+      expect(plainToInstance(GetJobDto, after.body).lastRun?.hasEcsTask).toBe(true);
     });
 
     it('shows failed resources the bundle reports on as complete with errors', async () => {
@@ -616,9 +618,41 @@ describe('GET /jobs/:id/logs', () => {
 
       expect(getLogsMock).toHaveBeenCalledWith(jobA.id, 'f/1');
     });
+
+    it.each([
+      { description: 'an empty cursor', query: 'cursor=' },
+      { description: 'a repeated cursor', query: 'cursor=f%2F1&cursor=f%2F2' },
+    ])('rejects $description without calling the service', async ({ query }) => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+      const res = await request(app.getHttpServer())
+        .get(`${endpoint(jobA.id)}?${query}`)
+        .set('Cookie', [cookie]);
+
+      expect(res.status).toBe(400);
+      expect(getLogsMock).not.toHaveBeenCalled();
+    });
   });
 
   it('should return 404 when the latest run has no recorded executor task', async () => {
+    const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+    const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookie]);
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe(`No executor task recorded for the latest run of job ${jobA.id}`);
+  });
+
+  it('reads only the latest run, even when an earlier run recorded a task', async () => {
+    // created_on is set by a trigger, so the seeded run is the earlier one
+    await prisma.run.updateMany({
+      where: { jobId: jobA.id },
+      data: {
+        ecsTaskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/earlier-run',
+        taskSize: 'medium',
+      },
+    });
+    await prisma.run.create({ data: { jobId: jobA.id, status: 'success' } });
     const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
 
     const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookie]);

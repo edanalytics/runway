@@ -198,9 +198,16 @@ export class JobsController {
   @Authorize('job.logs.read')
   async getLogs(
     @Param('jobId', new ParseIntPipe()) jobId: number,
-    @Query('cursor') cursor?: string
+    @Query('cursor') cursor?: unknown
   ) {
+    // Express turns a repeated query param into an array
+    if (cursor !== undefined && (typeof cursor !== 'string' || cursor === '')) {
+      throw new BadRequestException('cursor must be a single, non-empty string');
+    }
     const result = await this.jobLogsService.getLogs(jobId, cursor);
+    if (result.status === 'ERROR' && result.code === 'INVALID_CURSOR') {
+      throw new BadRequestException(`Invalid cursor for the latest run of job ${jobId}`);
+    }
     if (result.status === 'ERROR') {
       throw new NotFoundException(
         result.code === 'NO_TASK'

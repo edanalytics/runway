@@ -1,9 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Job, PrismaClient } from '@prisma/client';
 import {
   CloudWatchLogsClient,
   GetLogEventsCommand,
   GetLogEventsCommandOutput,
+  InvalidParameterException,
   ResourceNotFoundException,
 } from '@aws-sdk/client-cloudwatch-logs';
 import { GetJobLogEventDto, GetJobLogsDto } from '@edanalytics/models';
@@ -25,10 +26,11 @@ const MAX_REQUESTS_PER_PAGE = 5;
 
 export type GetJobLogsResult =
   | { status: 'SUCCESS'; data: GetJobLogsDto }
-  | { status: 'ERROR'; code: 'NO_TASK' | 'STREAM_NOT_FOUND' };
+  | { status: 'ERROR'; code: 'NO_TASK' | 'STREAM_NOT_FOUND' | 'INVALID_CURSOR' };
 
 @Injectable()
 export class JobLogsService {
+  private readonly logger = new Logger(JobLogsService.name);
   private readonly logsClient: {
     send(command: GetLogEventsCommand): Promise<GetLogEventsCommandOutput>;
   };
@@ -83,9 +85,17 @@ export class JobLogsService {
         );
       } catch (e) {
         // The stream doesn't exist until the container writes to it, and
-        // disappears when the log group's retention expires it
+        // disappears when the log group's retention expires it. A missing log
+        // group lands here too, so name both in case the names have drifted
+        // from the ECS task definitions.
         if (e instanceof ResourceNotFoundException) {
+          this.logger.warn(`Executor log stream not found: ${logGroupName} ${logStreamName}`);
           return { status: 'ERROR', code: 'STREAM_NOT_FOUND' };
+        }
+        // A cursor CloudWatch won't accept, such as one from another run's
+        // stream, is the caller's mistake rather than a failure
+        if (e instanceof InvalidParameterException && cursor !== undefined) {
+          return { status: 'ERROR', code: 'INVALID_CURSOR' };
         }
         throw e;
       }
