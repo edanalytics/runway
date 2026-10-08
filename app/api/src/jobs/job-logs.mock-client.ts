@@ -118,9 +118,17 @@ const roster = (s: Script) => {
   s.log('INFO', 'starting...', 'lightbeam');
   s.log('INFO', 'fetching from endpoint `students`...', 'lightbeam').wait(9200);
   s.log('INFO', 'finished fetching `students` (12418 records)', 'lightbeam');
-  s.log('INFO', 'fetching from endpoint `studentEducationOrganizationAssociations`...', 'lightbeam');
+  s.log(
+    'INFO',
+    'fetching from endpoint `studentEducationOrganizationAssociations`...',
+    'lightbeam'
+  );
   s.wait(11400);
-  s.log('INFO', 'finished fetching `studentEducationOrganizationAssociations` (14902 records)', 'lightbeam');
+  s.log(
+    'INFO',
+    'finished fetching `studentEducationOrganizationAssociations` (14902 records)',
+    'lightbeam'
+  );
   return s.log('DEBUG', 'uploading artifact ROSTER');
 };
 
@@ -178,21 +186,26 @@ const MATCH_RATE_ROW = (matches: number, rate: string) =>
 const emSuccess = (s: Script) => {
   s.log('INFO', `earthmover stdout: ${s.captured('earthmover', [...EM_RUN_LINES, 'done!'], 2500)}`);
   s.log('INFO', 'Ed-Fi ID State matches studentUniqueId (98.7% of non-null records match)');
-  s.log('INFO', `at least some records matched - match rates by ID: [${MATCH_RATE_ROW(4155, '0.9869')}]`);
+  s.log(
+    'INFO',
+    `at least some records matched - match rates by ID: [${MATCH_RATE_ROW(4155, '0.9869')}]`
+  );
   return s.log('DEBUG', 'uploading artifact MATCH_RATES');
 };
 
-const lightbeamSend = (s: Script, rejected: number) => {
+const lightbeamSend = (s: Script, rejected: number, students = 4155) => {
   s.log('INFO', 'beginning action: lightbeam_send').wait(500);
   s.log('INFO', 'starting...', 'lightbeam');
   s.log('INFO', 'validating by default since `send` called without `validate`...', 'lightbeam');
   for (const [endpoint, n, secs] of [
     ['assessments', 1, 1],
     ['objectiveAssessments', 12, 2],
-    ['studentAssessments', 4155, 41],
-    ['studentObjectiveAssessments', 4155 * 12, 96],
+    ['studentAssessments', students, 41],
+    ['studentObjectiveAssessments', students * 12, 96],
   ] as const) {
-    s.log('INFO', `sending endpoint ${endpoint} with ${n} records...`, 'lightbeam').wait(secs * 1000);
+    s.log('INFO', `sending endpoint ${endpoint} with ${n} records...`, 'lightbeam').wait(
+      secs * 1000
+    );
     if (endpoint === 'studentAssessments' && rejected) {
       for (let i = 0; i < rejected; i++) {
         const line = 17 + i * 3;
@@ -204,18 +217,35 @@ const lightbeamSend = (s: Script, rejected: number) => {
       }
     }
     const ok = endpoint === 'studentAssessments' ? n - rejected : n;
-    const status = rejected && endpoint === 'studentAssessments' ? `{201: ${ok}, 409: ${rejected}}` : `{201: ${ok}}`;
-    s.log('INFO', `finished processing endpoint ${endpoint}! Status counts: ${status}`, 'lightbeam');
+    const status =
+      rejected && endpoint === 'studentAssessments'
+        ? `{201: ${ok}, 409: ${rejected}}`
+        : `{201: ${ok}}`;
+    s.log(
+      'INFO',
+      `finished processing endpoint ${endpoint}! Status counts: ${status}`,
+      'lightbeam'
+    );
   }
   return s.log('INFO', 'all done!', 'lightbeam').log('DEBUG', 'uploading artifact LB_SEND_RESULTS');
 };
 
 const uploadAndFinish = (s: Script) => {
   s.log('WARNING', 'earthmover run failed to match some student IDs');
-  s.log('DEBUG', 'Sending student ID match info').log('DEBUG', 'uploading artifact UNMATCHED_STUDENTS');
+  s.log('DEBUG', 'Sending student ID match info').log(
+    'DEBUG',
+    'uploading artifact UNMATCHED_STUDENTS'
+  );
   s.log('INFO', 'beginning action: upload_output').wait(900);
-  for (const f of ['assessments', 'objectiveAssessments', 'studentAssessments', 'studentObjectiveAssessments']) {
-    s.log('INFO', `uploading output: ${f}.jsonl -> ea/district-a/2526/412/output/${f}.jsonl`).wait(300);
+  for (const f of [
+    'assessments',
+    'objectiveAssessments',
+    'studentAssessments',
+    'studentObjectiveAssessments',
+  ]) {
+    s.log('INFO', `uploading output: ${f}.jsonl -> ea/district-a/2526/412/output/${f}.jsonl`).wait(
+      300
+    );
   }
   s.log('DEBUG', 'Notifying app of output set at ea/district-a/2526/412/output');
   s.log('DEBUG', 'Sending summary');
@@ -266,21 +296,22 @@ const SCENARIOS: Record<string, (startMs: number) => Event[]> = {
     return backgroundMatching(uploadAndFinish(s)).events;
   },
 
-  // Enough events to need several pages
+  // More events than fit in one page (the service's PAGE_SIZE is 10,000)
   long: (t) => {
     const s = throughFiles(t);
     [emStart, emSuccess].forEach((step) => step(s));
-    lightbeamSend(s, 3500);
+    lightbeamSend(s, 12000, 16000);
     return uploadAndFinish(s).events;
   },
 
   'earthmover-error': (t) => {
     const s = emStart(throughFiles(t));
-    const err = `${stamp(s.now() - 900)} earthmover ERROR (at \`transformations.assessment_records\` defined in \`packages/${TASK.bundle}/earthmover.yaml\` near line 88) \`add_columns\` operation failed: column \`ScaleScore\` not found`;
-    s.log(
-      'INFO',
-      `earthmover stdout: ${s.captured('earthmover', EM_RUN_LINES.slice(0, 9), 2500)}`
-    );
+    const err = `${stamp(
+      s.now() - 900
+    )} earthmover ERROR (at \`transformations.assessment_records\` defined in \`packages/${
+      TASK.bundle
+    }/earthmover.yaml\` near line 88) \`add_columns\` operation failed: column \`ScaleScore\` not found`;
+    s.log('INFO', `earthmover stdout: ${s.captured('earthmover', EM_RUN_LINES.slice(0, 9), 2500)}`);
     s.log('INFO', `earthmover stderr: ${err}`);
     s.log('ERROR', 'earthmover encountered an error');
     return failAndShutDown(
@@ -300,8 +331,14 @@ const SCENARIOS: Record<string, (startMs: number) => Event[]> = {
 
   'insufficient-matches': (t) => {
     const s = emStart(throughFiles(t));
-    s.log('INFO', `earthmover stdout: ${s.captured('earthmover', [...EM_RUN_LINES, 'done!'], 2500)}`);
-    s.log('INFO', `at least some records matched - match rates by ID: [${MATCH_RATE_ROW(1768, '0.42')}]`);
+    s.log(
+      'INFO',
+      `earthmover stdout: ${s.captured('earthmover', [...EM_RUN_LINES, 'done!'], 2500)}`
+    );
+    s.log(
+      'INFO',
+      `at least some records matched - match rates by ID: [${MATCH_RATE_ROW(1768, '0.42')}]`
+    );
     s.log('DEBUG', 'too many unmatched students. Halting run');
     return failAndShutDown(
       s,
