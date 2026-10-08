@@ -156,6 +156,16 @@ export const JobLogs = ({ job }: { job: GetJobDto }) => {
   // Logs come from CloudWatch, so only fetch them when someone asks
   const [isOpen, setIsOpen] = useState(false);
 
+  if (!job.lastRun?.hasEcsTask) {
+    return (
+      <Box textStyle="body" opacity="0.6">
+        {job.lastRun
+          ? "logs aren't available for this job: its latest run happened before Runway began recording executor logs"
+          : "logs aren't available: this job hasn't run"}
+      </Box>
+    );
+  }
+
   return (
     <VStack width="100%" alignItems="flex-start" gap="300">
       <Button

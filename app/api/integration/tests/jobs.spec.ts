@@ -231,6 +231,21 @@ describe('GET /jobs/:id', () => {
       expect(resA.body.id).toEqual(jobA.id);
     });
 
+    it('should say whether the latest run recorded its executor task, without exposing it', async () => {
+      const before = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
+      expect(before.body.runs[0].hasEcsTask).toBe(false);
+
+      const ecsTaskArn = 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/abc123';
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: { ecsTaskArn, taskSize: 'medium' },
+      });
+
+      const after = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
+      expect(after.body.runs[0].hasEcsTask).toBe(true);
+      expect(JSON.stringify(after.body)).not.toContain(ecsTaskArn);
+    });
+
     it('should return sendToOds=false for a no-ODS job', async () => {
       const noOdsJob = await seedJob({
         sendToOds: false,
@@ -477,7 +492,11 @@ describe('GET /jobs/:id/logs', () => {
   const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
   const USER_ROLE = 'runway.test.user';
   const endpoint = (id: number) => `/jobs/${id}/logs`;
-  const logs = { events: [{ timestamp: 1000, message: 'hello' }], nextCursor: 'f/1' };
+  const logs = {
+    events: [{ timestamp: 1000, message: 'hello' }],
+    nextCursor: 'f/1',
+    atEnd: false,
+  };
 
   let jobA: DtoableJob;
   let jobB: DtoableJob;
