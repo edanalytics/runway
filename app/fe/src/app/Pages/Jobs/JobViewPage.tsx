@@ -159,7 +159,7 @@ export const JobViewPage = () => {
             // error flagged by the executor is fatal and so there will be only one.
             <JobError key={error.id} err={error} />
           ))}
-          {!!job.hasUnmatchedStudents && <UnmatchedStudents job={job} />}
+          {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
         </JobViewSection>
         {!!job.resourceSummaries && (
           <JobViewSection title="Summary">

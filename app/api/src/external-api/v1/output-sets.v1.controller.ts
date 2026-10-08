@@ -118,7 +118,7 @@ export class ExternalApiV1OutputSetsController {
         partner: set.run.job.partnerId,
         tenant: set.run.job.tenantCode,
         schoolYear: String(set.run.job.schoolYear.endYear),
-        bundle: (set.run.job.template as any)?.path ?? null,
+        bundle: set.run.job.template?.path ?? null,
       }))
     );
   }

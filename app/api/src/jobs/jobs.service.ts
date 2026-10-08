@@ -9,7 +9,6 @@ import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/cli
 import { FileService } from '../files/file.service';
 import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
-import { instanceToPlain } from 'class-transformer';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
 import {
@@ -18,6 +17,13 @@ import {
   EXECUTOR_SERVICE,
 } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
+
+/**
+ * Far more than a reviewer will work through (typically under 10, at most a
+ * few hundred). Past it, the file itself needs fixing. At the limit, with ten
+ * suggestions each, the response is about 3.5 MB.
+ */
+export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
 
 @Injectable()
 export class JobsService {
@@ -46,6 +52,47 @@ export class JobsService {
       include: { runError: true },
     });
     return lastRun?.runError;
+  }
+
+  /** Overridable so tests can reach the limit without seeding 1,000 students. */
+  studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
+
+  /**
+   * The job's students to match, each with every run's result for it and each
+   * result's suggestions in order.
+   */
+  async getStudentMatchResults(jobId: Job['id']) {
+    const count = await this.prisma.studentInputDetails.count({ where: { jobId } });
+    if (count > this.studentMatchReviewLimit) {
+      return { count, students: null };
+    }
+
+    const inputs = await this.prisma.studentInputDetails.findMany({
+      where: { jobId },
+      // Only for a stable order: correlation ids are opaque hashes, so it
+      // means nothing to a reviewer.
+      orderBy: { correlationId: 'asc' },
+      include: {
+        studentMatchResult: {
+          orderBy: { runId: 'asc' },
+          include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
+        },
+      },
+    });
+    return {
+      // The fetched length, not the first count: students reported between the
+      // two queries would make count and students disagree.
+      count: inputs.length,
+      // Prisma names each relation after its table; the API calls them results
+      // and suggestions.
+      students: inputs.map(({ studentMatchResult, ...input }) => ({
+        ...input,
+        results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
+          ...result,
+          suggestions: studentMatchSuggestion,
+        })),
+      })),
+    };
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<
@@ -299,7 +346,7 @@ export class JobsService {
         odsId: input.odsId,
         sendToOds: input.sendToOds,
         schoolYearId: input.schoolYearId,
-        template: instanceToPlain(toGetJobTemplateDto(bundle)),
+        template: toGetJobTemplateDto(bundle),
         inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
         idMatchingMode: partner.idMatchingMode,
