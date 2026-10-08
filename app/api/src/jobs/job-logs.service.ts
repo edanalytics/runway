@@ -3,6 +3,7 @@ import type { Job, PrismaClient } from '@prisma/client';
 import {
   CloudWatchLogsClient,
   GetLogEventsCommand,
+  GetLogEventsCommandOutput,
   ResourceNotFoundException,
 } from '@aws-sdk/client-cloudwatch-logs';
 import { GetJobLogsDto } from '@edanalytics/models';
@@ -13,6 +14,7 @@ import {
   executorLogStreamName,
   isExecutorTaskSize,
 } from '../earthbeam/executor/executor-task-names';
+import { MockExecutorLogsClient } from './job-logs.mock-client';
 
 const PAGE_SIZE = 1000;
 // GetLogEvents can return empty pages before the end of a stream, so a page
@@ -26,13 +28,18 @@ export type GetJobLogsResult =
 
 @Injectable()
 export class JobLogsService {
-  private readonly logsClient: CloudWatchLogsClient;
+  private readonly logsClient: {
+    send(command: GetLogEventsCommand): Promise<GetLogEventsCommandOutput>;
+  };
 
   constructor(
     @Inject(PRISMA_READ_ONLY) private readonly prisma: PrismaClient,
     private readonly appConfig: AppConfigService
   ) {
-    this.logsClient = new CloudWatchLogsClient({ region: this.appConfig.get('AWS_REGION') });
+    this.logsClient =
+      this.appConfig.get('LOCAL_EXECUTOR_LOGS') === 'mock' && this.appConfig.isDevEnvironment()
+        ? new MockExecutorLogsClient()
+        : new CloudWatchLogsClient({ region: this.appConfig.get('AWS_REGION') });
   }
 
   // Executor logs for the job's latest run, oldest first. Pass the returned

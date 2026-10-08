@@ -40,6 +40,7 @@ export interface IEnvironmentVariables {
   LOCAL_S3_ENDPOINT_URL?: string; // e.g. "http://localhost:9090" for S3Mock
   LOCAL_EVENT_EMITTER?: 'log' | 'noop'; // default (unset) = EventBridge
   LOCAL_BUNDLE_CACHE_DISABLED?: 'true' | 'false';
+  LOCAL_EXECUTOR_LOGS?: 'mock'; // serve canned executor logs instead of reading CloudWatch
 
   // Identity Data Resolution Service (IDRS). One service per deployment, with
   // each partner addressed by request path and authenticated as its own OAuth
