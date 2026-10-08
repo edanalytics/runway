@@ -1,6 +1,6 @@
 import { Box, Button, HStack, Highlight, Spacer, Spinner, Switch, VStack } from '@chakra-ui/react';
 import { GetJobDto } from '@edanalytics/models';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getJobLogs } from '../../../api/queries/job.queries';
 import { RunwaySearchInput } from '../../../components/RunwaySearchInput';
@@ -13,16 +13,37 @@ const switchSx = {
   '.chakra-switch__thumb': { bg: 'blue.50' },
 };
 
-const LogLines = ({ job }: { job: GetJobDto }) => {
-  const { data, dataUpdatedAt, error, isPending, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useInfiniteQuery(getJobLogs(job.id.toString()));
+const linkProps = { variant: 'link', textStyle: 'button', textColor: 'green.100' } as const;
+
+const LogLines = ({ job, runId }: { job: GetJobDto; runId: number }) => {
+  const logsQuery = getJobLogs(job.id.toString(), runId);
+  const queryClient = useQueryClient();
+  const {
+    data,
+    dataUpdatedAt,
+    error,
+    isPending,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    refetch,
+    isRefetching,
+  } = useInfiniteQuery(logsQuery);
   const [wrapLines, setWrapLines] = useState(true);
   const [newestFirst, setNewestFirst] = useState(false);
   const [search, setSearch] = useState<string | undefined>();
 
-  // Keyed by position in the stream, which stays put when filtering or sorting
+  // Keyed by position in the stream, which stays put when filtering or sorting.
+  // Timestamps are formatted once here rather than on every render of every line.
   const events = useMemo(
-    () => (data?.pages ?? []).flatMap((page) => page.events).map((e, key) => ({ ...e, key })),
+    () =>
+      (data?.pages ?? [])
+        .flatMap((page) => page.events)
+        .map((e, key) => ({
+          key,
+          message: e.message,
+          time: e.timestamp !== null ? new Date(e.timestamp).toLocaleString() : null,
+        })),
     [data]
   );
   const query = search?.trim() ?? '';
@@ -38,17 +59,44 @@ const LogLines = ({ job }: { job: GetJobDto }) => {
     logBox.current?.scrollTo({ top: 0 });
   }, [query, newestFirst]);
 
+  const fetchMore = async () => {
+    await fetchNextPage();
+    // A check that found nothing new adds an empty page, which every later refetch would
+    // replay. Drop it: the page before it already ends at the same position.
+    queryClient.setQueryData(logsQuery.queryKey, (old) => {
+      const pages = old?.pages ?? [];
+      const [previous, last] = pages.slice(-2);
+      return old && previous?.atEnd && last.events.length === 0
+        ? { pages: pages.slice(0, -1), pageParams: old.pageParams.slice(0, -1) }
+        : old;
+    });
+  };
+
   if (isPending) {
     return <Spinner size="md" color="blue.50" speed="0.75s" />;
   }
 
-  if (error) {
-    // The API answers 404 with a message saying why there are no logs (no task recorded, or the stream doesn't exist)
-    const { statusCode, message } = error as { statusCode?: number; message?: string };
+  if (!data) {
+    // The API answers 404 when the stream doesn't exist: the container hasn't written to it
+    // yet, or it never did, or retention has expired it
+    const notFound = (error as { statusCode?: number } | null)?.statusCode === 404;
     return (
-      <Box textStyle="body" textColor="pink.100">
-        {statusCode === 404 && message ? message : 'error loading logs'}
-      </Box>
+      <HStack gap="300" textStyle="body">
+        {notFound ? (
+          <Box opacity="0.6">
+            {job.isComplete
+              ? "no executor logs were found for this job's latest run"
+              : "no logs yet: the executor hasn't started writing them"}
+          </Box>
+        ) : (
+          <Box textColor="pink.100">error loading logs</Box>
+        )}
+        {!(notFound && job.isComplete) && (
+          <Button {...linkProps} isLoading={isRefetching} onClick={() => refetch()}>
+            {notFound ? 'check again' : 'try again'}
+          </Button>
+        )}
+      </HStack>
     );
   }
 
@@ -94,22 +142,23 @@ const LogLines = ({ job }: { job: GetJobDto }) => {
             : `${events.length.toLocaleString()} lines`}
         </Box>
         <Spacer />
-        <Box opacity="0.6">
-          {!atEnd
-            ? 'more lines not loaded yet'
-            : job.isComplete
-            ? `end of logs as of ${checkedAt}`
-            : `no more lines as of ${checkedAt}: the job is still running`}
-        </Box>
+        {/* A failed load or check keeps the lines already loaded; the link below retries it */}
+        {error ? (
+          <Box textColor="pink.100">
+            {atEnd ? "couldn't check for new lines" : "couldn't load more lines"}
+          </Box>
+        ) : (
+          <Box opacity="0.6">
+            {!atEnd
+              ? 'more lines not loaded yet'
+              : job.isComplete
+              ? `end of logs as of ${checkedAt}`
+              : `no more lines as of ${checkedAt}: the job is still running`}
+          </Box>
+        )}
         {/* Offered at the end for finished jobs too: background matching keeps logging after the run is done */}
         {hasNextPage && (
-          <Button
-            variant="link"
-            textStyle="button"
-            textColor="green.100"
-            isLoading={isFetchingNextPage}
-            onClick={() => fetchNextPage()}
-          >
+          <Button {...linkProps} isLoading={isFetchingNextPage} onClick={fetchMore}>
             {atEnd ? 'check for new lines' : 'load more'}
           </Button>
         )}
@@ -127,15 +176,13 @@ const LogLines = ({ job }: { job: GetJobDto }) => {
           fontSize="sm"
           whiteSpace={wrapLines ? 'pre-wrap' : 'pre'}
           wordBreak={wrapLines ? 'break-word' : 'normal'}
+          // Plain elements per line: a styled component for each of tens of thousands of lines is slow
+          sx={{ '.log-time': { opacity: 0.6 } }}
         >
           {shown.length
             ? shown.map((event) => (
-                <Box key={event.key}>
-                  {event.timestamp !== null && (
-                    <Box as="span" opacity="0.6">
-                      {new Date(event.timestamp).toLocaleString()}{' '}
-                    </Box>
-                  )}
+                <div key={event.key}>
+                  {event.time !== null && <span className="log-time">{event.time} </span>}
                   {query ? (
                     <Highlight query={query} styles={{ bg: 'green.100', color: 'green.600' }}>
                       {event.message}
@@ -143,7 +190,7 @@ const LogLines = ({ job }: { job: GetJobDto }) => {
                   ) : (
                     event.message
                   )}
-                </Box>
+                </div>
               ))
             : `no lines match "${query}"`}
         </Box>
@@ -155,28 +202,29 @@ const LogLines = ({ job }: { job: GetJobDto }) => {
 export const JobLogs = ({ job }: { job: GetJobDto }) => {
   // Logs come from CloudWatch, so only fetch them when someone asks
   const [isOpen, setIsOpen] = useState(false);
+  const lastRun = job.lastRun;
 
-  if (!job.lastRun?.hasEcsTask) {
+  // The run records its ECS task once the task launches. Runs without one predate that, ran
+  // locally, or failed to launch; a starting run gets one shortly, and the job refetches as it
+  // moves through its stages.
+  if (!lastRun?.hasEcsTask) {
     return (
       <Box textStyle="body" opacity="0.6">
-        {job.lastRun
-          ? "logs aren't available for this job: its latest run happened before Runway began recording executor logs"
-          : "logs aren't available: this job hasn't run"}
+        {!lastRun
+          ? "logs aren't available: this job hasn't run"
+          : job.isComplete
+          ? "logs aren't available for this job's latest run"
+          : 'no logs yet: the job is starting'}
       </Box>
     );
   }
 
   return (
     <VStack width="100%" alignItems="flex-start" gap="300">
-      <Button
-        variant="link"
-        textStyle="button"
-        textColor="green.100"
-        onClick={() => setIsOpen((open) => !open)}
-      >
+      <Button {...linkProps} onClick={() => setIsOpen((open) => !open)}>
         {isOpen ? 'hide logs' : 'show logs'}
       </Button>
-      {isOpen && <LogLines job={job} />}
+      {isOpen && <LogLines job={job} runId={lastRun.id} />}
     </VStack>
   );
 };
