@@ -160,7 +160,7 @@ AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local \
 for year in 2024 2025 2026; do
   AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local \
     aws s3 cp ./api/local-data/studentEducationOrganizationAssociations.jsonl \
-      "s3://runway-local-dev-data-integration/__rosters/ea/runway-local-example-tenant/${year}/studentEducationOrganizationAssociations.jsonl" \
+      "s3://runway-local-dev-data-integration/__rosters/ea/ea/${year}/studentEducationOrganizationAssociations.jsonl" \
       --endpoint-url http://localhost:9090 \
       --region us-east-2 \
       --quiet
