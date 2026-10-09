@@ -44,6 +44,7 @@ import {
   useOrientation,
   PrototypeControls,
   SearchField,
+  useStartState,
   QuietButton,
   SecondaryButton,
   studentName,
@@ -330,7 +331,13 @@ export const WorkspaceReview = ({
   // Set once the reviewer picks a student, so the prompt to submit gives way
   // to the student they asked for. Cleared when they save a decision.
   const [lookingBack, setLookingBack] = useState(false);
+  // With the start screen on, no student is shown until the reviewer starts,
+  // from the start screen or by picking one. Flipping the switch shows it again.
+  const [startState] = useStartState();
+  const [started, setStarted] = useState(false);
+  useEffect(() => setStarted(false), [startState]);
   const setSelectedId = (id: string | null) => {
+    setStarted(true);
     setLookingBack(true);
     setSelectedIdState(id);
     try {
@@ -391,9 +398,14 @@ export const WorkspaceReview = ({
 
   const selected = groups.find((g) => g.correlationId === selectedId) ?? queue[0] ?? groups[0];
   const ready = groups.filter((g) => statusOf(g.correlationId) === 'ready');
+  const toReview = groups.filter((g) => statusOf(g.correlationId) === 'to-review');
+  const atStart = startState === 'start-screen' && !started && toReview.length > 0;
   // Every student has a decision, but saved matches haven't been submitted.
-  const awaitingSubmit =
-    ready.length > 0 && !groups.some((g) => statusOf(g.correlationId) === 'to-review');
+  const awaitingSubmit = ready.length > 0 && !toReview.length;
+  // Then the pane says so rather than showing a student, until one is picked.
+  const atSubmitPrompt = awaitingSubmit && !lookingBack;
+  // The student the list marks as open; none when the pane isn't showing one.
+  const shownId = atStart || atSubmitPrompt ? null : selected.correlationId;
   const submitFrom =
     layout === 'split'
       ? 'Ready to submit, in the list'
@@ -732,9 +744,7 @@ export const WorkspaceReview = ({
                   const members = queue.filter((g) => statuses.includes(statusOf(g.correlationId)));
                   // A folded group opens while its student is the one shown,
                   // e.g. after stepping to it with previous and next.
-                  const holdsSelected = members.some(
-                    (g) => g.correlationId === selected.correlationId
-                  );
+                  const holdsSelected = members.some((g) => g.correlationId === shownId);
                   const isOpen = !finished || openFinished.has(title) || holdsSelected;
                   // As in the focus view, saved matches and the button that
                   // submits them sit together, in one place, even when empty.
@@ -795,7 +805,7 @@ export const WorkspaceReview = ({
                               decision={decisions.get(group.correlationId)}
                               status={statusOf(group.correlationId)}
                               showStatus={!grouped && !reviewOnly}
-                              isSelected={group.correlationId === selected.correlationId}
+                              isSelected={group.correlationId === shownId}
                               onSelect={() => setSelectedId(group.correlationId)}
                             />
                           ))}
@@ -849,54 +859,65 @@ export const WorkspaceReview = ({
               if (event.key === 'k') move(-1);
             }}
           >
-            <HStack
-              justifyContent="space-between"
-              marginBottom="300"
-              fontSize="0.85rem"
-              gap="200"
-              flexWrap="wrap"
-            >
-              <Box opacity="0.8">
-                {position >= 0
-                  ? `${position + 1} of ${queue.length} in this list`
-                  : reviewOnly
-                  ? 'Already decided'
-                  : 'Not in the current list'}
-              </Box>
-              <HStack gap="100">
-                <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
-                  ‹ Previous
-                </QuietButton>
-                <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
-                  Next ›
-                </QuietButton>
-              </HStack>
-            </HStack>
-            {lastAction && (
-              <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
-            )}
-            {awaitingSubmit && !lookingBack ? (
-              submitPrompt
-            ) : (
-              <Workspace
-                key={selected.correlationId}
-                group={selected}
-                onSaved={(action) => {
-                  // Undo goes back to the student it undoes, even past the
-                  // prompt to submit.
-                  const id = selected.correlationId;
-                  setLastAction({
-                    ...action,
-                    undo: () => {
-                      action.undo();
-                      setSelectedId(id);
-                    },
-                  });
-                  if (action.advance) advance(selected.correlationId);
-                  // A decision brings back the prompt to submit, if it was the last one.
-                  setLookingBack(false);
-                }}
+            {atStart ? (
+              <StartScreen
+                toReview={toReview.length}
+                total={groups.length}
+                first={queue.find((g) => statusOf(g.correlationId) === 'to-review') ?? toReview[0]}
+                onStart={(id) => setSelectedId(id)}
               />
+            ) : (
+              <>
+                <HStack
+                  justifyContent="space-between"
+                  marginBottom="300"
+                  fontSize="0.85rem"
+                  gap="200"
+                  flexWrap="wrap"
+                >
+                  <Box opacity="0.8">
+                    {position >= 0
+                      ? `${position + 1} of ${queue.length}`
+                      : reviewOnly
+                      ? 'Already decided'
+                      : 'Not in the current list'}
+                  </Box>
+                  <HStack gap="100">
+                    <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
+                      ‹ Previous
+                    </QuietButton>
+                    <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
+                      Next ›
+                    </QuietButton>
+                  </HStack>
+                </HStack>
+                {lastAction && (
+                  <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
+                )}
+                {atSubmitPrompt ? (
+                  submitPrompt
+                ) : (
+                  <Workspace
+                    key={selected.correlationId}
+                    group={selected}
+                    onSaved={(action) => {
+                      // Undo goes back to the student it undoes, even past the
+                      // prompt to submit.
+                      const id = selected.correlationId;
+                      setLastAction({
+                        ...action,
+                        undo: () => {
+                          action.undo();
+                          setSelectedId(id);
+                        },
+                      });
+                      if (action.advance) advance(selected.correlationId);
+                      // A decision brings back the prompt to submit, if it was the last one.
+                      setLookingBack(false);
+                    }}
+                  />
+                )}
+              </>
             )}
           </Box>
         </HStack>
@@ -987,6 +1008,39 @@ const ReviewProgress = () => {
     </HStack>
   );
 };
+
+/**
+ * PROTOTYPE start screen: shown in place of a student when the page opens
+ * with students to review, so the first thing it says is where to begin.
+ */
+const StartScreen = ({
+  toReview,
+  total,
+  first,
+  onStart,
+}: {
+  toReview: number;
+  total: number;
+  first: GetStudentInputDetailsDto;
+  onStart: (id: string) => void;
+}) => (
+  <VStack alignItems="flex-start" gap="300" paddingY="500" paddingX="300" maxWidth="36rem">
+    <Box textStyle="h3">
+      {toReview === total
+        ? `${total} ${total === 1 ? 'student needs' : 'students need'} a match`
+        : `${toReview} of ${total} students still need a match`}
+    </Box>
+    <Box opacity="0.9">
+      These records couldn't be matched to a student in your roster automatically. For each one,
+      compare the file's details with the suggested students and use the right one, search the
+      roster, or exclude the record. Nothing loads until you submit your matches.
+    </Box>
+    <PrimaryButton onClick={() => onStart(first.correlationId)}>Start reviewing</PrimaryButton>
+    <Box fontSize="0.85rem" opacity="0.75">
+      This opens the first student under To review. You can also pick any student there.
+    </Box>
+  </VStack>
+);
 
 /**
  * Shown in place of a student once every student has a decision but saved
@@ -1839,10 +1893,6 @@ const Workspace = ({
         </NoSuggestionFits>
       ) : (
         <VStack alignItems="stretch" gap="200">
-          {/* The count matters when a suggestion is past the fold. */}
-          <Box fontSize="0.85rem" opacity="0.8">
-            {`${suggestions.length} ${suggestions.length === 1 ? 'suggestion' : 'suggestions'}`}
-          </Box>
           <EvidenceTable
             group={group}
             candidates={candidates}
@@ -1855,7 +1905,7 @@ const Workspace = ({
                 {candidates.length === 1 ? 'Not this student' : 'None of these'}
               </SecondaryButton>
               <Box fontSize="0.8rem" opacity="0.7">
-                Then search the roster, or exclude the record.
+                Search the roster or exclude this record.
               </Box>
               <Box flex="1" />
               {decision && <QuietButton onClick={clear}>Clear decision</QuietButton>}
@@ -2152,8 +2202,13 @@ const EvidenceTable = ({
                   <CopyButton value={c.studentUniqueId} />
                 </HStack>
                 <Box fontSize="0.75rem" opacity="0.8">
-                  {c.source === 'search' ? 'Found by your search' : 'Suggestion'}
-                  {c.score !== null && ` · score ${c.score}`}
+                  {[
+                    c.source === 'search' && 'Found by your search',
+                    c.score !== null && `score ${c.score}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                    .replace(/^./, (first) => first.toUpperCase())}
                 </Box>
               </Td>
               {fields.map((row) => {
@@ -2224,7 +2279,7 @@ const EvidenceTable = ({
             onClick={() => setShowRosterOnly(!showRosterOnly)}
             aria-expanded={showRosterOnly}
           >
-            {showRosterOnly ? '▾' : '▸'} Roster details: middle name, school years
+            {showRosterOnly ? '▾' : '▸'} Roster details
           </QuietButton>
           {rowsTable}
         </>
@@ -2267,8 +2322,13 @@ const EvidenceTable = ({
                       <CopyButton value={c.studentUniqueId} />
                     </HStack>
                     <Box fontWeight="normal" opacity="0.8">
-                      {c.source === 'search' ? 'Found by your search' : 'Suggestion'}
-                      {c.score !== null && ` · match score ${c.score}`}
+                      {[
+                        c.source === 'search' && 'Found by your search',
+                        c.score !== null && `match score ${c.score}`,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
+                        .replace(/^./, (first) => first.toUpperCase())}
                     </Box>
                   </Th>
                 ))}
@@ -2287,9 +2347,6 @@ const EvidenceTable = ({
                   >
                     {showRosterOnly ? '▾' : '▸'} Roster details
                   </QuietButton>
-                  <Box as="span" fontSize="0.75rem" opacity="0.6" marginLeft="200">
-                    middle name, school years
-                  </Box>
                 </Td>
                 {shown.map((c) => (
                   <Td key={c.studentUniqueId} {...band(c)} />

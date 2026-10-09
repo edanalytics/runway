@@ -605,45 +605,64 @@ export const ReviewProgress = () => {
 };
 
 /**
- * Simulations for how processing can go: a run that fails outright, a
- * submission that meets a conflicting change, and another reviewer's match.
+ * A PROTOTYPE setting, remembered in this browser and kept in step between
+ * every component on the page that reads it.
  */
-const orientationKey = 'runway.match-review-prototype.suggestion-orientation';
+const prototypeSetting = <T extends string>(key: string, values: readonly T[], fallback: T) => {
+  const storageKey = `runway.match-review-prototype.${key}`;
+  const event = `match-review-setting-${key}`;
+  const read = (): T => {
+    try {
+      const stored = window.localStorage.getItem(storageKey);
+      return values.find((v) => v === stored) ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const useSetting = () => {
+    const [value, setState] = useState<T>(read);
+    useEffect(() => {
+      const sync = (e: Event) => setState((e as CustomEvent<T>).detail);
+      window.addEventListener(event, sync);
+      return () => window.removeEventListener(event, sync);
+    }, []);
+    const setValue = (next: T) => {
+      try {
+        window.localStorage.setItem(storageKey, next);
+      } catch {
+        // A remembered preference is a convenience.
+      }
+      window.dispatchEvent(new CustomEvent(event, { detail: next }));
+    };
+    return [value, setValue] as const;
+  };
+  return useSetting;
+};
 
 /** PROTOTYPE: suggestions side by side as columns, or stacked as rows. */
 export type Orientation = 'columns' | 'rows';
-const orientationEvent = 'match-review-orientation';
 
-const readOrientation = (): Orientation => {
-  try {
-    return window.localStorage.getItem(orientationKey) === 'rows' ? 'rows' : 'columns';
-  } catch {
-    return 'columns';
-  }
-};
+/** Which way suggestions run, kept the same for the comparison and search results. */
+export const useOrientation = prototypeSetting<Orientation>(
+  'suggestion-orientation',
+  ['columns', 'rows'],
+  'columns'
+);
 
 /**
- * Which way suggestions run, remembered across students and kept in step
- * between the comparison and the search results on the same page.
+ * PROTOTYPE: how the workspace opens. `start-screen` selects no one and asks
+ * the reviewer to start; `selected` opens on a student, as before.
  */
-export const useOrientation = () => {
-  const [orientation, setState] = useState<Orientation>(readOrientation);
-  useEffect(() => {
-    const sync = (event: Event) => setState((event as CustomEvent<Orientation>).detail);
-    window.addEventListener(orientationEvent, sync);
-    return () => window.removeEventListener(orientationEvent, sync);
-  }, []);
-  const setOrientation = (next: Orientation) => {
-    try {
-      window.localStorage.setItem(orientationKey, next);
-    } catch {
-      // A remembered preference is a convenience.
-    }
-    window.dispatchEvent(new CustomEvent(orientationEvent, { detail: next }));
-  };
-  return [orientation, setOrientation] as const;
-};
+export const useStartState = prototypeSetting<'start-screen' | 'selected'>(
+  'start-state',
+  ['start-screen', 'selected'],
+  'start-screen'
+);
 
+/**
+ * Simulations for how processing can go: a run that fails outright, a
+ * submission that meets a conflicting change, and another reviewer's match.
+ */
 export const PrototypeControls = () => {
   const {
     groups,
@@ -663,6 +682,7 @@ export const PrototypeControls = () => {
   // Folded by default, so they don't sit between a view and its controls.
   const [open, setOpen] = useState(false);
   const [orientation, setOrientation] = useOrientation();
+  const [startState, setStartState] = useStartState();
   return (
     <VStack alignItems="flex-start" fontSize="0.8rem" opacity="0.75" gap="100">
       <HStack
@@ -697,7 +717,7 @@ export const PrototypeControls = () => {
               isChecked={simulateLarge}
               onChange={(e) => setSimulateLarge(e.target.checked)}
             >
-              Simulate a large file (30 more students)
+              Simulate a large file (240 more students)
             </Checkbox>
             <Checkbox
               size="sm"
@@ -705,6 +725,13 @@ export const PrototypeControls = () => {
               onChange={(e) => setOrientation(e.target.checked ? 'rows' : 'columns')}
             >
               Show suggestions as rows (workspace views)
+            </Checkbox>
+            <Checkbox
+              size="sm"
+              isChecked={startState === 'start-screen'}
+              onChange={(e) => setStartState(e.target.checked ? 'start-screen' : 'selected')}
+            >
+              Open on a start screen, with no student selected
             </Checkbox>
             <QuietButton
               size="xs"

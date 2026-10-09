@@ -197,7 +197,7 @@ export const ReviewSessionProvider = ({
     }
   };
   const groups = useMemo(
-    () => [...(data ?? []), ...(simulateLarge ? syntheticStudents(30, job.lastRun?.id ?? 0) : [])],
+    () => [...(data ?? []), ...(simulateLarge ? syntheticStudents(240, job.lastRun?.id ?? 0) : [])],
     [data, simulateLarge, job.lastRun?.id]
   );
   const roster = useMemo(() => pretendRoster(groups), [groups]);
