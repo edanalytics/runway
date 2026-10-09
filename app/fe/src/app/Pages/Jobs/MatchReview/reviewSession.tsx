@@ -240,38 +240,20 @@ export const ReviewSessionProvider = ({
     [stored, now]
   );
 
-  // MOCK ONLY, not product policy: the latest school year any roster student
-  // is enrolled in stands in for the job's year, and a match to someone not
-  // enrolled then fails to load, so a batch can complete with errors.
-  const currentYear = useMemo(
-    () =>
-      Math.max(
-        0,
-        ...roster.flatMap((student) =>
-          Array.isArray(student.rosterDetails.school_years)
-            ? student.rosterDetails.school_years.filter((y): y is number => typeof y === 'number')
-            : []
-        )
-      ),
-    [roster]
-  );
-
-  /** What the pretend run's summary reports for a batch. */
+  /**
+   * What the pretend run's summary reports for a batch: every record loads.
+   * Suggestions IDRS returns are already limited to students the job's year
+   * can load, so a run fails only when the prototype control says so.
+   */
   const summarize = useCallback(
-    (items: BatchItem[]): Record<string, ResourceSummary> => {
-      let processed = 0;
-      let failed = 0;
-      for (const { correlationId, decision } of items) {
-        const records = recordsFor(correlationId);
-        processed += records;
-        const years = decision.candidate.rosterDetails.school_years;
-        if (Array.isArray(years) && currentYear && !years.includes(currentYear)) {
-          failed += records;
-        }
-      }
-      return { studentAssessments: { processed, skipped: 0, failed } };
-    },
-    [currentYear]
+    (items: BatchItem[]): Record<string, ResourceSummary> => ({
+      studentAssessments: {
+        processed: items.reduce((sum, { correlationId }) => sum + recordsFor(correlationId), 0),
+        skipped: 0,
+        failed: 0,
+      },
+    }),
+    []
   );
 
   const batchOf = useCallback(
