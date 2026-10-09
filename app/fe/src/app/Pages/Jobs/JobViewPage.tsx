@@ -62,8 +62,9 @@ const reviewTabs: { label: string; tucked: boolean }[] = [
   { label: 'Unmatched Students (grouped)', tucked: true },
   { label: 'Unmatched Students (Sidebar)', tucked: false },
   { label: 'Unmatched Students (Tracker)', tucked: true },
-  { label: 'Unmatched Students (table)', tucked: true },
+  { label: 'Unmatched Students (condensing table)', tucked: true },
   { label: 'Unmatched Students (Rows)', tucked: false },
+  { label: 'Unmatched Students (Table)', tucked: false },
 ];
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
@@ -323,6 +324,9 @@ export const JobViewPage = () => {
             </TabPanel>
             <TabPanel paddingX="0" paddingY="400">
               <WorkspaceReview layout="inline" />
+            </TabPanel>
+            <TabPanel paddingX="0" paddingY="400">
+              <WorkspaceReview layout="stacked" />
             </TabPanel>
           </TabPanels>
         </Tabs>

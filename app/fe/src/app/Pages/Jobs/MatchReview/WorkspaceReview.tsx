@@ -33,7 +33,15 @@ import {
   StudentInputDetailsJson,
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
-import { Fragment, KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import {
+  Fragment,
+  KeyboardEvent,
+  ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { CheckIcon, CopyIcon } from '@chakra-ui/icons';
 import { Agreement, compare } from './compare';
 import {
@@ -300,12 +308,14 @@ const selectedKey = (jobId: number) => `runway.match-review-prototype.${jobId}.s
  * been submitted. `table` starts from the whole list as a sortable table;
  * opening a student condenses it to the side list, like opening a thread or
  * a ticket. `inline` keeps the table and opens the review pane beneath the
- * student's row.
+ * student's row. `stacked` puts a table of ten rows above the review pane,
+ * so the pane stays put as the reviewer moves through the table, under a
+ * summary whose counts filter the table.
  */
 export const WorkspaceReview = ({
   layout = 'split',
 }: {
-  layout?: 'split' | 'topbar' | 'table' | 'inline';
+  layout?: 'split' | 'topbar' | 'table' | 'inline' | 'stacked';
 }) => {
   const { job, groups, isLoading, isError, statusOf, decisions } = useReviewSession();
   // null means that filter is off. Clicking the active chip turns it off.
@@ -317,8 +327,10 @@ export const WorkspaceReview = ({
   // Expanding rows filters by status from the summary's counts, and starts
   // showing everyone.
   const tilesFilter = layout === 'inline';
+  // Stacked: the table above a review pane that stays put.
+  const stacked = layout === 'stacked';
   const defaultStatus: StatusFilter | null =
-    grouped || tilesFilter ? null : reviewOnly ? 'to-review' : 'open';
+    grouped || tilesFilter || stacked ? null : reviewOnly ? 'to-review' : 'open';
   const [statusFilter, setStatusFilter] = useState<StatusFilter | null>(defaultStatus);
   const [countFilter, setCountFilter] = useState<CountFilter | null>(null);
   const [selectedId, setSelectedIdState] = useState<string | null>(() => {
@@ -411,7 +423,7 @@ export const WorkspaceReview = ({
       ? 'Ready to submit, in the list'
       : layout === 'topbar'
       ? 'Matches to submit, above'
-      : layout === 'inline'
+      : layout === 'inline' || stacked
       ? 'Review and submit, below'
       : 'Review and submit, above';
   const submitPrompt = (
@@ -563,7 +575,7 @@ export const WorkspaceReview = ({
     <HStack fontSize="0.8rem" gap="200" minHeight="1.5rem">
       <Box opacity="0.8" whiteSpace="nowrap">
         {queue.length} of {groups.length} students
-        {tilesFilter &&
+        {(tilesFilter || stacked) &&
           statusFilter &&
           ` · ${overviewTiles.find((t) => t.key === statusFilter)?.label.toLowerCase()}`}
       </Box>
@@ -578,6 +590,86 @@ export const WorkspaceReview = ({
     setSelectedId(id);
     setExpanded(false);
   };
+
+  // The review pane: one student at a time, or the start screen or the
+  // prompt to submit in its place.
+  const pane = (
+    <Box
+      flex="1"
+      minWidth="0"
+      layerStyle="contentBox"
+      padding="400"
+      tabIndex={-1}
+      outline="none"
+      onKeyDown={(event: KeyboardEvent) => {
+        if ((event.target as HTMLElement).closest('input, textarea')) return;
+        if (event.key === 'j') move(1);
+        if (event.key === 'k') move(-1);
+      }}
+    >
+      {atStart ? (
+        <StartScreen
+          toReview={toReview.length}
+          total={groups.length}
+          first={queue.find((g) => statusOf(g.correlationId) === 'to-review') ?? toReview[0]}
+          onStart={(id) => setSelectedId(id)}
+          where={grouped ? 'under To review' : 'to review in the list'}
+        />
+      ) : (
+        <>
+          <HStack
+            justifyContent="space-between"
+            marginBottom="300"
+            fontSize="0.85rem"
+            gap="200"
+            flexWrap="wrap"
+          >
+            <Box opacity="0.8">
+              {position >= 0
+                ? `${position + 1} of ${queue.length}`
+                : reviewOnly
+                ? 'Already decided'
+                : 'Not in the current list'}
+            </Box>
+            <HStack gap="100">
+              <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
+                ‹ Previous
+              </QuietButton>
+              <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
+                Next ›
+              </QuietButton>
+            </HStack>
+          </HStack>
+          {lastAction && (
+            <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
+          )}
+          {atSubmitPrompt ? (
+            submitPrompt
+          ) : (
+            <Workspace
+              key={selected.correlationId}
+              group={selected}
+              onSaved={(action) => {
+                // Undo goes back to the student it undoes, even past the
+                // prompt to submit.
+                const id = selected.correlationId;
+                setLastAction({
+                  ...action,
+                  undo: () => {
+                    action.undo();
+                    setSelectedId(id);
+                  },
+                });
+                if (action.advance) advance(selected.correlationId);
+                // A decision brings back the prompt to submit, if it was the last one.
+                setLookingBack(false);
+              }}
+            />
+          )}
+        </>
+      )}
+    </Box>
+  );
 
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
@@ -596,7 +688,15 @@ export const WorkspaceReview = ({
             sideList.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
           }}
         />
-      ) : layout === 'inline' ? null : (
+      ) : layout === 'inline' ? null : stacked ? (
+        // Each count filters the table to its students.
+        <Overview
+          onReview={() => setReviewing(true)}
+          readyCount={ready.length}
+          statusFilter={statusFilter}
+          onStatusFilter={(key) => setStatusFilter(key === statusFilter ? null : key)}
+        />
+      ) : (
         <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
       )}
 
@@ -664,6 +764,29 @@ export const WorkspaceReview = ({
             }}
           />
         </VStack>
+      ) : stacked ? (
+        <>
+          <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
+            {/* One row of controls; the count shows only while something is
+                filtered out. */}
+            <HStack gap="300" fontSize="0.8rem">
+              <Box width="14rem" flexShrink={0}>
+                {searchBox}
+              </Box>
+              {filtered && countLine}
+            </HStack>
+            <StudentTable
+              queue={queue}
+              sort={sort}
+              onSort={chooseSort}
+              onOpen={setSelectedId}
+              lastOpened={shownId}
+              selectedId={shownId}
+              maxRows={10}
+            />
+          </VStack>
+          {pane}
+        </>
       ) : expanded ? (
         <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
           <HStack gap="300" alignItems="flex-start" flexWrap="wrap">
@@ -846,80 +969,7 @@ export const WorkspaceReview = ({
               )}
             </VStack>
           </VStack>
-          <Box
-            flex="1"
-            minWidth="0"
-            layerStyle="contentBox"
-            padding="400"
-            tabIndex={-1}
-            outline="none"
-            onKeyDown={(event: KeyboardEvent) => {
-              if ((event.target as HTMLElement).closest('input, textarea')) return;
-              if (event.key === 'j') move(1);
-              if (event.key === 'k') move(-1);
-            }}
-          >
-            {atStart ? (
-              <StartScreen
-                toReview={toReview.length}
-                total={groups.length}
-                first={queue.find((g) => statusOf(g.correlationId) === 'to-review') ?? toReview[0]}
-                onStart={(id) => setSelectedId(id)}
-              />
-            ) : (
-              <>
-                <HStack
-                  justifyContent="space-between"
-                  marginBottom="300"
-                  fontSize="0.85rem"
-                  gap="200"
-                  flexWrap="wrap"
-                >
-                  <Box opacity="0.8">
-                    {position >= 0
-                      ? `${position + 1} of ${queue.length}`
-                      : reviewOnly
-                      ? 'Already decided'
-                      : 'Not in the current list'}
-                  </Box>
-                  <HStack gap="100">
-                    <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
-                      ‹ Previous
-                    </QuietButton>
-                    <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
-                      Next ›
-                    </QuietButton>
-                  </HStack>
-                </HStack>
-                {lastAction && (
-                  <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
-                )}
-                {atSubmitPrompt ? (
-                  submitPrompt
-                ) : (
-                  <Workspace
-                    key={selected.correlationId}
-                    group={selected}
-                    onSaved={(action) => {
-                      // Undo goes back to the student it undoes, even past the
-                      // prompt to submit.
-                      const id = selected.correlationId;
-                      setLastAction({
-                        ...action,
-                        undo: () => {
-                          action.undo();
-                          setSelectedId(id);
-                        },
-                      });
-                      if (action.advance) advance(selected.correlationId);
-                      // A decision brings back the prompt to submit, if it was the last one.
-                      setLookingBack(false);
-                    }}
-                  />
-                )}
-              </>
-            )}
-          </Box>
+          {pane}
         </HStack>
       )}
 
@@ -1018,11 +1068,14 @@ const StartScreen = ({
   total,
   first,
   onStart,
+  where,
 }: {
   toReview: number;
   total: number;
   first: GetStudentInputDetailsDto;
   onStart: (id: string) => void;
+  /** Where the students to review are, e.g. "under To review". */
+  where: string;
 }) => (
   <VStack alignItems="flex-start" gap="300" paddingY="500" paddingX="300" maxWidth="36rem">
     <Box textStyle="h3">
@@ -1037,7 +1090,7 @@ const StartScreen = ({
     </Box>
     <PrimaryButton onClick={() => onStart(first.correlationId)}>Start reviewing</PrimaryButton>
     <Box fontSize="0.85rem" opacity="0.75">
-      This opens the first student under To review. You can also pick any student there.
+      This opens the first student {where}. You can also pick any student there.
     </Box>
   </VStack>
 );
@@ -1562,6 +1615,8 @@ const StudentTable = ({
   lastOpened,
   expandedId,
   renderExpanded,
+  selectedId,
+  maxRows,
 }: {
   queue: GetStudentInputDetailsDto[];
   sort: Sort;
@@ -1572,14 +1627,41 @@ const StudentTable = ({
   /** Inline: the row whose review pane is open beneath it. */
   expandedId?: string | null;
   renderExpanded?: (group: GetStudentInputDetailsDto) => ReactNode;
+  /** Stacked: the row whose student the pane below shows. */
+  selectedId?: string | null;
+  /** Stacked: show this many rows, then scroll within the table. */
+  maxRows?: number;
 }) => {
   const { statusOf, decisions } = useReviewSession();
   const lastRow = useRef<HTMLTableRowElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const table = useRef<HTMLTableElement>(null);
   const inline = !!renderExpanded;
-  // Bring the open row to the top when it changes, so its pane is in view.
+  // Stacked, the table is as tall as its header and maxRows rows.
+  const [height, setHeight] = useState<number>();
+  useLayoutEffect(() => {
+    const head = table.current?.tHead?.offsetHeight;
+    const row = table.current?.tBodies[0]?.rows[0]?.offsetHeight;
+    if (maxRows && head && row) setHeight(head + row * maxRows + 1);
+  }, [maxRows, queue.length]);
   useEffect(() => {
-    lastRow.current?.scrollIntoView({ block: inline ? 'start' : 'nearest', behavior: 'smooth' });
-  }, [inline, lastOpened]);
+    const row = lastRow.current;
+    if (!row) return;
+    if (!maxRows) {
+      // Bring the open row to the top when it changes, so its pane is in view.
+      row.scrollIntoView({ block: inline ? 'start' : 'nearest', behavior: 'smooth' });
+      return;
+    }
+    // Stacked, scroll only the table, never the page, so the pane below
+    // stays where the reviewer is looking.
+    const box = scroller.current;
+    if (!box) return;
+    const head = table.current?.tHead?.offsetHeight ?? 0;
+    const view = box.getBoundingClientRect();
+    const at = row.getBoundingClientRect();
+    if (at.top < view.top + head) box.scrollTop -= view.top + head - at.top;
+    else if (at.bottom > view.bottom) box.scrollTop += at.bottom - view.bottom;
+  }, [inline, lastOpened, maxRows]);
   if (!queue.length) {
     return (
       <Box padding="200" opacity="0.8" fontSize="0.9rem">
@@ -1588,8 +1670,11 @@ const StudentTable = ({
     );
   }
   return (
-    <Box {...(inline ? {} : { overflowX: 'auto', maxHeight: '70vh', overflowY: 'auto' })}>
-      <Table size="sm" sx={{ 'td, th': { paddingX: '200' } }}>
+    <Box
+      ref={scroller}
+      {...(inline ? {} : { overflowX: 'auto', maxHeight: height ?? '70vh', overflowY: 'auto' })}
+    >
+      <Table ref={table} size="sm" sx={{ 'td, th': { paddingX: '200' } }}>
         <Thead position="sticky" top="0" bg="blue.700" zIndex={2}>
           <Tr>
             {columns.map((column) => {
@@ -1630,7 +1715,8 @@ const StudentTable = ({
             const suggestions = suggestionsOf(group);
             const score = topScore(group);
             const isLast = group.correlationId === lastOpened;
-            const isOpen = inline && group.correlationId === expandedId;
+            const isOpen =
+              (inline && group.correlationId === expandedId) || group.correlationId === selectedId;
             return (
               <Fragment key={group.correlationId}>
                 <Tr
@@ -1644,7 +1730,9 @@ const StudentTable = ({
                   bg={isOpen ? 'blue.500' : isLast ? 'blue.600' : undefined}
                   _hover={{ bg: isOpen ? 'blue.500' : 'blue.600' }}
                   _focusVisible={{ outline: '2px solid', outlineColor: 'blue.50' }}
-                  aria-label={`${isOpen ? 'Close' : 'Open'} ${studentName(group.inputDetails)}`}
+                  aria-label={`${inline && isOpen ? 'Close' : 'Open'} ${studentName(
+                    group.inputDetails
+                  )}`}
                   aria-expanded={inline ? isOpen : undefined}
                 >
                   <Td fontWeight="600">{studentName(group.inputDetails)}</Td>
