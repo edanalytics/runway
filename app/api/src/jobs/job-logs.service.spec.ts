@@ -37,7 +37,7 @@ describe('JobLogsService', () => {
   it('reads the stream the awslogs driver wrote for the run’s task and size', async () => {
     logsSend.mockResolvedValue(page('f/1', ['hello']));
 
-    await service.getLogs(1);
+    await service.getLogs(1, 10);
 
     expect(logsSend.mock.calls[0][0].input).toMatchObject({
       logGroupName: '/ecs/JobExecutorLarge-env',
@@ -46,15 +46,22 @@ describe('JobLogsService', () => {
     });
   });
 
+  it('looks the run up within the job, and returns NO_RUN when the job has no such run', async () => {
+    findFirst.mockResolvedValue(null);
+
+    await expect(service.getLogs(1, 10)).resolves.toEqual({ status: 'ERROR', code: 'NO_RUN' });
+    expect(findFirst.mock.calls[0][0].where).toEqual({ id: 10, jobId: 1 });
+    expect(logsSend).not.toHaveBeenCalled();
+  });
+
   it.each([
     { description: 'no task ARN', run: { ecsTaskArn: null, taskSize: 'medium' } },
     { description: 'no task size', run: { ecsTaskArn, taskSize: null } },
     { description: 'an unrecognized task size', run: { ecsTaskArn, taskSize: 'huge' } },
-    { description: 'no run', run: null },
   ])('returns NO_TASK without calling CloudWatch for $description', async ({ run }) => {
     findFirst.mockResolvedValue(run);
 
-    await expect(service.getLogs(1)).resolves.toEqual({ status: 'ERROR', code: 'NO_TASK' });
+    await expect(service.getLogs(1, 10)).resolves.toEqual({ status: 'ERROR', code: 'NO_TASK' });
     expect(logsSend).not.toHaveBeenCalled();
   });
 
@@ -64,7 +71,7 @@ describe('JobLogsService', () => {
     const messages = Array.from({ length: 10000 }, (_, i) => `line ${i}`);
     logsSend.mockResolvedValueOnce(page('f/2', messages));
 
-    const result = await service.getLogs(1, 'f/1');
+    const result = await service.getLogs(1, 10, 'f/1');
 
     expect(requestedTokens()).toEqual(['f/1']);
     expect(result).toMatchObject({ data: { nextCursor: 'f/2', atEnd: false } });
@@ -74,7 +81,7 @@ describe('JobLogsService', () => {
   it('fills a short page until CloudWatch reports the end, then returns a cursor for later lines', async () => {
     logsSend.mockResolvedValueOnce(page('f/2', ['one', 'two'])).mockResolvedValueOnce(page('f/2'));
 
-    const result = await service.getLogs(1, 'f/1');
+    const result = await service.getLogs(1, 10, 'f/1');
 
     expect(requestedTokens()).toEqual(['f/1', 'f/2']);
     expect(requestedLimits()).toEqual([10000, 9998]);
@@ -94,7 +101,7 @@ describe('JobLogsService', () => {
   it('reports the end with the same cursor when no lines have been written since', async () => {
     logsSend.mockResolvedValueOnce(page('f/1'));
 
-    await expect(service.getLogs(1, 'f/1')).resolves.toEqual({
+    await expect(service.getLogs(1, 10, 'f/1')).resolves.toEqual({
       status: 'SUCCESS',
       data: { events: [], nextCursor: 'f/1', atEnd: true },
     });
@@ -107,7 +114,7 @@ describe('JobLogsService', () => {
       .mockResolvedValueOnce(page('f/3', ['found']))
       .mockResolvedValueOnce(page('f/3'));
 
-    const result = await service.getLogs(1);
+    const result = await service.getLogs(1, 10);
 
     expect(requestedTokens()).toEqual([undefined, 'f/1', 'f/2', 'f/3']);
     expect(result).toMatchObject({
@@ -119,7 +126,7 @@ describe('JobLogsService', () => {
     let n = 0;
     logsSend.mockImplementation(async () => page(`f/${++n}`, ['more']));
 
-    const result = await service.getLogs(1);
+    const result = await service.getLogs(1, 10);
 
     expect(logsSend).toHaveBeenCalledTimes(5);
     expect(result).toMatchObject({ data: { nextCursor: 'f/5', atEnd: false } });
@@ -133,7 +140,7 @@ describe('JobLogsService', () => {
       })
     );
 
-    await expect(service.getLogs(1)).resolves.toEqual({
+    await expect(service.getLogs(1, 10)).resolves.toEqual({
       status: 'ERROR',
       code: 'STREAM_NOT_FOUND',
     });
@@ -144,7 +151,7 @@ describe('JobLogsService', () => {
       new InvalidParameterException({ message: 'bad token', $metadata: {} })
     );
 
-    await expect(service.getLogs(1, 'not-a-token')).resolves.toEqual({
+    await expect(service.getLogs(1, 10, 'not-a-token')).resolves.toEqual({
       status: 'ERROR',
       code: 'INVALID_CURSOR',
     });
@@ -155,13 +162,13 @@ describe('JobLogsService', () => {
       new InvalidParameterException({ message: 'bad group', $metadata: {} })
     );
 
-    await expect(service.getLogs(1)).rejects.toThrow('bad group');
+    await expect(service.getLogs(1, 10)).rejects.toThrow('bad group');
   });
 
   it('throws other CloudWatch errors', async () => {
     logsSend.mockRejectedValue(new Error('AccessDeniedException'));
 
-    await expect(service.getLogs(1)).rejects.toThrow('AccessDeniedException');
+    await expect(service.getLogs(1, 10)).rejects.toThrow('AccessDeniedException');
   });
 
   // The mock must never stand in for CloudWatch in a deployed environment

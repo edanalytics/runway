@@ -1,5 +1,5 @@
 import { Box, Button, HStack, Highlight, Spacer, Spinner, Switch, VStack } from '@chakra-ui/react';
-import { GetJobDto } from '@edanalytics/models';
+import { GetJobDto, GetRunDto } from '@edanalytics/models';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getJobLogs } from '../../../api/queries/job.queries';
@@ -15,8 +15,11 @@ const switchSx = {
 
 const linkProps = { variant: 'link', textStyle: 'button', textColor: 'green.100' } as const;
 
-const LogLines = ({ job, runId }: { job: GetJobDto; runId: number }) => {
-  const logsQuery = getJobLogs(job.id.toString(), runId);
+const isRunComplete = (run: GetRunDto) => run.status === 'success' || run.status === 'error';
+
+const LogLines = ({ jobId, run }: { jobId: number; run: GetRunDto }) => {
+  const logsQuery = getJobLogs(jobId.toString(), run.id);
+  const isComplete = isRunComplete(run);
   const queryClient = useQueryClient();
   const {
     data,
@@ -84,14 +87,14 @@ const LogLines = ({ job, runId }: { job: GetJobDto; runId: number }) => {
       <HStack gap="300" textStyle="body">
         {notFound ? (
           <Box opacity="0.6">
-            {job.isComplete
-              ? "no executor logs were found for this job's latest run"
+            {isComplete
+              ? 'no executor logs were found for this run'
               : "no logs yet: the executor hasn't started writing them"}
           </Box>
         ) : (
           <Box textColor="pink.100">error loading logs</Box>
         )}
-        {!(notFound && job.isComplete) && (
+        {!(notFound && isComplete) && (
           <Button {...linkProps} isLoading={isRefetching} onClick={() => refetch()}>
             {notFound ? 'check again' : 'try again'}
           </Button>
@@ -151,9 +154,9 @@ const LogLines = ({ job, runId }: { job: GetJobDto; runId: number }) => {
           <Box opacity="0.6">
             {!atEnd
               ? 'more lines not loaded yet'
-              : job.isComplete
+              : isComplete
               ? `end of logs as of ${checkedAt}`
-              : `no more lines as of ${checkedAt}: the job is still running`}
+              : `no more lines as of ${checkedAt}: the run is still running`}
           </Box>
         )}
         {/* Offered at the end for finished jobs too: background matching keeps logging after the run is done */}
@@ -199,32 +202,59 @@ const LogLines = ({ job, runId }: { job: GetJobDto; runId: number }) => {
   );
 };
 
-export const JobLogs = ({ job }: { job: GetJobDto }) => {
+const RunLogs = ({
+  jobId,
+  run,
+  isLatest,
+}: {
+  jobId: number;
+  run: GetRunDto;
+  isLatest: boolean;
+}) => {
   // Logs come from CloudWatch, so only fetch them when someone asks
   const [isOpen, setIsOpen] = useState(false);
-  const lastRun = job.lastRun;
 
-  // The run records its ECS task once the task launches. Runs without one predate that, ran
-  // locally, or failed to launch; a starting run gets one shortly, and the job refetches as it
-  // moves through its stages.
-  if (!lastRun?.hasEcsTask) {
+  return (
+    <VStack width="100%" alignItems="stretch" gap="300">
+      <HStack gap="300" textStyle="body">
+        <Box textStyle="bodyBold">run started {run.createdOn.toLocaleString()}</Box>
+        {isLatest && <Box opacity="0.6">latest run</Box>}
+        {/* The run records its ECS task once the task launches. Runs without one predate that,
+            ran locally, or failed to launch; a starting run gets one shortly, and the job
+            refetches as it moves through its stages. */}
+        {run.hasEcsTask ? (
+          <Button {...linkProps} onClick={() => setIsOpen((open) => !open)}>
+            {isOpen ? 'hide logs' : 'show logs'}
+          </Button>
+        ) : (
+          <Box opacity="0.6">
+            {isRunComplete(run)
+              ? "logs aren't available for this run"
+              : 'no logs yet: the run is starting'}
+          </Box>
+        )}
+      </HStack>
+      {isOpen && <LogLines jobId={jobId} run={run} />}
+    </VStack>
+  );
+};
+
+export const JobLogs = ({ job }: { job: GetJobDto }) => {
+  const runs = [...(job.runs ?? [])].sort((a, b) => b.createdOn.getTime() - a.createdOn.getTime());
+
+  if (!runs.length) {
     return (
       <Box textStyle="body" opacity="0.6">
-        {!lastRun
-          ? "logs aren't available: this job hasn't run"
-          : job.isComplete
-          ? "logs aren't available for this job's latest run"
-          : 'no logs yet: the job is starting'}
+        logs aren't available: this job hasn't run
       </Box>
     );
   }
 
   return (
-    <VStack width="100%" alignItems="flex-start" gap="300">
-      <Button {...linkProps} onClick={() => setIsOpen((open) => !open)}>
-        {isOpen ? 'hide logs' : 'show logs'}
-      </Button>
-      {isOpen && <LogLines job={job} runId={lastRun.id} />}
+    <VStack width="100%" alignItems="stretch" gap="400">
+      {runs.map((run, i) => (
+        <RunLogs key={run.id} jobId={job.id} run={run} isLatest={i === 0 && runs.length > 1} />
+      ))}
     </VStack>
   );
 };

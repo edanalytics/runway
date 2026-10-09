@@ -88,12 +88,12 @@ export const useInvalidateJobQueries = (jobId: string | number) => {
   };
 };
 
-// Keyed by run: a cursor belongs to one run's log stream, so a new run starts over
+// A cursor belongs to one run's log stream
 export const getJobLogs = (jobId: string, runId: number) =>
   infiniteQueryOptions({
     queryKey: ['jobs', jobId, 'logs', runId],
     queryFn: ({ pageParam }) =>
-      methods.getOne(`/jobs/${jobId}/logs`, GetJobLogsDto, {
+      methods.getOne(`/jobs/${jobId}/runs/${runId}/logs`, GetJobLogsDto, {
         params: pageParam ? { cursor: pageParam } : undefined,
       }),
     initialPageParam: null as string | null,

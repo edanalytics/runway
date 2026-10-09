@@ -520,10 +520,10 @@ describe('GET /jobs/:id/output-files', () => {
   });
 });
 
-describe('GET /jobs/:id/logs', () => {
+describe('GET /jobs/:id/runs/:runId/logs', () => {
   const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
   const USER_ROLE = 'runway.test.user';
-  const endpoint = (id: number) => `/jobs/${id}/logs`;
+  const endpoint = (job: SeededJob, runId = job.runs[0].id) => `/jobs/${job.id}/runs/${runId}/logs`;
   const logs = {
     events: [{ timestamp: 1000, message: 'hello' }],
     nextCursor: 'f/1',
@@ -546,7 +546,7 @@ describe('GET /jobs/:id/logs', () => {
   });
 
   it('should reject unauthenticated requests', async () => {
-    const res = await request(app.getHttpServer()).get(endpoint(jobA.id));
+    const res = await request(app.getHttpServer()).get(endpoint(jobA));
     expect(res.status).toBe(401);
   });
 
@@ -598,7 +598,7 @@ describe('GET /jobs/:id/logs', () => {
       const cookie = (await authHelper.login(idpA, userA, sessionTenant, roles)).cookies;
 
       const res = await request(app.getHttpServer())
-        .get(endpoint(resourceJob().id))
+        .get(endpoint(resourceJob()))
         .set('Cookie', [cookie]);
 
       expect(res.status).toBe(expectedStatus);
@@ -613,10 +613,10 @@ describe('GET /jobs/:id/logs', () => {
       const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
 
       await request(app.getHttpServer())
-        .get(`${endpoint(jobA.id)}?cursor=f%2F1`)
+        .get(`${endpoint(jobA)}?cursor=f%2F1`)
         .set('Cookie', [cookie]);
 
-      expect(getLogsMock).toHaveBeenCalledWith(jobA.id, 'f/1');
+      expect(getLogsMock).toHaveBeenCalledWith(jobA.id, jobA.runs[0].id, 'f/1');
     });
 
     it.each([
@@ -626,7 +626,7 @@ describe('GET /jobs/:id/logs', () => {
       const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
 
       const res = await request(app.getHttpServer())
-        .get(`${endpoint(jobA.id)}?${query}`)
+        .get(`${endpoint(jobA)}?${query}`)
         .set('Cookie', [cookie]);
 
       expect(res.status).toBe(400);
@@ -634,31 +634,54 @@ describe('GET /jobs/:id/logs', () => {
     });
   });
 
-  it('should return 404 when the latest run has no recorded executor task', async () => {
+  it('should return 404 when the run has no recorded executor task', async () => {
     const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
 
-    const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookie]);
+    const res = await request(app.getHttpServer()).get(endpoint(jobA)).set('Cookie', [cookie]);
 
     expect(res.status).toBe(404);
-    expect(res.body.message).toBe(`No executor task recorded for the latest run of job ${jobA.id}`);
+    expect(res.body.message).toBe(
+      `No executor task recorded for run ${jobA.runs[0].id} of job ${jobA.id}`
+    );
   });
 
-  it('reads only the latest run, even when an earlier run recorded a task', async () => {
+  it('reads the run asked for, not the job’s latest', async () => {
     // created_on is set by a trigger, so the seeded run is the earlier one
-    await prisma.run.updateMany({
-      where: { jobId: jobA.id },
+    await prisma.run.create({
       data: {
-        ecsTaskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/earlier-run',
+        jobId: jobA.id,
+        status: 'success',
+        ecsTaskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/later-run',
         taskSize: 'medium',
       },
     });
-    await prisma.run.create({ data: { jobId: jobA.id, status: 'success' } });
     const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
 
-    const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookie]);
+    const res = await request(app.getHttpServer()).get(endpoint(jobA)).set('Cookie', [cookie]);
 
     expect(res.status).toBe(404);
-    expect(res.body.message).toBe(`No executor task recorded for the latest run of job ${jobA.id}`);
+    expect(res.body.message).toBe(
+      `No executor task recorded for run ${jobA.runs[0].id} of job ${jobA.id}`
+    );
+  });
+
+  it('does not serve another job’s run through a job the user can read', async () => {
+    // jobB's run has a task, so reading it would get as far as CloudWatch
+    await prisma.run.updateMany({
+      where: { jobId: jobB.id },
+      data: {
+        ecsTaskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/other-job',
+        taskSize: 'medium',
+      },
+    });
+    const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+    const res = await request(app.getHttpServer())
+      .get(endpoint(jobA, jobB.runs[0].id))
+      .set('Cookie', [cookie]);
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe(`Run ${jobB.runs[0].id} not found for job ${jobA.id}`);
   });
 });
 

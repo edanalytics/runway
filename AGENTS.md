@@ -142,7 +142,7 @@ sequenceDiagram
 | **SSM Parameter Store** | App | ECS cluster/subnet/task definition config |
 | **Secrets Manager** | App | Database credentials, app config |
 | **EventBridge** | App | Run-completion notifications (Slack, etc.) |
-| **CloudWatch Logs** | App | Support users read a job's executor logs (`GET /jobs/:jobId/logs`, paged by cursor; shown on the job view page behind `job.logs.read`), located from the ECS task ARN and size stored on the run |
+| **CloudWatch Logs** | App | Support users read the executor logs of each of a job's runs (`GET /jobs/:jobId/runs/:runId/logs`, paged by cursor; shown on the job view page behind `job.logs.read`), located from the ECS task ARN and size stored on the run |
 | **ECR** | CI/CD | Executor Docker image registry |
 
 ### Key Files — AWS Touchpoints

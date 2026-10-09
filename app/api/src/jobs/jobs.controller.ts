@@ -193,29 +193,32 @@ export class JobsController {
     return errors ? toJobErrorWrapperDto(errors) : null;
   }
 
-  @Get(':jobId/logs')
+  @Get(':jobId/runs/:runId/logs')
   @AllowMetatenant('job.metatenant.logs.read')
   @Authorize('job.logs.read')
   async getLogs(
     @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('runId', new ParseIntPipe()) runId: number,
     @Query('cursor') cursor?: unknown
   ) {
     // Express turns a repeated query param into an array
     if (cursor !== undefined && (typeof cursor !== 'string' || cursor === '')) {
       throw new BadRequestException('cursor must be a single, non-empty string');
     }
-    const result = await this.jobLogsService.getLogs(jobId, cursor);
-    if (result.status === 'ERROR' && result.code === 'INVALID_CURSOR') {
-      throw new BadRequestException(`Invalid cursor for the latest run of job ${jobId}`);
+    const result = await this.jobLogsService.getLogs(jobId, runId, cursor);
+    if (result.status === 'SUCCESS') {
+      return toGetJobLogsDto(result.data);
     }
-    if (result.status === 'ERROR') {
-      throw new NotFoundException(
-        result.code === 'NO_TASK'
-          ? `No executor task recorded for the latest run of job ${jobId}`
-          : `Executor logs not found for the latest run of job ${jobId}`
-      );
+    switch (result.code) {
+      case 'INVALID_CURSOR':
+        throw new BadRequestException(`Invalid cursor for run ${runId} of job ${jobId}`);
+      case 'NO_RUN':
+        throw new NotFoundException(`Run ${runId} not found for job ${jobId}`);
+      case 'NO_TASK':
+        throw new NotFoundException(`No executor task recorded for run ${runId} of job ${jobId}`);
+      case 'STREAM_NOT_FOUND':
+        throw new NotFoundException(`Executor logs not found for run ${runId} of job ${jobId}`);
     }
-    return toGetJobLogsDto(result.data);
   }
 
   /**

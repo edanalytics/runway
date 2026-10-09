@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Job, PrismaClient } from '@prisma/client';
+import type { Job, PrismaClient, Run } from '@prisma/client';
 import {
   CloudWatchLogsClient,
   GetLogEventsCommand,
@@ -26,7 +26,7 @@ const MAX_REQUESTS_PER_PAGE = 5;
 
 export type GetJobLogsResult =
   | { status: 'SUCCESS'; data: GetJobLogsDto }
-  | { status: 'ERROR'; code: 'NO_TASK' | 'STREAM_NOT_FOUND' | 'INVALID_CURSOR' };
+  | { status: 'ERROR'; code: 'NO_RUN' | 'NO_TASK' | 'STREAM_NOT_FOUND' | 'INVALID_CURSOR' };
 
 @Injectable()
 export class JobLogsService {
@@ -45,19 +45,22 @@ export class JobLogsService {
         : new CloudWatchLogsClient({ region: this.appConfig.get('AWS_REGION') });
   }
 
-  // Executor logs for the job's latest run, oldest first. Pass the returned
+  // Executor logs for one of the job's runs, oldest first. Pass the returned
   // cursor back to get the next page. atEnd marks the current end of the
   // stream; while the executor is still writing, the cursor picks up lines
   // written since.
-  async getLogs(jobId: Job['id'], cursor?: string): Promise<GetJobLogsResult> {
-    const lastRun = await this.prisma.run.findFirst({
-      where: { jobId },
-      orderBy: { createdOn: 'desc' },
+  async getLogs(jobId: Job['id'], runId: Run['id'], cursor?: string): Promise<GetJobLogsResult> {
+    // The caller is authorized for the job, so the run must be one of its own
+    const run = await this.prisma.run.findFirst({
+      where: { id: runId, jobId },
       select: { ecsTaskArn: true, taskSize: true },
     });
+    if (!run) {
+      return { status: 'ERROR', code: 'NO_RUN' };
+    }
 
     // Runs started by the local executors, or before the task was recorded, have no task
-    if (!lastRun?.ecsTaskArn || !isExecutorTaskSize(lastRun.taskSize)) {
+    if (!run.ecsTaskArn || !isExecutorTaskSize(run.taskSize)) {
       return { status: 'ERROR', code: 'NO_TASK' };
     }
 
@@ -66,8 +69,8 @@ export class JobLogsService {
       throw new Error('ENVLABEL must be set in order to locate executor logs');
     }
 
-    const logGroupName = executorLogGroupName(envLabel, lastRun.taskSize);
-    const logStreamName = executorLogStreamName(envLabel, lastRun.taskSize, lastRun.ecsTaskArn);
+    const logGroupName = executorLogGroupName(envLabel, run.taskSize);
+    const logStreamName = executorLogStreamName(envLabel, run.taskSize, run.ecsTaskArn);
 
     const events: GetJobLogEventDto[] = [];
     let token = cursor;
