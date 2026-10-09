@@ -8,10 +8,11 @@ import {
   JobErrorWrapperDto,
   PutJobResolveDto,
   GetOutputFileDto,
+  GetJobLogsDto,
 } from '@edanalytics/models';
 import { EntityQueryBuilder } from './builder';
 import { apiClient, methods } from '../methods';
-import { useQueryClient } from '@tanstack/react-query';
+import { infiniteQueryOptions, useQueryClient } from '@tanstack/react-query';
 
 export const jobQueries = new EntityQueryBuilder({ classNamePlural: 'Jobs' })
   .getAll({ ResDto: GetJobDto })
@@ -86,3 +87,16 @@ export const useInvalidateJobQueries = (jobId: string | number) => {
     queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${jobId}`] });
   };
 };
+
+// A cursor belongs to one run's log stream
+export const getJobLogs = (jobId: string, runId: number) =>
+  infiniteQueryOptions({
+    queryKey: ['jobs', jobId, 'logs', runId],
+    queryFn: ({ pageParam }) =>
+      methods.getOne(`/jobs/${jobId}/runs/${runId}/logs`, GetJobLogsDto, {
+        params: pageParam ? { cursor: pageParam } : undefined,
+      }),
+    initialPageParam: null as string | null,
+    // Also set at the end of the logs, where it fetches lines written since
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+  });

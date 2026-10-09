@@ -9,6 +9,7 @@ roles:
   realm:
     - name: User
     - name: PartnerAdmin
+    - name: SupportUser
 
 clientScopes:
   - name: "create:jobs"
@@ -136,3 +137,14 @@ users:
     emailVerified: true
     realmRoles:
       - PartnerAdmin
+  - username: support
+    credentials:
+      - type: password
+        value: support
+    email: support@example.com
+    enabled: true
+    firstName: Support
+    lastName: McHelpdesk
+    emailVerified: true
+    realmRoles:
+      - SupportUser

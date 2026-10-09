@@ -5,6 +5,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { IEnvironmentVariables } from './env-vars.interface';
 import { keyBy } from 'lodash';
 import { SSMClient, GetParametersCommand, Parameter } from '@aws-sdk/client-ssm';
+import { executorContainerName } from '../earthbeam/executor/executor-task-names';
 
 type ParameterWithNameAndValue = Required<Pick<Parameter, 'Name' | 'Value'>>;
 
@@ -408,9 +409,9 @@ export class AppConfigService {
       securityGroups,
       taskRole,
       containerName: {
-        small: `${envLabel}-JobExecutorSmall`,
-        medium: `${envLabel}-JobExecutorMedium`,
-        large: `${envLabel}-JobExecutorLarge`,
+        small: executorContainerName(envLabel, 'small'),
+        medium: executorContainerName(envLabel, 'medium'),
+        large: executorContainerName(envLabel, 'large'),
       },
     };
   }

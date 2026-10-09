@@ -13,6 +13,7 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -21,6 +22,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { PrismaClient } from '@prisma/client';
 import { JobsService } from './jobs.service';
+import { JobLogsService } from './job-logs.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
 import type { Tenant as TTenant, User } from '@prisma/client';
@@ -30,6 +32,7 @@ import {
   NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
+  toGetJobLogsDto,
   PutJobResolveDto,
   toGetJobDto,
   toGetOutputFileDto,
@@ -52,7 +55,8 @@ export class JobsController {
   private logger = new Logger(JobsController.name);
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
-    private jobService: JobsService
+    private jobService: JobsService,
+    private jobLogsService: JobLogsService
   ) {}
 
   @Get()
@@ -187,6 +191,34 @@ export class JobsController {
   ) {
     const errors = await this.jobService.getErrors(jobId);
     return errors ? toJobErrorWrapperDto(errors) : null;
+  }
+
+  @Get(':jobId/runs/:runId/logs')
+  @AllowMetatenant('job.metatenant.logs.read')
+  @Authorize('job.logs.read')
+  async getLogs(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Param('runId', new ParseIntPipe()) runId: number,
+    @Query('cursor') cursor?: unknown
+  ) {
+    // Express turns a repeated query param into an array
+    if (cursor !== undefined && (typeof cursor !== 'string' || cursor === '')) {
+      throw new BadRequestException('cursor must be a single, non-empty string');
+    }
+    const result = await this.jobLogsService.getLogs(jobId, runId, cursor);
+    if (result.status === 'SUCCESS') {
+      return toGetJobLogsDto(result.data);
+    }
+    switch (result.code) {
+      case 'INVALID_CURSOR':
+        throw new BadRequestException(`Invalid cursor for run ${runId} of job ${jobId}`);
+      case 'NO_RUN':
+        throw new NotFoundException(`Run ${runId} not found for job ${jobId}`);
+      case 'NO_TASK':
+        throw new NotFoundException(`No executor task recorded for run ${runId} of job ${jobId}`);
+      case 'STREAM_NOT_FOUND':
+        throw new NotFoundException(`Executor logs not found for run ${runId} of job ${jobId}`);
+    }
   }
 
   /**

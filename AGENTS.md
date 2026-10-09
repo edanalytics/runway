@@ -142,6 +142,7 @@ sequenceDiagram
 | **SSM Parameter Store** | App | ECS cluster/subnet/task definition config |
 | **Secrets Manager** | App | Database credentials, app config |
 | **EventBridge** | App | Run-completion notifications (Slack, etc.) |
+| **CloudWatch Logs** | App | Support users read the executor logs of each of a job's runs (`GET /jobs/:jobId/runs/:runId/logs`, paged by cursor; shown on the job view page behind `job.logs.read`), located from the ECS task ARN and size stored on the run |
 | **ECR** | CI/CD | Executor Docker image registry |
 
 ### Key Files — AWS Touchpoints
@@ -149,6 +150,7 @@ sequenceDiagram
 - `app/api/src/files/file.service.ts` — S3 presigned URL generation
 - `app/api/src/earthbeam/executor/executor.aws.service.ts` — ECS task launch, STS assume role
 - `app/api/src/event-emitter/event-emitter.service.ts` — EventBridge notifications
+- `app/api/src/jobs/job-logs.service.ts` — CloudWatch executor log reads
 - `app/api/src/config/app-config.service.ts` — Secrets Manager + SSM reads
 
 ### Key Files — App ↔ Executor Communication

@@ -1,4 +1,4 @@
-import { Expose, Type } from 'class-transformer';
+import { Expose, Transform, Type } from 'class-transformer';
 import { DtoGetBase, GetDto } from '../utils/get-base.dto';
 import { Prisma, Run, RunStatus } from '@prisma/client';
 import { makeSerializer } from '../utils';
@@ -28,6 +28,19 @@ export class GetRunDto
   @Expose()
   @Type(() => UnmatchedStudentsInfoDto)
   unmatchedStudentsInfo: UnmatchedStudentsInfoDto | null;
+
+  //not exposed
+  ecsTaskArn: string | null;
+  taskSize: string | null;
+
+  /**
+   * Whether the run recorded the ECS task its executor logs are found by, without exposing the
+   * ARN. Runs from before the task was recorded, and local runs, have none. As with
+   * GetJobDto.isApiInitiated, the ARN is gone after serialization, so reuse the computed value.
+   */
+  @Expose()
+  @Transform(({ obj }) => !!obj.ecsTaskArn || !!obj.hasEcsTask)
+  hasEcsTask: boolean;
 }
 
 export class UnmatchedStudentsInfoDto {

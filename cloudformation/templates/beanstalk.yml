@@ -154,6 +154,17 @@ Resources:
                 Condition:
                   StringEquals:
                     iam:PassedToService: ecs-tasks.amazonaws.com
+        - PolicyName: 'ExecutorLogsRead'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Support users can read a job's executor logs; the groups are defined in ecs.yml
+              - Effect: Allow
+                Action: logs:GetLogEvents
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/JobExecutorSmall-${EnvLabel}:*'
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/JobExecutorMedium-${EnvLabel}:*'
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/JobExecutorLarge-${EnvLabel}:*'
         - PolicyName: 'AttachWebACL'
           PolicyDocument:
             Version: '2012-10-17'

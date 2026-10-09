@@ -110,6 +110,8 @@ In deployed environments, the executor runs as a Task in Elastic Container Servi
 
 In both local modes, file uploads and executor artifacts are stored in an S3Mock container, using the same S3 SDK and bucket paths as production.
 
+Local runs have no ECS task, so they have no executor logs to show on the job page. With `LOCAL_EXECUTOR_LOGS=mock`, the app serves canned logs instead; run [api/mock-executor-logs.sql](api/mock-executor-logs.sql) against the local database to point recent runs at them, then log in as `support`/`support` (only support users can read logs).
+
 ### Testing in-development bundles
 
 If using local Runway to test a bundle that is not on the main branch, you can follow these steps:

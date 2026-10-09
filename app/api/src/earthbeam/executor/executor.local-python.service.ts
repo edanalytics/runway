@@ -65,5 +65,7 @@ export class ExecutorLocalPythonService implements ExecutorService {
     proc.on('error', (error) => {
       this.logger.error(`Executor failed to start: ${error}`);
     });
+
+    return { ecsTaskArn: null, taskSize: null };
   }
 }

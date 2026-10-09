@@ -24,6 +24,8 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
       'job.metatenant.update',
       'job.metatenant.output-files.read',
       'job.output-files.read',
+      'job.metatenant.logs.read',
+      'job.logs.read',
       'job.match-results.read',
       'job.match-results.background.read',
     ])

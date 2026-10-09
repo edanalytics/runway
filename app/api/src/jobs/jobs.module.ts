@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { JobsService } from './jobs.service';
+import { JobLogsService } from './job-logs.service';
 import { JobsController } from './jobs.controller';
 import { EarthbeamModule } from '../earthbeam/earthbeam.module';
 import { FileModule } from '../files/file.module';
@@ -7,7 +8,7 @@ import { AddJobToReqMiddleware } from './job-on-req.middleware';
 
 @Module({
   imports: [EarthbeamModule, FileModule],
-  providers: [JobsService],
+  providers: [JobsService, JobLogsService],
   exports: [JobsService],
   controllers: [JobsController],
 })
