@@ -58,6 +58,7 @@ import {
   studentName,
 } from './components';
 import { searchRoster, termsFrom, SearchTerms } from './mockIdrs';
+import { SpreadsheetControls } from './spreadsheet';
 import {
   Batch,
   Candidate,
@@ -1397,11 +1398,15 @@ const Overview = ({
             );
           })}
         </HStack>
-        {onReview && (
-          <PrimaryButton isDisabled={!readyCount} onClick={onReview}>
-            Review and submit {readyCount || ''} {readyCount === 1 ? 'match' : 'matches'}
-          </PrimaryButton>
-        )}
+        <HStack gap="200" flexWrap="wrap">
+          {/* PROTOTYPE: work through the students in a spreadsheet instead. */}
+          <SpreadsheetControls />
+          {onReview && (
+            <PrimaryButton isDisabled={!readyCount} onClick={onReview}>
+              Review and submit {readyCount || ''} {readyCount === 1 ? 'match' : 'matches'}
+            </PrimaryButton>
+          )}
+        </HStack>
       </HStack>
       <ReviewProgress />
       {batches.length > 0 && (

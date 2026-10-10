@@ -133,6 +133,24 @@ export const searchRoster = async (
   return [...byId, ...byDetails].slice(0, 5);
 };
 
+/**
+ * Like asking the identity service for students by unique ID, in one call:
+ * the roster students it has, keyed by the ID asked for. IDs it doesn't
+ * have are simply missing from the result.
+ */
+export const lookupStudents = async (
+  roster: RosterStudent[],
+  ids: string[]
+): Promise<Map<string, RosterStudent>> => {
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  const found = new Map<string, RosterStudent>();
+  for (const id of ids) {
+    const student = roster.find((s) => s.studentUniqueId.toLowerCase() === id.toLowerCase());
+    if (student) found.set(id, student);
+  }
+  return found;
+};
+
 // A crude stand-in for IDRS's own scoring: what counts as close is the
 // matching service's call, so this lives with the mock, not the UI.
 type Closeness = 'same' | 'close' | 'different' | 'unknown';
