@@ -26,7 +26,12 @@ import { ApiTokenClient } from '../external-api/external-api-token-client.decora
  */
 export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
 
-const noStudentsToMatch = { total: 0, counts: { toReview: 0, ready: 0, excluded: 0 } };
+const noStudentsToMatch: GetStudentMatchCountsDto = {
+  total: 0,
+  toReview: 0,
+  ready: 0,
+  excluded: 0,
+};
 
 @Injectable()
 export class JobsService {
@@ -61,14 +66,13 @@ export class JobsService {
   studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
 
   /**
-   * Each job's students to match: the total, and how many have each status.
-   * Job reads and the review counts both use this, so they count the same
-   * way. Jobs with no students are absent.
+   * Each job's student match counts. Job reads and the review read both use
+   * this, so they count the same way. Jobs with no students are absent.
    */
   async getStudentMatchCounts(
     jobIds: Job['id'][],
     prisma: PrismaClient = this.prisma
-  ): Promise<Map<Job['id'], { total: number; counts: GetStudentMatchCountsDto }>> {
+  ): Promise<Map<Job['id'], GetStudentMatchCountsDto>> {
     // A student's current decision is their highest seq, and an undo there
     // means none. Keep the statuses in step with studentMatchStatus.
     const rows = await prisma.$queryRaw<
@@ -94,11 +98,9 @@ export class JobsService {
         row.job_id,
         {
           total: Number(row.total),
-          counts: {
-            toReview: Number(row.to_review),
-            ready: Number(row.ready),
-            excluded: Number(row.excluded),
-          },
+          toReview: Number(row.to_review),
+          ready: Number(row.ready),
+          excluded: Number(row.excluded),
         },
       ])
     );
@@ -108,8 +110,7 @@ export class JobsService {
   async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
     const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
     return jobs.map((job) => {
-      const { total, counts: studentMatchCounts } = counts.get(job.id) ?? noStudentsToMatch;
-      return { ...job, studentsToMatchCount: total, studentMatchCounts };
+      return { ...job, studentMatchCounts: counts.get(job.id) ?? noStudentsToMatch };
     });
   }
 
@@ -122,11 +123,11 @@ export class JobsService {
     // while students are reported or decided.
     return this.prisma.$transaction(
       async (tx) => {
-        const { total, counts } =
+        const counts =
           (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ??
           noStudentsToMatch;
-        if (total > this.studentMatchReviewLimit) {
-          return { count: total, counts, students: null };
+        if (counts.total > this.studentMatchReviewLimit) {
+          return { counts, students: null };
         }
 
         const inputs = await tx.studentInputDetails.findMany({
@@ -143,7 +144,6 @@ export class JobsService {
           },
         });
         return {
-          count: inputs.length,
           counts,
           // Prisma names each relation after its table; the API calls them
           // results and suggestions.

@@ -1061,8 +1061,7 @@ describe('PUT /jobs/:id/resolve', () => {
           where: { id: jobA.id },
           include: { runs: true, files: true },
         })),
-        studentsToMatchCount: 0,
-        studentMatchCounts: { toReview: 0, ready: 0, excluded: 0 },
+        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
       }).status;
       if (!statusBefore) {
         // sanity check
@@ -1090,8 +1089,7 @@ describe('PUT /jobs/:id/resolve', () => {
 
       const statusAfter = toGetJobDto({
         ...revertedJob,
-        studentsToMatchCount: 0,
-        studentMatchCounts: { toReview: 0, ready: 0, excluded: 0 },
+        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
       }).status;
       expect(statusAfter).toBe(statusBefore);
     });

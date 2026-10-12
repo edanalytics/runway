@@ -121,8 +121,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        count: 2,
-        counts: { toReview: 2, ready: 0, excluded: 0 },
+        counts: { total: 2, toReview: 2, ready: 0, excluded: 0 },
         students: [
           {
             correlationId: 'corr-1',
@@ -222,8 +221,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        count: 0,
-        counts: { toReview: 0, ready: 0, excluded: 0 },
+        counts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
         students: [],
       });
     });
@@ -277,7 +275,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           // Undone: nothing to show, but the version still moved on.
           { correlationId: 'corr-3', status: 'to-review', decision: null, decisionVersion: 2 },
         ]);
-        expect(res.body.counts).toEqual({ toReview: 1, ready: 1, excluded: 1 });
+        expect(res.body.counts).toEqual({ total: 3, toReview: 1, ready: 1, excluded: 1 });
       });
 
       it('shows no one as the decider once their user is deleted', async () => {
@@ -339,8 +337,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
-          count: 3,
-          counts: { toReview: 2, ready: 0, excluded: 1 },
+          counts: { total: 3, toReview: 2, ready: 0, excluded: 1 },
           students: null,
         });
       });
@@ -357,7 +354,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
-        expect(res.body.count).toBe(2);
+        expect(res.body.counts.total).toBe(2);
         expect(res.body.students).toHaveLength(2);
       });
     });
@@ -395,7 +392,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       const res = await read(job.id, tenantA, USER);
 
       expect(res.status).toBe(200);
-      expect(res.body.count).toBe(1);
+      expect(res.body.counts.total).toBe(1);
     });
 
     describe('in fuzzy background mode', () => {
@@ -405,7 +402,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         const res = await read(job.id, tenantA, PARTNER_ADMIN);
 
         expect(res.status).toBe(200);
-        expect(res.body.count).toBe(1);
+        expect(res.body.counts.total).toBe(1);
       });
 
       it('refuses a user without an admin role', async () => {
@@ -422,7 +419,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         const res = await read(job.id, tenantDGlobal, SUPPORT_USER);
 
         expect(res.status).toBe(200);
-        expect(res.body.count).toBe(1);
+        expect(res.body.counts.total).toBe(1);
       });
     });
   });
@@ -443,13 +440,12 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
     /** The counts, as the job read and the list each report them. */
     const countsOf = async (jobId: number) =>
-      (await readJob(jobId)).map(
-        ({ studentsToMatchCount, studentMatchCounts, outstandingMatchCount }) => ({
-          total: studentsToMatchCount,
-          ...studentMatchCounts,
-          outstanding: outstandingMatchCount,
-        })
-      );
+      (await readJob(jobId)).map(({ studentMatchCounts, outstandingMatchCount }) => {
+        const { total, toReview, ready, excluded } = studentMatchCounts;
+        // Every student has exactly one status.
+        expect(toReview + ready + excluded).toBe(total);
+        return { ...studentMatchCounts, outstanding: outstandingMatchCount };
+      });
 
     it('counts each status and the outstanding students beside the total', async () => {
       await reportStudents(['corr-1', 'corr-2']);
@@ -521,13 +517,13 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
       const countsIn = (id: number) => {
         const job = list.body.find((j: { id: number }) => j.id === id);
-        return [job.studentsToMatchCount, job.studentMatchCounts];
+        return job.studentMatchCounts;
       };
 
       expect([countsIn(jobA.id), countsIn(jobB.id), countsIn(jobC.id)]).toEqual([
-        [2, { toReview: 1, ready: 0, excluded: 1 }],
-        [1, { toReview: 1, ready: 0, excluded: 0 }],
-        [0, { toReview: 0, ready: 0, excluded: 0 }],
+        { total: 2, toReview: 1, ready: 0, excluded: 1 },
+        { total: 1, toReview: 1, ready: 0, excluded: 0 },
+        { total: 0, toReview: 0, ready: 0, excluded: 0 },
       ]);
     });
 
@@ -565,14 +561,12 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       // Outstanding, yet still a success: the ID-based run has delivered.
       expect(
-        jobs.map(({ studentsToMatchCount, outstandingMatchCount, status }) => ({
-          studentsToMatchCount,
+        jobs.map(({ studentMatchCounts, outstandingMatchCount, status }) => ({
+          total: studentMatchCounts.total,
           outstandingMatchCount,
           status,
         }))
-      ).toEqual(
-        Array(2).fill({ studentsToMatchCount: 1, outstandingMatchCount: 1, status: 'success' })
-      );
+      ).toEqual(Array(2).fill({ total: 1, outstandingMatchCount: 1, status: 'success' }));
     });
   });
 });

@@ -38,7 +38,6 @@ export class JobInputParamDto extends GetJobTemplateInputParamDto {
 export type DtoableJob = Job & {
   files: JobFile[];
   runs?: Array<Run & { runError?: RunError[]; }>;
-  studentsToMatchCount: number;
   studentMatchCounts: GetStudentMatchCountsDto;
 };
 export type TJobDisplayStatus =
@@ -101,11 +100,7 @@ export class GetJobDto
   @Expose()
   isResolved: boolean;
 
-  /** How many students the Executor sent for review: the total, which never goes down. */
-  @Expose()
-  studentsToMatchCount: number;
-
-  /** How many of those students have each review status. */
+  /** The job's students to match: the total, and how many have each status. */
   @Expose()
   @Type(() => GetStudentMatchCountsDto)
   studentMatchCounts: GetStudentMatchCountsDto;

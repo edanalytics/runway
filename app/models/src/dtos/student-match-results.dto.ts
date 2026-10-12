@@ -189,8 +189,15 @@ type StudentInputDetailsWithResults = StudentInputDetails & {
   results: (StudentMatchResult & { suggestions: StudentMatchSuggestion[] })[];
 };
 
-/** How many of a job's students have each status. */
+/**
+ * A job's students to match: the total, and how many have each status. Every
+ * student has exactly one status, so the statuses add up to the total.
+ */
 export class GetStudentMatchCountsDto {
+  /** Every student the Executor sent for review. Never goes down. */
+  @Expose()
+  total: number;
+
   @Expose()
   toReview: number;
 
@@ -203,12 +210,9 @@ export class GetStudentMatchCountsDto {
 
 /**
  * A job's students to match. Past the review limit, `students` is null, but
- * `count` and `counts` are still there.
+ * `counts` is still there.
  */
 export class GetStudentMatchResultsDto {
-  @Expose()
-  count: number;
-
   @Expose()
   @Type(() => GetStudentMatchCountsDto)
   counts: GetStudentMatchCountsDto;
@@ -221,7 +225,6 @@ export class GetStudentMatchResultsDto {
 export const toGetStudentMatchResultsDto = makeSerializerCustomType<
   GetStudentMatchResultsDto,
   {
-    count: number;
     counts: GetStudentMatchCountsDto;
     students: StudentInputDetailsWithResults[] | null;
   }
