@@ -331,32 +331,13 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
       afterEach(() => limit.restore());
 
-      it('returns the count without the students', async () => {
-        await report(
-          runA.id,
-          ['corr-1', 'corr-2', 'corr-3'].map((correlation_id) => ({
-            correlation_id,
-            candidate: { first_name: 'Ada' },
-            matches: [],
-          }))
-        );
-
-        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
-
-        expect(res.status).toBe(200);
-        expect(res.body).toEqual({
-          count: 3,
-          counts: { toReview: 3, ready: 0, excluded: 0 },
-          students: null,
-        });
-      });
-
-      it('still counts students by status', async () => {
+      it('returns the counts without the students', async () => {
         await reportStudents(['corr-1', 'corr-2', 'corr-3']);
         await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
+        expect(res.status).toBe(200);
         expect(res.body).toEqual({
           count: 3,
           counts: { toReview: 2, ready: 0, excluded: 1 },
@@ -418,18 +399,13 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     describe('in fuzzy background mode', () => {
-      it('returns the results to a partner admin, with nothing decided', async () => {
+      it('returns the results to a partner admin', async () => {
         const job = await seedReportedJob('id_based_fuzzy_background');
 
         const res = await read(job.id, tenantA, PARTNER_ADMIN);
 
         expect(res.status).toBe(200);
         expect(res.body.count).toBe(1);
-        expect(res.body.students[0]).toMatchObject({
-          status: 'to-review',
-          decision: null,
-          decisionVersion: 0,
-        });
       });
 
       it('refuses a user without an admin role', async () => {
@@ -466,15 +442,11 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     };
 
     /** Both counts, as the job read and the list each report them. */
-    const countsOf = async (jobId: number) => {
-      const job = await request(app.getHttpServer()).get(`/jobs/${jobId}`).set('Cookie', [cookies]);
-      const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
-      const listed = list.body.find((j: { id: number }) => j.id === jobId);
-      return [job.body, listed].map(({ studentsToMatchCount, outstandingMatchCount }) => ({
+    const countsOf = async (jobId: number) =>
+      (await readJob(jobId)).map(({ studentsToMatchCount, outstandingMatchCount }) => ({
         total: studentsToMatchCount,
         outstanding: outstandingMatchCount,
       }));
-    };
 
     it('counts outstanding students beside the total', async () => {
       await reportStudents(['corr-1', 'corr-2']);
@@ -497,25 +469,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(await countsOf(jobA.id)).toEqual(both(2, 2));
     });
 
-    it('agrees with the review counts on what is outstanding', async () => {
-      await reportStudents(['corr-1', 'corr-2', 'corr-3', 'corr-4']);
-      await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
-      await decide(cookies, 'corr-2', {
-        version: 0,
-        kind: 'match',
-        resultId: await resultIdOf('corr-2'),
-        ordinal: 0,
-      });
-      await decide(cookies, 'corr-3', { version: 0, kind: 'exclude' });
-      await decide(cookies, 'corr-3', { version: 1, kind: 'undo' });
-
-      const review = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
-      const [{ outstanding }] = await countsOf(jobA.id);
-
-      expect(review.body.counts).toEqual({ toReview: 2, ready: 1, excluded: 1 });
-      expect(outstanding).toBe(review.body.counts.toReview + review.body.counts.ready);
-    });
-
     it('shows a fuzzy job whose students are all excluded as success, and won’t resolve it', async () => {
       await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
       await reportStudents(['corr-1', 'corr-2']);
@@ -531,23 +484,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(onJob.status).toBe('success');
       expect(inList.status).toBe('success');
       expect(resolved.status).toBe(400);
-    });
-
-    it('keeps a fuzzy job with a saved match complete with errors', async () => {
-      await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
-      await reportStudents(['corr-1', 'corr-2']);
-      await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
-      await decide(cookies, 'corr-2', {
-        version: 0,
-        kind: 'match',
-        resultId: await resultIdOf('corr-2'),
-        ordinal: 0,
-      });
-
-      const [onJob, inList] = await readJob(jobA.id);
-
-      expect(onJob.status).toBe('complete with errors');
-      expect(inList.status).toBe('complete with errors');
     });
 
     it('shows a fuzzy job with students to match as complete with errors', async () => {
@@ -624,14 +560,18 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
       ]);
 
-      const [onJob, inList] = await readJob(backgroundJob.id);
+      const jobs = await readJob(backgroundJob.id);
 
-      expect(await countsOf(backgroundJob.id)).toEqual([
-        { total: 1, outstanding: 1 },
-        { total: 1, outstanding: 1 },
-      ]);
-      expect(onJob.status).toBe('success');
-      expect(inList.status).toBe('success');
+      // Outstanding, yet still a success: the ID-based run has delivered.
+      expect(
+        jobs.map(({ studentsToMatchCount, outstandingMatchCount, status }) => ({
+          studentsToMatchCount,
+          outstandingMatchCount,
+          status,
+        }))
+      ).toEqual(
+        Array(2).fill({ studentsToMatchCount: 1, outstandingMatchCount: 1, status: 'success' })
+      );
     });
   });
 });

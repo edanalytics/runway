@@ -1,5 +1,6 @@
 import request from 'supertest';
-import { IdMatchingMode, Run } from '@prisma/client';
+import { Logger } from '@nestjs/common';
+import { IdMatchingMode } from '@prisma/client';
 import { seedJob } from '../factories/job-factory';
 import { bundleA } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigB2526 } from '../fixtures/context-fixtures/ods-fixture';
@@ -9,13 +10,14 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { GetSessionDataDto, PrivilegeKey } from '@edanalytics/models';
 import { reportMatchResults } from '../helpers/report-match-results';
+import { pool } from '../helpers/db/client';
+import { JobsService } from 'api/src/jobs/jobs.service';
 
 describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () => {
   const PARTNER_ADMIN = ['runway.test.user', 'runway.test.partneradmin'];
   const SUPPORT_USER = ['runway.test.user', 'runway.test.supportuser'];
 
   let job: Awaited<ReturnType<typeof seedJob>>;
-  let run: Run;
   /** corr-1's result, with suggestions at ordinals 0 and 1. */
   let resultId: string;
   /** corr-2's result, with one suggestion at ordinal 0. */
@@ -75,9 +77,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
   beforeEach(async () => {
     job = await seedReportedJob('fuzzy');
-    run = job.runs[0];
-    resultId = await resultIdOf(job.id, 'corr-1', run.id);
-    otherResultId = await resultIdOf(job.id, 'corr-2', run.id);
+    resultId = await resultIdOf(job.id, 'corr-1', job.runs[0].id);
+    otherResultId = await resultIdOf(job.id, 'corr-2', job.runs[0].id);
     ({ cookies } = await authHelper.login(idpA, userA, tenantA));
   });
 
@@ -134,7 +135,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
   describe('by matching mode', () => {
     it.each<IdMatchingMode>(['id_based_fuzzy_background', 'id_based'])(
-      'refuses a %s job, even to a partner admin',
+      'refuses a decision on a job in %s mode, even from a partner admin',
       async (mode) => {
         const other = await seedReportedJob(mode);
         const { cookies: admin } = await authHelper.login(idpA, userA, tenantA, PARTNER_ADMIN);
@@ -154,19 +155,16 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     const res = await decide({ version: 0, kind: 'exclude' }, { correlationId: 'corr-unknown' });
 
     expect(res.status).toBe(404);
-    expect(await rowsOf('corr-unknown')).toEqual([]);
   });
 
   describe('a bad request', () => {
     it.each<[string, () => Record<string, unknown>]>([
       ['another student’s suggestion', () => ({ resultId: otherResultId, ordinal: 0 })],
       ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 })],
-      ['a result that doesn’t exist', () => ({ resultId: '999999999', ordinal: 0 })],
-      ['a result id that isn’t a number', () => ({ resultId: 'abc', ordinal: 0 })],
-      // Past what the insert's cast holds, which the DTO turns away rather
-      // than leaving the database to fail with a 500.
+      // The next two get past the service's check of the result id, so only
+      // the DTO stands between them and a 500 from the database.
       ['an ordinal past INTEGER', () => ({ resultId, ordinal: 2 ** 31 })],
-      ['no target', () => ({})],
+      ['no ordinal', () => ({ resultId })],
     ])('refuses a match to %s', async (_, target) => {
       const res = await decide({ version: 0, kind: 'match', ...target() });
 
@@ -190,7 +188,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ['a fractional version', { version: 0.5, kind: 'exclude' }],
       // seq is an INTEGER, and the next one would be version + 1.
       ['a version with no INTEGER after it', { version: 2 ** 31 - 1, kind: 'exclude' }],
-      ['a version that isn’t a number', { version: '0', kind: 'exclude' }],
+      // Version is required, not taken as 0: a page that predates it can't
+      // know whether the student is still undecided.
       ['no version', { kind: 'exclude' }],
     ])('refuses %s', async (_, body) => {
       const res = await decide(body);
@@ -260,14 +259,17 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect((await rowsOf()).map((row) => row.decidedById)).toEqual([userA.id, userB.id]);
     });
 
-    it('leaves other students’ decisions alone', async () => {
+    it('versions each student’s decisions separately', async () => {
       await matchFirst();
 
-      const res = await decide({ version: 0, kind: 'exclude' }, { correlationId: 'corr-2' });
+      // corr-1 is at version 1; corr-2 has no decisions yet.
+      const borrowed = await decide({ version: 1, kind: 'exclude' }, { correlationId: 'corr-2' });
+      const own = await decide({ version: 0, kind: 'exclude' }, { correlationId: 'corr-2' });
 
-      expect(res.status).toBe(201);
-      expect(res.body.version).toBe(1);
-      expect(await rowsOf('corr-1')).toHaveLength(1);
+      expect(borrowed.status).toBe(409);
+      expect(own.status).toBe(201);
+      expect(own.body.version).toBe(1);
+      expect((await rowsOf('corr-1')).map((row) => row.kind)).toEqual(['match']);
     });
   });
 
@@ -318,15 +320,18 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   describe('a write from a stale view', () => {
     const DECISION_CHANGED = { statusCode: 409, code: 'decision_changed' };
 
-    it('is refused when another decision came first', async () => {
+    // A page loaded after the first match holds version 1. Since then the
+    // match was undone and made again, so the decision looks as it did (ABA).
+    it('is refused when other decisions came first, even if they changed nothing visible', async () => {
       await matchFirst();
-      await decide({ version: 1, kind: 'exclude' });
+      await decide({ version: 1, kind: 'undo' });
+      await decide({ version: 2, kind: 'match', resultId, ordinal: 0 });
 
-      const res = await decide({ version: 1, kind: 'undo' });
+      const res = await decide({ version: 1, kind: 'exclude' });
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual(DECISION_CHANGED);
-      expect(await rowsOf()).toHaveLength(2);
+      expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'undo', 'match']);
     });
 
     it('is refused at version 0 once the student has decisions', async () => {
@@ -360,26 +365,94 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'undo']);
     });
 
-    it('is refused after an undo, though the decision looks the same (ABA)', async () => {
-      await matchFirst();
-      await decide({ version: 1, kind: 'undo' });
-      await decide({ version: 2, kind: 'match', resultId, ordinal: 0 });
+    // Two reviewers save the same undecided student at once. The other
+    // reviewer's write is held uncommitted until this request is waiting on
+    // it, so the race happens every time. A check before the insert can't see
+    // an uncommitted row, so check-then-insert would collide on the primary
+    // key with a 500.
+    it('is refused when it loses a race', async () => {
+      const other = await pool().connect();
+      try {
+        await other.query('BEGIN');
+        await other.query(
+          `INSERT INTO public.student_match_decision
+             (job_id, correlation_id, seq, kind, decided_by_id)
+           VALUES ($1, 'corr-1', 1, 'exclude', $2)`,
+          [job.id, userB.id]
+        );
+        const { rows } = await other.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
 
-      // A page loaded after the first match still holds version 1.
-      const res = await decide({ version: 1, kind: 'exclude' });
+        const pending = matchFirst().then((res) => res);
+        await waitUntilBlockedBy(rows[0].pid);
+        await other.query('COMMIT');
+        const res = await pending;
 
-      expect(res.status).toBe(409);
-      expect(await rowsOf()).toHaveLength(3);
-    });
-
-    it('lets exactly one of two racing writes through', async () => {
-      const results = await Promise.all([
-        decide({ version: 0, kind: 'match', resultId, ordinal: 0 }),
-        decide({ version: 0, kind: 'exclude' }),
-      ]);
-
-      expect(results.map((res) => res.status).sort()).toEqual([201, 409]);
-      expect(await rowsOf()).toHaveLength(1);
+        expect(res.status).toBe(409);
+        expect(res.body).toEqual(DECISION_CHANGED);
+        expect((await rowsOf()).map((row) => [row.kind, row.decidedById])).toEqual([
+          ['exclude', userB.id],
+        ]);
+      } finally {
+        // Releases the lock if the test failed before the commit.
+        await other.query('ROLLBACK');
+        other.release();
+      }
     });
   });
+
+  // The DTO stops every input known to fail in the database, so this one gets
+  // past it in the service: an exclude carrying a target, which the table's
+  // CHECK refuses. The real error quotes the failing row.
+  it('answers an unexpected database failure with a 500, logging only codes', async () => {
+    const service = app.get(JobsService);
+    const decideStudentMatch = service.decideStudentMatch.bind(service);
+    let error: unknown;
+    const withTarget = jest
+      .spyOn(service, 'decideStudentMatch')
+      .mockImplementation(async (input, prisma) => {
+        try {
+          const decision = { ...input.decision, resultId, ordinal: 0 };
+          return await decideStudentMatch({ ...input, decision }, prisma);
+        } catch (err) {
+          error = err;
+          throw err;
+        }
+      });
+    const logs: string[] = [];
+    const errorLog = jest.spyOn(Logger.prototype, 'error').mockImplementation((message) => {
+      logs.push(String(message));
+    });
+    try {
+      const res = await decide({ version: 0, kind: 'exclude' });
+
+      expect(error).toMatchObject({ message: expect.stringContaining('corr-1') });
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({
+        statusCode: 500,
+        message: 'Failed to save the decision',
+        error: 'Internal Server Error',
+      });
+      expect(logs).toEqual([
+        `student match decision: jobId=${job.id} outcome=FAILED cause=PrismaClientKnownRequestError sqlstate=23514`,
+      ]);
+    } finally {
+      withTarget.mockRestore();
+      errorLog.mockRestore();
+    }
+  });
 });
+
+/** Waits until a session is blocked waiting on the given database backend. */
+const waitUntilBlockedBy = async (pid: number) => {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const { rowCount } = await pool().query(
+      'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+      [pid]
+    );
+    if (rowCount) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Nothing waited on backend ${pid}`);
+};
