@@ -49,19 +49,6 @@ import { AllowMetatenant } from '../auth/authorization/allow-metatenant.decorato
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { ReqSession } from '../auth/helpers/session.decorator';
 
-type StudentMatchDecisionError = Extract<
-  Awaited<ReturnType<JobsService['decideStudentMatch']>>,
-  { status: 'ERROR' }
->['code'];
-
-// For generic error display; the page acts on the code. No student data.
-const STUDENT_MATCH_DECISION_ERROR_MESSAGES: Record<StudentMatchDecisionError, string> = {
-  not_found: 'This student isn’t in the job.',
-  invalid_target: 'This student has no such suggestion.',
-  decision_changed: 'This student’s decision has changed since the page loaded.',
-  results_changed: 'This student has newer suggestions than the page shows.',
-};
-
 @Controller()
 @ApiTags('Job')
 @TenantResourceKey('job')
@@ -396,17 +383,35 @@ export class JobsController {
     }
 
     if (result.status === 'ERROR') {
+      // The page acts on the code; the message is for generic error display.
+      // Neither carries student data.
       const { code } = result;
-      const body = { code, message: STUDENT_MATCH_DECISION_ERROR_MESSAGES[code] };
       switch (code) {
         case 'not_found':
-          throw new NotFoundException({ statusCode: 404, ...body });
+          throw new NotFoundException({
+            statusCode: 404,
+            code,
+            message: 'This student isn’t in the job.',
+          });
         case 'invalid_target':
-          throw new BadRequestException({ statusCode: 400, ...body });
-        // The body has no current decision or results: the page refetches.
+          throw new BadRequestException({
+            statusCode: 400,
+            code,
+            message: 'This student has no such suggestion.',
+          });
+        // The 409 bodies have no current decision or results: the page refetches.
         case 'decision_changed':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'This student’s decision has changed since the page loaded.',
+          });
         case 'results_changed':
-          throw new ConflictException({ statusCode: 409, ...body });
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'This student has newer suggestions than the page shows.',
+          });
         default: {
           const unhandled: never = code;
           throw new InternalServerErrorException(`Unhandled decision outcome: ${unhandled}`);
