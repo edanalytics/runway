@@ -3,27 +3,17 @@ import logging
 import requests
 import re
 from collections.abc import Iterator
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
 from datetime import datetime
 from executor.config import IDRS_BATCH_SIZE
+from dataclasses import dataclass, field, fields, asdict
 
-IDRS_CANDIDATE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "correlation_id": {"type": "string", "minLength": 1},
-        "first_name": {"type": ["string", "null"]},
-        "last_name": {"type": ["string", "null"]},
-        "birth_date": {"type": ["string", "null"], "format": "date"},
-        "school_ids": {"type": ["array", "null"], "items": {"type": "integer"}},
-        "student_ids": {"type": ["array", "null"], "items": {"type": "string"}},
-    },
-    "required": ["correlation_id"],
-    "additionalProperties": False,
-}
 
-IDRS_ALLOWLIST = frozenset(IDRS_CANDIDATE_SCHEMA["properties"].keys())
-IDRS_CANDIDATE_VALIDATOR = Draft202012Validator(IDRS_CANDIDATE_SCHEMA, format_checker=Draft202012Validator.FORMAT_CHECKER)
+class IDRSCandidateError(Exception):
+    '''error raised when an issue is encountered with an IDRSCandidate object'''
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+        super().__init__(f"{len(errors)} candidate errors")
+
 
 class IDRSClient:
 
@@ -53,93 +43,12 @@ class IDRSClient:
             raise
 
     @staticmethod
-    def batch_inputs(candidates: list[dict], batch_size: int) -> Iterator[list[dict]]:
+    def batch_inputs(candidates: list['IDRSCandidate'], batch_size: int) -> Iterator[list['IDRSCandidate']]:
         '''batch inputs to an arbitrary size before sending to the IDRS'''   
         for position in range(0, len(candidates), batch_size):
-            yield candidates[position:position+batch_size]
-
-    @staticmethod
-    def coerce_dates(date: str, fmt: str) -> str | None:
-        '''coerce dates to ISO format YYYY-MM-DD. If unable to coerce, fall back to None'''
-        try:
-            iso_date = datetime.strptime(date, fmt).date().isoformat()
-            return iso_date
-        except:
-            return None
-
-    @staticmethod
-    def coerce_student_id(student_id: str) -> str | None:
-        '''coerce student id values to str. Otherwise return None.'''
-        if isinstance(student_id, int):
-            return str(student_id)
-        if isinstance(student_id, str):
-            return student_id
-        return None
-
-    @staticmethod
-    def coerce_school_id(school_id: str) -> int | None:
-        '''coerce school id values to int. Otherwise return None.'''
-        if isinstance(school_id, int):
-            return school_id
-        if isinstance(school_id, str) and re.fullmatch(r'[0-9]+', school_id):
-            return int(school_id)
-        return None
+            yield candidates[position:position+batch_size]    
         
-
-    def coerce_candidates(self, candidates: list[dict]) -> list[dict]:
-        '''coerce candidates to match IDRS schema expectations'''
-        cleaned_candidates = []
-        for candidate in candidates:
-            new_candidate = {k: v for k,v in candidate.items() if k in IDRS_ALLOWLIST}
-            new_candidate['birth_date'] = self.coerce_dates(candidate.get('birth_date'), candidate.get('birth_date_format'))
-            new_candidate['school_ids'] = [school_id for school_id in map(self.coerce_school_id, candidate.get('school_ids') or []) if school_id is not None]
-            new_candidate['student_ids'] = [student_id for student_id in map(self.coerce_student_id, candidate.get('student_ids') or []) if student_id is not None]
-            cleaned_candidates.append(new_candidate)
-        return cleaned_candidates
-
-    @staticmethod
-    def dedupe_candidates(candidates: list[dict]) -> list[dict]:
-        '''drop records with identical correlation_ids'''
-        correlation_ids = set()
-        deduped_candidates = []
-        for candidate in candidates:
-            correlation_id = candidate.get('correlation_id')
-            if correlation_id not in correlation_ids or correlation_id is None:
-                deduped_candidates.append(candidate)
-                if correlation_id is not None:
-                    correlation_ids.add(correlation_id)
-
-        return deduped_candidates
-
-    def clean_candidates(self, candidates: list[dict]) -> list[dict]:
-        '''orchestrate our cleaning helper methods and return a new, cleaned candidates list'''
-       
-        coerced = self.coerce_candidates(candidates)
-        cleaned = self.dedupe_candidates(coerced)
-
-        dedupe_count = len(coerced) - len(cleaned)
-        if dedupe_count > 0:
-            self.logger.info(f'{dedupe_count} duplicate correlation ids were removed')
-        
-        return cleaned
-
-    def validate_candidates(self, candidates: list[dict]) -> None:
-        '''validate our candidates against the IDRS schema before POSTing'''
-        errors=[]
-        for index, candidate in enumerate(candidates):
-            for error in IDRS_CANDIDATE_VALIDATOR.iter_errors(candidate):
-                path = ".".join(str(p) for p in error.absolute_path) or "<record>"
-                errors.append(f"[{index}] {path}: failed '{error.validator}'")
-
-        if errors:
-            self.logger.error(f"{len(errors)} candidate validations errors. First {min(len(errors), 5)}:")
-            for error in errors[:5]:
-                self.logger.error(error)
-            raise ValidationError(f"{len(errors)} candidates failed validation!")
-        else:
-            self.logger.info(f"{len(candidates)} candidates were validated!")        
-        
-    def post_candidates(self, idrs_conn_info: dict, candidates: list[dict]) -> list[dict]:
+    def post_candidates(self, idrs_conn_info: dict, candidates: list['IDRSCandidate']) -> list[dict]:
         '''send candidates to the IDRS'''
         try:
             # Initialize
@@ -150,10 +59,12 @@ class IDRSClient:
             # Chunk out candidates and send to the IDRS
             for batch in self.batch_inputs(candidates, IDRS_BATCH_SIZE):
 
+                dict_batch = [c.to_dict() for c in batch]
+
                 resp = self.conn.post(
                     url=idrs_conn_info['url'],
                     headers={"Authorization": f"Bearer {idrs_conn_info['token']}"},
-                    json=batch
+                    json=dict_batch
                 ) 
 
                 resp.raise_for_status()
@@ -178,26 +89,125 @@ class IDRSClient:
         return matches
 
     def query_idrs(self, candidates_path: str) -> list[dict]:
-        '''Get IDRS config, send candidates and return an output set'''
+        '''Get IDRS token, send a list of idrs candidates and return an output set'''
 
-        # load up the candidates
-        try:
-            with open(candidates_path, 'r') as file:
-                candidates = [json.loads(line) for line in file]
-        except Exception as e:
-            self.logger.error(f"Error reading candidates: {e}")
-            raise
-
-        # clean up our candidate inputs
-        cleaned_candidates = self.clean_candidates(candidates)
-
-        # validate our candidates
-        self.validate_candidates(cleaned_candidates)
+        # Load up our candidates
+        idrs_candidates = IDRSCandidate.construct_candidates(candidates_path, self.logger)
 
         # Capture the credentials
         creds = self.get_credentials()
 
-        # Send the validated candidates and capture the matches
-        matches = self.post_candidates(creds, cleaned_candidates)
+        # Send off our candidates and capture the matches
+        matches = self.post_candidates(creds, idrs_candidates)
 
         return matches
+
+
+@dataclass(repr=False)
+class IDRSCandidate:
+
+    correlation_id: str
+    first_name: str | None
+    last_name: str | None
+    birth_date: str | None
+    school_ids: list[int] = field(default_factory=list)
+    student_ids: list[str] = field(default_factory=list)
+
+    @classmethod
+    def construct_candidates(cls, candidates_path: str, logger: logging.Logger) -> list['IDRSCandidate']:
+        '''constructs IDRSCandidate objects from an input candidates.jsonl file'''
+
+        # Initialize candidates list
+        idrs_candidates, errors = [], []
+    
+        # Load up candidates from our input path
+        with open(candidates_path, 'r') as candidates:
+            for index, record in enumerate(candidates):
+                try:
+                    idrs_candidates.append(cls.coerce_candidate(json.loads(record)))
+                except IDRSCandidateError as e:
+                    errors.extend(f"[{index}] {error}" for error in e.errors)
+
+        # raise if we have errors
+        if errors:
+            logger.error(f"{len(errors)} candidate input errors. First {min(len(errors), 5)}:")
+            for error in errors[:5]:
+                logger.error(f"{error}")
+            raise ValueError(f"{len(errors)} candidate input errors")
+
+        # Dedupe candidates
+        deduped = cls.dedupe_candidates(idrs_candidates)
+
+        # Log success and return candidates
+        logger.info(f"{len(deduped)} candidates validated! {len(idrs_candidates) - len(deduped)} candidate records were dropped")
+        return deduped
+    
+    # Coercion
+    @classmethod
+    def coerce_candidate(cls, candidate: dict) -> 'IDRSCandidate':
+        '''coerce raw candidate record inputs to match the spec of the IDRS schema'''
+
+        # Get a dict subset to only the defined fields of the dataclass
+        values = {f.name: candidate.get(f.name) for f in fields(cls)}
+
+        # Coerce as needed
+        values['birth_date'] = cls.coerce_date(candidate.get('birth_date'), candidate.get('birth_date_format'))
+        values['school_ids'] = [school_id for school_id in map(cls.coerce_school_id, candidate.get('school_ids') or []) if school_id is not None]
+        values['student_ids'] = [student_id for student_id in map(cls.coerce_student_id, candidate.get('student_ids') or []) if student_id is not None]
+        
+        return cls(**values)
+    
+    @staticmethod
+    def coerce_date(date, fmt: str) -> str | None:
+        '''coerce dates to ISO format YYYY-MM-DD. If unable to coerce, fall back to None'''
+        try:
+            iso_date = datetime.strptime(date, fmt).date().isoformat()
+            return iso_date
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def coerce_student_id(student_id: str) -> str | None:
+        '''coerce student id values to str. Otherwise return None.'''
+        if isinstance(student_id, int):
+            return str(student_id)
+        if isinstance(student_id, str):
+            return student_id
+        return None
+
+    @staticmethod
+    def coerce_school_id(school_id: str) -> int | None:
+        '''coerce school id values to int. Otherwise return None.'''
+        if isinstance(school_id, int):
+            return school_id
+        if isinstance(school_id, str) and re.fullmatch(r'[0-9]+', school_id):
+            return int(school_id)
+        return None
+
+    # Cleaning
+    @staticmethod
+    def dedupe_candidates(candidates: list['IDRSCandidate']) -> list['IDRSCandidate']:
+        '''drop duplicate records on correlation_id'''
+
+        correlation_ids = set()
+        deduped_candidates = []
+        for candidate in candidates:
+            correlation_id = candidate.correlation_id
+            if correlation_id not in correlation_ids:
+                correlation_ids.add(correlation_id)
+                deduped_candidates.append(candidate)
+
+        return deduped_candidates
+
+    # Return
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    # Validation
+    def __post_init__(self):
+        errors = []
+        if not isinstance(self.correlation_id, str) or not self.correlation_id:
+            errors.append('correlation_id must be a non-empty string!')
+        if errors:
+            raise IDRSCandidateError(errors)
+    
