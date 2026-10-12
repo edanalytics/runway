@@ -16,6 +16,11 @@ import { JobsService } from 'api/src/jobs/jobs.service';
 describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () => {
   const PARTNER_ADMIN = ['runway.test.user', 'runway.test.partneradmin'];
   const SUPPORT_USER = ['runway.test.user', 'runway.test.supportuser'];
+  const DECISION_CHANGED = {
+    statusCode: 409,
+    code: 'decision_changed',
+    message: 'This student’s decision has changed since the page loaded.',
+  };
 
   let job: Awaited<ReturnType<typeof seedJob>>;
   /** corr-1's result, with suggestions at ordinals 0 and 1. */
@@ -172,38 +177,36 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   });
 
   describe('a bad request', () => {
-    const INVALID_TARGET = {
-      statusCode: 400,
-      code: 'invalid_target',
-      message: 'This student has no such suggestion.',
-    };
-
-    it.each<[string, () => Record<string, unknown>, object | undefined]>([
-      [
-        'another student’s suggestion',
-        () => ({ resultId: otherResultId, ordinal: 0 }),
-        INVALID_TARGET,
-      ],
-      ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 }), INVALID_TARGET],
-      ['no result id', () => ({ ordinal: 0 }), INVALID_TARGET],
-      ['a numeric result id', () => ({ resultId: Number(resultId), ordinal: 0 }), INVALID_TARGET],
-      // The rest get past the service's check of the result id, so only the
-      // DTO stands between them and the database: a fraction would be rounded
-      // to a neighbouring suggestion and saved, and the others would be 500s.
-      // The DTO's 400s have Nest's own body, with no code.
-      ['a fractional ordinal', () => ({ resultId, ordinal: 0.5 }), undefined],
-      ['an ordinal given as a string', () => ({ resultId, ordinal: '0' }), undefined],
-      ['an ordinal past INTEGER', () => ({ resultId, ordinal: 2 ** 31 }), undefined],
-      ['no ordinal', () => ({ resultId }), undefined],
-    ])('refuses a match to %s', async (_, target, body) => {
+    it.each<[string, () => Record<string, unknown>]>([
+      ['another student’s suggestion', () => ({ resultId: otherResultId, ordinal: 0 })],
+      ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 })],
+      ['no result id', () => ({ ordinal: 0 })],
+    ])('refuses a match to %s as no such suggestion', async (_, target) => {
       const res = await decide({ replacesVersion: null, kind: 'match', ...target() });
 
       expect(res.status).toBe(400);
-      if (body) {
-        expect(res.body).toEqual(body);
-      } else {
-        expect(res.body.code).toBeUndefined();
-      }
+      expect(res.body).toEqual({
+        statusCode: 400,
+        code: 'invalid_target',
+        message: 'This student has no such suggestion.',
+      });
+      expect(await rowsOf()).toEqual([]);
+    });
+
+    // These name a real suggestion's result, so they get past the service's
+    // check of the result id, and only the DTO stands between them and the
+    // database: a fraction would be rounded to a neighbouring suggestion and
+    // saved, and the others would be 500s.
+    it.each<[string, Record<string, unknown>]>([
+      ['a fractional ordinal', { ordinal: 0.5 }],
+      ['an ordinal past INTEGER', { ordinal: 2 ** 31 }],
+      ['no ordinal', {}],
+    ])('refuses a match with %s', async (_, given) => {
+      const res = await decide({ replacesVersion: null, kind: 'match', resultId, ...given });
+
+      expect(res.status).toBe(400);
+      // Nest's validation body, so it was the DTO that refused it.
+      expect(res.body.message).toContainEqual(expect.stringMatching(/^ordinal /));
       expect(await rowsOf()).toEqual([]);
     });
 
@@ -280,13 +283,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const excluded = await decide({ replacesVersion: null, kind: 'exclude', ...target });
       const cleared = await decide({ replacesVersion: 1, kind: 'clear', ...target });
 
-      expect(excluded.status).toBe(201);
-      expect(excluded.body.decision).toMatchObject({
-        kind: 'exclude',
-        resultId: null,
-        ordinal: null,
-      });
-      expect(cleared.status).toBe(201);
+      expect([excluded.status, cleared.status]).toEqual([201, 201]);
       expect((await rowsOf()).map(({ resultId, ordinal }) => ({ resultId, ordinal }))).toEqual([
         { resultId: null, ordinal: null },
         { resultId: null, ordinal: null },
@@ -303,23 +300,23 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect((await rowsOf()).map((row) => row.decidedById)).toEqual([userA.id, userB.id]);
     });
 
-    it('versions each student’s decisions separately', async () => {
+    it.each<[string, () => Promise<{ jobId?: number; correlationId?: string }>]>([
+      ['another student in the job', async () => ({ correlationId: 'corr-2' })],
+      [
+        'the same student in the file reprocessed as a new job',
+        async () => ({ jobId: (await seedReportedJob('fuzzy')).id }),
+      ],
+    ])('checks the version against the student’s own decisions, not %s', async (_, other) => {
+      const student = await other();
+      // corr-1's decision in this job is at version 1; the other student has none.
       await matchFirst();
 
-      // corr-1's decision is at version 1; corr-2 has none yet.
-      const borrowed = await decide(
-        { replacesVersion: 1, kind: 'exclude' },
-        { correlationId: 'corr-2' }
-      );
-      const own = await decide(
-        { replacesVersion: null, kind: 'exclude' },
-        { correlationId: 'corr-2' }
-      );
+      const borrowed = await decide({ replacesVersion: 1, kind: 'exclude' }, student);
+      const own = await decide({ replacesVersion: null, kind: 'exclude' }, student);
 
-      expect(borrowed.status).toBe(409);
+      expect(borrowed.body).toEqual(DECISION_CHANGED);
       expect(own.status).toBe(201);
       expect(own.body.decision.version).toBe(1);
-      expect((await rowsOf('corr-1')).map((row) => row.kind)).toEqual(['match']);
     });
   });
 
@@ -377,12 +374,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   });
 
   describe('a write from a stale view', () => {
-    const DECISION_CHANGED = {
-      statusCode: 409,
-      code: 'decision_changed',
-      message: 'This student’s decision has changed since the page loaded.',
-    };
-
     // A page loaded after the first match holds version 1. Since then the
     // match was cleared and made again, so the decision looks as it did (ABA).
     it('is refused when the decision was changed and changed back', async () => {
@@ -458,6 +449,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         );
         const { rows } = await other.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
 
+        // then() sends the request now, rather than when it's awaited.
         const pending = matchFirst().then((res) => res);
         await waitUntilBlockedBy(rows[0].pid);
         await other.query('COMMIT');

@@ -333,14 +333,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
 
       it('returns the students up to the limit', async () => {
-        await report(
-          runA.id,
-          ['corr-1', 'corr-2'].map((correlation_id) => ({
-            correlation_id,
-            candidate: { first_name: 'Ada' },
-            matches: [],
-          }))
-        );
+        await reportStudents(['corr-1', 'corr-2']);
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
@@ -448,26 +441,21 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
 
     it('counts each status beside the total', async () => {
-      await reportStudents(['corr-1', 'corr-2']);
-      const both = (toReview: number, ready: number, excluded: number) =>
-        Array(2).fill({ total: 2, toReview, ready, excluded });
-
-      expect(await countsOf(jobA.id)).toEqual(both(2, 0, 0));
-
-      await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
-      expect(await countsOf(jobA.id)).toEqual(both(1, 0, 1));
-
-      const resultId = await resultIdOf('corr-2');
-      await decide(cookies, 'corr-2', {
+      // To review twice over: undecided, and cleared.
+      await reportStudents(['undecided', 'cleared', 'matched', 'excluded']);
+      await decide(cookies, 'cleared', { replacesVersion: null, kind: 'exclude' });
+      await decide(cookies, 'cleared', { replacesVersion: 1, kind: 'clear' });
+      await decide(cookies, 'matched', {
         replacesVersion: null,
         kind: 'match',
-        resultId,
+        resultId: await resultIdOf('matched'),
         ordinal: 0,
       });
-      expect(await countsOf(jobA.id)).toEqual(both(0, 1, 1));
+      await decide(cookies, 'excluded', { replacesVersion: null, kind: 'exclude' });
 
-      await decide(cookies, 'corr-1', { replacesVersion: 1, kind: 'clear' });
-      expect(await countsOf(jobA.id)).toEqual(both(1, 1, 0));
+      expect(await countsOf(jobA.id)).toEqual(
+        Array(2).fill({ total: 4, toReview: 2, ready: 1, excluded: 1 })
+      );
     });
 
     it('shows a fuzzy job whose students are all excluded as success, and won’t resolve it', async () => {
