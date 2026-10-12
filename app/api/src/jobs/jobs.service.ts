@@ -73,14 +73,14 @@ export class JobsService {
     jobIds: Job['id'][],
     prisma: PrismaClient = this.prisma
   ): Promise<Map<Job['id'], GetStudentMatchCountsDto>> {
-    // A student's current decision is their highest seq, and an undo there
+    // A student's current decision is their highest seq, and a clear there
     // means none. Keep the statuses in step with studentMatchStatus.
     const rows = await prisma.$queryRaw<
       { job_id: number; total: bigint; to_review: bigint; ready: bigint; excluded: bigint }[]
     >`
       SELECT i.job_id,
              count(*) AS total,
-             count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'undo') AS to_review,
+             count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
              count(*) FILTER (WHERE d.kind = 'match') AS ready,
              count(*) FILTER (WHERE d.kind = 'exclude') AS excluded
       FROM public.student_input_details i
@@ -153,7 +153,7 @@ export class JobsService {
               ...input,
               status: studentMatchStatus(latest?.kind),
               decision:
-                latest && latest.kind !== 'undo' ? { ...latest, decidedBy: latest.user } : null,
+                latest && latest.kind !== 'clear' ? { ...latest, decidedBy: latest.user } : null,
               decisionVersion: latest?.seq ?? 0,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
@@ -216,8 +216,8 @@ export class JobsService {
     let inserted: { seq: number }[];
     try {
       // Version 0 means the student had no decisions, so there's nothing to
-      // undo. Otherwise the row at that version must exist and, for an undo,
-      // not be an undo itself.
+      // clear. Otherwise the row at that version must exist and, for a clear,
+      // not be a clear itself.
       // If a later row exists, the insert collides with it on the primary key
       // and does nothing, and so does the loser of two racing writes.
       inserted = await prisma.$queryRaw<{ seq: number }[]>`
@@ -226,12 +226,12 @@ export class JobsService {
         SELECT ${jobId}::int, ${correlationId}, ${version}::int + 1,
                ${kind}::public.student_match_decision_kind,
                ${resultId}::bigint, ${ordinal}::int, ${userId}::int
-        WHERE (${version}::int = 0 AND ${kind} <> 'undo')
+        WHERE (${version}::int = 0 AND ${kind} <> 'clear')
            OR EXISTS (
              SELECT 1 FROM public.student_match_decision
              WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
                AND seq = ${version}::int
-               AND (${kind} <> 'undo' OR kind <> 'undo'))
+               AND (${kind} <> 'clear' OR kind <> 'clear'))
         ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
         RETURNING seq
       `;
@@ -257,7 +257,7 @@ export class JobsService {
       status: 'SUCCESS',
       data: {
         version: row.seq,
-        decision: row.kind === 'undo' ? null : { ...decision, decidedBy: user },
+        decision: row.kind === 'clear' ? null : { ...decision, decidedBy: user },
       },
     };
   }

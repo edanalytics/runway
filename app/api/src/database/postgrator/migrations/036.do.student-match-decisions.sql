@@ -3,11 +3,11 @@
 ALTER TABLE public.student_match_result
     ADD CONSTRAINT student_match_result_id_job_correlation_unique UNIQUE (id, job_id, correlation_id);
 
-CREATE TYPE public.student_match_decision_kind AS ENUM ('match', 'exclude', 'undo');
+CREATE TYPE public.student_match_decision_kind AS ENUM ('match', 'exclude', 'clear');
 
 -- Every decision a reviewer makes about a student, in order. Rows are never
 -- updated, and are deleted only with their job. A student's current decision
--- is their highest seq, and an undo row means they have none.
+-- is their highest seq, and a clear row means they have none.
 CREATE TABLE public.student_match_decision (
     job_id INTEGER NOT NULL,
     correlation_id TEXT NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE public.student_match_decision (
     -- inserts the next, so the primary key refuses a write from a stale view.
     seq INTEGER NOT NULL CHECK (seq >= 1),
     kind public.student_match_decision_kind NOT NULL,
-    -- The suggestion a match chose. Null for exclude and undo.
+    -- The suggestion a match chose. Null for exclude and clear.
     result_id BIGINT,
     ordinal INTEGER,
     decided_by_id INTEGER REFERENCES public."user" (id) ON DELETE SET NULL,

@@ -195,7 +195,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   });
 
   describe('a decision', () => {
-    it('saves a match, then an exclude, then undoes it', async () => {
+    it('saves a match, then an exclude, then clears it', async () => {
       const matched = await decide({ version: 0, kind: 'match', resultId, ordinal: 1 });
 
       expect(matched.status).toBe(201);
@@ -224,10 +224,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         },
       });
 
-      const undone = await decide({ version: 2, kind: 'undo' });
+      const cleared = await decide({ version: 2, kind: 'clear' });
 
-      expect(undone.status).toBe(201);
-      expect(undone.body).toEqual({ version: 3, decision: null });
+      expect(cleared.status).toBe(201);
+      expect(cleared.body).toEqual({ version: 3, decision: null });
 
       expect(
         (await rowsOf()).map(({ seq, kind, resultId, ordinal, decidedById }) => ({
@@ -240,15 +240,15 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ).toEqual([
         { seq: 1, kind: 'match', resultId, ordinal: 1, decidedById: userA.id },
         { seq: 2, kind: 'exclude', resultId: null, ordinal: null, decidedById: userA.id },
-        { seq: 3, kind: 'undo', resultId: null, ordinal: null, decidedById: userA.id },
+        { seq: 3, kind: 'clear', resultId: null, ordinal: null, decidedById: userA.id },
       ]);
     });
 
-    it('ignores a target sent with an exclude or an undo', async () => {
+    it('ignores a target sent with an exclude or a clear', async () => {
       const target = { resultId, ordinal: 0 };
 
       const excluded = await decide({ version: 0, kind: 'exclude', ...target });
-      const undone = await decide({ version: 1, kind: 'undo', ...target });
+      const cleared = await decide({ version: 1, kind: 'clear', ...target });
 
       expect(excluded.status).toBe(201);
       expect(excluded.body.decision).toMatchObject({
@@ -256,7 +256,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         resultId: null,
         ordinal: null,
       });
-      expect(undone.status).toBe(201);
+      expect(cleared.status).toBe(201);
       expect((await rowsOf()).map(({ resultId, ordinal }) => ({ resultId, ordinal }))).toEqual([
         { resultId: null, ordinal: null },
         { resultId: null, ordinal: null },
@@ -324,8 +324,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     ]);
 
     // New results don't change the version: the reviewer's view of the
-    // decision is still current, so undo goes through.
-    const res = await decide({ version: 1, kind: 'undo' });
+    // decision is still current, so clear goes through.
+    const res = await decide({ version: 1, kind: 'clear' });
 
     expect(res.status).toBe(201);
     expect(res.body.version).toBe(2);
@@ -335,17 +335,17 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     const DECISION_CHANGED = { statusCode: 409, code: 'decision_changed' };
 
     // A page loaded after the first match holds version 1. Since then the
-    // match was undone and made again, so the decision looks as it did (ABA).
+    // match was cleared and made again, so the decision looks as it did (ABA).
     it('is refused when other decisions came first, even if they changed nothing visible', async () => {
       await matchFirst();
-      await decide({ version: 1, kind: 'undo' });
+      await decide({ version: 1, kind: 'clear' });
       await decide({ version: 2, kind: 'match', resultId, ordinal: 0 });
 
       const res = await decide({ version: 1, kind: 'exclude' });
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual(DECISION_CHANGED);
-      expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'undo', 'match']);
+      expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear', 'match']);
     });
 
     it('is refused at version 0 once the student has decisions', async () => {
@@ -368,15 +368,15 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(await rowsOf()).toHaveLength(1);
     });
 
-    it('is refused when there is nothing to undo', async () => {
-      const first = await decide({ version: 0, kind: 'undo' });
+    it('is refused when there is nothing to clear', async () => {
+      const first = await decide({ version: 0, kind: 'clear' });
       await matchFirst();
-      await decide({ version: 1, kind: 'undo' });
-      const again = await decide({ version: 2, kind: 'undo' });
+      await decide({ version: 1, kind: 'clear' });
+      const again = await decide({ version: 2, kind: 'clear' });
 
       expect([first.status, again.status]).toEqual([409, 409]);
       expect(again.body).toEqual(DECISION_CHANGED);
-      expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'undo']);
+      expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear']);
     });
 
     // Two reviewers save the same undecided student at once. The other

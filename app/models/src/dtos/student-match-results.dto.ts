@@ -54,9 +54,9 @@ export class GetStudentMatchResultDto {
   suggestions: GetStudentMatchSuggestionDto[];
 }
 
-const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'undo'];
+const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'clear'];
 
-/** Save a match, exclude the student, or undo the student's current decision. */
+/** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
   /** The student's `decisionVersion` as the caller last saw it: 0 for none. */
   @IsInt()
@@ -85,10 +85,10 @@ export class PostStudentMatchDecisionDto {
   ordinal?: number;
 }
 
-/** A student's current decision. An undo leaves none, so it never appears here. */
+/** A student's current decision. A clear leaves none, so it never appears here. */
 export class GetStudentMatchDecisionDto {
   @Expose()
-  kind: Exclude<StudentMatchDecisionKind, 'undo'>;
+  kind: Exclude<StudentMatchDecisionKind, 'clear'>;
 
   /** The picked suggestion's result, for a match. A BIGINT, so a string. */
   @Expose()
@@ -115,7 +115,7 @@ export class PostStudentMatchDecisionResponseDto {
   @Expose()
   version: number;
 
-  /** Null after an undo. */
+  /** Null after a clear. */
   @Expose()
   @Type(() => GetStudentMatchDecisionDto)
   decision: GetStudentMatchDecisionDto | null;
@@ -137,8 +137,8 @@ export const studentMatchStatus = (
       return 'ready';
     case 'exclude':
       return 'excluded';
-    // An undo leaves the student with no decision.
-    case 'undo':
+    // A clear leaves the student with no decision.
+    case 'clear':
     case undefined:
       return 'to-review';
   }
@@ -161,14 +161,14 @@ export class GetStudentInputDetailsDto {
   @Expose()
   status: StudentMatchStatus;
 
-  /** Null when nothing is decided, including after an undo. */
+  /** Null when nothing is decided, including after a clear. */
   @Expose()
   @Type(() => GetStudentMatchDecisionDto)
   decision: GetStudentMatchDecisionDto | null;
 
   /**
    * The concurrency token for this student's next decision: how many decisions
-   * they've had, undos included, so 0 for none.
+   * they've had, clears included, so 0 for none.
    */
   @Expose()
   decisionVersion: number;

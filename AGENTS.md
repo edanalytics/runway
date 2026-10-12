@@ -260,25 +260,25 @@ This endpoint never changes run state; acting on a failure is the Executor's job
 
 There is no pagination. A real review queue is under 10 students, a few hundred at most; thousands means the file needs fixing, not reviewing. Past `MATCH_REVIEW_STUDENT_LIMIT` (1,000) the endpoint returns `counts` with `students: null`, and doesn't fetch the students.
 
-**Decisions.** `POST /api/jobs/:jobId/student-match-results/:correlationId/decisions` saves a match to one of a student's suggestions, excludes the student from the job, or undoes either. The body is `{ version, kind, resultId?, ordinal? }`, with `kind` one of `match`, `exclude` or `undo`. Only a match names a suggestion: `resultId`, a string since it is `BIGINT`, and `ordinal`. An exclude or undo ignores them. The endpoint needs `job.match-results.update`, which every role has, and support users can use it across tenants. It works only on `fuzzy` jobs. Any other mode is 403 for every role, checked in the handler from the job's own mode. The body is validated first, so a malformed body is 400 in any mode.
+**Decisions.** `POST /api/jobs/:jobId/student-match-results/:correlationId/decisions` saves a match to one of a student's suggestions, excludes the student from the job, or clears either, returning the student to review rather than restoring an earlier decision. The body is `{ version, kind, resultId?, ordinal? }`, with `kind` one of `match`, `exclude` or `clear`. Only a match names a suggestion: `resultId`, a string since it is `BIGINT`, and `ordinal`. An exclude or clear ignores them. The endpoint needs `job.match-results.update`, which every role has, and support users can use it across tenants. It works only on `fuzzy` jobs. Any other mode is 403 for every role, checked in the handler from the job's own mode. The body is validated first, so a malformed body is 400 in any mode.
 
-Decisions are append-only, in `student_match_decision`. Each write inserts the student's next `seq`, from 1 with no gaps. Rows are never updated, and are deleted only with their job. A student's current decision is their highest `seq`, and an `undo` there means they have none. `decided_by_id` and `decided_on` are written by the insert; the table has no audit triggers. A match references its suggestion by `(result_id, ordinal)` and copies nothing from it, and composite foreign keys ensure the suggestion comes from a search for the same student.
+Decisions are append-only, in `student_match_decision`. Each write inserts the student's next `seq`, from 1 with no gaps. Rows are never updated, and are deleted only with their job. A student's current decision is their highest `seq`, and a `clear` there means they have none. `decided_by_id` and `decided_on` are written by the insert; the table has no audit triggers. A match references its suggestion by `(result_id, ordinal)` and copies nothing from it, and composite foreign keys ensure the suggestion comes from a search for the same student.
 
-`seq` is also the concurrency token, returned as `decisionVersion`, which is 0 for a student with no decisions. A write names the version it saw, and a single guarded insert writes the next one only if that version is still the latest. So the primary key refuses a write from a stale view, or the loser of a race, in the same statement. And since `seq` never restarts, an undo can't make an old view current again.
+`seq` is also the concurrency token, returned as `decisionVersion`, which is 0 for a student with no decisions. A write names the version it saw, and a single guarded insert writes the next one only if that version is still the latest. So the primary key refuses a write from a stale view, or the loser of a race, in the same statement. And since `seq` never restarts, a clear can't make an old view current again.
 
 A match must pick from the student's latest result, the one from the highest run. New results never invalidate a decision already made, so a current match can point into an earlier result. That's why the read returns every result.
 
 | Status | Meaning |
 |---|---|
-| 201 | `{ version, decision }`: the student's new version and current decision, which is null after an undo. A decision is `{ kind, resultId, ordinal, decidedBy, decidedOn }` |
+| 201 | `{ version, decision }`: the student's new version and current decision, which is null after a clear. A decision is `{ kind, resultId, ordinal, decidedBy, decidedOn }` |
 | 400 | The body doesn't match the DTO, or the suggestion isn't in one of this student's results |
 | 401 / 403 | Not logged in, another tenant, no privilege, or not a `fuzzy` job |
 | 404 | The job has no such student |
-| 409 `decision_changed` | `version` isn't the latest, or an undo has nothing to undo. Nothing was written |
+| 409 `decision_changed` | `version` isn't the latest, or a clear has nothing to clear. Nothing was written |
 | 409 `results_changed` | A match to an earlier result: a later run has searched again. Nothing was written |
 | 500 | An unexpected database failure, logged with the job id and SQLSTATE, never the message. If it came after the insert, the decision was saved, and a retry gets a 409 |
 
-A 409 body is `{ statusCode, code }` and carries no student data; the page refetches. A student's `status` comes from their current decision (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `undo` or none is `to-review`.
+A 409 body is `{ statusCode, code }` and carries no student data; the page refetches. A student's `status` comes from their current decision (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `clear` or none is `to-review`.
 
 Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `studentMatchCounts`, the same counts as the review read's, whose `total` never goes down. Status is computed by `GetJobDto` from these, so `toGetJobDto` requires the counts. Set them with `JobsService.withStudentMatchCounts`. Its single query is bounded to the given job ids, and also gives the review read its `counts`, so both count students the same way. An included `_count` on the list would aggregate the whole table.
 

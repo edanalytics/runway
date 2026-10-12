@@ -233,7 +233,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         await decide(cookies, 'corr-1', { version: 0, kind: 'match', resultId, ordinal: 0 });
         await decide(cookies, 'corr-2', { version: 0, kind: 'exclude' });
         await decide(cookies, 'corr-3', { version: 0, kind: 'exclude' });
-        await decide(cookies, 'corr-3', { version: 1, kind: 'undo' });
+        await decide(cookies, 'corr-3', { version: 1, kind: 'clear' });
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
@@ -272,7 +272,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             },
             decisionVersion: 1,
           },
-          // Undone: nothing to show, but the version still moved on.
+          // Cleared: nothing to show, but the version still moved on.
           { correlationId: 'corr-3', status: 'to-review', decision: null, decisionVersion: 2 },
         ]);
         expect(res.body.counts).toEqual({ total: 3, toReview: 1, ready: 1, excluded: 1 });
@@ -461,7 +461,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       await decide(cookies, 'corr-2', { version: 0, kind: 'match', resultId, ordinal: 0 });
       expect(await countsOf(jobA.id)).toEqual(both(0, 1, 1));
 
-      await decide(cookies, 'corr-1', { version: 1, kind: 'undo' });
+      await decide(cookies, 'corr-1', { version: 1, kind: 'clear' });
       expect(await countsOf(jobA.id)).toEqual(both(1, 1, 0));
     });
 

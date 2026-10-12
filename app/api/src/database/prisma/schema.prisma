@@ -589,7 +589,7 @@ enum IdMatchingMode {
 enum StudentMatchDecisionKind {
   match
   exclude
-  undo
+  clear
 
   @@map("student_match_decision_kind")
 }
