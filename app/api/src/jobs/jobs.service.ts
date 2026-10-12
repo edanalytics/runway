@@ -153,8 +153,9 @@ export class JobsService {
               ...input,
               status: studentMatchStatus(latest?.kind),
               decision:
-                latest && latest.kind !== 'clear' ? { ...latest, decidedBy: latest.user } : null,
-              decisionVersion: latest?.seq ?? 0,
+                latest && latest.kind !== 'clear'
+                  ? { ...latest, version: latest.seq, decidedBy: latest.user }
+                  : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
                 suggestions: studentMatchSuggestion,
@@ -179,7 +180,7 @@ export class JobsService {
   ): Promise<
     | {
         status: 'SUCCESS';
-        data: { version: number; decision: StudentMatchDecisionWithUser | null };
+        data: { decision: StudentMatchDecisionWithUser | null };
       }
     | {
         status: 'ERROR';
@@ -215,23 +216,29 @@ export class JobsService {
 
     let inserted: { seq: number }[];
     try {
-      // Version 0 means the student had no decisions, so there's nothing to
-      // clear. Otherwise the row at that version must exist and, for a clear,
-      // not be a clear itself.
-      // If a later row exists, the insert collides with it on the primary key
-      // and does nothing, and so does the loser of two racing writes.
+      // Writes the row after the student's latest, if the caller saw what's
+      // current: that latest row for a version, or no decision (no rows, or a
+      // clear) for null. A clear needs a decision to clear.
+      // Two racing writes compute the same seq, so the loser collides with
+      // the winner on the primary key and does nothing.
       inserted = await prisma.$queryRaw<{ seq: number }[]>`
         INSERT INTO public.student_match_decision
           (job_id, correlation_id, seq, kind, result_id, ordinal, decided_by_id)
-        SELECT ${jobId}::int, ${correlationId}, ${version}::int + 1,
+        SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
                ${kind}::public.student_match_decision_kind,
                ${resultId}::bigint, ${ordinal}::int, ${userId}::int
-        WHERE (${version}::int = 0 AND ${kind} <> 'clear')
-           OR EXISTS (
-             SELECT 1 FROM public.student_match_decision
-             WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
-               AND seq = ${version}::int
-               AND (${kind} <> 'clear' OR kind <> 'clear'))
+        FROM (SELECT 1) AS one
+        LEFT JOIN LATERAL (
+          SELECT seq, kind FROM public.student_match_decision
+          WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
+          ORDER BY seq DESC
+          LIMIT 1
+        ) latest ON true
+        WHERE CASE
+          WHEN ${version}::int IS NULL
+            THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
+          ELSE latest.seq = ${version}::int AND latest.kind <> 'clear'
+        END
         ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
         RETURNING seq
       `;
@@ -256,8 +263,7 @@ export class JobsService {
     return {
       status: 'SUCCESS',
       data: {
-        version: row.seq,
-        decision: row.kind === 'clear' ? null : { ...decision, decidedBy: user },
+        decision: row.kind === 'clear' ? null : { ...decision, version: row.seq, decidedBy: user },
       },
     };
   }

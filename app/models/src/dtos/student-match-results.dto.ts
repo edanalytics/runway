@@ -58,12 +58,16 @@ const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'excl
 
 /** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
-  /** The student's `decisionVersion` as the caller last saw it: 0 for none. */
+  /**
+   * The `version` of the student's decision as the caller last saw it, or null
+   * if they saw none. Required: a caller that sends nothing can't have seen
+   * whether the student is undecided.
+   */
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.version !== null)
   @IsInt()
-  @Min(0)
-  // seq is an INTEGER, and the write inserts version + 1.
-  @Max(2_147_483_646)
-  version: number;
+  @Min(1)
+  @Max(2_147_483_647)
+  version: number | null;
 
   @IsIn(STUDENT_MATCH_DECISION_KINDS)
   kind: StudentMatchDecisionKind;
@@ -87,6 +91,10 @@ export class PostStudentMatchDecisionDto {
 
 /** A student's current decision. A clear leaves none, so it never appears here. */
 export class GetStudentMatchDecisionDto {
+  /** The concurrency token: send it back with the student's next decision. */
+  @Expose()
+  version: number;
+
   @Expose()
   kind: Exclude<StudentMatchDecisionKind, 'clear'>;
 
@@ -108,13 +116,12 @@ export class GetStudentMatchDecisionDto {
   decidedOn: Date;
 }
 
-export type StudentMatchDecisionWithUser = StudentMatchDecision & { decidedBy: User | null };
+export type StudentMatchDecisionWithUser = StudentMatchDecision & {
+  version: number;
+  decidedBy: User | null;
+};
 
 export class PostStudentMatchDecisionResponseDto {
-  /** The student's new `decisionVersion`. */
-  @Expose()
-  version: number;
-
   /** Null after a clear. */
   @Expose()
   @Type(() => GetStudentMatchDecisionDto)
@@ -123,7 +130,7 @@ export class PostStudentMatchDecisionResponseDto {
 
 export const toPostStudentMatchDecisionResponseDto = makeSerializerCustomType<
   PostStudentMatchDecisionResponseDto,
-  { version: number; decision: StudentMatchDecisionWithUser | null }
+  { decision: StudentMatchDecisionWithUser | null }
 >(PostStudentMatchDecisionResponseDto);
 
 /** A student's place in review, derived from their latest decision. */
@@ -167,13 +174,6 @@ export class GetStudentInputDetailsDto {
   decision: GetStudentMatchDecisionDto | null;
 
   /**
-   * The concurrency token for this student's next decision: how many decisions
-   * they've had, clears included, so 0 for none.
-   */
-  @Expose()
-  decisionVersion: number;
-
-  /**
    * Every run's result, ordered by run. Reviewers pick from the last one, but
    * a match made earlier can point into an earlier one.
    */
@@ -185,7 +185,6 @@ export class GetStudentInputDetailsDto {
 type StudentInputDetailsWithResults = StudentInputDetails & {
   status: StudentMatchStatus;
   decision: StudentMatchDecisionWithUser | null;
-  decisionVersion: number;
   results: (StudentMatchResult & { suggestions: StudentMatchSuggestion[] })[];
 };
 

@@ -256,7 +256,7 @@ This endpoint never changes run state; acting on a failure is the Executor's job
 
 **Outstanding:** the request byte limit is not yet set. The endpoint currently runs under Nest's default JSON parser, so a large batch is rejected by that default rather than by an agreed limit. Confirm the cap and any record cap with cloud engineering and the Executor, then register a route-scoped parser for this route only — check the `SizeRestrictions_BODY` rule in `cloudformation/templates/0-waf.yml` against deployed behavior rather than assuming the app-side constant is sufficient.
 
-`GET /api/jobs/:jobId/student-match-results` (`JobsService.getStudentMatchResults`) returns a job's students to match, for review; no frontend reads it yet. It is tenant-scoped like the job's other reads, and needs `job.match-results.read`, which every role has. It returns `{ counts, students }`, where `counts` is `{ total, toReview, ready, excluded }`: every student has exactly one status, so the statuses add up to the total. Each student carries its input details, its `status`, `decision` and `decisionVersion` (see **Decisions**), and every run's result for it, ordered by run, with each result's suggestions in ordinal order. Students are ordered by correlation id for a stable order (the ids are opaque hashes, so it isn't file order). Result ids come back as strings because they are `BIGINT`, and scores as numbers. The details and roster JSON come back as stored, in snake_case. The counts and the students are read in one snapshot, so they agree.
+`GET /api/jobs/:jobId/student-match-results` (`JobsService.getStudentMatchResults`) returns a job's students to match, for review; no frontend reads it yet. It is tenant-scoped like the job's other reads, and needs `job.match-results.read`, which every role has. It returns `{ counts, students }`, where `counts` is `{ total, toReview, ready, excluded }`: every student has exactly one status, so the statuses add up to the total. Each student carries its input details, its `status` and `decision` (see **Decisions**), and every run's result for it, ordered by run, with each result's suggestions in ordinal order. Students are ordered by correlation id for a stable order (the ids are opaque hashes, so it isn't file order). Result ids come back as strings because they are `BIGINT`, and scores as numbers. The details and roster JSON come back as stored, in snake_case. The counts and the students are read in one snapshot, so they agree.
 
 There is no pagination. A real review queue is under 10 students, a few hundred at most; thousands means the file needs fixing, not reviewing. Past `MATCH_REVIEW_STUDENT_LIMIT` (1,000) the endpoint returns `counts` with `students: null`, and doesn't fetch the students.
 
@@ -264,17 +264,17 @@ There is no pagination. A real review queue is under 10 students, a few hundred 
 
 Decisions are append-only, in `student_match_decision`. Each write inserts the student's next `seq`, from 1 with no gaps. Rows are never updated, and are deleted only with their job. A student's current decision is their highest `seq`, and a `clear` there means they have none. `decided_by_id` and `decided_on` are written by the insert; the table has no audit triggers. A match references its suggestion by `(result_id, ordinal)` and copies nothing from it, and composite foreign keys ensure the suggestion comes from a search for the same student.
 
-`seq` is also the concurrency token, returned as `decisionVersion`, which is 0 for a student with no decisions. A write names the version it saw, and a single guarded insert writes the next one only if that version is still the latest. So the primary key refuses a write from a stale view, or the loser of a race, in the same statement. And since `seq` never restarts, a clear can't make an old view current again.
+A decision's `seq` is also its `version`, the concurrency token. A write names the version of the decision it saw, or null if it saw none, and a single guarded insert writes the next `seq` only if that is still current: the latest row for a version, or no rows or a clear for null. Two racing writes compute the same `seq`, so the primary key refuses the loser in the same statement. Clears never reach the client, which only ever sees a decision or none. Since `seq` never restarts, a decision cleared and made again has a new version, so a view of the old one is refused. A view of no decision stays current across a decision made and cleared, since the student is undecided again, just as it showed.
 
 A match must pick from the student's latest result, the one from the highest run. New results never invalidate a decision already made, so a current match can point into an earlier result. That's why the read returns every result.
 
 | Status | Meaning |
 |---|---|
-| 201 | `{ version, decision }`: the student's new version and current decision, which is null after a clear. A decision is `{ kind, resultId, ordinal, decidedBy, decidedOn }` |
+| 201 | `{ decision }`: the student's current decision, which is null after a clear. A decision is `{ version, kind, resultId, ordinal, decidedBy, decidedOn }` |
 | 400 | The body doesn't match the DTO, or the suggestion isn't in one of this student's results |
 | 401 / 403 | Not logged in, another tenant, no privilege, or not a `fuzzy` job |
 | 404 | The job has no such student |
-| 409 `decision_changed` | `version` isn't the latest, or a clear has nothing to clear. Nothing was written |
+| 409 `decision_changed` | `version` isn't the current decision's, or a clear has nothing to clear. Nothing was written |
 | 409 `results_changed` | A match to an earlier result: a later run has searched again. Nothing was written |
 | 500 | An unexpected database failure, logged with the job id and SQLSTATE, never the message. If it came after the insert, the decision was saved, and a retry gets a 409 |
 
