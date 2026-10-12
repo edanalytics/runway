@@ -256,16 +256,35 @@ This endpoint never changes run state; acting on a failure is the Executor's job
 
 **Outstanding:** the request byte limit is not yet set. The endpoint currently runs under Nest's default JSON parser, so a large batch is rejected by that default rather than by an agreed limit. Confirm the cap and any record cap with cloud engineering and the Executor, then register a route-scoped parser for this route only — check the `SizeRestrictions_BODY` rule in `cloudformation/templates/0-waf.yml` against deployed behavior rather than assuming the app-side constant is sufficient.
 
-`GET /api/jobs/:jobId/student-match-results` (`JobsService.getStudentMatchResults`) returns a job's students to match, for review; no frontend reads it yet. It is tenant-scoped like the job's other reads, and needs `job.match-results.read`, which every role has. It returns `{ count, students }`: each student's input details, ordered by correlation id for a stable order (the ids are opaque hashes, so it isn't file order), with every run's result for it, ordered by run, and each result's suggestions in ordinal order. Result ids come back as strings because they are `BIGINT`, and scores as numbers. The details and roster JSON come back as stored, in snake_case.
+`GET /api/jobs/:jobId/student-match-results` (`JobsService.getStudentMatchResults`) returns a job's students to match, for review; no frontend reads it yet. It is tenant-scoped like the job's other reads, and needs `job.match-results.read`, which every role has. It returns `{ count, counts, students }`, where `counts` is `{ toReview, ready, excluded }`. Each student carries its input details, its `status`, `decision` and `decisionVersion` (see **Decisions**), and every run's result for it, ordered by run, with each result's suggestions in ordinal order. Students are ordered by correlation id for a stable order (the ids are opaque hashes, so it isn't file order). Result ids come back as strings because they are `BIGINT`, and scores as numbers. The details and roster JSON come back as stored, in snake_case. The counts and the students are read in one snapshot, so they agree.
 
-There is no pagination. A real review queue is under 10 students, a few hundred at most; thousands means the file needs fixing, not reviewing. Past `MATCH_REVIEW_STUDENT_LIMIT` (1,000) the endpoint returns the count with `students: null` and doesn't fetch them.
+There is no pagination. A real review queue is under 10 students, a few hundred at most; thousands means the file needs fixing, not reviewing. Past `MATCH_REVIEW_STUDENT_LIMIT` (1,000) the endpoint returns `count` and `counts` with `students: null`, and doesn't fetch the students.
 
-Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `studentsToMatchCount`. Status is computed by `GetJobDto` from both, so `toGetJobDto` requires `studentsToMatchCount`: set it from Prisma's `_count` of `studentInputDetails` for one job, and a `groupBy` on the listed job ids for many, as `GET /api/jobs` does (an included `_count` there would aggregate the whole table).
+**Decisions.** `POST /api/jobs/:jobId/student-match-results/:correlationId/decisions` saves a match to one of a student's suggestions, excludes the student from the job, or undoes either. The body is `{ version, kind, resultId?, ordinal? }`, with `kind` one of `match`, `exclude` or `undo`. Only a match names a suggestion: `resultId`, a string since it is `BIGINT`, and `ordinal`. The endpoint needs `job.match-results.update`, which every role has, and support users can use it across tenants. It works only on `fuzzy` jobs. Any other mode is 403 for every role, checked in the handler from the job's own mode.
+
+Decisions are append-only, in `student_match_decision`. Each write inserts the student's next `seq`, from 1 with no gaps, and rows are never updated or deleted. A student's current decision is their highest `seq`, and an `undo` there means they have none. `decided_by_id` and `decided_on` are written by the insert; the table has no audit triggers. A match references its suggestion by `(result_id, ordinal)` and copies nothing from it, and composite foreign keys ensure the suggestion comes from a search for the same student.
+
+`seq` is also the concurrency token, returned as `decisionVersion`, which is 0 for a student with no decisions. A write names the version it saw, and a single guarded insert writes the next one only if that version is still the latest. So the primary key refuses a write from a stale view, or the loser of a race, in the same statement. And since `seq` never restarts, an undo can't make an old view current again.
+
+A match must pick from the student's latest result, the one from the highest run. New results never invalidate a decision already made, so a current match can point into an earlier result. That's why the read returns every result.
+
+| Status | Meaning |
+|---|---|
+| 201 | `{ version, decision }`: the student's new version and current decision, which is null after an undo. A decision is `{ kind, resultId, ordinal, decidedBy, decidedOn }` |
+| 400 | The body doesn't match the DTO, or the suggestion isn't in one of this student's results |
+| 401 / 403 | Not logged in, another tenant, no privilege, or not a `fuzzy` job |
+| 404 | The job has no such student |
+| 409 `decision_changed` | `version` isn't the latest, or an undo has nothing to undo. Nothing was written |
+| 409 `results_changed` | A match to an earlier result: a later run has searched again. Nothing was written |
+
+A 409 body is `{ statusCode, code }` and carries no student data; the page refetches. A student's `status` comes from their current decision (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `undo` or none is `to-review`.
+
+Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode`, `studentsToMatchCount` (the total, which never goes down) and `outstandingMatchCount` (students not excluded). Status is computed by `GetJobDto` from them, so `toGetJobDto` requires both counts. Set them with `JobsService.withStudentMatchCounts`. Its single query is bounded to the given job ids, and also gives the review read its `counts`, so the two always agree. An included `_count` on the list would aggregate the whole table.
 
 The mode decides who reads the results and whether they affect the status:
 
-- **`id_based_fuzzy_background`**: only `PartnerAdmin` and `SupportUser`, through `job.match-results.background.read`. The mode exists for them to check suggestions before a partner switches to fuzzy. The ID-based run has already delivered, so the count leaves the status alone.
-- **`fuzzy`** (and `id_based`): any user with `job.match-results.read`. In fuzzy mode, a successful last run with any students to match makes the job `complete with errors`, which can be marked resolved, as with unmatched student IDs.
+- **`id_based_fuzzy_background`**: only `PartnerAdmin` and `SupportUser`, through `job.match-results.background.read`. The mode exists for them to check suggestions before a partner switches to fuzzy. The ID-based run has already delivered, so nothing can be decided and the counts leave the status alone.
+- **`fuzzy`** (and `id_based`): any user with `job.match-results.read`. In fuzzy mode, a successful last run with any outstanding students makes the job `complete with errors`. That includes students with a saved match, since they deliver nothing until submitted. The job can be marked resolved, as with unmatched student IDs. Once every student is excluded, the job is `success`.
 
 ### S3 Path Structure
 
