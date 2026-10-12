@@ -19,6 +19,38 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
   const report = reportMatchResults;
 
+  /** Save a decision through the API, as a reviewer does. */
+  const decide = async (
+    cookies: string,
+    correlationId: string,
+    body: Record<string, unknown>,
+    jobId = jobA.id
+  ) => {
+    const res = await request(app.getHttpServer())
+      .post(`/jobs/${jobId}/student-match-results/${correlationId}/decisions`)
+      .set('Cookie', [cookies])
+      .send(body);
+    expect(res.status).toBe(201);
+  };
+
+  const resultIdOf = async (correlationId: string, runId = runA.id, jobId = jobA.id) =>
+    (
+      await prisma.studentMatchResult.findUniqueOrThrow({
+        where: { jobId_correlationId_runId: { jobId, correlationId, runId } },
+      })
+    ).id.toString();
+
+  /** Students with one suggestion each, reported for the job's first run. */
+  const reportStudents = (correlationIds: string[], runId = runA.id) =>
+    report(
+      runId,
+      correlationIds.map((correlation_id) => ({
+        correlation_id,
+        candidate: { first_name: 'Ada' },
+        matches: [{ student_unique_id: `SUID-${correlation_id}`, score: 0.5 }],
+      }))
+    );
+
   beforeEach(async () => {
     const seeded = await seedJob({
       odsConfig: odsConfigA2425,
@@ -92,12 +124,16 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         count: 2,
+        counts: { toReview: 2, ready: 0, excluded: 0 },
         students: [
           {
             correlationId: 'corr-1',
             sourceRunId: runA.id,
             createdOn: expect.any(String),
             inputDetails: { first_name: 'Ada', last_name: 'Lovelace' },
+            status: 'to-review',
+            decision: null,
+            decisionVersion: 0,
             results: [
               {
                 id: expect.any(String),
@@ -125,6 +161,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             sourceRunId: runA.id,
             createdOn: expect.any(String),
             inputDetails: { first_name: 'Grace' },
+            status: 'to-review',
+            decision: null,
+            decisionVersion: 0,
             results: [
               {
                 id: expect.any(String),
@@ -184,7 +223,89 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ count: 0, students: [] });
+      expect(res.body).toEqual({
+        count: 0,
+        counts: { toReview: 0, ready: 0, excluded: 0 },
+        students: [],
+      });
+    });
+
+    describe('with decisions', () => {
+      it('returns each student’s status, current decision and version', async () => {
+        await reportStudents(['corr-1', 'corr-2', 'corr-3']);
+        const resultId = await resultIdOf('corr-1');
+        await decide(cookies, 'corr-1', { version: 0, kind: 'match', resultId, ordinal: 0 });
+        await decide(cookies, 'corr-2', { version: 0, kind: 'exclude' });
+        await decide(cookies, 'corr-3', { version: 0, kind: 'exclude' });
+        await decide(cookies, 'corr-3', { version: 1, kind: 'undo' });
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        const decidedBy = expect.objectContaining({ id: userA.id });
+        expect(
+          res.body.students.map(
+            ({ correlationId, status, decision, decisionVersion }: Record<string, unknown>) => ({
+              correlationId,
+              status,
+              decision,
+              decisionVersion,
+            })
+          )
+        ).toEqual([
+          {
+            correlationId: 'corr-1',
+            status: 'ready',
+            decision: {
+              kind: 'match',
+              resultId,
+              ordinal: 0,
+              decidedBy,
+              decidedOn: expect.any(String),
+            },
+            decisionVersion: 1,
+          },
+          {
+            correlationId: 'corr-2',
+            status: 'excluded',
+            decision: {
+              kind: 'exclude',
+              resultId: null,
+              ordinal: null,
+              decidedBy,
+              decidedOn: expect.any(String),
+            },
+            decisionVersion: 1,
+          },
+          // Undone: nothing to show, but the version still moved on.
+          { correlationId: 'corr-3', status: 'to-review', decision: null, decisionVersion: 2 },
+        ]);
+        expect(res.body.counts).toEqual({ toReview: 1, ready: 1, excluded: 1 });
+      });
+
+      it('keeps showing a match to an earlier result after a later run searches again', async () => {
+        await reportStudents(['corr-1']);
+        const earlierResultId = await resultIdOf('corr-1');
+        await decide(cookies, 'corr-1', {
+          version: 0,
+          kind: 'match',
+          resultId: earlierResultId,
+          ordinal: 0,
+        });
+        const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+        await reportStudents(['corr-1'], runB.id);
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        const [student] = res.body.students;
+        expect(student.status).toBe('ready');
+        expect(student.decision.resultId).toBe(earlierResultId);
+        // Every result is returned, so the page can find the one the match
+        // points into.
+        expect(student.results.map((r: { id: string }) => r.id)).toEqual([
+          earlierResultId,
+          await resultIdOf('corr-1', runB.id),
+        ]);
+      });
     });
 
     describe('past the review limit', () => {
@@ -207,7 +328,24 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
         expect(res.status).toBe(200);
-        expect(res.body).toEqual({ count: 3, students: null });
+        expect(res.body).toEqual({
+          count: 3,
+          counts: { toReview: 3, ready: 0, excluded: 0 },
+          students: null,
+        });
+      });
+
+      it('still counts students by status', async () => {
+        await reportStudents(['corr-1', 'corr-2', 'corr-3']);
+        await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(res.body).toEqual({
+          count: 3,
+          counts: { toReview: 2, ready: 0, excluded: 1 },
+          students: null,
+        });
       });
 
       it('returns the students up to the limit', async () => {
@@ -264,13 +402,18 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     describe('in fuzzy background mode', () => {
-      it('returns the results to a partner admin', async () => {
+      it('returns the results to a partner admin, with nothing decided', async () => {
         const job = await seedReportedJob('id_based_fuzzy_background');
 
         const res = await read(job.id, tenantA, PARTNER_ADMIN);
 
         expect(res.status).toBe(200);
         expect(res.body.count).toBe(1);
+        expect(res.body.students[0]).toMatchObject({
+          status: 'to-review',
+          decision: null,
+          decisionVersion: 0,
+        });
       });
 
       it('refuses a user without an admin role', async () => {
@@ -306,6 +449,91 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       return [job.body, listed].map((body) => plainToInstance(GetJobDto, body));
     };
 
+    /** Both counts, as the job read and the list each report them. */
+    const countsOf = async (jobId: number) => {
+      const job = await request(app.getHttpServer()).get(`/jobs/${jobId}`).set('Cookie', [cookies]);
+      const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
+      const listed = list.body.find((j: { id: number }) => j.id === jobId);
+      return [job.body, listed].map(({ studentsToMatchCount, outstandingMatchCount }) => ({
+        total: studentsToMatchCount,
+        outstanding: outstandingMatchCount,
+      }));
+    };
+
+    it('counts outstanding students beside the total', async () => {
+      await reportStudents(['corr-1', 'corr-2']);
+      const both = (total: number, outstanding: number) => [
+        { total, outstanding },
+        { total, outstanding },
+      ];
+
+      expect(await countsOf(jobA.id)).toEqual(both(2, 2));
+
+      await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
+      expect(await countsOf(jobA.id)).toEqual(both(2, 1));
+
+      // A saved match has delivered nothing yet, so it's still outstanding.
+      const resultId = await resultIdOf('corr-2');
+      await decide(cookies, 'corr-2', { version: 0, kind: 'match', resultId, ordinal: 0 });
+      expect(await countsOf(jobA.id)).toEqual(both(2, 1));
+
+      await decide(cookies, 'corr-1', { version: 1, kind: 'undo' });
+      expect(await countsOf(jobA.id)).toEqual(both(2, 2));
+    });
+
+    it('agrees with the review counts on what is outstanding', async () => {
+      await reportStudents(['corr-1', 'corr-2', 'corr-3', 'corr-4']);
+      await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
+      await decide(cookies, 'corr-2', {
+        version: 0,
+        kind: 'match',
+        resultId: await resultIdOf('corr-2'),
+        ordinal: 0,
+      });
+      await decide(cookies, 'corr-3', { version: 0, kind: 'exclude' });
+      await decide(cookies, 'corr-3', { version: 1, kind: 'undo' });
+
+      const review = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+      const [{ outstanding }] = await countsOf(jobA.id);
+
+      expect(review.body.counts).toEqual({ toReview: 2, ready: 1, excluded: 1 });
+      expect(outstanding).toBe(review.body.counts.toReview + review.body.counts.ready);
+    });
+
+    it('shows a fuzzy job whose students are all excluded as success, and won’t resolve it', async () => {
+      await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+      await reportStudents(['corr-1', 'corr-2']);
+      await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
+      await decide(cookies, 'corr-2', { version: 0, kind: 'exclude' });
+
+      const [onJob, inList] = await readJob(jobA.id);
+      const resolved = await request(app.getHttpServer())
+        .put(`/jobs/${jobA.id}/resolve`)
+        .set('Cookie', [cookies])
+        .send({ isResolved: true });
+
+      expect(onJob.status).toBe('success');
+      expect(inList.status).toBe('success');
+      expect(resolved.status).toBe(400);
+    });
+
+    it('keeps a fuzzy job with a saved match complete with errors', async () => {
+      await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+      await reportStudents(['corr-1', 'corr-2']);
+      await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
+      await decide(cookies, 'corr-2', {
+        version: 0,
+        kind: 'match',
+        resultId: await resultIdOf('corr-2'),
+        ordinal: 0,
+      });
+
+      const [onJob, inList] = await readJob(jobA.id);
+
+      expect(onJob.status).toBe('complete with errors');
+      expect(inList.status).toBe('complete with errors');
+    });
+
     it('shows a fuzzy job with students to match as complete with errors', async () => {
       await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
       await report(runA.id, [
@@ -334,12 +562,20 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       await report(jobB.runs[0].id, [
         { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
       ]);
+      // Same correlation id in another job: only jobA's is excluded.
+      await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
 
       const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
-      const countOf = (id: number) =>
-        list.body.find((j: { id: number }) => j.id === id).studentsToMatchCount;
+      const countsIn = (id: number) => {
+        const job = list.body.find((j: { id: number }) => j.id === id);
+        return [job.studentsToMatchCount, job.outstandingMatchCount];
+      };
 
-      expect([countOf(jobA.id), countOf(jobB.id), countOf(jobC.id)]).toEqual([2, 1, 0]);
+      expect([countsIn(jobA.id), countsIn(jobB.id), countsIn(jobC.id)]).toEqual([
+        [2, 1],
+        [1, 1],
+        [0, 0],
+      ]);
     });
 
     it('lets a fuzzy job with students to match be resolved, as complete with errors', async () => {
@@ -374,8 +610,10 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       const [onJob, inList] = await readJob(backgroundJob.id);
 
-      expect(onJob.studentsToMatchCount).toBe(1);
-      expect(inList.studentsToMatchCount).toBe(1);
+      expect(await countsOf(backgroundJob.id)).toEqual([
+        { total: 1, outstanding: 1 },
+        { total: 1, outstanding: 1 },
+      ]);
       expect(onJob.status).toBe('success');
       expect(inList.status).toBe('success');
     });
