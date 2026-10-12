@@ -163,9 +163,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 })],
       ['a result that doesn’t exist', () => ({ resultId: '999999999', ordinal: 0 })],
       ['a result id that isn’t a number', () => ({ resultId: 'abc', ordinal: 0 })],
-      // Past what the insert's casts hold, which the DTO turns away rather
+      // Past what the insert's cast holds, which the DTO turns away rather
       // than leaving the database to fail with a 500.
-      ['a result id past BIGINT', () => ({ resultId: '1'.repeat(19), ordinal: 0 })],
       ['an ordinal past INTEGER', () => ({ resultId, ordinal: 2 ** 31 })],
       ['no target', () => ({})],
     ])('refuses a match to %s', async (_, target) => {

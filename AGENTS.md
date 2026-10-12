@@ -276,7 +276,7 @@ A match must pick from the student's latest result, the one from the highest run
 | 404 | The job has no such student |
 | 409 `decision_changed` | `version` isn't the latest, or an undo has nothing to undo. Nothing was written |
 | 409 `results_changed` | A match to an earlier result: a later run has searched again. Nothing was written |
-| 500 | An unexpected database failure. Nothing was written. Logged with the job id and SQLSTATE, never the message |
+| 500 | An unexpected database failure, logged with the job id and SQLSTATE, never the message. If it came after the insert, the decision was saved, and a retry gets a 409 |
 
 A 409 body is `{ statusCode, code }` and carries no student data; the page refetches. A student's `status` comes from their current decision (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `undo` or none is `to-review`.
 
