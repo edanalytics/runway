@@ -1044,6 +1044,7 @@ describe('PUT /jobs/:id/resolve', () => {
           include: { runs: true, files: true },
         })),
         studentsToMatchCount: 0,
+        outstandingMatchCount: 0,
       }).status;
       if (!statusBefore) {
         // sanity check
@@ -1069,7 +1070,11 @@ describe('PUT /jobs/:id/resolve', () => {
         include: { runs: { include: { runOutputFile: true } }, files: true },
       });
 
-      const statusAfter = toGetJobDto({ ...revertedJob, studentsToMatchCount: 0 }).status;
+      const statusAfter = toGetJobDto({
+        ...revertedJob,
+        studentsToMatchCount: 0,
+        outstandingMatchCount: 0,
+      }).status;
       expect(statusAfter).toBe(statusBefore);
     });
   });

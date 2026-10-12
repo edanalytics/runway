@@ -4,6 +4,7 @@ import {
   JsonArray,
   PostStudentMatchDecisionDto,
   StudentMatchDecisionWithUser,
+  studentMatchStatus,
   toGetJobTemplateDto,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -57,41 +58,103 @@ export class JobsService {
   studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
 
   /**
-   * The job's students to match, each with every run's result for it and each
-   * result's suggestions in order.
+   * Each job's students to match, by their current decision: every job read
+   * and the review counts use this, so they agree. Bounded to the given jobs,
+   * which a list must keep: unbounded, it would aggregate the whole table.
+   * Jobs with no students are absent.
+   */
+  async getStudentMatchCounts(jobIds: Job['id'][], prisma: PrismaClient = this.prisma) {
+    // A student's current decision is their highest seq, and an undo there
+    // means none, so it counts toward neither ready nor excluded.
+    const rows = await prisma.$queryRaw<
+      { job_id: number; total: bigint; ready: bigint; excluded: bigint }[]
+    >`
+      SELECT i.job_id,
+             count(*) AS total,
+             count(*) FILTER (WHERE d.kind = 'match') AS ready,
+             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded
+      FROM public.student_input_details i
+      LEFT JOIN LATERAL (
+        SELECT kind FROM public.student_match_decision d
+        WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
+        ORDER BY d.seq DESC
+        LIMIT 1
+      ) d ON true
+      WHERE i.job_id = ANY(${jobIds}::int[])
+      GROUP BY i.job_id
+    `;
+    return new Map(
+      rows.map((row) => [
+        row.job_id,
+        { total: Number(row.total), ready: Number(row.ready), excluded: Number(row.excluded) },
+      ])
+    );
+  }
+
+  /** Adds the two counts every job read that shows a status needs. */
+  async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
+    const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
+    return jobs.map((job) => {
+      const { total, excluded } = counts.get(job.id) ?? { total: 0, excluded: 0 };
+      return { ...job, studentsToMatchCount: total, outstandingMatchCount: total - excluded };
+    });
+  }
+
+  /**
+   * The job's students to match, each with their current decision and every
+   * run's result for it, and each result's suggestions in order.
    */
   async getStudentMatchResults(jobId: Job['id']) {
-    const count = await this.prisma.studentInputDetails.count({ where: { jobId } });
-    if (count > this.studentMatchReviewLimit) {
-      return { count, students: null };
-    }
+    // One snapshot, so the counts and the students agree with each other even
+    // while students are reported or decided.
+    return this.prisma.$transaction(
+      async (tx) => {
+        const {
+          total = 0,
+          ready = 0,
+          excluded = 0,
+        } = (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ?? {};
+        const counts = { toReview: total - ready - excluded, ready, excluded };
+        if (total > this.studentMatchReviewLimit) {
+          return { count: total, counts, students: null };
+        }
 
-    const inputs = await this.prisma.studentInputDetails.findMany({
-      where: { jobId },
-      // Only for a stable order: correlation ids are opaque hashes, so it
-      // means nothing to a reviewer.
-      orderBy: { correlationId: 'asc' },
-      include: {
-        studentMatchResult: {
-          orderBy: { runId: 'asc' },
-          include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
-        },
+        const inputs = await tx.studentInputDetails.findMany({
+          where: { jobId },
+          // Only for a stable order: correlation ids are opaque hashes, so it
+          // means nothing to a reviewer.
+          orderBy: { correlationId: 'asc' },
+          include: {
+            studentMatchDecision: { orderBy: { seq: 'desc' }, take: 1, include: { user: true } },
+            studentMatchResult: {
+              orderBy: { runId: 'asc' },
+              include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
+            },
+          },
+        });
+        return {
+          count: inputs.length,
+          counts,
+          // Prisma names each relation after its table; the API calls them
+          // results and suggestions.
+          students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
+            const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
+            return {
+              ...input,
+              status: studentMatchStatus(latest?.kind),
+              decision:
+                latest && latest.kind !== 'undo' ? { ...latest, decidedBy: latest.user } : null,
+              decisionVersion: latest?.seq ?? 0,
+              results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
+                ...result,
+                suggestions: studentMatchSuggestion,
+              })),
+            };
+          }),
+        };
       },
-    });
-    return {
-      // The fetched length, not the first count: students reported between the
-      // two queries would make count and students disagree.
-      count: inputs.length,
-      // Prisma names each relation after its table; the API calls them results
-      // and suggestions.
-      students: inputs.map(({ studentMatchResult, ...input }) => ({
-        ...input,
-        results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
-          ...result,
-          suggestions: studentMatchSuggestion,
-        })),
-      })),
-    };
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead }
+    );
   }
 
   /**

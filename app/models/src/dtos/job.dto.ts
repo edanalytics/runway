@@ -38,6 +38,7 @@ export type DtoableJob = Job & {
   files: JobFile[];
   runs?: Array<Run & { runError?: RunError[]; }>;
   studentsToMatchCount: number;
+  outstandingMatchCount: number;
 };
 export type TJobDisplayStatus =
   | Exclude<GetRunDto['status'], null>
@@ -99,9 +100,13 @@ export class GetJobDto
   @Expose()
   isResolved: boolean;
 
-  /** How many students the Executor sent for review. */
+  /** How many students the Executor sent for review: the total, which never goes down. */
   @Expose()
   studentsToMatchCount: number;
+
+  /** How many of those students aren't done: every one not excluded. */
+  @Expose()
+  outstandingMatchCount: number;
 
   /** Snapshotted from the partner when the job was created. */
   @Expose()
@@ -167,12 +172,13 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: students waiting for a reviewer to pick their match in Runway,
-   * whose records aren't delivered until then. Never in fuzzy background mode,
-   * where the ID-based run has already delivered them.
+   * Fuzzy mode: students whose records aren't delivered yet, because a
+   * reviewer hasn't decided them, or saved a match that hasn't been submitted.
+   * Never in fuzzy background mode, where the ID-based run has already
+   * delivered them.
    */
   get hasFuzzyStudentsToMatch() {
-    return this.idMatchingMode === 'fuzzy' && this.studentsToMatchCount > 0;
+    return this.idMatchingMode === 'fuzzy' && this.outstandingMatchCount > 0;
   }
 
   /**

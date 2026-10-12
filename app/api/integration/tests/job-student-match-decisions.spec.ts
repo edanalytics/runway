@@ -120,12 +120,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
     it('lets a support user decide across tenants', async () => {
       const tenantBJob = await seedReportedJob('fuzzy', true);
-      const { cookies: support } = await authHelper.login(
-        idpA,
-        userA,
-        tenantDGlobal,
-        SUPPORT_USER
-      );
+      const { cookies: support } = await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_USER);
 
       const res = await decide(
         { version: 0, kind: 'exclude' },
@@ -144,7 +139,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         const other = await seedReportedJob(mode);
         const { cookies: admin } = await authHelper.login(idpA, userA, tenantA, PARTNER_ADMIN);
 
-        const res = await decide({ version: 0, kind: 'exclude' }, { jobId: other.id, cookie: admin });
+        const res = await decide(
+          { version: 0, kind: 'exclude' },
+          { jobId: other.id, cookie: admin }
+        );
 
         expect(res.status).toBe(403);
         expect(await rowsOf('corr-1', other.id)).toEqual([]);

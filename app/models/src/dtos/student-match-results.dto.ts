@@ -54,44 +54,6 @@ export class GetStudentMatchResultDto {
   suggestions: GetStudentMatchSuggestionDto[];
 }
 
-export class GetStudentInputDetailsDto {
-  @Expose()
-  correlationId: string;
-
-  @Expose()
-  sourceRunId: number;
-
-  @Expose()
-  @Type(() => Date)
-  createdOn: Date;
-
-  @Expose()
-  inputDetails: StudentInputDetailsJson;
-
-  @Expose()
-  @Type(() => GetStudentMatchResultDto)
-  results: GetStudentMatchResultDto[];
-}
-
-type StudentInputDetailsWithResults = StudentInputDetails & {
-  results: (StudentMatchResult & { suggestions: StudentMatchSuggestion[] })[];
-};
-
-/** A job's students to match. Past the review limit, `students` is null. */
-export class GetStudentMatchResultsDto {
-  @Expose()
-  count: number;
-
-  @Expose()
-  @Type(() => GetStudentInputDetailsDto)
-  students: GetStudentInputDetailsDto[] | null;
-}
-
-export const toGetStudentMatchResultsDto = makeSerializerCustomType<
-  GetStudentMatchResultsDto,
-  { count: number; students: StudentInputDetailsWithResults[] | null }
->(GetStudentMatchResultsDto);
-
 const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'undo'];
 
 /**
@@ -190,3 +152,105 @@ export const toPostStudentMatchDecisionResponseDto = makeSerializerCustomType<
   PostStudentMatchDecisionResponseDto,
   { version: number; decision: StudentMatchDecisionWithUser | null }
 >(PostStudentMatchDecisionResponseDto);
+
+/** A student's place in review, derived from their latest decision. */
+export type StudentMatchStatus = 'to-review' | 'ready' | 'excluded';
+
+export const studentMatchStatus = (
+  latestDecision: StudentMatchDecisionKind | undefined
+): StudentMatchStatus => {
+  switch (latestDecision) {
+    case 'match':
+      return 'ready';
+    case 'exclude':
+      return 'excluded';
+    // An undo leaves the student with no decision.
+    case 'undo':
+    case undefined:
+      return 'to-review';
+  }
+};
+
+export class GetStudentInputDetailsDto {
+  @Expose()
+  correlationId: string;
+
+  @Expose()
+  sourceRunId: number;
+
+  @Expose()
+  @Type(() => Date)
+  createdOn: Date;
+
+  @Expose()
+  inputDetails: StudentInputDetailsJson;
+
+  @Expose()
+  status: StudentMatchStatus;
+
+  /** Null when nothing is decided, including after an undo. */
+  @Expose()
+  @Type(() => GetStudentMatchDecisionDto)
+  decision: GetStudentMatchDecisionDto | null;
+
+  /**
+   * The concurrency token for this student's next decision: how many decisions
+   * they've had, undos included, so 0 for none. An undo leaves no decision but
+   * still moves this on.
+   */
+  @Expose()
+  decisionVersion: number;
+
+  /**
+   * Every run's result, ordered by run. Reviewers pick from the last one, but
+   * a match made earlier can point into an earlier one.
+   */
+  @Expose()
+  @Type(() => GetStudentMatchResultDto)
+  results: GetStudentMatchResultDto[];
+}
+
+type StudentInputDetailsWithResults = StudentInputDetails & {
+  status: StudentMatchStatus;
+  decision: StudentMatchDecisionWithUser | null;
+  decisionVersion: number;
+  results: (StudentMatchResult & { suggestions: StudentMatchSuggestion[] })[];
+};
+
+/** How many of a job's students have each status. */
+export class GetStudentMatchCountsDto {
+  @Expose()
+  toReview: number;
+
+  @Expose()
+  ready: number;
+
+  @Expose()
+  excluded: number;
+}
+
+/**
+ * A job's students to match. Past the review limit, `students` is null, but
+ * `count` and `counts` are still there.
+ */
+export class GetStudentMatchResultsDto {
+  @Expose()
+  count: number;
+
+  @Expose()
+  @Type(() => GetStudentMatchCountsDto)
+  counts: GetStudentMatchCountsDto;
+
+  @Expose()
+  @Type(() => GetStudentInputDetailsDto)
+  students: GetStudentInputDetailsDto[] | null;
+}
+
+export const toGetStudentMatchResultsDto = makeSerializerCustomType<
+  GetStudentMatchResultsDto,
+  {
+    count: number;
+    counts: GetStudentMatchCountsDto;
+    students: StudentInputDetailsWithResults[] | null;
+  }
+>(GetStudentMatchResultsDto);

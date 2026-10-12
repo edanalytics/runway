@@ -72,20 +72,8 @@ export class JobsController {
     });
     // Counted separately: an included _count would aggregate all of
     // student_input_details on every load, since Postgres can't push the
-    // list's filter into it. This reads only the listed jobs, by primary key.
-    const counts = new Map(
-      (
-        await this.prisma.studentInputDetails.groupBy({
-          by: ['jobId'],
-          where: { jobId: { in: jobs.map((job) => job.id) } },
-          _count: true,
-        })
-      ).map(({ jobId, _count }) => [jobId, _count])
-    );
-
-    return toGetJobDto(
-      jobs.map((job) => ({ ...job, studentsToMatchCount: counts.get(job.id) ?? 0 }))
-    );
+    // list's filter into it. This reads only the listed jobs.
+    return toGetJobDto(await this.jobService.withStudentMatchCounts(jobs));
   }
 
   @Get(':jobId')
@@ -104,7 +92,6 @@ export class JobsController {
             runUpdate: true,
           },
         },
-        _count: { select: { studentInputDetails: true } },
       },
     });
 
@@ -112,7 +99,8 @@ export class JobsController {
       return new NotFoundException(`Job not found: ${jobId}`);
     }
 
-    return toGetJobDto({ ...job, studentsToMatchCount: job._count.studentInputDetails });
+    const [counted] = await this.jobService.withStudentMatchCounts([job]);
+    return toGetJobDto(counted);
   }
 
   @Get(':jobId/files/:templateKey')
@@ -280,10 +268,10 @@ export class JobsController {
     const res = await this.jobService.startJob(updatedJob, this.prisma);
     if (res.result === 'JOB_STARTED') {
       // The frontend's put helpers require a response DTO, though nothing reads
-      // this one, so the count is a placeholder. Returning nothing here, from
+      // this one, so the counts are placeholders. Returning nothing here, from
       // resolve and from note updates needs those helpers to allow empty
       // responses: a separate cleanup.
-      return toGetJobDto({ ...updatedJob, studentsToMatchCount: 0 });
+      return toGetJobDto({ ...updatedJob, studentsToMatchCount: 0, outstandingMatchCount: 0 });
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
     } else if (res.result === 'JOB_IN_PROGRESS') {
@@ -310,14 +298,14 @@ export class JobsController {
         include: {
           files: true,
           runs: true,
-          _count: { select: { studentInputDetails: true } },
         },
       })
       .catch(() => {
         // not founds should be thrown before we get to the handler, but just in case
         throw new NotFoundException(`Job not found: ${jobId}`);
       });
-    const job = toGetJobDto({ ...found, studentsToMatchCount: found._count.studentInputDetails });
+    const [counted] = await this.jobService.withStudentMatchCounts([found]);
+    const job = toGetJobDto(counted);
 
     if (!job.isStatusChangeable) {
       throw new BadRequestException(`Job is not changeable: ${jobId}`);
