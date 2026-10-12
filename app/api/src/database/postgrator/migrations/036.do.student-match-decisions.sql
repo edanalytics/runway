@@ -12,8 +12,8 @@ CREATE TABLE public.student_match_decision (
     job_id INTEGER NOT NULL,
     correlation_id TEXT NOT NULL,
     -- The decision's position among the student's decisions, from 1 with no
-    -- gaps. Also the concurrency token: a write names the seq it saw and
-    -- inserts the next, so the primary key refuses a write from a stale view.
+    -- gaps. Also the decision's version, the concurrency token: a write names
+    -- the version it replaces, and two racing writes collide on the primary key.
     seq INTEGER NOT NULL CHECK (seq >= 1),
     kind public.student_match_decision_kind NOT NULL,
     -- The suggestion a match chose. Null for exclude and clear.
