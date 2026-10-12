@@ -59,15 +59,15 @@ const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'excl
 /** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
   /**
-   * The `version` of the student's decision as the caller last saw it, or null
-   * if they saw none. Required: a caller that sends nothing can't have seen
-   * whether the student is undecided.
+   * The `version` of the decision this one replaces, as the caller last saw
+   * it, or null if they saw none. Required: a caller that sends nothing can't
+   * have seen whether the student is undecided.
    */
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.version !== null)
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.replacesVersion !== null)
   @IsInt()
   @Min(1)
   @Max(2_147_483_647)
-  version: number | null;
+  replacesVersion: number | null;
 
   @IsIn(STUDENT_MATCH_DECISION_KINDS)
   kind: StudentMatchDecisionKind;

@@ -228,10 +228,15 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       it('returns each student’s status and current decision', async () => {
         await reportStudents(['corr-1', 'corr-2', 'corr-3']);
         const resultId = await resultIdOf('corr-1');
-        await decide(cookies, 'corr-1', { version: null, kind: 'match', resultId, ordinal: 0 });
-        await decide(cookies, 'corr-2', { version: null, kind: 'exclude' });
-        await decide(cookies, 'corr-3', { version: null, kind: 'exclude' });
-        await decide(cookies, 'corr-3', { version: 1, kind: 'clear' });
+        await decide(cookies, 'corr-1', {
+          replacesVersion: null,
+          kind: 'match',
+          resultId,
+          ordinal: 0,
+        });
+        await decide(cookies, 'corr-2', { replacesVersion: null, kind: 'exclude' });
+        await decide(cookies, 'corr-3', { replacesVersion: null, kind: 'exclude' });
+        await decide(cookies, 'corr-3', { replacesVersion: 1, kind: 'clear' });
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
@@ -277,7 +282,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         const { cookies: goneCookies } = await authHelper.login(idpA, goneUser, tenantA);
         await reportStudents(['corr-1']);
         await decide(goneCookies, 'corr-1', {
-          version: null,
+          replacesVersion: null,
           kind: 'match',
           resultId: await resultIdOf('corr-1'),
           ordinal: 0,
@@ -294,7 +299,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         await reportStudents(['corr-1']);
         const earlierResultId = await resultIdOf('corr-1');
         await decide(cookies, 'corr-1', {
-          version: null,
+          replacesVersion: null,
           kind: 'match',
           resultId: earlierResultId,
           ordinal: 0,
@@ -325,7 +330,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       it('returns the counts without the students', async () => {
         await reportStudents(['corr-1', 'corr-2', 'corr-3']);
-        await decide(cookies, 'corr-1', { version: null, kind: 'exclude' });
+        await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
@@ -448,22 +453,27 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(await countsOf(jobA.id)).toEqual(both(2, 0, 0));
 
-      await decide(cookies, 'corr-1', { version: null, kind: 'exclude' });
+      await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
       expect(await countsOf(jobA.id)).toEqual(both(1, 0, 1));
 
       const resultId = await resultIdOf('corr-2');
-      await decide(cookies, 'corr-2', { version: null, kind: 'match', resultId, ordinal: 0 });
+      await decide(cookies, 'corr-2', {
+        replacesVersion: null,
+        kind: 'match',
+        resultId,
+        ordinal: 0,
+      });
       expect(await countsOf(jobA.id)).toEqual(both(0, 1, 1));
 
-      await decide(cookies, 'corr-1', { version: 1, kind: 'clear' });
+      await decide(cookies, 'corr-1', { replacesVersion: 1, kind: 'clear' });
       expect(await countsOf(jobA.id)).toEqual(both(1, 1, 0));
     });
 
     it('shows a fuzzy job whose students are all excluded as success, and won’t resolve it', async () => {
       await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
       await reportStudents(['corr-1', 'corr-2']);
-      await decide(cookies, 'corr-1', { version: null, kind: 'exclude' });
-      await decide(cookies, 'corr-2', { version: null, kind: 'exclude' });
+      await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
+      await decide(cookies, 'corr-2', { replacesVersion: null, kind: 'exclude' });
 
       const [onJob, inList] = await readJob(jobA.id);
       const resolved = await request(app.getHttpServer())
@@ -483,13 +493,18 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         'with only a saved match',
         async () => {
           const resultId = await resultIdOf('corr-1');
-          await decide(cookies, 'corr-1', { version: null, kind: 'match', resultId, ordinal: 0 });
+          await decide(cookies, 'corr-1', {
+            replacesVersion: null,
+            kind: 'match',
+            resultId,
+            ordinal: 0,
+          });
         },
       ],
     ])('shows a fuzzy job with a student %s as complete with errors', async (_, act) => {
       await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
       await reportStudents(['corr-1', 'corr-2']);
-      await decide(cookies, 'corr-2', { version: null, kind: 'exclude' });
+      await decide(cookies, 'corr-2', { replacesVersion: null, kind: 'exclude' });
       await act();
 
       const [onJob, inList] = await readJob(jobA.id);
@@ -515,7 +530,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
       ]);
       // Same correlation id in another job: only jobA's is excluded.
-      await decide(cookies, 'corr-1', { version: null, kind: 'exclude' });
+      await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
 
       const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
       const countsIn = (id: number) => {

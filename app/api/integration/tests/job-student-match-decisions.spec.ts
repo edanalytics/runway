@@ -73,7 +73,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       orderBy: { seq: 'asc' },
     });
 
-  const matchFirst = () => decide({ version: null, kind: 'match', resultId, ordinal: 0 });
+  const matchFirst = () => decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 0 });
 
   beforeEach(async () => {
     job = await seedReportedJob('fuzzy');
@@ -84,7 +84,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
   describe('authentication and authorization', () => {
     it('rejects an unauthenticated request', async () => {
-      const res = await decide({ version: null, kind: 'exclude' }, { cookie: '' });
+      const res = await decide({ replacesVersion: null, kind: 'exclude' }, { cookie: '' });
 
       expect(res.status).toBe(401);
       expect(await rowsOf()).toEqual([]);
@@ -93,7 +93,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     it('rejects a user from another tenant', async () => {
       const { cookies: other } = await authHelper.login(idpA, userB, tenantB);
 
-      const res = await decide({ version: null, kind: 'exclude' }, { cookie: other });
+      const res = await decide({ replacesVersion: null, kind: 'exclude' }, { cookie: other });
 
       expect(res.status).toBe(403);
       expect(await rowsOf()).toEqual([]);
@@ -110,7 +110,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
           return granted;
         });
       try {
-        const res = await decide({ version: null, kind: 'exclude' });
+        const res = await decide({ replacesVersion: null, kind: 'exclude' });
 
         expect(res.status).toBe(403);
         expect(await rowsOf()).toEqual([]);
@@ -124,7 +124,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const { cookies: support } = await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_USER);
 
       const res = await decide(
-        { version: null, kind: 'exclude' },
+        { replacesVersion: null, kind: 'exclude' },
         { jobId: tenantBJob.id, cookie: support }
       );
 
@@ -141,7 +141,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         const { cookies: admin } = await authHelper.login(idpA, userA, tenantA, PARTNER_ADMIN);
 
         const res = await decide(
-          { version: null, kind: 'exclude' },
+          { replacesVersion: null, kind: 'exclude' },
           { jobId: other.id, cookie: admin }
         );
 
@@ -152,7 +152,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   });
 
   it('returns 404 for a student the job doesn’t have', async () => {
-    const res = await decide({ version: null, kind: 'exclude' }, { correlationId: 'corr-unknown' });
+    const res = await decide(
+      { replacesVersion: null, kind: 'exclude' },
+      { correlationId: 'corr-unknown' }
+    );
 
     expect(res.status).toBe(404);
   });
@@ -171,21 +174,21 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ['an ordinal past INTEGER', () => ({ resultId, ordinal: 2 ** 31 })],
       ['no ordinal', () => ({ resultId })],
     ])('refuses a match to %s', async (_, target) => {
-      const res = await decide({ version: null, kind: 'match', ...target() });
+      const res = await decide({ replacesVersion: null, kind: 'match', ...target() });
 
       expect(res.status).toBe(400);
       expect(await rowsOf()).toEqual([]);
     });
 
     it.each<[string, Record<string, unknown>]>([
-      ['an unknown kind', { version: null, kind: 'not-in-roster' }],
+      ['an unknown kind', { replacesVersion: null, kind: 'not-in-roster' }],
       // No decision has version 0: null means none.
-      ['a version of 0', { version: 0, kind: 'exclude' }],
-      ['a fractional version', { version: 1.5, kind: 'exclude' }],
-      ['a version past INTEGER', { version: 2 ** 31, kind: 'exclude' }],
-      // Version is required, not taken as null: a page that predates it can't
+      ['a replaced version of 0', { replacesVersion: 0, kind: 'exclude' }],
+      ['a fractional replaced version', { replacesVersion: 1.5, kind: 'exclude' }],
+      ['a replaced version past INTEGER', { replacesVersion: 2 ** 31, kind: 'exclude' }],
+      // It's required, not taken as null: a page that predates it can't
       // know whether the student is still undecided.
-      ['no version', { kind: 'exclude' }],
+      ['no replaced version', { kind: 'exclude' }],
     ])('refuses %s', async (_, body) => {
       const res = await decide(body);
 
@@ -196,7 +199,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
   describe('a decision', () => {
     it('saves a match, then an exclude, then clears it', async () => {
-      const matched = await decide({ version: null, kind: 'match', resultId, ordinal: 1 });
+      const matched = await decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 1 });
 
       expect(matched.status).toBe(201);
       expect(matched.body).toEqual({
@@ -210,7 +213,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         },
       });
 
-      const excluded = await decide({ version: 1, kind: 'exclude' });
+      const excluded = await decide({ replacesVersion: 1, kind: 'exclude' });
 
       expect(excluded.status).toBe(201);
       expect(excluded.body).toEqual({
@@ -224,7 +227,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         },
       });
 
-      const cleared = await decide({ version: 2, kind: 'clear' });
+      const cleared = await decide({ replacesVersion: 2, kind: 'clear' });
 
       expect(cleared.status).toBe(201);
       expect(cleared.body).toEqual({ decision: null });
@@ -247,8 +250,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     it('ignores a target sent with an exclude or a clear', async () => {
       const target = { resultId, ordinal: 0 };
 
-      const excluded = await decide({ version: null, kind: 'exclude', ...target });
-      const cleared = await decide({ version: 1, kind: 'clear', ...target });
+      const excluded = await decide({ replacesVersion: null, kind: 'exclude', ...target });
+      const cleared = await decide({ replacesVersion: 1, kind: 'clear', ...target });
 
       expect(excluded.status).toBe(201);
       expect(excluded.body.decision).toMatchObject({
@@ -267,7 +270,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const { cookies: second } = await authHelper.login(idpA, userB, tenantA);
       await matchFirst();
 
-      const res = await decide({ version: 1, kind: 'exclude' }, { cookie: second });
+      const res = await decide({ replacesVersion: 1, kind: 'exclude' }, { cookie: second });
 
       expect(res.body.decision.decidedBy).toEqual(expect.objectContaining({ id: userB.id }));
       expect((await rowsOf()).map((row) => row.decidedById)).toEqual([userA.id, userB.id]);
@@ -277,8 +280,14 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       await matchFirst();
 
       // corr-1's decision is at version 1; corr-2 has none yet.
-      const borrowed = await decide({ version: 1, kind: 'exclude' }, { correlationId: 'corr-2' });
-      const own = await decide({ version: null, kind: 'exclude' }, { correlationId: 'corr-2' });
+      const borrowed = await decide(
+        { replacesVersion: 1, kind: 'exclude' },
+        { correlationId: 'corr-2' }
+      );
+      const own = await decide(
+        { replacesVersion: null, kind: 'exclude' },
+        { correlationId: 'corr-2' }
+      );
 
       expect(borrowed.status).toBe(409);
       expect(own.status).toBe(201);
@@ -303,7 +312,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
     it('accepts a suggestion from the latest result', async () => {
       const res = await decide({
-        version: null,
+        replacesVersion: null,
         kind: 'match',
         resultId: laterResultId,
         ordinal: 0,
@@ -330,7 +339,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
     // New results don't change the decision's version: the reviewer's view of
     // it is still current, so clear goes through.
-    const res = await decide({ version: 1, kind: 'clear' });
+    const res = await decide({ replacesVersion: 1, kind: 'clear' });
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ decision: null });
@@ -343,10 +352,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     // match was cleared and made again, so the decision looks as it did (ABA).
     it('is refused when the decision was changed and changed back', async () => {
       await matchFirst();
-      await decide({ version: 1, kind: 'clear' });
-      await decide({ version: null, kind: 'match', resultId, ordinal: 0 });
+      await decide({ replacesVersion: 1, kind: 'clear' });
+      await decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 0 });
 
-      const res = await decide({ version: 1, kind: 'exclude' });
+      const res = await decide({ replacesVersion: 1, kind: 'exclude' });
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual(DECISION_CHANGED);
@@ -355,20 +364,20 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
     // A page that saw no decision is still current once a decision is made
     // and cleared: the student is undecided, just as it showed.
-    it('is accepted with no version after a decision was made and cleared', async () => {
+    it('is accepted replacing nothing after a decision was made and cleared', async () => {
       await matchFirst();
-      await decide({ version: 1, kind: 'clear' });
+      await decide({ replacesVersion: 1, kind: 'clear' });
 
-      const res = await decide({ version: null, kind: 'exclude' });
+      const res = await decide({ replacesVersion: null, kind: 'exclude' });
 
       expect(res.status).toBe(201);
       expect(res.body.decision.version).toBe(3);
     });
 
-    it('is refused with no version once the student has a decision', async () => {
+    it('is refused replacing nothing once the student has a decision', async () => {
       await matchFirst();
 
-      const res = await decide({ version: null, kind: 'exclude' });
+      const res = await decide({ replacesVersion: null, kind: 'exclude' });
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual(DECISION_CHANGED);
@@ -378,7 +387,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     it('is refused at a version ahead of the latest', async () => {
       await matchFirst();
 
-      const res = await decide({ version: 5, kind: 'exclude' });
+      const res = await decide({ replacesVersion: 5, kind: 'exclude' });
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual(DECISION_CHANGED);
@@ -386,12 +395,12 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     it('is refused when there is nothing to clear', async () => {
-      const first = await decide({ version: null, kind: 'clear' });
+      const first = await decide({ replacesVersion: null, kind: 'clear' });
       await matchFirst();
-      await decide({ version: 1, kind: 'clear' });
-      const again = await decide({ version: null, kind: 'clear' });
+      await decide({ replacesVersion: 1, kind: 'clear' });
+      const again = await decide({ replacesVersion: null, kind: 'clear' });
       // The clear's own seq isn't a decision's version, so it's no way round.
-      const atClear = await decide({ version: 2, kind: 'clear' });
+      const atClear = await decide({ replacesVersion: 2, kind: 'clear' });
 
       expect([first.status, again.status, atClear.status]).toEqual([409, 409, 409]);
       expect(again.body).toEqual(DECISION_CHANGED);
@@ -456,7 +465,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       logs.push(String(message));
     });
     try {
-      const res = await decide({ version: null, kind: 'exclude' });
+      const res = await decide({ replacesVersion: null, kind: 'exclude' });
 
       expect(error).toMatchObject({ message: expect.stringContaining('corr-1') });
       expect(res.status).toBe(500);

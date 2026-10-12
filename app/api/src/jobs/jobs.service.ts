@@ -188,7 +188,7 @@ export class JobsService {
       }
   > {
     const { jobId, correlationId, userId } = input;
-    const { version, kind } = input.decision;
+    const { replacesVersion, kind } = input.decision;
     // Only a match names a suggestion; a target sent with anything else is ignored.
     const { resultId = null, ordinal = null } = kind === 'match' ? input.decision : {};
 
@@ -235,9 +235,9 @@ export class JobsService {
           LIMIT 1
         ) latest ON true
         WHERE CASE
-          WHEN ${version}::int IS NULL
+          WHEN ${replacesVersion}::int IS NULL
             THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
-          ELSE latest.seq = ${version}::int AND latest.kind <> 'clear'
+          ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
         END
         ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
         RETURNING seq
