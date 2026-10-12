@@ -1,5 +1,6 @@
 import {
   EarthmoverBundleTypes,
+  GetStudentMatchCountsDto,
   JobInputParamDto,
   JsonArray,
   PostStudentMatchDecisionDto,
@@ -24,6 +25,8 @@ import { ApiTokenClient } from '../external-api/external-api-token-client.decora
  * suggestions each, the response is about 3.5 MB.
  */
 export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
+
+const noStudentsToMatch = { total: 0, counts: { toReview: 0, ready: 0, excluded: 0 } };
 
 @Injectable()
 export class JobsService {
@@ -58,18 +61,22 @@ export class JobsService {
   studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
 
   /**
-   * Each job's students to match, by their current decision. Job reads and the
-   * review counts both use this, so they count the same way. Jobs with no
-   * students are absent.
+   * Each job's students to match: the total, and how many have each status.
+   * Job reads and the review counts both use this, so they count the same
+   * way. Jobs with no students are absent.
    */
-  async getStudentMatchCounts(jobIds: Job['id'][], prisma: PrismaClient = this.prisma) {
+  async getStudentMatchCounts(
+    jobIds: Job['id'][],
+    prisma: PrismaClient = this.prisma
+  ): Promise<Map<Job['id'], { total: number; counts: GetStudentMatchCountsDto }>> {
     // A student's current decision is their highest seq, and an undo there
-    // means none, so it counts toward neither ready nor excluded.
+    // means none. Keep the statuses in step with studentMatchStatus.
     const rows = await prisma.$queryRaw<
-      { job_id: number; total: bigint; ready: bigint; excluded: bigint }[]
+      { job_id: number; total: bigint; to_review: bigint; ready: bigint; excluded: bigint }[]
     >`
       SELECT i.job_id,
              count(*) AS total,
+             count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'undo') AS to_review,
              count(*) FILTER (WHERE d.kind = 'match') AS ready,
              count(*) FILTER (WHERE d.kind = 'exclude') AS excluded
       FROM public.student_input_details i
@@ -85,17 +92,24 @@ export class JobsService {
     return new Map(
       rows.map((row) => [
         row.job_id,
-        { total: Number(row.total), ready: Number(row.ready), excluded: Number(row.excluded) },
+        {
+          total: Number(row.total),
+          counts: {
+            toReview: Number(row.to_review),
+            ready: Number(row.ready),
+            excluded: Number(row.excluded),
+          },
+        },
       ])
     );
   }
 
-  /** Adds the two counts every job read that shows a status needs. */
+  /** Adds the counts every job read that shows a status needs. */
   async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
     const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
     return jobs.map((job) => {
-      const { total, excluded } = counts.get(job.id) ?? { total: 0, excluded: 0 };
-      return { ...job, studentsToMatchCount: total, outstandingMatchCount: total - excluded };
+      const { total, counts: studentMatchCounts } = counts.get(job.id) ?? noStudentsToMatch;
+      return { ...job, studentsToMatchCount: total, studentMatchCounts };
     });
   }
 
@@ -108,12 +122,9 @@ export class JobsService {
     // while students are reported or decided.
     return this.prisma.$transaction(
       async (tx) => {
-        const {
-          total = 0,
-          ready = 0,
-          excluded = 0,
-        } = (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ?? {};
-        const counts = { toReview: total - ready - excluded, ready, excluded };
+        const { total, counts } =
+          (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ??
+          noStudentsToMatch;
         if (total > this.studentMatchReviewLimit) {
           return { count: total, counts, students: null };
         }

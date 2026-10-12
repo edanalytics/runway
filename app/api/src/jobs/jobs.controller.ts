@@ -271,7 +271,11 @@ export class JobsController {
       // this one, so the counts are placeholders. Returning nothing here, from
       // resolve and from note updates needs those helpers to allow empty
       // responses: a separate cleanup.
-      return toGetJobDto({ ...updatedJob, studentsToMatchCount: 0, outstandingMatchCount: 0 });
+      return toGetJobDto({
+        ...updatedJob,
+        studentsToMatchCount: 0,
+        studentMatchCounts: { toReview: 0, ready: 0, excluded: 0 },
+      });
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
     } else if (res.result === 'JOB_IN_PROGRESS') {

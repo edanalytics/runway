@@ -441,32 +441,33 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       return [job.body, listed].map((body) => plainToInstance(GetJobDto, body));
     };
 
-    /** Both counts, as the job read and the list each report them. */
+    /** The counts, as the job read and the list each report them. */
     const countsOf = async (jobId: number) =>
-      (await readJob(jobId)).map(({ studentsToMatchCount, outstandingMatchCount }) => ({
-        total: studentsToMatchCount,
-        outstanding: outstandingMatchCount,
-      }));
+      (await readJob(jobId)).map(
+        ({ studentsToMatchCount, studentMatchCounts, outstandingMatchCount }) => ({
+          total: studentsToMatchCount,
+          ...studentMatchCounts,
+          outstanding: outstandingMatchCount,
+        })
+      );
 
-    it('counts outstanding students beside the total', async () => {
+    it('counts each status and the outstanding students beside the total', async () => {
       await reportStudents(['corr-1', 'corr-2']);
-      const both = (total: number, outstanding: number) => [
-        { total, outstanding },
-        { total, outstanding },
-      ];
+      const both = (toReview: number, ready: number, excluded: number, outstanding: number) =>
+        Array(2).fill({ total: 2, toReview, ready, excluded, outstanding });
 
-      expect(await countsOf(jobA.id)).toEqual(both(2, 2));
+      expect(await countsOf(jobA.id)).toEqual(both(2, 0, 0, 2));
 
       await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
-      expect(await countsOf(jobA.id)).toEqual(both(2, 1));
+      expect(await countsOf(jobA.id)).toEqual(both(1, 0, 1, 1));
 
       // A saved match has delivered nothing yet, so it's still outstanding.
       const resultId = await resultIdOf('corr-2');
       await decide(cookies, 'corr-2', { version: 0, kind: 'match', resultId, ordinal: 0 });
-      expect(await countsOf(jobA.id)).toEqual(both(2, 1));
+      expect(await countsOf(jobA.id)).toEqual(both(0, 1, 1, 1));
 
       await decide(cookies, 'corr-1', { version: 1, kind: 'undo' });
-      expect(await countsOf(jobA.id)).toEqual(both(2, 2));
+      expect(await countsOf(jobA.id)).toEqual(both(1, 1, 0, 2));
     });
 
     it('shows a fuzzy job whose students are all excluded as success, and won’t resolve it', async () => {
@@ -520,13 +521,13 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
       const countsIn = (id: number) => {
         const job = list.body.find((j: { id: number }) => j.id === id);
-        return [job.studentsToMatchCount, job.outstandingMatchCount];
+        return [job.studentsToMatchCount, job.studentMatchCounts];
       };
 
       expect([countsIn(jobA.id), countsIn(jobB.id), countsIn(jobC.id)]).toEqual([
-        [2, 1],
-        [1, 1],
-        [0, 0],
+        [2, { toReview: 1, ready: 0, excluded: 1 }],
+        [1, { toReview: 1, ready: 0, excluded: 0 }],
+        [0, { toReview: 0, ready: 0, excluded: 0 }],
       ]);
     });
 

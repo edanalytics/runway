@@ -280,7 +280,7 @@ A match must pick from the student's latest result, the one from the highest run
 
 A 409 body is `{ statusCode, code }` and carries no student data; the page refetches. A student's `status` comes from their current decision (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `undo` or none is `to-review`.
 
-Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode`, `studentsToMatchCount` (the total, which never goes down) and `outstandingMatchCount` (students not excluded). Status is computed by `GetJobDto` from them, so `toGetJobDto` requires both counts. Set them with `JobsService.withStudentMatchCounts`. Its single query is bounded to the given job ids, and also gives the review read its `counts`, so both count students the same way. An included `_count` on the list would aggregate the whole table.
+Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode`, `studentsToMatchCount` (the total, which never goes down) and `studentMatchCounts`, the same `{ toReview, ready, excluded }` as the review read's `counts`. Which statuses are outstanding is decided in `models`, by `GetJobDto.outstandingMatchCount`, not sent. Status is computed by `GetJobDto` from these, so `toGetJobDto` requires both. Set them with `JobsService.withStudentMatchCounts`. Its single query is bounded to the given job ids, and also gives the review read its `counts`, so both count students the same way. An included `_count` on the list would aggregate the whole table.
 
 The mode decides who reads the results and whether they affect the status:
 

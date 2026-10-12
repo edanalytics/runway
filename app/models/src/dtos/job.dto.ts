@@ -17,6 +17,7 @@ import { GetSchoolYearDto } from './school-year.dto';
 import { GetRunDto } from './run.dto';
 import { GetUserDto } from './user.dto';
 import { GetJobNoteDto } from './job-note.dto';
+import { GetStudentMatchCountsDto } from './student-match-results.dto';
 
 interface IBaseJobDto {
   id: number;
@@ -38,7 +39,7 @@ export type DtoableJob = Job & {
   files: JobFile[];
   runs?: Array<Run & { runError?: RunError[]; }>;
   studentsToMatchCount: number;
-  outstandingMatchCount: number;
+  studentMatchCounts: GetStudentMatchCountsDto;
 };
 export type TJobDisplayStatus =
   | Exclude<GetRunDto['status'], null>
@@ -104,9 +105,10 @@ export class GetJobDto
   @Expose()
   studentsToMatchCount: number;
 
-  /** How many of those students aren't done: every one not excluded. */
+  /** How many of those students have each review status. */
   @Expose()
-  outstandingMatchCount: number;
+  @Type(() => GetStudentMatchCountsDto)
+  studentMatchCounts: GetStudentMatchCountsDto;
 
   /** Snapshotted from the partner when the job was created. */
   @Expose()
@@ -172,9 +174,19 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: students not yet excluded. Their records aren't delivered,
-   * even with a saved match, which delivers nothing on its own. Never in fuzzy
-   * background mode, where the ID-based run has already delivered them.
+   * How many students to match aren't done: for now, every one not excluded.
+   * A saved match still counts, since it delivers nothing until submitted.
+   * Once submission is built, a student also stops counting when a run with
+   * their submitted match has been attempted.
+   */
+  get outstandingMatchCount() {
+    const { toReview, ready } = this.studentMatchCounts;
+    return toReview + ready;
+  }
+
+  /**
+   * Fuzzy mode: students still outstanding. Never in fuzzy background mode,
+   * where the ID-based run has already delivered them.
    */
   get hasFuzzyStudentsToMatch() {
     return this.idMatchingMode === 'fuzzy' && this.outstandingMatchCount > 0;
