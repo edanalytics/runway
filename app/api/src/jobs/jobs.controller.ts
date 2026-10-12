@@ -323,7 +323,7 @@ export class JobsController {
   }
 
   @Get(':jobId/student-match-results')
-  @AllowMetatenant('job.metatenant.read')
+  @AllowMetatenant('job.metatenant.match-results.read')
   @Authorize('job.match-results.read')
   async getStudentMatchResults(@Param('jobId', ParseIntPipe) jobId: number, @Req() req: Request) {
     // Who may read depends on the job's mode (see AGENTS.md), so the check
@@ -341,7 +341,7 @@ export class JobsController {
   }
 
   @Post(':jobId/student-match-results/:correlationId/decisions')
-  @AllowMetatenant('job.metatenant.update')
+  @AllowMetatenant('job.metatenant.match-results.update')
   @Authorize('job.match-results.update')
   async decideStudentMatch(
     @Param('jobId', ParseIntPipe) jobId: number,
