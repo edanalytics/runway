@@ -2,9 +2,12 @@ import {
   EarthmoverBundleTypes,
   JobInputParamDto,
   JsonArray,
+  PostStudentMatchDecisionDto,
+  StudentMatchDecisionWithUser,
   toGetJobTemplateDto,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/client';
 import { FileService } from '../files/file.service';
 import { rosterFileKey } from '../earthbeam/roster-path';
@@ -88,6 +91,104 @@ export class JobsService {
           suggestions: studentMatchSuggestion,
         })),
       })),
+    };
+  }
+
+  /**
+   * Appends a decision to the student's history (see AGENTS.md). The write
+   * names the version it saw, and inserts the next one only if that is still
+   * the latest, so a write from a stale view, or the loser of a race, writes
+   * nothing.
+   */
+  async decideStudentMatch(
+    input: {
+      jobId: Job['id'];
+      correlationId: string;
+      userId: number;
+      decision: PostStudentMatchDecisionDto;
+    },
+    prisma: PrismaClient
+  ): Promise<
+    | {
+        status: 'SUCCESS';
+        data: { version: number; decision: StudentMatchDecisionWithUser | null };
+      }
+    | {
+        status: 'ERROR';
+        code: 'not_found' | 'decision_changed' | 'results_changed' | 'invalid_target';
+      }
+  > {
+    const { jobId, correlationId, userId } = input;
+    const { version, kind, resultId = null, ordinal = null } = input.decision;
+
+    // Ruling out an unknown student here means a foreign key violation below
+    // can only be the target's.
+    const student = await prisma.studentInputDetails.findUnique({
+      where: { jobId_correlationId: { jobId, correlationId } },
+      select: { studentMatchResult: { select: { id: true }, orderBy: { runId: 'desc' } } },
+    });
+    if (!student) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+
+    if (kind === 'match') {
+      const resultIds = student.studentMatchResult.map(({ id }) => id.toString());
+      if (!resultIds.includes(resultId!)) {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
+      // Reviewers pick from the latest search. A pick from an earlier one
+      // means the page predates it. Checked before the insert rather than in
+      // it: a search landing in between is harmless, since new results never
+      // invalidate a decision already made.
+      if (resultIds[0] !== resultId) {
+        return { status: 'ERROR', code: 'results_changed' };
+      }
+    }
+
+    let inserted: { seq: number }[];
+    try {
+      // Version 0 means the student had no decisions; otherwise the row at
+      // that version must exist and, for an undo, not be an undo itself.
+      // If a later row exists, the insert collides with it on the primary key
+      // and does nothing, and so does the loser of two racing writes.
+      inserted = await prisma.$queryRaw<{ seq: number }[]>`
+        INSERT INTO public.student_match_decision
+          (job_id, correlation_id, seq, kind, result_id, ordinal, decided_by_id)
+        SELECT ${jobId}::int, ${correlationId}, ${version}::int + 1,
+               ${kind}::public.student_match_decision_kind,
+               ${resultId}::bigint, ${ordinal}::int, ${userId}::int
+        WHERE (${version}::int = 0 AND ${kind} <> 'undo')
+           OR EXISTS (
+             SELECT 1 FROM public.student_match_decision
+             WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
+               AND seq = ${version}::int
+               AND (${kind} <> 'undo' OR kind <> 'undo'))
+        ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
+        RETURNING seq
+      `;
+    } catch (err) {
+      // The student exists, so a foreign key violation means the ordinal isn't
+      // in the result. Matched by SQLSTATE alone: messages quote row values.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.meta?.code === '23503') {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
+      throw err;
+    }
+    if (inserted.length === 0) {
+      return { status: 'ERROR', code: 'decision_changed' };
+    }
+
+    const row = await prisma.studentMatchDecision.findUniqueOrThrow({
+      where: { jobId_correlationId_seq: { jobId, correlationId, seq: inserted[0].seq } },
+      include: { user: true },
+    });
+    const { user, ...decision } = row;
+    return {
+      status: 'SUCCESS',
+      data: {
+        version: row.seq,
+        decision: row.kind === 'undo' ? null : { ...decision, decidedBy: user },
+      },
     };
   }
 

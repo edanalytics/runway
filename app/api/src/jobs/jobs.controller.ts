@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
@@ -19,7 +20,7 @@ import {
 import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { JobsService } from './jobs.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
@@ -30,12 +31,14 @@ import {
   NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
+  PostStudentMatchDecisionDto,
   PutJobResolveDto,
   toGetJobDto,
   toGetOutputFileDto,
   toGetRunUpdateDto,
   toGetStudentMatchResultsDto,
   toJobErrorWrapperDto,
+  toPostStudentMatchDecisionResponseDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { TenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
@@ -344,6 +347,66 @@ export class JobsController {
       throw new ForbiddenException('Forbidden');
     }
     return toGetStudentMatchResultsDto(await this.jobService.getStudentMatchResults(jobId));
+  }
+
+  @Post(':jobId/student-match-results/:correlationId/decisions')
+  @AllowMetatenant('job.metatenant.update')
+  @Authorize('job.match-results.update')
+  async decideStudentMatch(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Param('correlationId') correlationId: string,
+    @Body() decision: PostStudentMatchDecisionDto,
+    @Req() req: Request
+  ) {
+    if (!req.job) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    // Only fuzzy mode's review is actionable. In background mode the ID-based
+    // run has already delivered, so its suggestions are read-only, for anyone.
+    if (req.job.idMatchingMode !== 'fuzzy') {
+      throw new ForbiddenException('Forbidden');
+    }
+
+    const session = plainToInstance(GetSessionDataDto, req.user);
+    let result: Awaited<ReturnType<JobsService['decideStudentMatch']>>;
+    try {
+      result = await this.jobService.decideStudentMatch(
+        { jobId, correlationId, userId: session.user.id, decision },
+        this.prisma
+      );
+    } catch (err) {
+      // Ids and codes only: a database error's message can quote row values.
+      const sqlstate =
+        err instanceof Prisma.PrismaClientKnownRequestError && typeof err.meta?.code === 'string'
+          ? ` sqlstate=${err.meta.code}`
+          : '';
+      this.logger.error(
+        `student match decision: jobId=${jobId} outcome=FAILED cause=${
+          err instanceof Error ? err.name : 'unknown'
+        }${sqlstate}`
+      );
+      throw new InternalServerErrorException('Failed to save the decision');
+    }
+
+    if (result.status === 'ERROR') {
+      switch (result.code) {
+        case 'not_found':
+          throw new NotFoundException('Student not found');
+        case 'invalid_target':
+          throw new BadRequestException('The suggestion is not one of this student’s');
+        // No current decision or results in the body: the page refetches, and
+        // the error carries no student data.
+        case 'decision_changed':
+        case 'results_changed':
+          throw new ConflictException({ statusCode: 409, code: result.code });
+        default: {
+          const unhandled: never = result.code;
+          throw new InternalServerErrorException(`Unhandled decision outcome: ${unhandled}`);
+        }
+      }
+    }
+    return toPostStudentMatchDecisionResponseDto(result.data);
   }
 
   @Get(':jobId/notes')
