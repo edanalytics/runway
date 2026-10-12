@@ -1,6 +1,5 @@
 import request from 'supertest';
 import { IdMatchingMode, Job, Run } from '@prisma/client';
-import { EarthbeamApiAuthService } from 'api/src/earthbeam/api/auth/earthbeam-api-auth.service';
 import { seedJob } from '../factories/job-factory';
 import { bundleA } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigB2526 } from '../fixtures/context-fixtures/ods-fixture';
@@ -11,21 +10,14 @@ import { authHelper } from '../helpers/oidc/auth-flow';
 import { GetJobDto, GetSessionDataDto, PrivilegeKey } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { JobsService } from 'api/src/jobs/jobs.service';
+import { reportMatchResults } from '../helpers/report-match-results';
 
 describe('GET /jobs/:jobId/student-match-results', () => {
   let jobA: Job;
   let runA: Run;
   let endpoint: string;
 
-  /** Report match results for a run the way the Executor does. */
-  const report = async (runId: number, body: unknown[]) => {
-    const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
-    const res = await request(app.getHttpServer())
-      .post(`/earthbeam/jobs/${runId}/student-match-results`)
-      .set('Authorization', `Bearer ${token}`)
-      .send(body);
-    expect(res.status).toBe(201);
-  };
+  const report = reportMatchResults;
 
   beforeEach(async () => {
     const seeded = await seedJob({
