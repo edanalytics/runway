@@ -318,7 +318,7 @@ export const WorkspaceReview = ({
 }: {
   layout?: 'split' | 'topbar' | 'table' | 'inline' | 'stacked';
 }) => {
-  const { job, groups, isLoading, isError, statusOf, decisions } = useReviewSession();
+  const { job, groups, overLimit, isLoading, isError, statusOf, decisions } = useReviewSession();
   // null means that filter is off. Clicking the active chip turns it off.
   // The split view groups the list by status instead of filtering by it.
   const grouped = layout === 'split';
@@ -407,6 +407,17 @@ export const WorkspaceReview = ({
 
   if (isLoading) return <Spinner color="blue.50" />;
   if (isError) return <Box>Couldn't load unmatched students.</Box>;
+  // Past the review limit the API sends only the count: that many students to
+  // match means something is wrong with the file, not a queue to work through.
+  if (overLimit && !groups.length) {
+    return (
+      <Box textStyle="body" layerStyle="contentBox" padding="400">
+        {overLimit.toLocaleString()} students couldn't be matched, which is too many to review here.
+        That usually means something is off with the file, such as the wrong ID column. Check the
+        file and reprocess it.
+      </Box>
+    );
+  }
   if (!groups.length) return <Box>No unmatched students for this assessment.</Box>;
 
   const selected = groups.find((g) => g.correlationId === selectedId) ?? queue[0] ?? groups[0];

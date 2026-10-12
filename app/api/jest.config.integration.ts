@@ -7,6 +7,8 @@ export default {
     '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
+  // Unit specs under src/ run in jest.config.ts, which in turn ignores integration/.
+  roots: ['<rootDir>/integration'],
   moduleNameMapper: {
     '^pg-boss$': '<rootDir>/integration/helpers/mocks/pg-boss.mock.ts',
   },

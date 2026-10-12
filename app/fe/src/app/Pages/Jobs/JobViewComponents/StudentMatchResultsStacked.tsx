@@ -24,7 +24,8 @@ import { Detail, FIELDS, fieldsIn, suggestionsOf, tableSx } from './studentMatch
  * field compares down the column.
  */
 export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
-  const { data: groups, isLoading, isError } = useQuery(getJobStudentMatchResults(String(job.id)));
+  const { data, isLoading, isError } = useQuery(getJobStudentMatchResults(String(job.id)));
+  const groups = data?.students;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (correlationId: string) =>
     setExpanded((current) => {
@@ -53,6 +54,9 @@ export const StudentMatchResultsStacked = ({ job }: { job: GetJobDto }) => {
   }
   if (isError) {
     return <Box textStyle="body">Couldn't load unmatched students.</Box>;
+  }
+  if (data && !data.students) {
+    return <Box textStyle="body">{data.count} unmatched students: too many to list here.</Box>;
   }
   if (!groups?.length) {
     return (

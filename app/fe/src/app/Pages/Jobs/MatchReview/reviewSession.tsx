@@ -96,6 +96,8 @@ export type SearchState = { terms: SearchTerms; hits: SearchHit[] | null };
 type Session = {
   job: GetJobDto;
   groups: GetStudentInputDetailsDto[];
+  /** How many students there are when there are too many to fetch for review, else null. */
+  overLimit: number | null;
   isLoading: boolean;
   isError: boolean;
   roster: RosterStudent[];
@@ -197,7 +199,10 @@ export const ReviewSessionProvider = ({
     }
   };
   const groups = useMemo(
-    () => [...(data ?? []), ...(simulateLarge ? syntheticStudents(240, job.lastRun?.id ?? 0) : [])],
+    () => [
+      ...(data?.students ?? []),
+      ...(simulateLarge ? syntheticStudents(240, job.lastRun?.id ?? 0) : []),
+    ],
     [data, simulateLarge, job.lastRun?.id]
   );
   const roster = useMemo(() => pretendRoster(groups), [groups]);
@@ -379,6 +384,7 @@ export const ReviewSessionProvider = ({
   const session: Session = {
     job,
     groups,
+    overLimit: data && !data.students ? data.count : null,
     isLoading,
     isError,
     roster,

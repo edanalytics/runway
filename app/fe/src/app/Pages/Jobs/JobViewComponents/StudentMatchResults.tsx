@@ -28,7 +28,8 @@ import {
 
 /** Every student IDRS could not resolve, one expandable row each. */
 export const StudentMatchResults = ({ job }: { job: GetJobDto }) => {
-  const { data: groups, isLoading, isError } = useQuery(getJobStudentMatchResults(String(job.id)));
+  const { data, isLoading, isError } = useQuery(getJobStudentMatchResults(String(job.id)));
+  const groups = data?.students;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (correlationId: string) =>
     setExpanded((current) => {
@@ -44,6 +45,9 @@ export const StudentMatchResults = ({ job }: { job: GetJobDto }) => {
   }
   if (isError) {
     return <Box textStyle="body">Couldn't load unmatched students.</Box>;
+  }
+  if (data && !data.students) {
+    return <Box textStyle="body">{data.count} unmatched students: too many to list here.</Box>;
   }
   if (!groups?.length) {
     return (

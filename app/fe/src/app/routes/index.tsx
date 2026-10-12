@@ -19,7 +19,7 @@ export const Route = createFileRoute('/')({
     );
     const isPartnerAdmin = me?.roles?.includes('PartnerAdmin') ?? false;
     if (isAnyYearReadyForJobs || isPartnerAdmin) {
-      return redirect({ to: '/assessments' });
+      throw redirect({ to: '/assessments' });
     }
   },
   component: SetupRequiredPage,

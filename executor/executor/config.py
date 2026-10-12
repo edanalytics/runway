@@ -18,3 +18,6 @@ PLAUSIBLE_NON_UTF8_ENCODINGS = ["UTF-8-SIG", "UTF-16", "ISO-8859-1", "Windows-12
 # Search for these in executor.py to see how they are used and the downstream implications.
 MAX_EM_RUNTIME_SECONDS = 600
 MAX_ENCODING_DETECTION_SECONDS = 300
+
+# Set the batch size for chunking calls to the IDRS
+IDRS_BATCH_SIZE = 5000

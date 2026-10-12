@@ -236,6 +236,7 @@ model Job {
   name                String                @db.VarChar
   odsId               Int?                  @map("ods_id")
   schoolYearId        String                @map("school_year_id") @db.VarChar
+  /// [JobTemplate]
   template            Json
   configStatus        JobConfigStatus       @default(initialized) @map("config_status")
   tenantCode          String                @map("tenant_code") @db.VarChar

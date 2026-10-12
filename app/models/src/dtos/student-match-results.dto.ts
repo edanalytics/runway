@@ -4,10 +4,8 @@ import { makeSerializerCustomType } from '../utils/make-serializer';
 import { StudentInputDetailsJson, StudentRosterDetailsJson } from './earthbeam-api.dto';
 
 /*
- * A job's student match results, for review: each group of input details with
- * the result of every run that searched for it, and each result's suggestions
- * in order. The details and roster JSON are returned as stored, in the
- * Executor's snake_case.
+ * The details and roster JSON are returned as stored, in the Executor's
+ * snake_case.
  */
 
 export class GetStudentMatchSuggestionDto {
@@ -29,7 +27,8 @@ export class GetStudentMatchSuggestionDto {
 }
 
 export class GetStudentMatchResultDto {
-  // BIGINT in the database, which JSON can't carry, so it travels as a string.
+  // BIGINT in the database, which Prisma returns as a BigInt and
+  // JSON.stringify refuses, so it travels as a string.
   @Expose()
   @Type(() => String)
   id: string;
@@ -69,7 +68,17 @@ type StudentInputDetailsWithResults = StudentInputDetails & {
   results: (StudentMatchResult & { suggestions: StudentMatchSuggestion[] })[];
 };
 
-export const toGetStudentInputDetailsDto = makeSerializerCustomType<
-  GetStudentInputDetailsDto,
-  StudentInputDetailsWithResults
->(GetStudentInputDetailsDto);
+/** A job's students to match. Past the review limit, `students` is null. */
+export class GetStudentMatchResultsDto {
+  @Expose()
+  count: number;
+
+  @Expose()
+  @Type(() => GetStudentInputDetailsDto)
+  students: GetStudentInputDetailsDto[] | null;
+}
+
+export const toGetStudentMatchResultsDto = makeSerializerCustomType<
+  GetStudentMatchResultsDto,
+  { count: number; students: StudentInputDetailsWithResults[] | null }
+>(GetStudentMatchResultsDto);

@@ -14,7 +14,7 @@ export const Route = createFileRoute('/ods-configs')({
     );
     const doesAnyYearSendToOds = yearConfigs.some((y) => y.sendToOds);
     if (!doesAnyYearSendToOds) {
-      return redirect({ to: '/' });
+      throw redirect({ to: '/' });
     }
   },
   pendingComponent: () => <Box textStyle="body">loading...</Box>,
