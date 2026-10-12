@@ -68,6 +68,9 @@ export class JobsService {
   /**
    * Each job's student match counts. Job reads and the review read both use
    * this, so they count the same way. Jobs with no students are absent.
+   *
+   * Takes a Prisma client, though it only reads, so the review read can run it
+   * in its transaction. Other callers use the service's read-only client.
    */
   async getStudentMatchCounts(
     jobIds: Job['id'][],
