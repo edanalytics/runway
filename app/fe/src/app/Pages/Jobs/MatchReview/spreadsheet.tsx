@@ -7,6 +7,8 @@ import {
   ModalFooter,
   ModalHeader,
   ModalOverlay,
+  ListItem,
+  OrderedList,
   Spinner,
   VStack,
 } from '@chakra-ui/react';
@@ -80,6 +82,7 @@ export const SpreadsheetControls = () => {
   const input = useRef<HTMLInputElement>(null);
   const [checking, setChecking] = useState<number | null>(null);
   const [report, setReport] = useState<Report | null>(null);
+  const [explaining, setExplaining] = useState(false);
 
   /** The ID the app has for a student now: a saved or submitted match. */
   const appMatch = (correlationId: string) => {
@@ -281,12 +284,31 @@ export const SpreadsheetControls = () => {
 
   return (
     <>
-      <HStack gap="100">
-        <QuietButton size="sm" onClick={download}>
-          ⇩ Download spreadsheet
+      {/* A quiet footer to the list: the spreadsheet is a side route, not the
+          main one. */}
+      <HStack
+        gap="100"
+        justifyContent="flex-end"
+        paddingTop="200"
+        borderTopWidth="1px"
+        borderColor="blue.50-40"
+        opacity="0.8"
+        _hover={{ opacity: 1 }}
+        _focusWithin={{ opacity: 1 }}
+      >
+        <QuietButton
+          size="xs"
+          title="Work through these students in a spreadsheet"
+          onClick={() => setExplaining(true)}
+        >
+          ⇩ Download list
         </QuietButton>
-        <QuietButton size="sm" onClick={() => input.current?.click()}>
-          ⇧ Upload spreadsheet
+        <QuietButton
+          size="xs"
+          title="Upload a list you've filled in"
+          onClick={() => input.current?.click()}
+        >
+          ⇧ Upload list
         </QuietButton>
         <input
           ref={input}
@@ -300,6 +322,60 @@ export const SpreadsheetControls = () => {
           }}
         />
       </HStack>
+      <Modal isOpen={explaining} onClose={() => setExplaining(false)} size="xl">
+        <ModalOverlay />
+        <ModalContent bg="blue.700" color="blue.50">
+          <ModalHeader>Match students in a spreadsheet</ModalHeader>
+          <ModalBody>
+            <VStack alignItems="stretch" gap="300">
+              <Box>
+                Download all {groups.length} students as a CSV file to open in Excel or Google
+                Sheets, then upload it here when you're done.
+              </Box>
+              <OrderedList spacing="200" marginInlineStart="500">
+                <ListItem>
+                  In the{' '}
+                  <Box as="span" fontWeight="600">
+                    {ENTRY}
+                  </Box>{' '}
+                  column, enter the ID of the student each row matches. Their suggestions are in the
+                  columns to the right. Leave it blank if you're not sure.
+                </ListItem>
+                <ListItem>
+                  Leave the{' '}
+                  <Box as="span" fontWeight="600">
+                    Record ID
+                  </Box>{' '}
+                  column as it is. It's how Runway finds each student.
+                </ListItem>
+                <ListItem>
+                  Save the file as a CSV and upload it with{' '}
+                  <Box as="span" fontWeight="600">
+                    Upload list
+                  </Box>
+                  .
+                </ListItem>
+              </OrderedList>
+              <Box fontSize="0.9rem" opacity="0.8">
+                Runway saves matches for students still to review and tells you about anything it
+                couldn't use. It won't change a match you've already made here. Matches from the
+                file are submitted with your others, after you review them.
+              </Box>
+            </VStack>
+          </ModalBody>
+          <ModalFooter gap="200">
+            <QuietButton onClick={() => setExplaining(false)}>Cancel</QuietButton>
+            <PrimaryButton
+              onClick={() => {
+                download();
+                setExplaining(false);
+              }}
+            >
+              ⇩ Download
+            </PrimaryButton>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
       <Modal
         isOpen={checking !== null || report !== null}
         onClose={() => setReport(null)}
@@ -308,7 +384,7 @@ export const SpreadsheetControls = () => {
       >
         <ModalOverlay />
         <ModalContent bg="blue.700" color="blue.50">
-          <ModalHeader>Spreadsheet upload</ModalHeader>
+          <ModalHeader>Uploaded list</ModalHeader>
           <ModalBody>
             {checking !== null ? (
               <HStack gap="300" paddingY="300">

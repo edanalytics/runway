@@ -683,6 +683,10 @@ export const WorkspaceReview = ({
     </Box>
   );
 
+  // PROTOTYPE: work through the students in a spreadsheet instead, from the
+  // foot of the list.
+  const spreadsheet = <SpreadsheetControls />;
+
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
       {layout === 'split' ? (
@@ -775,6 +779,7 @@ export const WorkspaceReview = ({
               );
             }}
           />
+          {spreadsheet}
         </VStack>
       ) : stacked ? (
         <>
@@ -796,6 +801,7 @@ export const WorkspaceReview = ({
               selectedId={shownId}
               maxRows={10}
             />
+            {spreadsheet}
           </VStack>
           {pane}
         </>
@@ -815,6 +821,7 @@ export const WorkspaceReview = ({
             onOpen={open}
             lastOpened={selectedId}
           />
+          {spreadsheet}
         </VStack>
       ) : (
         <HStack
@@ -980,6 +987,7 @@ export const WorkspaceReview = ({
                 }
               )}
             </VStack>
+            {spreadsheet}
           </VStack>
           {pane}
         </HStack>
@@ -1409,15 +1417,11 @@ const Overview = ({
             );
           })}
         </HStack>
-        <HStack gap="200" flexWrap="wrap">
-          {/* PROTOTYPE: work through the students in a spreadsheet instead. */}
-          <SpreadsheetControls />
-          {onReview && (
-            <PrimaryButton isDisabled={!readyCount} onClick={onReview}>
-              Review and submit {readyCount || ''} {readyCount === 1 ? 'match' : 'matches'}
-            </PrimaryButton>
-          )}
-        </HStack>
+        {onReview && (
+          <PrimaryButton isDisabled={!readyCount} onClick={onReview}>
+            Review and submit {readyCount || ''} {readyCount === 1 ? 'match' : 'matches'}
+          </PrimaryButton>
+        )}
       </HStack>
       <ReviewProgress />
       {batches.length > 0 && (
