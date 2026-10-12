@@ -104,8 +104,9 @@ export class PostStudentMatchDecisionDto {
   resultId?: string;
 
   @IsMatchTarget(
-    (value) => Number.isInteger(value) && (value as number) >= 0,
-    'a non-negative integer'
+    (value) =>
+      Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 2 ** 31 - 1,
+    'a non-negative INTEGER'
   )
   ordinal?: number;
 }

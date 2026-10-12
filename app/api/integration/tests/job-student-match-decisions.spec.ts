@@ -154,6 +154,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     const res = await decide({ version: 0, kind: 'exclude' }, { correlationId: 'corr-unknown' });
 
     expect(res.status).toBe(404);
+    expect(await rowsOf('corr-unknown')).toEqual([]);
   });
 
   describe('a bad request', () => {
@@ -162,6 +163,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 })],
       ['a result that doesn’t exist', () => ({ resultId: '999999999', ordinal: 0 })],
       ['a result id that isn’t a number', () => ({ resultId: 'abc', ordinal: 0 })],
+      // Past what the insert's casts hold, which the DTO turns away rather
+      // than leaving the database to fail with a 500.
+      ['a result id past BIGINT', () => ({ resultId: '1'.repeat(19), ordinal: 0 })],
+      ['an ordinal past INTEGER', () => ({ resultId, ordinal: 2 ** 31 })],
       ['no target', () => ({})],
     ])('refuses a match to %s', async (_, target) => {
       const res = await decide({ version: 0, kind: 'match', ...target() });
@@ -184,6 +189,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ['an unknown kind', { version: 0, kind: 'not-in-roster' }],
       ['a negative version', { version: -1, kind: 'exclude' }],
       ['a fractional version', { version: 0.5, kind: 'exclude' }],
+      // seq is an INTEGER, and the next one would be version + 1.
+      ['a version with no INTEGER after it', { version: 2 ** 31 - 1, kind: 'exclude' }],
       ['a version that isn’t a number', { version: '0', kind: 'exclude' }],
       ['no version', { kind: 'exclude' }],
     ])('refuses %s', async (_, body) => {
@@ -339,6 +346,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const res = await decide({ version: 5, kind: 'exclude' });
 
       expect(res.status).toBe(409);
+      expect(res.body).toEqual(DECISION_CHANGED);
       expect(await rowsOf()).toHaveLength(1);
     });
 

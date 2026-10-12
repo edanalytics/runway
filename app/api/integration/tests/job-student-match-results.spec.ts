@@ -10,14 +10,12 @@ import { authHelper } from '../helpers/oidc/auth-flow';
 import { GetJobDto, GetSessionDataDto, PrivilegeKey } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { JobsService } from 'api/src/jobs/jobs.service';
-import { reportMatchResults } from '../helpers/report-match-results';
+import { reportMatchResults as report } from '../helpers/report-match-results';
 
 describe('GET /jobs/:jobId/student-match-results', () => {
   let jobA: Job;
   let runA: Run;
   let endpoint: string;
-
-  const report = reportMatchResults;
 
   /** Save a decision through the API, as a reviewer does. */
   const decide = async (
@@ -280,6 +278,24 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           { correlationId: 'corr-3', status: 'to-review', decision: null, decisionVersion: 2 },
         ]);
         expect(res.body.counts).toEqual({ toReview: 1, ready: 1, excluded: 1 });
+      });
+
+      it('shows no one as the decider once their user is deleted', async () => {
+        const goneUser = { email: 'gone@test.com', givenName: 'Gone', familyName: 'User' };
+        const { cookies: goneCookies } = await authHelper.login(idpA, goneUser, tenantA);
+        await reportStudents(['corr-1']);
+        await decide(goneCookies, 'corr-1', {
+          version: 0,
+          kind: 'match',
+          resultId: await resultIdOf('corr-1'),
+          ordinal: 0,
+        });
+        await prisma.user.deleteMany({ where: { email: goneUser.email } });
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(res.body.students[0].status).toBe('ready');
+        expect(res.body.students[0].decision.decidedBy).toBeNull();
       });
 
       it('keeps showing a match to an earlier result after a later run searches again', async () => {
