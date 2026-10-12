@@ -271,14 +271,14 @@ A match must pick from the student's latest result, the one from the highest run
 | Status | Meaning |
 |---|---|
 | 201 | `{ decision }`: the student's current decision, which is null after a clear. A decision is `{ version, kind, resultId, ordinal, decidedBy, decidedOn }` |
-| 400 | The body doesn't match the DTO, or the suggestion isn't in one of this student's results |
+| 400 | The body doesn't match the DTO, or `invalid_target`: the suggestion isn't in one of this student's results |
 | 401 / 403 | Not logged in, another tenant, no privilege, or not a `fuzzy` job |
-| 404 | The job has no such student |
+| 404 `not_found` | The job has no such student |
 | 409 `decision_changed` | `replacesVersion` isn't the current decision's, or a clear has nothing to clear. Nothing was written |
 | 409 `results_changed` | A match to an earlier result: a later run has searched again. Nothing was written |
 | 500 | An unexpected database failure, logged with the job id and SQLSTATE, never the message. If it came after the insert, the decision was saved, and a retry gets a 409 |
 
-A 409 body is `{ statusCode, code }` and carries no student data; the page refetches. A student's `status` comes from their current decision (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `clear` or none is `to-review`.
+The coded errors (404, 400 `invalid_target`, 409) have the body `{ statusCode, code, message }`: the page acts on `code`, and `message` is for generic error display. Neither carries student data. On a 409 the page refetches. A 400 from DTO validation has Nest's own body, with no `code`. A student's `status` comes from their current decision (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `clear` or none is `to-review`.
 
 Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `studentMatchCounts`, the same counts as the review read's, whose `total` never goes down. Status is computed by `GetJobDto` from these, so `toGetJobDto` requires the counts. Set them with `JobsService.withStudentMatchCounts`. Its single query is bounded to the given job ids, and also gives the review read its `counts`, so both count students the same way. An included `_count` on the list would aggregate the whole table.
 

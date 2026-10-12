@@ -158,25 +158,46 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     );
 
     expect(res.status).toBe(404);
+    expect(res.body).toEqual({
+      statusCode: 404,
+      code: 'not_found',
+      message: 'This student isn’t in the job.',
+    });
   });
 
   describe('a bad request', () => {
-    it.each<[string, () => Record<string, unknown>]>([
-      ['another student’s suggestion', () => ({ resultId: otherResultId, ordinal: 0 })],
-      ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 })],
-      ['no result id', () => ({ ordinal: 0 })],
-      ['a numeric result id', () => ({ resultId: Number(resultId), ordinal: 0 })],
+    const INVALID_TARGET = {
+      statusCode: 400,
+      code: 'invalid_target',
+      message: 'This student has no such suggestion.',
+    };
+
+    it.each<[string, () => Record<string, unknown>, object | undefined]>([
+      [
+        'another student’s suggestion',
+        () => ({ resultId: otherResultId, ordinal: 0 }),
+        INVALID_TARGET,
+      ],
+      ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 }), INVALID_TARGET],
+      ['no result id', () => ({ ordinal: 0 }), INVALID_TARGET],
+      ['a numeric result id', () => ({ resultId: Number(resultId), ordinal: 0 }), INVALID_TARGET],
       // The rest get past the service's check of the result id, so only the
       // DTO stands between them and the database: a fraction would be rounded
       // to a neighbouring suggestion and saved, and the others would be 500s.
-      ['a fractional ordinal', () => ({ resultId, ordinal: 0.5 })],
-      ['an ordinal given as a string', () => ({ resultId, ordinal: '0' })],
-      ['an ordinal past INTEGER', () => ({ resultId, ordinal: 2 ** 31 })],
-      ['no ordinal', () => ({ resultId })],
-    ])('refuses a match to %s', async (_, target) => {
+      // The DTO's 400s have Nest's own body, with no code.
+      ['a fractional ordinal', () => ({ resultId, ordinal: 0.5 }), undefined],
+      ['an ordinal given as a string', () => ({ resultId, ordinal: '0' }), undefined],
+      ['an ordinal past INTEGER', () => ({ resultId, ordinal: 2 ** 31 }), undefined],
+      ['no ordinal', () => ({ resultId }), undefined],
+    ])('refuses a match to %s', async (_, target, body) => {
       const res = await decide({ replacesVersion: null, kind: 'match', ...target() });
 
       expect(res.status).toBe(400);
+      if (body) {
+        expect(res.body).toEqual(body);
+      } else {
+        expect(res.body.code).toBeUndefined();
+      }
       expect(await rowsOf()).toEqual([]);
     });
 
@@ -325,7 +346,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const res = await matchFirst();
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual({ statusCode: 409, code: 'results_changed' });
+      expect(res.body).toEqual({
+        statusCode: 409,
+        code: 'results_changed',
+        message: 'This student has newer suggestions than the page shows.',
+      });
       expect(await rowsOf()).toEqual([]);
     });
   });
@@ -346,7 +371,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   });
 
   describe('a write from a stale view', () => {
-    const DECISION_CHANGED = { statusCode: 409, code: 'decision_changed' };
+    const DECISION_CHANGED = {
+      statusCode: 409,
+      code: 'decision_changed',
+      message: 'This student’s decision has changed since the page loaded.',
+    };
 
     // A page loaded after the first match holds version 1. Since then the
     // match was cleared and made again, so the decision looks as it did (ABA).
