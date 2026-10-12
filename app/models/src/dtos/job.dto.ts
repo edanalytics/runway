@@ -172,10 +172,9 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: students whose records aren't delivered yet, because a
-   * reviewer hasn't decided them, or saved a match that hasn't been submitted.
-   * Never in fuzzy background mode, where the ID-based run has already
-   * delivered them.
+   * Fuzzy mode: students not yet excluded. Their records aren't delivered,
+   * even with a saved match, which delivers nothing on its own. Never in fuzzy
+   * background mode, where the ID-based run has already delivered them.
    */
   get hasFuzzyStudentsToMatch() {
     return this.idMatchingMode === 'fuzzy' && this.outstandingMatchCount > 0;

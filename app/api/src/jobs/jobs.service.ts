@@ -58,10 +58,9 @@ export class JobsService {
   studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
 
   /**
-   * Each job's students to match, by their current decision: every job read
-   * and the review counts use this, so they agree. Bounded to the given jobs,
-   * which a list must keep: unbounded, it would aggregate the whole table.
-   * Jobs with no students are absent.
+   * Each job's students to match, by their current decision. Job reads and the
+   * review counts both use this, so they count the same way. Jobs with no
+   * students are absent.
    */
   async getStudentMatchCounts(jobIds: Job['id'][], prisma: PrismaClient = this.prisma) {
     // A student's current decision is their highest seq, and an undo there
@@ -157,12 +156,7 @@ export class JobsService {
     );
   }
 
-  /**
-   * Appends a decision to the student's history (see AGENTS.md). The write
-   * names the version it saw, and inserts the next one only if that is still
-   * the latest, so a write from a stale view, or the loser of a race, writes
-   * nothing.
-   */
+  /** Appends a decision to the student's history. See AGENTS.md. */
   async decideStudentMatch(
     input: {
       jobId: Job['id'];
@@ -184,8 +178,6 @@ export class JobsService {
     const { jobId, correlationId, userId } = input;
     const { version, kind, resultId = null, ordinal = null } = input.decision;
 
-    // Ruling out an unknown student here means a foreign key violation below
-    // can only be the target's.
     const student = await prisma.studentInputDetails.findUnique({
       where: { jobId_correlationId: { jobId, correlationId } },
       select: { studentMatchResult: { select: { id: true }, orderBy: { runId: 'desc' } } },
@@ -210,8 +202,9 @@ export class JobsService {
 
     let inserted: { seq: number }[];
     try {
-      // Version 0 means the student had no decisions; otherwise the row at
-      // that version must exist and, for an undo, not be an undo itself.
+      // Version 0 means the student had no decisions, so there's nothing to
+      // undo. Otherwise the row at that version must exist and, for an undo,
+      // not be an undo itself.
       // If a later row exists, the insert collides with it on the primary key
       // and does nothing, and so does the loser of two racing writes.
       inserted = await prisma.$queryRaw<{ seq: number }[]>`
@@ -230,8 +223,9 @@ export class JobsService {
         RETURNING seq
       `;
     } catch (err) {
-      // The student exists, so a foreign key violation means the ordinal isn't
-      // in the result. Matched by SQLSTATE alone: messages quote row values.
+      // The student and the result were checked above, so a foreign key
+      // violation means the ordinal isn't in the result. Matched by SQLSTATE
+      // alone: messages quote row values.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.meta?.code === '23503') {
         return { status: 'ERROR', code: 'invalid_target' };
       }

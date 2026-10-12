@@ -279,12 +279,12 @@ A match must pick from the student's latest result, the one from the highest run
 
 A 409 body is `{ statusCode, code }` and carries no student data; the page refetches. A student's `status` comes from their current decision (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `undo` or none is `to-review`.
 
-Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode`, `studentsToMatchCount` (the total, which never goes down) and `outstandingMatchCount` (students not excluded). Status is computed by `GetJobDto` from them, so `toGetJobDto` requires both counts. Set them with `JobsService.withStudentMatchCounts`. Its single query is bounded to the given job ids, and also gives the review read its `counts`, so the two always agree. An included `_count` on the list would aggregate the whole table.
+Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode`, `studentsToMatchCount` (the total, which never goes down) and `outstandingMatchCount` (students not excluded). Status is computed by `GetJobDto` from them, so `toGetJobDto` requires both counts. Set them with `JobsService.withStudentMatchCounts`. Its single query is bounded to the given job ids, and also gives the review read its `counts`, so both count students the same way. An included `_count` on the list would aggregate the whole table.
 
 The mode decides who reads the results and whether they affect the status:
 
 - **`id_based_fuzzy_background`**: only `PartnerAdmin` and `SupportUser`, through `job.match-results.background.read`. The mode exists for them to check suggestions before a partner switches to fuzzy. The ID-based run has already delivered, so nothing can be decided and the counts leave the status alone.
-- **`fuzzy`** (and `id_based`): any user with `job.match-results.read`. In fuzzy mode, a successful last run with any outstanding students makes the job `complete with errors`. That includes students with a saved match, since they deliver nothing until submitted. The job can be marked resolved, as with unmatched student IDs. Once every student is excluded, the job is `success`.
+- **`fuzzy`** (and `id_based`): any user with `job.match-results.read`. In fuzzy mode, a successful last run with any outstanding students makes the job `complete with errors`, which can be marked resolved, as with unmatched student IDs. Students with a saved match are outstanding, since a saved match delivers nothing on its own; excluded students aren't.
 
 ### S3 Path Structure
 

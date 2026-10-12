@@ -195,8 +195,7 @@ export class GetStudentInputDetailsDto {
 
   /**
    * The concurrency token for this student's next decision: how many decisions
-   * they've had, undos included, so 0 for none. An undo leaves no decision but
-   * still moves this on.
+   * they've had, undos included, so 0 for none.
    */
   @Expose()
   decisionVersion: number;
