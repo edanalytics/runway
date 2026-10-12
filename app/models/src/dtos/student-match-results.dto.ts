@@ -94,7 +94,7 @@ export class PostStudentMatchDecisionDto {
 
 /** A student's current decision. A clear leaves none, so it never appears here. */
 export class GetStudentMatchDecisionDto {
-  /** The concurrency token: send it back with the student's next decision. */
+  /** The concurrency token: send it as `replacesVersion` with the student's next decision. */
   @Expose()
   version: number;
 

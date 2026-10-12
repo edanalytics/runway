@@ -273,7 +273,7 @@ A match must pick from the student's latest result, the one from the highest run
 | 201 | `{ decision }`: the student's current decision, which is null after a clear. A decision is `{ version, kind, resultId, ordinal, decidedBy, decidedOn }` |
 | 400 | The body doesn't match the DTO, or `invalid_target`: the suggestion isn't in one of this student's results |
 | 401 / 403 | Not logged in, another tenant, no privilege, or not a `fuzzy` job |
-| 404 `not_found` | The job has no such student |
+| 404 | `not_found`: the job has no such student. An unknown job is also a 404, with Nest's body and no `code` |
 | 409 `decision_changed` | `replacesVersion` isn't the current decision's, or a clear has nothing to clear. Nothing was written |
 | 409 `results_changed` | A match to an earlier result: a later run has searched again. Nothing was written |
 | 500 | An unexpected database failure, logged with the job id and SQLSTATE, never the message. If it came after the insert, the decision was saved, and a retry gets a 409 |

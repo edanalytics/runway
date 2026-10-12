@@ -195,6 +195,12 @@ export class JobsService {
     // Only a match names a suggestion; a target sent with anything else is ignored.
     const { resultId = null, ordinal = null } = kind === 'match' ? input.decision : {};
 
+    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
+    // would fail on it with a 500.
+    if (correlationId.includes('\0')) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+
     const student = await prisma.studentInputDetails.findUnique({
       where: { jobId_correlationId: { jobId, correlationId } },
       select: { studentMatchResult: { select: { id: true }, orderBy: { runId: 'desc' } } },

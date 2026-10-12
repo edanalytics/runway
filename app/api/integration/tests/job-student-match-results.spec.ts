@@ -7,10 +7,11 @@ import { tenantA, tenantB, tenantDGlobal } from '../fixtures/context-fixtures/te
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
-import { GetJobDto, GetSessionDataDto, PrivilegeKey } from '@edanalytics/models';
+import { GetJobDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { JobsService } from 'api/src/jobs/jobs.service';
 import { reportMatchResults as report } from '../helpers/report-match-results';
+import { withoutPrivilege } from '../helpers/without-privilege';
 
 describe('GET /jobs/:jobId/student-match-results', () => {
   let jobA: Job;
@@ -78,23 +79,13 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
     it('rejects a user without the match results privilege', async () => {
       // Every role has it, so take it from the session.
-      const { get } = Object.getOwnPropertyDescriptor(GetSessionDataDto.prototype, 'privileges')!;
-      const privileges = jest
-        .spyOn(GetSessionDataDto.prototype, 'privileges', 'get')
-        .mockImplementation(function (this: GetSessionDataDto) {
-          const granted: Set<PrivilegeKey> = get!.call(this);
-          granted.delete('job.match-results.read');
-          return granted;
-        });
-      try {
-        const { cookies } = await authHelper.login(idpA, userA, tenantA);
+      const { cookies } = await authHelper.login(idpA, userA, tenantA);
 
-        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+      const res = await withoutPrivilege('job.match-results.read', () =>
+        request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies])
+      );
 
-        expect(res.status).toBe(403);
-      } finally {
-        privileges.mockRestore();
-      }
+      expect(res.status).toBe(403);
     });
   });
 
@@ -419,6 +410,16 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.counts.total).toBe(1);
+      });
+
+      it('refuses a support user across tenants without the cross-tenant privilege', async () => {
+        const job = await seedReportedJob('id_based_fuzzy_background', true);
+
+        const res = await withoutPrivilege('job.metatenant.match-results.read', () =>
+          read(job.id, tenantDGlobal, SUPPORT_USER)
+        );
+
+        expect(res.status).toBe(403);
       });
     });
   });

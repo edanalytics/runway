@@ -8,8 +8,8 @@ import { tenantA, tenantB, tenantDGlobal } from '../fixtures/context-fixtures/te
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
-import { GetSessionDataDto, PrivilegeKey } from '@edanalytics/models';
 import { reportMatchResults } from '../helpers/report-match-results';
+import { withoutPrivilege } from '../helpers/without-privilege';
 import { pool } from '../helpers/db/client';
 import { JobsService } from 'api/src/jobs/jobs.service';
 
@@ -101,22 +101,12 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
     it('rejects a user without the match results update privilege', async () => {
       // Every role has it, so take it from the session.
-      const { get } = Object.getOwnPropertyDescriptor(GetSessionDataDto.prototype, 'privileges')!;
-      const privileges = jest
-        .spyOn(GetSessionDataDto.prototype, 'privileges', 'get')
-        .mockImplementation(function (this: GetSessionDataDto) {
-          const granted: Set<PrivilegeKey> = get!.call(this);
-          granted.delete('job.match-results.update');
-          return granted;
-        });
-      try {
-        const res = await decide({ replacesVersion: null, kind: 'exclude' });
+      const res = await withoutPrivilege('job.match-results.update', () =>
+        decide({ replacesVersion: null, kind: 'exclude' })
+      );
 
-        expect(res.status).toBe(403);
-        expect(await rowsOf()).toEqual([]);
-      } finally {
-        privileges.mockRestore();
-      }
+      expect(res.status).toBe(403);
+      expect(await rowsOf()).toEqual([]);
     });
 
     it('lets a support user decide across tenants', async () => {
@@ -130,6 +120,21 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
       expect(res.status).toBe(201);
       expect(await rowsOf('corr-1', tenantBJob.id)).toHaveLength(1);
+    });
+
+    it('refuses a support user across tenants without the cross-tenant privilege', async () => {
+      const tenantBJob = await seedReportedJob('fuzzy', true);
+      const { cookies: support } = await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_USER);
+
+      const res = await withoutPrivilege('job.metatenant.match-results.update', () =>
+        decide(
+          { replacesVersion: null, kind: 'exclude' },
+          { jobId: tenantBJob.id, cookie: support }
+        )
+      );
+
+      expect(res.status).toBe(403);
+      expect(await rowsOf('corr-1', tenantBJob.id)).toEqual([]);
     });
   });
 
@@ -151,11 +156,12 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     );
   });
 
-  it('returns 404 for a student the job doesn’t have', async () => {
-    const res = await decide(
-      { replacesVersion: null, kind: 'exclude' },
-      { correlationId: 'corr-unknown' }
-    );
+  it.each([
+    ['a student the job doesn’t have', 'corr-unknown'],
+    // PostgreSQL text can't hold one, so it must not reach a query.
+    ['a correlation id with a NUL', 'corr%00'],
+  ])('returns 404 for %s', async (_, correlationId) => {
+    const res = await decide({ replacesVersion: null, kind: 'exclude' }, { correlationId });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({
@@ -431,8 +437,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       // The clear's own seq isn't a decision's version, so it's no way round.
       const atClear = await decide({ replacesVersion: 2, kind: 'clear' });
 
-      expect([first.status, again.status, atClear.status]).toEqual([409, 409, 409]);
-      expect(again.body).toEqual(DECISION_CHANGED);
+      expect([first.body, again.body, atClear.body]).toEqual(Array(3).fill(DECISION_CHANGED));
       expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear']);
     });
 
