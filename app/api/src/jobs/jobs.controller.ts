@@ -28,6 +28,7 @@ import type { Tenant as TTenant, User } from '@prisma/client';
 import {
   GetJobDto,
   GetSessionDataDto,
+  IPassportSession,
   NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
@@ -46,6 +47,7 @@ import { TenantResourceKey } from '../auth/authorization/tenant-resource-key.dec
 import { PostJobNoteDto, PutJobNoteDto, toGetJobNoteDto } from 'models/src/dtos/job-note.dto';
 import { AllowMetatenant } from '../auth/authorization/allow-metatenant.decorator';
 import { Authorize } from '../auth/helpers/authorize.decorator';
+import { ReqSession } from '../auth/helpers/session.decorator';
 
 @Controller()
 @ApiTags('Job')
@@ -347,6 +349,7 @@ export class JobsController {
     @Param('jobId', ParseIntPipe) jobId: number,
     @Param('correlationId') correlationId: string,
     @Body() decision: PostStudentMatchDecisionDto,
+    @ReqSession() session: IPassportSession,
     @Req() req: Request
   ) {
     if (!req.job) {
@@ -359,7 +362,6 @@ export class JobsController {
       throw new ForbiddenException('Forbidden');
     }
 
-    const session = plainToInstance(GetSessionDataDto, req.user);
     let result: Awaited<ReturnType<JobsService['decideStudentMatch']>>;
     try {
       result = await this.jobService.decideStudentMatch(
