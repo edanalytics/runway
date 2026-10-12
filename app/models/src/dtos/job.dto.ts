@@ -169,22 +169,15 @@ export class GetJobDto
   }
 
   /**
-   * How many students to match aren't done: for now, every one not excluded.
-   * A saved match still counts, since it delivers nothing until submitted.
-   * Once submission is built, a student also stops counting when a run with
-   * their submitted match has been attempted.
-   */
-  get outstandingMatchCount() {
-    const { toReview, ready } = this.studentMatchCounts;
-    return toReview + ready;
-  }
-
-  /**
-   * Fuzzy mode: students still outstanding. Never in fuzzy background mode,
-   * where the ID-based run has already delivered them.
+   * Fuzzy mode: students who aren't done, which for now is every one not
+   * excluded. A saved match still counts, since it delivers nothing until
+   * submitted. Once submission is built, a student is also done when a run
+   * with their submitted match has been attempted. Never in fuzzy background
+   * mode, where the ID-based run has already delivered them.
    */
   get hasFuzzyStudentsToMatch() {
-    return this.idMatchingMode === 'fuzzy' && this.outstandingMatchCount > 0;
+    const { toReview, ready } = this.studentMatchCounts;
+    return this.idMatchingMode === 'fuzzy' && toReview + ready > 0;
   }
 
   /**

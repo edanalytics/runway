@@ -440,30 +440,29 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
     /** The counts, as the job read and the list each report them. */
     const countsOf = async (jobId: number) =>
-      (await readJob(jobId)).map(({ studentMatchCounts, outstandingMatchCount }) => {
+      (await readJob(jobId)).map(({ studentMatchCounts }) => {
         const { total, toReview, ready, excluded } = studentMatchCounts;
         // Every student has exactly one status.
         expect(toReview + ready + excluded).toBe(total);
-        return { ...studentMatchCounts, outstanding: outstandingMatchCount };
+        return studentMatchCounts;
       });
 
-    it('counts each status and the outstanding students beside the total', async () => {
+    it('counts each status beside the total', async () => {
       await reportStudents(['corr-1', 'corr-2']);
-      const both = (toReview: number, ready: number, excluded: number, outstanding: number) =>
-        Array(2).fill({ total: 2, toReview, ready, excluded, outstanding });
+      const both = (toReview: number, ready: number, excluded: number) =>
+        Array(2).fill({ total: 2, toReview, ready, excluded });
 
-      expect(await countsOf(jobA.id)).toEqual(both(2, 0, 0, 2));
+      expect(await countsOf(jobA.id)).toEqual(both(2, 0, 0));
 
       await decide(cookies, 'corr-1', { version: 0, kind: 'exclude' });
-      expect(await countsOf(jobA.id)).toEqual(both(1, 0, 1, 1));
+      expect(await countsOf(jobA.id)).toEqual(both(1, 0, 1));
 
-      // A saved match has delivered nothing yet, so it's still outstanding.
       const resultId = await resultIdOf('corr-2');
       await decide(cookies, 'corr-2', { version: 0, kind: 'match', resultId, ordinal: 0 });
-      expect(await countsOf(jobA.id)).toEqual(both(0, 1, 1, 1));
+      expect(await countsOf(jobA.id)).toEqual(both(0, 1, 1));
 
       await decide(cookies, 'corr-1', { version: 1, kind: 'undo' });
-      expect(await countsOf(jobA.id)).toEqual(both(1, 1, 0, 2));
+      expect(await countsOf(jobA.id)).toEqual(both(1, 1, 0));
     });
 
     it('shows a fuzzy job whose students are all excluded as success, and won’t resolve it', async () => {
@@ -483,11 +482,21 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(resolved.status).toBe(400);
     });
 
-    it('shows a fuzzy job with students to match as complete with errors', async () => {
+    it.each([
+      ['to review', async () => undefined],
+      // A saved match has delivered nothing yet, so it isn't done.
+      [
+        'with only a saved match',
+        async () => {
+          const resultId = await resultIdOf('corr-1');
+          await decide(cookies, 'corr-1', { version: 0, kind: 'match', resultId, ordinal: 0 });
+        },
+      ],
+    ])('shows a fuzzy job with a student %s as complete with errors', async (_, act) => {
       await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
-      await report(runA.id, [
-        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
-      ]);
+      await reportStudents(['corr-1', 'corr-2']);
+      await decide(cookies, 'corr-2', { version: 0, kind: 'exclude' });
+      await act();
 
       const [onJob, inList] = await readJob(jobA.id);
 
@@ -559,14 +568,13 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       const jobs = await readJob(backgroundJob.id);
 
-      // Outstanding, yet still a success: the ID-based run has delivered.
+      // A student to review, yet still a success: the ID-based run has delivered.
       expect(
-        jobs.map(({ studentMatchCounts, outstandingMatchCount, status }) => ({
-          total: studentMatchCounts.total,
-          outstandingMatchCount,
+        jobs.map(({ studentMatchCounts, status }) => ({
+          toReview: studentMatchCounts.toReview,
           status,
         }))
-      ).toEqual(Array(2).fill({ total: 1, outstandingMatchCount: 1, status: 'success' }));
+      ).toEqual(Array(2).fill({ toReview: 1, status: 'success' }));
     });
   });
 });
