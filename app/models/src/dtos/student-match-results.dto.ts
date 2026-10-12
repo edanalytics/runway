@@ -1,5 +1,5 @@
 import { Expose, plainToInstance, Transform, Type } from 'class-transformer';
-import { IsIn, IsInt, Max, Min, registerDecorator, ValidationOptions } from 'class-validator';
+import { IsIn, IsInt, Max, Min, ValidateIf } from 'class-validator';
 import {
   StudentInputDetails,
   StudentMatchDecision,
@@ -56,34 +56,6 @@ export class GetStudentMatchResultDto {
 
 const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'undo'];
 
-/**
- * Part of the suggestion a match picks: required and valid for a match, absent
- * for exclude and undo.
- */
-function IsMatchTarget(
-  isValid: (value: unknown) => boolean,
-  description: string,
-  validationOptions?: ValidationOptions
-) {
-  return function (object: object, propertyName: string) {
-    registerDecorator({
-      name: 'isMatchTarget',
-      target: object.constructor,
-      propertyName,
-      options: validationOptions,
-      validator: {
-        validate(value: unknown, args) {
-          const { kind } = args?.object as PostStudentMatchDecisionDto;
-          return kind === 'match' ? isValid(value) : value == null;
-        },
-        defaultMessage() {
-          return `${propertyName} must be ${description} for a match, and absent otherwise`;
-        },
-      },
-    });
-  };
-}
-
 /** Save a match, exclude the student, or undo the student's current decision. */
 export class PostStudentMatchDecisionDto {
   /** The student's `decisionVersion` as the caller last saw it: 0 for none. */
@@ -96,18 +68,20 @@ export class PostStudentMatchDecisionDto {
   @IsIn(STUDENT_MATCH_DECISION_KINDS)
   kind: StudentMatchDecisionKind;
 
-  /** The picked suggestion's result. A BIGINT, so a string of digits. */
-  @IsMatchTarget(
-    (value) => typeof value === 'string' && /^\d{1,18}$/.test(value),
-    'a string of up to 18 digits'
-  )
+  /**
+   * The picked suggestion's result, for a match; ignored otherwise. A BIGINT,
+   * so a string. Not validated here: the service checks it against the
+   * student's own results.
+   */
   resultId?: string;
 
-  @IsMatchTarget(
-    (value) =>
-      Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 2 ** 31 - 1,
-    'a non-negative 32-bit integer'
-  )
+  /** The picked suggestion's position in its result, for a match; ignored otherwise. */
+  // Checked here because the database would round a fraction to the nearest
+  // suggestion and save it.
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match')
+  @IsInt()
+  @Min(0)
+  @Max(2_147_483_647)
   ordinal?: number;
 }
 
@@ -126,9 +100,7 @@ export class GetStudentMatchDecisionDto {
 
   /** Null if the user has since been deleted. */
   @Expose()
-  @Transform(({ value }) =>
-    value ? plainToInstance(GetUserDto, value, { excludeExtraneousValues: true }) : null
-  )
+  @Transform(({ value }) => plainToInstance(GetUserDto, value, { excludeExtraneousValues: true }))
   decidedBy: GetUserDto | null;
 
   @Expose()

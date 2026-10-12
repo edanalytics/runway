@@ -176,7 +176,9 @@ export class JobsService {
       }
   > {
     const { jobId, correlationId, userId } = input;
-    const { version, kind, resultId = null, ordinal = null } = input.decision;
+    const { version, kind } = input.decision;
+    // Only a match names a suggestion; a target sent with anything else is ignored.
+    const { resultId = null, ordinal = null } = kind === 'match' ? input.decision : {};
 
     const student = await prisma.studentInputDetails.findUnique({
       where: { jobId_correlationId: { jobId, correlationId } },

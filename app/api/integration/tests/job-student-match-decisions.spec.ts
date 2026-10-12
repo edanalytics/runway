@@ -161,8 +161,13 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     it.each<[string, () => Record<string, unknown>]>([
       ['another student’s suggestion', () => ({ resultId: otherResultId, ordinal: 0 })],
       ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 })],
-      // The next two get past the service's check of the result id, so only
-      // the DTO stands between them and a 500 from the database.
+      ['no result id', () => ({ ordinal: 0 })],
+      ['a numeric result id', () => ({ resultId: Number(resultId), ordinal: 0 })],
+      // The rest get past the service's check of the result id, so only the
+      // DTO stands between them and the database: a fraction would be rounded
+      // to a neighbouring suggestion and saved, and the others would be 500s.
+      ['a fractional ordinal', () => ({ resultId, ordinal: 0.5 })],
+      ['an ordinal given as a string', () => ({ resultId, ordinal: '0' })],
       ['an ordinal past INTEGER', () => ({ resultId, ordinal: 2 ** 31 })],
       ['no ordinal', () => ({ resultId })],
     ])('refuses a match to %s', async (_, target) => {
@@ -170,16 +175,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
       expect(res.status).toBe(400);
       expect(await rowsOf()).toEqual([]);
-    });
-
-    it.each(['exclude', 'undo'])('refuses %s with a target', async (kind) => {
-      // Undo needs a decision to undo.
-      expect((await matchFirst()).status).toBe(201);
-
-      const res = await decide({ version: 1, kind, resultId, ordinal: 0 });
-
-      expect(res.status).toBe(400);
-      expect(await rowsOf()).toHaveLength(1);
     });
 
     it.each<[string, Record<string, unknown>]>([
@@ -246,6 +241,25 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         { seq: 1, kind: 'match', resultId, ordinal: 1, decidedById: userA.id },
         { seq: 2, kind: 'exclude', resultId: null, ordinal: null, decidedById: userA.id },
         { seq: 3, kind: 'undo', resultId: null, ordinal: null, decidedById: userA.id },
+      ]);
+    });
+
+    it('ignores a target sent with an exclude or an undo', async () => {
+      const target = { resultId, ordinal: 0 };
+
+      const excluded = await decide({ version: 0, kind: 'exclude', ...target });
+      const undone = await decide({ version: 1, kind: 'undo', ...target });
+
+      expect(excluded.status).toBe(201);
+      expect(excluded.body.decision).toMatchObject({
+        kind: 'exclude',
+        resultId: null,
+        ordinal: null,
+      });
+      expect(undone.status).toBe(201);
+      expect((await rowsOf()).map(({ resultId, ordinal }) => ({ resultId, ordinal }))).toEqual([
+        { resultId: null, ordinal: null },
+        { resultId: null, ordinal: null },
       ]);
     });
 
@@ -401,8 +415,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   });
 
   // The DTO stops every input known to fail in the database, so this one gets
-  // past it in the service: an exclude carrying a target, which the table's
-  // CHECK refuses. The real error quotes the failing row.
+  // past it in the service: a match with no ordinal, which the table's CHECK
+  // refuses. The real error quotes the failing row.
   it('answers an unexpected database failure with a 500, logging only codes', async () => {
     const service = app.get(JobsService);
     const decideStudentMatch = service.decideStudentMatch.bind(service);
@@ -411,7 +425,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       .spyOn(service, 'decideStudentMatch')
       .mockImplementation(async (input, prisma) => {
         try {
-          const decision = { ...input.decision, resultId, ordinal: 0 };
+          const decision = { ...input.decision, kind: 'match' as const, resultId };
           return await decideStudentMatch({ ...input, decision }, prisma);
         } catch (err) {
           error = err;
