@@ -56,6 +56,9 @@ export class GetStudentMatchResultDto {
 
 const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'clear'];
 
+/** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
+
 /** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
   /**
@@ -66,7 +69,7 @@ export class PostStudentMatchDecisionDto {
   @ValidateIf((o: PostStudentMatchDecisionDto) => o.replacesVersion !== null)
   @IsInt()
   @Min(1)
-  @Max(2_147_483_647)
+  @Max(POSTGRES_INTEGER_MAX)
   replacesVersion: number | null;
 
   @IsIn(STUDENT_MATCH_DECISION_KINDS)
@@ -85,7 +88,7 @@ export class PostStudentMatchDecisionDto {
   @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match')
   @IsInt()
   @Min(0)
-  @Max(2_147_483_647)
+  @Max(POSTGRES_INTEGER_MAX)
   ordinal?: number;
 }
 
