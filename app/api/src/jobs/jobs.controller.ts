@@ -72,9 +72,6 @@ export class JobsController {
         createdBy: true,
       },
     });
-    // Counted separately: an included _count would aggregate all of
-    // student_input_details on every load, since Postgres can't push the
-    // list's filter into it. This reads only the listed jobs.
     return toGetJobDto(await this.jobService.withStudentMatchCounts(jobs));
   }
 
@@ -383,8 +380,8 @@ export class JobsController {
     }
 
     if (result.status === 'ERROR') {
-      // The page acts on the code; the message is for generic error display.
-      // Neither carries student data.
+      // No student data in these bodies: the page acts on the code, and
+      // refetches on a 409. The message is for generic error display.
       const { code } = result;
       switch (code) {
         case 'not_found':
@@ -399,7 +396,6 @@ export class JobsController {
             code,
             message: 'This student has no such suggestion.',
           });
-        // The 409 bodies have no current decision or results: the page refetches.
         case 'decision_changed':
           throw new ConflictException({
             statusCode: 409,

@@ -76,8 +76,7 @@ export class JobsService {
     jobIds: Job['id'][],
     prisma: PrismaClient = this.prisma
   ): Promise<Map<Job['id'], GetStudentMatchCountsDto>> {
-    // A student's current decision is their highest seq, and a clear there
-    // means none. Keep the statuses in step with studentMatchStatus.
+    // Keep the statuses in step with studentMatchStatus.
     const rows = await prisma.$queryRaw<
       { job_id: number; total: bigint; to_review: bigint; ready: bigint; excluded: bigint }[]
     >`

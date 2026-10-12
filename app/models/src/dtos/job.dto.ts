@@ -100,7 +100,6 @@ export class GetJobDto
   @Expose()
   isResolved: boolean;
 
-  /** The job's students to match: the total, and how many have each status. */
   @Expose()
   @Type(() => GetStudentMatchCountsDto)
   studentMatchCounts: GetStudentMatchCountsDto;
@@ -169,11 +168,11 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: students who aren't done, which for now is every one not
-   * excluded. A saved match still counts, since it delivers nothing until
-   * submitted. Once submission is built, a student is also done when a run
-   * with their submitted match has been attempted. Never in fuzzy background
-   * mode, where the ID-based run has already delivered them.
+   * Fuzzy mode: students who aren't done. Excluded students are done; a saved
+   * match isn't, since it delivers nothing on its own. Once submission is
+   * built, a student is also done when a run with their submitted match has
+   * been attempted. Never in fuzzy background mode, where the ID-based run has
+   * already delivered them.
    */
   get hasFuzzyStudentsToMatch() {
     return (

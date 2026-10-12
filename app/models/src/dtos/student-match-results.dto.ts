@@ -147,7 +147,6 @@ export const studentMatchStatus = (
       return 'ready';
     case 'exclude':
       return 'excluded';
-    // A clear leaves the student with no decision.
     case 'clear':
     case undefined:
       return 'to-review';
