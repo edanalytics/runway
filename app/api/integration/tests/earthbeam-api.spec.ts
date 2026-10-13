@@ -13,7 +13,7 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
-import { IdrsCredentialsService } from 'api/src/idrs/idrs-credentials.service';
+import { stubIdrsConfig } from '../helpers/stub-idrs';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -592,23 +592,11 @@ describe('Earthbeam API', () => {
       runX = jobX.runs[0];
       tokenX = await authService.createAccessToken({ runId: runX.id });
 
-      // Tokens are cached per app instance, and the app is shared across tests.
-      const idrsCredentials = app.get(IdrsCredentialsService);
-      (idrsCredentials as unknown as { cache: Map<string, unknown> }).cache.clear();
-
-      // Stub at the config boundary so the real token service, controller and
-      // error mapping all run; only AWS and the OAuth server are faked.
-      configService = app.get(AppConfigService);
-      jest
-        .spyOn(configService, 'idrsOauthTokenUrl')
-        .mockReturnValue('https://auth.example.test/oauth/token');
-      jest.spyOn(configService, 'idrsUrl').mockReturnValue(idrsBaseUrl);
-      jest
-        .spyOn(configService, 'getIdrsConnectionInfo')
-        .mockImplementation(async (partnerId: string) => ({
-          clientId: `${partnerId}-client`,
-          clientSecret: `${partnerId}-secret`,
-        }));
+      // The real token service, controller and error mapping all run.
+      configService = stubIdrsConfig({
+        idrsUrl: idrsBaseUrl,
+        tokenUrl: 'https://auth.example.test/oauth/token',
+      });
       fetchSpy = jest
         .spyOn(global, 'fetch')
         .mockResolvedValue(

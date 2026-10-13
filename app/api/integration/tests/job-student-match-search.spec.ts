@@ -19,8 +19,8 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { withoutPrivilege } from '../helpers/without-privilege';
+import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { AppConfigService } from '../../src/config/app-config.service';
-import { IdrsCredentialsService } from '../../src/idrs/idrs-credentials.service';
 
 describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => {
   const PARTNER_ADMIN = ['runway.test.user', 'runway.test.partneradmin'];
@@ -118,19 +118,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     job = await seedReportedJob('fuzzy');
     ({ cookies } = await authHelper.login(idpA, userA, tenantA));
 
-    // Tokens are cached per app instance, and the app is shared across tests.
-    const idrsCredentials = app.get(IdrsCredentialsService);
-    (idrsCredentials as unknown as { cache: Map<string, unknown> }).cache.clear();
-
-    // Stub at the config boundary so the real token service runs; only AWS,
-    // the OAuth server and IDRS are faked.
-    const config = app.get(AppConfigService);
-    jest.spyOn(config, 'idrsOauthTokenUrl').mockReturnValue(TOKEN_URL);
-    jest.spyOn(config, 'idrsUrl').mockReturnValue(IDRS_URL);
-    jest.spyOn(config, 'getIdrsConnectionInfo').mockResolvedValue({
-      clientId: 'idrs-client',
-      clientSecret: 'idrs-secret',
-    });
+    stubIdrsConfig({ idrsUrl: IDRS_URL, tokenUrl: TOKEN_URL });
   });
 
   afterEach(() => {
