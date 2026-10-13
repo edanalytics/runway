@@ -276,7 +276,7 @@ A match to a suggestion must pick from the student's latest result, the one from
 | 404 | `not_found`: the job has no such student. An unknown job is also a 404, with Nest's body and no `code` |
 | 409 `decision_changed` | `replacesVersion` isn't the current decision's, or a clear has nothing to clear. Nothing was written |
 | 409 `results_changed` | A match to an earlier result: a later run has searched again. Nothing was written |
-| 500 | An unexpected database failure, logged with the job id and SQLSTATE, never the message. If it came after the insert, the decision was saved, and a retry gets a 409 |
+| 500 | An unexpected database failure, logged with the job id and SQLSTATE, never the message. If it came after the insert, the decision was saved, and a retry gets a 409. A search hit containing a NUL character (`\u0000`) always lands here, since PostgreSQL's `text` and `jsonb` cannot store one; retrying the same bytes fails the same way |
 
 The coded errors (404, 400 `invalid_target`, 409) have the body `{ statusCode, code, message }`: the page acts on `code`, and `message` is for generic error display. Neither carries student data. On a 409 the page refetches. A 400 from DTO validation has Nest's own body, with no `code`.
 
