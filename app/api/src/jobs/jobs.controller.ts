@@ -432,6 +432,7 @@ export class JobsController {
     @Param('jobId', ParseIntPipe) jobId: number,
     @Param('correlationId') correlationId: string,
     @Body() details: StudentSearchDetailsDto,
+    @ReqSession() session: IPassportSession,
     @Req() req: Request
   ) {
     if (!req.job) {
@@ -450,9 +451,10 @@ export class JobsController {
       details,
     });
     // Ids, counts and safe causes only: no search terms, hits or correlation id.
-    const logLine = `student match search: jobId=${jobId} partnerId=${req.job.partnerId} outcome=${
-      result.status === 'SUCCESS' ? 'SUCCESS' : result.code
-    }`;
+    // The user id records who looked students up.
+    const logLine = `student match search: jobId=${jobId} partnerId=${req.job.partnerId} userId=${
+      session.user.id
+    } outcome=${result.status === 'SUCCESS' ? 'SUCCESS' : result.code}`;
     const durationMs = Date.now() - startedAt;
 
     if (result.status === 'SUCCESS') {
