@@ -13,7 +13,15 @@ import {
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/client';
+import type {
+  FileStatus,
+  Job,
+  JobFile,
+  PrismaClient,
+  StudentMatchDecision,
+  Tenant,
+  User,
+} from '@prisma/client';
 import { FileService } from '../files/file.service';
 import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
@@ -51,6 +59,31 @@ export const isLoadableSearchHit = (
 ) =>
   crossYearMatchingEnabled ||
   (Array.isArray(hit.school_years) && hit.school_years.includes(endYear));
+
+/**
+ * A decision row as the API shows it: none for a clear, and a search pick's hit
+ * gathered into `searchHit`. The hit's columns reach the client only through
+ * here.
+ */
+const toStudentMatchDecision = ({
+  user,
+  ...row
+}: StudentMatchDecision & { user: User | null }): StudentMatchDecisionWithUser | null => {
+  if (row.kind === 'clear') {
+    return null;
+  }
+  const { studentUniqueId, score, rosterDetails, searchDetails } = row;
+  return {
+    ...row,
+    version: row.seq,
+    decidedBy: user,
+    // The table's check sets all four, or none.
+    searchHit:
+      studentUniqueId !== null && score !== null && rosterDetails !== null && searchDetails !== null
+        ? { searchDetails, studentUniqueId, score, rosterDetails }
+        : null,
+  };
+};
 
 const noStudentsToMatch: GetStudentMatchCountsDto = {
   total: 0,
@@ -181,10 +214,7 @@ export class JobsService {
             return {
               ...input,
               status: studentMatchStatus(latest?.kind),
-              decision:
-                latest && latest.kind !== 'clear'
-                  ? { ...latest, version: latest.seq, decidedBy: latest.user }
-                  : null,
+              decision: latest ? toStudentMatchDecision(latest) : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
                 suggestions: studentMatchSuggestion,
@@ -218,8 +248,20 @@ export class JobsService {
   > {
     const { jobId, correlationId, userId } = input;
     const { replacesVersion, kind } = input.decision;
-    // Only a match names a suggestion; a target sent with anything else is ignored.
-    const { resultId = null, ordinal = null } = kind === 'match' ? input.decision : {};
+    // Only a match names a target, either a hit from the reviewer's own search
+    // or a suggestion. A target sent with anything else is ignored, as is a
+    // suggestion sent beside a hit.
+    const searchHit = kind === 'match' ? input.decision.searchHit : undefined;
+    const picksSuggestion = kind === 'match' && !searchHit;
+    const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
+    const hit = searchHit && {
+      studentUniqueId: searchHit.studentUniqueId,
+      // As text, as ingestion passes it, so PostgreSQL parses it straight to numeric.
+      score: String(searchHit.score),
+      rosterDetails: JSON.stringify(searchHit.rosterDetails),
+      // Exactly what search sends IDRS for these details.
+      searchDetails: JSON.stringify(pickStudentSearchDetails(searchHit.searchDetails)),
+    };
 
     // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
     // would fail on it with a 500.
@@ -235,7 +277,7 @@ export class JobsService {
       return { status: 'ERROR', code: 'not_found' };
     }
 
-    if (kind === 'match') {
+    if (picksSuggestion) {
       const resultIds = student.studentMatchResult.map(({ id }) => id.toString());
       if (!resultIds.includes(resultId!)) {
         return { status: 'ERROR', code: 'invalid_target' };
@@ -256,12 +298,17 @@ export class JobsService {
       // clear) for null. A clear needs a decision to clear.
       // Two racing writes compute the same seq, so the loser collides with
       // the winner on the primary key and does nothing.
+      // The hit's columns are null unless the match is to a search hit.
       inserted = await prisma.$queryRaw<{ seq: number }[]>`
         INSERT INTO public.student_match_decision
-          (job_id, correlation_id, seq, kind, result_id, ordinal, decided_by_id)
+          (job_id, correlation_id, seq, kind, result_id, ordinal,
+           student_unique_id, score, roster_details, search_details, decided_by_id)
         SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
                ${kind}::public.student_match_decision_kind,
-               ${resultId}::bigint, ${ordinal}::int, ${userId}::int
+               ${resultId}::bigint, ${ordinal}::int,
+               ${hit?.studentUniqueId ?? null}, ${hit?.score ?? null}::numeric,
+               ${hit?.rosterDetails ?? null}::jsonb, ${hit?.searchDetails ?? null}::jsonb,
+               ${userId}::int
         FROM (SELECT 1) AS one
         LEFT JOIN LATERAL (
           SELECT seq, kind FROM public.student_match_decision
@@ -279,8 +326,9 @@ export class JobsService {
       `;
     } catch (err) {
       // The student and the result were checked above, so a foreign key
-      // violation means the ordinal isn't in the result. Matched by SQLSTATE
-      // alone: messages quote row values.
+      // violation means the ordinal isn't in the result, and so can only come
+      // from a suggestion pick. Matched by SQLSTATE alone: messages quote row
+      // values.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.meta?.code === '23503') {
         return { status: 'ERROR', code: 'invalid_target' };
       }
@@ -294,13 +342,7 @@ export class JobsService {
       where: { jobId_correlationId_seq: { jobId, correlationId, seq: inserted[0].seq } },
       include: { user: true },
     });
-    const { user, ...decision } = row;
-    return {
-      status: 'SUCCESS',
-      data: {
-        decision: row.kind === 'clear' ? null : { ...decision, version: row.seq, decidedBy: user },
-      },
-    };
+    return { status: 'SUCCESS', data: { decision: toStudentMatchDecision(row) } };
   }
 
   /**

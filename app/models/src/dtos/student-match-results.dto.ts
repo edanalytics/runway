@@ -4,14 +4,19 @@ import {
   IsIn,
   IsInt,
   IsISO8601,
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
   Max,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import {
+  Prisma,
   StudentInputDetails,
   StudentMatchDecision,
   StudentMatchDecisionKind,
@@ -65,6 +70,108 @@ export class GetStudentMatchResultDto {
   suggestions: GetStudentMatchSuggestionDto[];
 }
 
+/**
+ * Details to search IDRS with: IDRS's own input fields, in its snake_case,
+ * the shape of the stored input details. Validated as strictly as IDRS
+ * validates them, so an IDRS 400 can only mean a bug. IDRS treats null and
+ * absent alike.
+ */
+export class StudentSearchDetailsDto implements StudentInputDetailsJson {
+  @IsOptional()
+  @IsString()
+  first_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  last_name?: string | null;
+
+  // The pattern alone would let through an impossible date, and the ISO
+  // check alone a date with a time.
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsISO8601({ strict: true })
+  birth_date?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  school_ids?: number[] | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  student_ids?: string[] | null;
+}
+
+/**
+ * Only IDRS's own fields. Validation keeps unknown keys, and IDRS rejects
+ * them, so whatever goes to IDRS, or is stored as what was searched, is built
+ * from this.
+ */
+export const pickStudentSearchDetails = ({
+  first_name,
+  last_name,
+  birth_date,
+  school_ids,
+  student_ids,
+}: StudentSearchDetailsDto): StudentSearchDetailsDto => ({
+  first_name,
+  last_name,
+  birth_date,
+  school_ids,
+  student_ids,
+});
+
+/** A student IDRS found, as a reviewer may match to them. */
+export class GetStudentSearchHitDto {
+  @Expose()
+  studentUniqueId: string;
+
+  // A Prisma Decimal once saved, converted as GetStudentMatchSuggestionDto's is.
+  @Expose()
+  @Type(() => Number)
+  score: number;
+
+  /** The match as IDRS returned it, minus student_unique_id and score. */
+  @Expose()
+  rosterDetails: StudentRosterDetailsJson;
+}
+
+/** IDRS's matches the job could load, in IDRS's order: highest score first. */
+export class GetStudentSearchResultsDto {
+  @Expose()
+  @Type(() => GetStudentSearchHitDto)
+  hits: GetStudentSearchHitDto[];
+}
+
+export const toGetStudentSearchResultsDto = makeSerializer(GetStudentSearchResultsDto);
+
+/** A hit sent back from a search, to save a match to it. */
+export class PostStudentSearchHitDto {
+  /** What the reviewer searched with. Stored as search would send it. */
+  @IsObject()
+  @ValidateNested()
+  @Type(() => StudentSearchDetailsDto)
+  searchDetails: StudentSearchDetailsDto;
+
+  @IsString()
+  @IsNotEmpty()
+  studentUniqueId: string;
+
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  score: number;
+
+  /** Stored as sent. */
+  @IsObject()
+  rosterDetails: StudentRosterDetailsJson;
+}
+
+/** A saved hit: the hit, and the details it was found with. */
+export class GetStudentMatchSearchHitDto extends GetStudentSearchHitDto {
+  @Expose()
+  searchDetails: StudentInputDetailsJson;
+}
+
 const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'clear'];
 
 /** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
@@ -87,16 +194,27 @@ export class PostStudentMatchDecisionDto {
   kind: StudentMatchDecisionKind;
 
   /**
-   * The picked suggestion's result, for a match; ignored otherwise. A BIGINT,
-   * so a string. Not validated here: the service checks it against the
-   * student's own results.
+   * The picked hit from the reviewer's own search, for a match; ignored
+   * otherwise. A match names either this or a suggestion: when it's present,
+   * `resultId` and `ordinal` are ignored.
+   */
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.searchHit !== undefined)
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PostStudentSearchHitDto)
+  searchHit?: PostStudentSearchHitDto;
+
+  /**
+   * The picked suggestion's result, for a match without a hit; ignored
+   * otherwise. A BIGINT, so a string. Not validated here: the service checks
+   * it against the student's own results.
    */
   resultId?: string;
 
-  /** The picked suggestion's position in its result, for a match; ignored otherwise. */
+  /** The picked suggestion's position in its result, for a match without a hit; ignored otherwise. */
   // Checked here because the database would round a fraction to the nearest
   // suggestion and save it.
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match')
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.searchHit === undefined)
   @IsInt()
   @Min(0)
   @Max(POSTGRES_INTEGER_MAX)
@@ -112,13 +230,18 @@ export class GetStudentMatchDecisionDto {
   @Expose()
   kind: Exclude<StudentMatchDecisionKind, 'clear'>;
 
-  /** The picked suggestion's result, for a match. A BIGINT, so a string. */
+  /** The picked suggestion's result, for a match to one. A BIGINT, so a string. */
   @Expose()
   @Type(() => String)
   resultId: string | null;
 
   @Expose()
   ordinal: number | null;
+
+  /** The picked hit, for a match to a search hit. */
+  @Expose()
+  @Type(() => GetStudentMatchSearchHitDto)
+  searchHit: GetStudentMatchSearchHitDto | null;
 
   /** Null if the user has since been deleted. */
   @Expose()
@@ -133,6 +256,12 @@ export class GetStudentMatchDecisionDto {
 export type StudentMatchDecisionWithUser = StudentMatchDecision & {
   version: number;
   decidedBy: User | null;
+  searchHit: {
+    searchDetails: StudentInputDetailsJson;
+    studentUniqueId: string;
+    score: Prisma.Decimal;
+    rosterDetails: StudentRosterDetailsJson;
+  } | null;
 };
 
 export class PostStudentMatchDecisionResponseDto {
@@ -241,77 +370,3 @@ export const toGetStudentMatchResultsDto = makeSerializerCustomType<
     students: StudentInputDetailsWithResults[] | null;
   }
 >(GetStudentMatchResultsDto);
-
-/**
- * Details to search IDRS with: IDRS's own input fields, in its snake_case,
- * the shape of the stored input details. Validated as strictly as IDRS
- * validates them, so an IDRS 400 can only mean a bug. IDRS treats null and
- * absent alike.
- */
-export class StudentSearchDetailsDto implements StudentInputDetailsJson {
-  @IsOptional()
-  @IsString()
-  first_name?: string | null;
-
-  @IsOptional()
-  @IsString()
-  last_name?: string | null;
-
-  // The pattern alone would let through an impossible date, and the ISO
-  // check alone a date with a time.
-  @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  @IsISO8601({ strict: true })
-  birth_date?: string | null;
-
-  @IsOptional()
-  @IsArray()
-  @IsInt({ each: true })
-  school_ids?: number[] | null;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  student_ids?: string[] | null;
-}
-
-/**
- * Only IDRS's own fields. Validation keeps unknown keys, and IDRS rejects
- * them, so whatever goes to IDRS, or is stored as what was searched, is built
- * from this.
- */
-export const pickStudentSearchDetails = ({
-  first_name,
-  last_name,
-  birth_date,
-  school_ids,
-  student_ids,
-}: StudentSearchDetailsDto): StudentSearchDetailsDto => ({
-  first_name,
-  last_name,
-  birth_date,
-  school_ids,
-  student_ids,
-});
-
-/** A student IDRS found, as a reviewer may match to them. */
-export class GetStudentSearchHitDto {
-  @Expose()
-  studentUniqueId: string;
-
-  @Expose()
-  score: number;
-
-  /** The match as IDRS returned it, minus student_unique_id and score. */
-  @Expose()
-  rosterDetails: StudentRosterDetailsJson;
-}
-
-/** IDRS's matches the job could load, in IDRS's order: highest score first. */
-export class GetStudentSearchResultsDto {
-  @Expose()
-  @Type(() => GetStudentSearchHitDto)
-  hits: GetStudentSearchHitDto[];
-}
-
-export const toGetStudentSearchResultsDto = makeSerializer(GetStudentSearchResultsDto);
