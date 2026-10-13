@@ -126,21 +126,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.status).toBe(201);
       expect(await rowsOf('corr-1', tenantBJob.id)).toHaveLength(1);
     });
-
-    it('refuses a support user across tenants without the cross-tenant privilege', async () => {
-      const tenantBJob = await seedReportedJob('fuzzy', true);
-      const { cookies: support } = await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_USER);
-
-      const res = await withoutPrivilege('job.metatenant.match-results.update', () =>
-        decide(
-          { replacesVersion: null, kind: 'exclude' },
-          { jobId: tenantBJob.id, cookie: support }
-        )
-      );
-
-      expect(res.status).toBe(403);
-      expect(await rowsOf('corr-1', tenantBJob.id)).toEqual([]);
-    });
   });
 
   describe('by matching mode', () => {

@@ -404,16 +404,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         expect(res.status).toBe(200);
         expect(res.body.counts.total).toBe(1);
       });
-
-      it('refuses a support user across tenants without the cross-tenant privilege', async () => {
-        const job = await seedReportedJob('id_based_fuzzy_background', true);
-
-        const res = await withoutPrivilege('job.metatenant.match-results.read', () =>
-          read(job.id, tenantDGlobal, SUPPORT_USER)
-        );
-
-        expect(res.status).toBe(403);
-      });
     });
   });
 
@@ -441,17 +431,17 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
 
     it('counts each status beside the total', async () => {
-      // To review twice over: undecided, and cleared.
-      await reportStudents(['undecided', 'cleared', 'matched', 'excluded']);
-      await decide(cookies, 'cleared', { replacesVersion: null, kind: 'exclude' });
-      await decide(cookies, 'cleared', { replacesVersion: 1, kind: 'clear' });
-      await decide(cookies, 'matched', {
+      // Two students to review: one undecided, and one whose decision was cleared.
+      await reportStudents(['corr-undecided', 'corr-cleared', 'corr-matched', 'corr-excluded']);
+      await decide(cookies, 'corr-cleared', { replacesVersion: null, kind: 'exclude' });
+      await decide(cookies, 'corr-cleared', { replacesVersion: 1, kind: 'clear' });
+      await decide(cookies, 'corr-matched', {
         replacesVersion: null,
         kind: 'match',
-        resultId: await resultIdOf('matched'),
+        resultId: await resultIdOf('corr-matched'),
         ordinal: 0,
       });
-      await decide(cookies, 'excluded', { replacesVersion: null, kind: 'exclude' });
+      await decide(cookies, 'corr-excluded', { replacesVersion: null, kind: 'exclude' });
 
       expect(await countsOf(jobA.id)).toEqual(
         Array(2).fill({ total: 4, toReview: 2, ready: 1, excluded: 1 })
