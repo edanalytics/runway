@@ -72,9 +72,8 @@ export class GetStudentMatchResultDto {
 
 /**
  * Details to search IDRS with: IDRS's own input fields, in its snake_case,
- * the shape of the stored input details. Validated as strictly as IDRS
- * validates them, so an IDRS 400 can only mean a bug. IDRS treats null and
- * absent alike.
+ * the shape of the stored input details. Validated against IDRS's input
+ * schema. IDRS treats null and absent alike.
  */
 export class StudentSearchDetailsDto implements StudentInputDetailsJson {
   @IsOptional()
