@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { StudentRosterDetailsJson, StudentSearchDetailsDto } from '@edanalytics/models';
-import { IdrsCredentialsService } from './idrs-credentials.service';
+import { IdrsCredentials, IdrsCredentialsService } from './idrs-credentials.service';
 import { idrsStudentSearchUrl } from './idrs-student-search-url';
 
 /** Getting credentials is bounded separately, at 5 s for the secret and 5 s for the token. */
-export const IDRS_SEARCH_TIMEOUT_MS = 10_000;
+const IDRS_SEARCH_TIMEOUT_MS = 10_000;
 
 /** One of IDRS's matches, as returned, including fields not named here. */
-export type IdrsStudentMatch = StudentRosterDetailsJson & {
+type IdrsStudentMatch = StudentRosterDetailsJson & {
   student_unique_id: string;
   score: number;
 };
@@ -20,7 +20,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
  * the response isn't one result, for that student, whose matches each have a
  * student unique id and a numeric score.
  */
-export function parseStudentSearchResponse(
+function parseStudentSearchResponse(
   body: unknown,
   correlationId: string
 ): IdrsStudentMatch[] | null {
@@ -69,7 +69,7 @@ export class IdrsSearchService {
     const unavailable = (cause: string) =>
       ({ status: 'ERROR', code: 'identity_service_unavailable', cause } as const);
 
-    let credentials: { token: string; url: string };
+    let credentials: IdrsCredentials;
     try {
       credentials = await this.credentials.getCredentials(partnerId);
     } catch (err) {
