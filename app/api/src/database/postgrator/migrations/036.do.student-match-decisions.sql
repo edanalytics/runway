@@ -5,9 +5,9 @@ ALTER TABLE public.student_match_result
 
 CREATE TYPE public.student_match_decision_kind AS ENUM ('match', 'exclude', 'clear');
 
--- Every decision a reviewer makes about a student, in order. Rows are never
--- updated, and are deleted only with their job. A student's current decision
--- is their highest seq, and a clear row means they have none.
+-- Every decision a reviewer makes about a student, in order. The app never
+-- updates rows, and they are deleted only with their job. A student's current
+-- decision is their highest seq, and a clear row means they have none.
 CREATE TABLE public.student_match_decision (
     job_id INTEGER NOT NULL,
     correlation_id TEXT NOT NULL,
