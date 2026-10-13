@@ -615,6 +615,21 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
+    // The responses show a suggestion pick's searchHit as null, so a page may
+    // send it back that way.
+    it('takes a null hit beside a suggestion as a suggestion pick', async () => {
+      const res = await decide({
+        replacesVersion: null,
+        kind: 'match',
+        resultId,
+        ordinal: 0,
+        searchHit: null,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.decision).toMatchObject({ resultId, ordinal: 0, searchHit: null });
+    });
+
     describe('from a stale view', () => {
       it('is refused at a replaced version', async () => {
         await matchFirst(resultId);
