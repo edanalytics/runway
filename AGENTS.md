@@ -77,6 +77,8 @@ The one exception is typing JSON columns with `prisma-json-types-generator`: add
 
 Migrations run automatically at the start of the integration test suite. If tests fail with schema errors, a missing or mismatched migration is the likely cause.
 
+The generated Prisma client lives in `node_modules` and isn't committed, so after pulling or merging changes to `schema.prisma` or `prisma-json-types.ts`, run `npm run prisma:generate-client`. Typecheck errors on Prisma JSON fields, such as `'run.job.template' is of type 'unknown'`, mean the client is stale.
+
 ## Architecture
 
 ### Deployed Infrastructure
@@ -281,6 +283,7 @@ __rosters/{partnerId}/{tenantCode}/{schoolYearEndYear}/*
 - **API**: NestJS controller → service. Services use Prisma directly, including for transactions and raw SQL; there is no separate repository layer
 - **Error handling**: Services return result objects (`{ status: 'SUCCESS', data }` / `{ status: 'ERROR', code }`) for expected failure modes; unexpected errors throw. Controllers map error results to HTTP exceptions. Services should not import or throw HTTP exceptions.
 - **FE**: Chakra UI v2 with custom design tokens; prefer inline readable code over extracted helpers for short logic
+- **FE colors**: use the theme's color tokens (`app/fe/src/app/theme/index.ts`), not new hex values, and keep text at WCAG AA contrast (4.5:1) against its background. That rules out light accents like `blue.200` as text on white, and dark panels in the light UI
 - **Icons**: `app/fe/src/assets/icons/`
 - **Data fetching and suspense**:
   - Critical data → `useSuspenseQuery` in the component, `ensureQueryData` in an ancestor loader.
