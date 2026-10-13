@@ -33,22 +33,27 @@ import { GetUserDto } from './user.dto';
  * snake_case.
  */
 
-export class GetStudentMatchSuggestionDto {
-  @Expose()
-  ordinal: number;
-
+/** A student IDRS found, as a reviewer may match to them. */
+export class GetStudentSearchHitDto {
   @Expose()
   studentUniqueId: string;
 
-  // A Prisma Decimal, converted to a number: precise enough for display.
-  // @Type rather than @Transform, which would run only after class-transformer
-  // tried, and failed, to copy the Decimal.
+  // A Prisma Decimal for a suggestion or a saved hit, converted to a number:
+  // precise enough for display. @Type rather than @Transform, which would run
+  // only after class-transformer tried, and failed, to copy the Decimal.
   @Expose()
   @Type(() => Number)
   score: number;
 
+  /** The match as IDRS returned it, minus student_unique_id and score. */
   @Expose()
   rosterDetails: StudentRosterDetailsJson;
+}
+
+/** One of a run's suggestions: a hit at its position in the result. */
+export class GetStudentMatchSuggestionDto extends GetStudentSearchHitDto {
+  @Expose()
+  ordinal: number;
 }
 
 export class GetStudentMatchResultDto {
@@ -120,21 +125,6 @@ export const pickStudentSearchDetails = ({
   school_ids,
   student_ids,
 });
-
-/** A student IDRS found, as a reviewer may match to them. */
-export class GetStudentSearchHitDto {
-  @Expose()
-  studentUniqueId: string;
-
-  // A Prisma Decimal once saved, converted as GetStudentMatchSuggestionDto's is.
-  @Expose()
-  @Type(() => Number)
-  score: number;
-
-  /** The match as IDRS returned it, minus student_unique_id and score. */
-  @Expose()
-  rosterDetails: StudentRosterDetailsJson;
-}
 
 /** IDRS's matches the job could load, in IDRS's order: highest score first. */
 export class GetStudentSearchResultsDto {
