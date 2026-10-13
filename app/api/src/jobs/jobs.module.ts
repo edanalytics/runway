@@ -4,9 +4,10 @@ import { JobsController } from './jobs.controller';
 import { EarthbeamModule } from '../earthbeam/earthbeam.module';
 import { FileModule } from '../files/file.module';
 import { AddJobToReqMiddleware } from './job-on-req.middleware';
+import { IdrsModule } from '../idrs/idrs.module';
 
 @Module({
-  imports: [EarthbeamModule, FileModule],
+  imports: [EarthbeamModule, FileModule, IdrsModule],
   providers: [JobsService],
   exports: [JobsService],
   controllers: [JobsController],
