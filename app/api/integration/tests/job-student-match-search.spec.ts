@@ -476,12 +476,12 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     expect(lines).toEqual([
       expect.stringMatching(
         new RegExp(
-          `^student match search: jobId=${job.id} partnerId=${tenantA.partnerId} outcome=SUCCESS `
+          `^student match search: jobId=${job.id} partnerId=${tenantA.partnerId} userId=${userA.id} outcome=SUCCESS `
         )
       ),
       expect.stringMatching(
         new RegExp(
-          `^student match search: jobId=${job.id} partnerId=${tenantA.partnerId} outcome=identity_service_unavailable .*status 400`
+          `^student match search: jobId=${job.id} partnerId=${tenantA.partnerId} userId=${userA.id} outcome=identity_service_unavailable .*status 400`
         )
       ),
     ]);
