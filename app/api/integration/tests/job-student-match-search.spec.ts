@@ -2,9 +2,18 @@ import request from 'supertest';
 import { Logger } from '@nestjs/common';
 import { IdMatchingMode } from '@prisma/client';
 import { seedJob } from '../factories/job-factory';
-import { bundleA } from '../fixtures/em-bundle-fixtures';
-import { odsConfigA2425, odsConfigB2526 } from '../fixtures/context-fixtures/ods-fixture';
-import { tenantA, tenantB, tenantDGlobal } from '../fixtures/context-fixtures/tenant-fixtures';
+import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
+import {
+  odsConfigA2425,
+  odsConfigB2526,
+  odsConfigX2425,
+} from '../fixtures/context-fixtures/ods-fixture';
+import {
+  tenantA,
+  tenantB,
+  tenantDGlobal,
+  tenantX,
+} from '../fixtures/context-fixtures/tenant-fixtures';
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
@@ -173,6 +182,27 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       expect(searchCalls(fetchSpy).map(([url]) => url)).toEqual([
         `${IDRS_URL}/partners/${tenantB.partnerId}/tenants/${tenantB.code}/students/search`,
       ]);
+    });
+
+    // Search mints a token for the job's partner, so letting a support user
+    // through here would hand them another partner's IDRS directory.
+    it('refuses a support user a job in another partner’s tenant', async () => {
+      const fetchSpy = stubIdrs(found([]));
+      const partnerXJob = await seedJob({
+        odsConfig: odsConfigX2425,
+        bundle: bundleX,
+        tenant: tenantX,
+        idMatchingMode: 'fuzzy',
+      });
+      await reportMatchResults(partnerXJob.runs[0].id, [
+        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
+      ]);
+      const { cookies: support } = await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_USER);
+
+      const res = await search(DETAILS, { jobId: partnerXJob.id, cookie: support });
+
+      expect(res.status).toBe(403);
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
 
