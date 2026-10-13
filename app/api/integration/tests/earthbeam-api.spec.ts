@@ -13,7 +13,7 @@ import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
-import { IdrsCredentialsService } from 'api/src/earthbeam/api/idrs-credentials.service';
+import { IdrsCredentialsService } from 'api/src/idrs/idrs-credentials.service';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
