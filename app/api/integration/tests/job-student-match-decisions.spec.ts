@@ -456,6 +456,276 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
   });
 
+  describe('a match to a search hit', () => {
+    /** The details a reviewer searched with, as search sent them to IDRS. */
+    const SEARCH_DETAILS = {
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      birth_date: '2010-12-10',
+      school_ids: [101],
+      student_ids: ['S-1'],
+    };
+    /** A hit as the search route returned it, with the details it was found with. */
+    const SEARCH_HIT = {
+      searchDetails: SEARCH_DETAILS,
+      studentUniqueId: 'SUID-FOUND',
+      score: 0.97,
+      rosterDetails: {
+        first_name: 'Ada',
+        middle_name: null,
+        last_name: 'Lovelace',
+        birth_date: '2010-12-10',
+        student_ids: [{ id_type: 'State', id_value: 'S-1' }],
+        school_years: [2025],
+        future_field: 'kept',
+      },
+    };
+
+    const matchHit = (replacesVersion: number | null, searchHit: unknown = SEARCH_HIT) =>
+      decide({ replacesVersion, kind: 'match', searchHit });
+
+    /** The job's results and suggestions, as stored. */
+    const resultsTablesOf = async (jobId: number) => {
+      const results = await prisma.studentMatchResult.findMany({
+        where: { jobId },
+        orderBy: { id: 'asc' },
+      });
+      const suggestions = await prisma.studentMatchSuggestion.findMany({
+        where: { resultId: { in: results.map(({ id }) => id) } },
+        orderBy: [{ resultId: 'asc' }, { ordinal: 'asc' }],
+      });
+      return { results, suggestions };
+    };
+
+    it('saves the hit, and the details it was found with, on the decision', async () => {
+      const before = await resultsTablesOf(job.id);
+
+      // A key IDRS doesn't take is dropped, as search drops it.
+      const res = await matchHit(null, {
+        ...SEARCH_HIT,
+        searchDetails: { ...SEARCH_DETAILS, middle_name: 'Augusta' },
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toEqual({
+        decision: {
+          version: 1,
+          kind: 'match',
+          resultId: null,
+          ordinal: null,
+          searchHit: SEARCH_HIT,
+          decidedBy: expect.objectContaining({ id: userA.id }),
+          decidedOn: expect.any(String),
+        },
+      });
+      const [row] = await rowsOf();
+      expect({
+        resultId: row.resultId,
+        ordinal: row.ordinal,
+        studentUniqueId: row.studentUniqueId,
+        score: row.score?.toString(),
+        rosterDetails: row.rosterDetails,
+        searchDetails: row.searchDetails,
+      }).toEqual({
+        resultId: null,
+        ordinal: null,
+        studentUniqueId: 'SUID-FOUND',
+        score: '0.97',
+        rosterDetails: SEARCH_HIT.rosterDetails,
+        searchDetails: SEARCH_DETAILS,
+      });
+      expect(await resultsTablesOf(job.id)).toEqual(before);
+    });
+
+    it('replaces a match to a suggestion, and is replaced by one', async () => {
+      await matchFirst(resultId);
+
+      const toHit = await matchHit(1);
+      const toSuggestion = await decide({
+        replacesVersion: 2,
+        kind: 'match',
+        resultId,
+        ordinal: 1,
+      });
+
+      expect(toHit.status).toBe(201);
+      expect(toHit.body.decision).toMatchObject({ version: 2, resultId: null, ordinal: null });
+      expect(toSuggestion.status).toBe(201);
+      expect(toSuggestion.body.decision).toMatchObject({
+        version: 3,
+        resultId,
+        ordinal: 1,
+        searchHit: null,
+      });
+      expect(
+        (await rowsOf()).map((row) => [row.resultId?.toString() ?? null, row.studentUniqueId])
+      ).toEqual([
+        [resultId, null],
+        [null, 'SUID-FOUND'],
+        [resultId, null],
+      ]);
+    });
+
+    it('replaces an exclusion', async () => {
+      await decide({ replacesVersion: null, kind: 'exclude' });
+
+      const res = await matchHit(1);
+
+      expect(res.status).toBe(201);
+      expect(res.body.decision).toMatchObject({ version: 2, kind: 'match', searchHit: SEARCH_HIT });
+    });
+
+    it('is cleared like any match, leaving the hit on its row', async () => {
+      await matchHit(null);
+
+      const cleared = await decide({ replacesVersion: 1, kind: 'clear' });
+
+      expect(cleared.body).toEqual({ decision: null });
+      const read = await request(app.getHttpServer())
+        .get(`/jobs/${job.id}/student-match-results`)
+        .set('Cookie', [cookies]);
+      expect(
+        read.body.students.find((s: { correlationId: string }) => s.correlationId === 'corr-1')
+      ).toMatchObject({ status: 'to-review', decision: null });
+      expect((await rowsOf()).map((row) => [row.kind, row.studentUniqueId])).toEqual([
+        ['match', 'SUID-FOUND'],
+        ['clear', null],
+      ]);
+    });
+
+    // Even one the student doesn't have: the suggestion checks don't run.
+    it('ignores a suggestion sent beside the hit', async () => {
+      const res = await decide({
+        replacesVersion: null,
+        kind: 'match',
+        searchHit: SEARCH_HIT,
+        resultId: otherResultId,
+        ordinal: 0,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.decision).toMatchObject({
+        resultId: null,
+        ordinal: null,
+        searchHit: SEARCH_HIT,
+      });
+      expect((await rowsOf()).map(({ resultId, ordinal }) => ({ resultId, ordinal }))).toEqual([
+        { resultId: null, ordinal: null },
+      ]);
+    });
+
+    describe('from a stale view', () => {
+      it('is refused at a replaced version', async () => {
+        await matchFirst(resultId);
+        await decide({ replacesVersion: 1, kind: 'clear' });
+        await matchFirst(resultId);
+
+        const res = await matchHit(1);
+
+        expect(res.body).toEqual(DECISION_CHANGED);
+        expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear', 'match']);
+      });
+
+      it('is refused replacing nothing once the student has a decision', async () => {
+        await matchFirst(resultId);
+
+        const res = await matchHit(null);
+
+        expect(res.body).toEqual(DECISION_CHANGED);
+        expect(await rowsOf()).toHaveLength(1);
+      });
+
+      // As for a suggestion: the other write is held until this one waits on it.
+      it('is refused when it loses a race', async () => {
+        const other = await pool().connect();
+        try {
+          await other.query('BEGIN');
+          await other.query(
+            `INSERT INTO public.student_match_decision
+               (job_id, correlation_id, seq, kind, decided_by_id)
+             VALUES ($1, 'corr-1', 1, 'exclude', $2)`,
+            [job.id, userB.id]
+          );
+          const { rows } = await other.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+
+          // then() sends the request now, rather than when it's awaited.
+          const pending = matchHit(null).then((res) => res);
+          await waitUntilBlockedBy(rows[0].pid);
+          await other.query('COMMIT');
+          const res = await pending;
+
+          expect(res.status).toBe(409);
+          expect(res.body).toEqual(DECISION_CHANGED);
+          expect((await rowsOf()).map((row) => [row.kind, row.studentUniqueId])).toEqual([
+            ['exclude', null],
+          ]);
+        } finally {
+          // Releases the lock if the test failed before the commit.
+          await other.query('ROLLBACK');
+          other.release();
+        }
+      });
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ['no student unique id', { studentUniqueId: undefined }],
+      ['an empty student unique id', { studentUniqueId: '' }],
+      ['a score that isn’t a number', { score: '0.97' }],
+      ['roster details that aren’t an object', { rosterDetails: ['Ada'] }],
+      ['no search details', { searchDetails: undefined }],
+      [
+        'search details search would refuse',
+        { searchDetails: { ...SEARCH_DETAILS, birth_date: '2010-02-30' } },
+      ],
+    ])('refuses a hit with %s', async (_, given) => {
+      const res = await matchHit(null, { ...SEARCH_HIT, ...given });
+
+      expect(res.status).toBe(400);
+      // Nest's validation body, so it was the DTO that refused it.
+      expect(res.body.message).toContainEqual(expect.stringMatching(/^searchHit\./));
+      expect(await rowsOf()).toEqual([]);
+    });
+
+    // JSON has no Infinity, but a number too large for a double parses to it.
+    it('refuses a hit with a score that isn’t finite', async () => {
+      const body = JSON.stringify({ replacesVersion: null, kind: 'match', searchHit: SEARCH_HIT });
+
+      const res = await request(app.getHttpServer())
+        .post(`/jobs/${job.id}/student-match-results/corr-1/decisions`)
+        .set('Cookie', [cookies])
+        .set('Content-Type', 'application/json')
+        .send(body.replace('"score":0.97', '"score":1e999'));
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContainEqual(expect.stringMatching(/^searchHit\.score /));
+      expect(await rowsOf()).toEqual([]);
+    });
+
+    it('is refused on a job in background mode, even from a partner admin', async () => {
+      const background = await seedReportedJob('id_based_fuzzy_background');
+      const { cookies: admin } = await authHelper.login(idpA, userA, tenantA, PARTNER_ADMIN);
+
+      const res = await decide(
+        { replacesVersion: null, kind: 'match', searchHit: SEARCH_HIT },
+        { jobId: background.id, cookie: admin }
+      );
+
+      expect(res.status).toBe(403);
+      expect(await rowsOf('corr-1', background.id)).toEqual([]);
+    });
+
+    it('returns 404 for a student the job doesn’t have, writing nothing', async () => {
+      const res = await decide(
+        { replacesVersion: null, kind: 'match', searchHit: SEARCH_HIT },
+        { correlationId: 'corr-unknown' }
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('not_found');
+      expect(await prisma.studentMatchDecision.findMany({ where: { jobId: job.id } })).toEqual([]);
+    });
+  });
+
   // The DTO stops every input known to fail in the database, so this one gets
   // past it in the service: a match with no ordinal, which the table's CHECK
   // refuses. The real error quotes the failing row.
