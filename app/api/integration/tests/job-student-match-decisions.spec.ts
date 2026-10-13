@@ -78,7 +78,9 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       orderBy: { seq: 'asc' },
     });
 
-  const matchFirst = () => decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 0 });
+  /** The student's first decision: a match to the result's first suggestion. */
+  const matchFirst = (resultId: string) =>
+    decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 0 });
 
   beforeEach(async () => {
     job = await seedReportedJob('fuzzy');
@@ -277,7 +279,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
     it('records who made each decision', async () => {
       const { cookies: second } = await authHelper.login(idpA, userB, tenantA);
-      await matchFirst();
+      await matchFirst(resultId);
 
       const res = await decide({ replacesVersion: 1, kind: 'exclude' }, { cookie: second });
 
@@ -291,17 +293,18 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         'the same student in the file reprocessed as a new job',
         async () => ({ jobId: (await seedReportedJob('fuzzy')).id }),
       ],
-    ])('checks the version against the student’s own decisions, not %s', async (_, other) => {
-      const student = await other();
-      // corr-1's decision in this job is at version 1; the other student has none.
-      await matchFirst();
+    ])('checks the version against the student’s own decisions, not %s', async (_, locateOther) => {
+      // A decision at version 1 for corr-1 in this job. The other student has
+      // none, so a check that looked beyond their own decisions would find this.
+      await matchFirst(resultId);
+      const otherStudent = await locateOther();
 
-      const borrowed = await decide({ replacesVersion: 1, kind: 'exclude' }, student);
-      const own = await decide({ replacesVersion: null, kind: 'exclude' }, student);
+      const withCorr1sVersion = await decide({ replacesVersion: 1, kind: 'exclude' }, otherStudent);
+      const withItsOwn = await decide({ replacesVersion: null, kind: 'exclude' }, otherStudent);
 
-      expect(borrowed.body).toEqual(DECISION_CHANGED);
-      expect(own.status).toBe(201);
-      expect(own.body.decision.version).toBe(1);
+      expect(withCorr1sVersion.body).toEqual(DECISION_CHANGED);
+      expect(withItsOwn.status).toBe(201);
+      expect(withItsOwn.body.decision.version).toBe(1);
     });
   });
 
@@ -331,7 +334,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     it('refuses a suggestion from an earlier result as stale', async () => {
-      const res = await matchFirst();
+      const res = await matchFirst(resultId);
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual({
@@ -343,8 +346,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
   });
 
-  it('keeps a match made before a later run searched again', async () => {
-    await matchFirst();
+  it('accepts a write replacing a match made before a later run searched again', async () => {
+    await matchFirst(resultId);
     const laterRun = await prisma.run.create({ data: { jobId: job.id, status: 'new' } });
     await reportMatchResults(laterRun.id, [
       { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
@@ -362,7 +365,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     // A page loaded after the first match holds version 1. Since then the
     // match was cleared and made again, so the decision looks as it did (ABA).
     it('is refused when the decision was changed and changed back', async () => {
-      await matchFirst();
+      await matchFirst(resultId);
       await decide({ replacesVersion: 1, kind: 'clear' });
       await decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 0 });
 
@@ -376,7 +379,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     // A page that saw no decision is still current once a decision is made
     // and cleared: the student is undecided, just as it showed.
     it('is accepted replacing nothing after a decision was made and cleared', async () => {
-      await matchFirst();
+      await matchFirst(resultId);
       await decide({ replacesVersion: 1, kind: 'clear' });
 
       const res = await decide({ replacesVersion: null, kind: 'exclude' });
@@ -386,7 +389,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     it('is refused replacing nothing once the student has a decision', async () => {
-      await matchFirst();
+      await matchFirst(resultId);
 
       const res = await decide({ replacesVersion: null, kind: 'exclude' });
 
@@ -396,7 +399,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     it('is refused at a version ahead of the latest', async () => {
-      await matchFirst();
+      await matchFirst(resultId);
 
       const res = await decide({ replacesVersion: 5, kind: 'exclude' });
 
@@ -407,7 +410,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
     it('is refused when there is nothing to clear', async () => {
       const first = await decide({ replacesVersion: null, kind: 'clear' });
-      await matchFirst();
+      await matchFirst(resultId);
       await decide({ replacesVersion: 1, kind: 'clear' });
       const again = await decide({ replacesVersion: null, kind: 'clear' });
       // The clear's own seq isn't a decision's version, so it's no way round.
@@ -435,7 +438,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         const { rows } = await other.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
 
         // then() sends the request now, rather than when it's awaited.
-        const pending = matchFirst().then((res) => res);
+        const pending = matchFirst(resultId).then((res) => res);
         await waitUntilBlockedBy(rows[0].pid);
         await other.query('COMMIT');
         const res = await pending;
