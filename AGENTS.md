@@ -298,7 +298,7 @@ The response is `{ hits: [{ studentUniqueId, score, rosterDetails }] }`, in IDRS
 | 404 | `not_found`: the job has no such student. IDRS isn't called |
 | 502 `identity_service_unavailable` | IDRS couldn't answer: missing config or connection info, a token failure, a timeout, any non-200 (including 404 `partner_not_found`) or a malformed response |
 
-The 404 and 502 have the coded body, as for decisions. Each search logs one line: the job and partner ids, the outcome, how many hits IDRS returned and how many were kept, the duration, and for a 502 its cause: a credentials error, as the identity-service callback logs it, or IDRS's status or the error's name. Search terms, hits, IDRS bodies and the correlation id are never logged or put in an error body.
+The 404 and 502 have the coded body, as for decisions. Each search logs one line: the job, partner and user ids, the outcome, how many hits IDRS returned and how many were kept, the duration, and for a 502 its cause: a credentials error, as the identity-service callback logs it, or IDRS's status or the error's name. Search terms, hits, IDRS bodies and the correlation id are never logged or put in an error body.
 
 Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `studentMatchCounts`, the review read's `counts` from the same query. Their `total` never goes down. Status is computed by `GetJobDto` from these, so `toGetJobDto` requires the counts: set them with `JobsService.withStudentMatchCounts`, whose single query reads only the given jobs.
 
