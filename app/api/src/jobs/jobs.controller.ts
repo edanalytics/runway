@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
   ConflictException,
@@ -6,6 +7,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
   Inject,
   InternalServerErrorException,
   Logger,
@@ -34,10 +36,12 @@ import {
   PostJobResponseDto,
   PostStudentMatchDecisionDto,
   PutJobResolveDto,
+  StudentSearchDetailsDto,
   toGetJobDto,
   toGetOutputFileDto,
   toGetRunUpdateDto,
   toGetStudentMatchResultsDto,
+  toGetStudentSearchResultsDto,
   toJobErrorWrapperDto,
   toPostStudentMatchDecisionResponseDto,
 } from '@edanalytics/models';
@@ -415,6 +419,69 @@ export class JobsController {
       }
     }
     return toPostStudentMatchDecisionResponseDto(result.data);
+  }
+
+  /** Searches IDRS with a reviewer's details. See AGENTS.md. */
+  @Post(':jobId/student-match-results/:correlationId/search')
+  // A POST because the details are student data, which must stay out of URLs
+  // and logs. Nothing is created.
+  @HttpCode(200)
+  @AllowMetatenant('job.metatenant.match-results.search')
+  @Authorize('job.match-results.search')
+  async searchStudentMatch(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Param('correlationId') correlationId: string,
+    @Body() details: StudentSearchDetailsDto,
+    @Req() req: Request
+  ) {
+    if (!req.job) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    // Only fuzzy mode's review is actionable, as for decisions.
+    if (req.job.idMatchingMode !== 'fuzzy') {
+      throw new ForbiddenException('Forbidden');
+    }
+
+    const startedAt = Date.now();
+    const result = await this.jobService.searchStudentMatch({
+      job: req.job,
+      correlationId,
+      details,
+    });
+    // Ids, counts and safe causes only: no search terms, hits or correlation id.
+    const logLine = `student match search: jobId=${jobId} partnerId=${req.job.partnerId} outcome=${
+      result.status === 'SUCCESS' ? 'SUCCESS' : result.code
+    }`;
+    const durationMs = Date.now() - startedAt;
+
+    if (result.status === 'SUCCESS') {
+      this.logger.log(
+        `${logLine} hits=${result.data.returned} kept=${result.data.hits.length} durationMs=${durationMs}`
+      );
+      return toGetStudentSearchResultsDto({ hits: result.data.hits });
+    }
+    const { code } = result;
+    switch (code) {
+      case 'not_found':
+        this.logger.log(`${logLine} durationMs=${durationMs}`);
+        throw new NotFoundException({
+          statusCode: 404,
+          code,
+          message: 'This student isn’t in the job.',
+        });
+      case 'identity_service_unavailable':
+        this.logger.error(`${logLine} durationMs=${durationMs} cause=${result.cause}`);
+        throw new BadGatewayException({
+          statusCode: 502,
+          code,
+          message: 'Student search is unavailable. Try again later.',
+        });
+      default: {
+        const unhandled: never = code;
+        throw new InternalServerErrorException(`Unhandled search outcome: ${unhandled}`);
+      }
+    }
   }
 
   @Get(':jobId/notes')

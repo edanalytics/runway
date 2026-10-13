@@ -226,7 +226,9 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
 
     expect(res.status).toBe(400);
     // Nest's validation body, so it was the DTO that refused it.
-    expect(res.body.message).toContainEqual(expect.stringMatching(new RegExp(`^${field} `)));
+    expect(res.body.message).toContainEqual(
+      expect.stringMatching(new RegExp(`^(each value in )?${field} `))
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

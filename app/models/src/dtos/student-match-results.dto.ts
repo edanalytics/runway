@@ -1,5 +1,16 @@
 import { Expose, plainToInstance, Transform, Type } from 'class-transformer';
-import { IsIn, IsInt, Max, Min, ValidateIf } from 'class-validator';
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import {
   StudentInputDetails,
   StudentMatchDecision,
@@ -8,7 +19,7 @@ import {
   StudentMatchSuggestion,
   User,
 } from '@prisma/client';
-import { makeSerializerCustomType } from '../utils/make-serializer';
+import { makeSerializer, makeSerializerCustomType } from '../utils/make-serializer';
 import { StudentInputDetailsJson, StudentRosterDetailsJson } from './earthbeam-api.dto';
 import { GetUserDto } from './user.dto';
 
@@ -230,3 +241,77 @@ export const toGetStudentMatchResultsDto = makeSerializerCustomType<
     students: StudentInputDetailsWithResults[] | null;
   }
 >(GetStudentMatchResultsDto);
+
+/**
+ * Details to search IDRS with: IDRS's own input fields, in its snake_case,
+ * the shape of the stored input details. Validated as strictly as IDRS
+ * validates them, so an IDRS 400 can only mean a bug. IDRS treats null and
+ * absent alike.
+ */
+export class StudentSearchDetailsDto implements StudentInputDetailsJson {
+  @IsOptional()
+  @IsString()
+  first_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  last_name?: string | null;
+
+  // The pattern alone would let through an impossible date, and the ISO
+  // check alone a date with a time.
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsISO8601({ strict: true })
+  birth_date?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  school_ids?: number[] | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  student_ids?: string[] | null;
+}
+
+/**
+ * Only IDRS's own fields. Validation keeps unknown keys, and IDRS rejects
+ * them, so whatever goes to IDRS, or is stored as what was searched, is built
+ * from this.
+ */
+export const pickStudentSearchDetails = ({
+  first_name,
+  last_name,
+  birth_date,
+  school_ids,
+  student_ids,
+}: StudentSearchDetailsDto): StudentSearchDetailsDto => ({
+  first_name,
+  last_name,
+  birth_date,
+  school_ids,
+  student_ids,
+});
+
+/** A student IDRS found, as a reviewer may match to them. */
+export class GetStudentSearchHitDto {
+  @Expose()
+  studentUniqueId: string;
+
+  @Expose()
+  score: number;
+
+  /** The match as IDRS returned it, minus student_unique_id and score. */
+  @Expose()
+  rosterDetails: StudentRosterDetailsJson;
+}
+
+/** IDRS's matches the job could load, in IDRS's order: highest score first. */
+export class GetStudentSearchResultsDto {
+  @Expose()
+  @Type(() => GetStudentSearchHitDto)
+  hits: GetStudentSearchHitDto[];
+}
+
+export const toGetStudentSearchResultsDto = makeSerializer(GetStudentSearchResultsDto);
