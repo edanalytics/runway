@@ -196,13 +196,14 @@ export class PostStudentMatchDecisionDto {
   /**
    * The picked hit from the reviewer's own search, for a match; ignored
    * otherwise. A match names either this or a suggestion: when it's present,
-   * `resultId` and `ordinal` are ignored.
+   * `resultId` and `ordinal` are ignored. Null is the same as absent, as the
+   * responses show a suggestion pick's.
    */
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.searchHit !== undefined)
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.searchHit != null)
   @IsObject()
   @ValidateNested()
   @Type(() => PostStudentSearchHitDto)
-  searchHit?: PostStudentSearchHitDto;
+  searchHit?: PostStudentSearchHitDto | null;
 
   /**
    * The picked suggestion's result, for a match without a hit; ignored
@@ -214,7 +215,7 @@ export class PostStudentMatchDecisionDto {
   /** The picked suggestion's position in its result, for a match without a hit; ignored otherwise. */
   // Checked here because the database would round a fraction to the nearest
   // suggestion and save it.
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.searchHit === undefined)
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.searchHit == null)
   @IsInt()
   @Min(0)
   @Max(POSTGRES_INTEGER_MAX)
