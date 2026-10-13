@@ -21,6 +21,29 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     code: 'decision_changed',
     message: 'This student’s decision has changed since the page loaded.',
   };
+  /** The details a reviewer searched with, as search sent them to IDRS. */
+  const SEARCH_DETAILS = {
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    birth_date: '2010-12-10',
+    school_ids: [101],
+    student_ids: ['S-1'],
+  };
+  /** A hit as the search route returned it, with the details it was found with. */
+  const SEARCH_HIT = {
+    searchDetails: SEARCH_DETAILS,
+    studentUniqueId: 'SUID-FOUND',
+    score: 0.97,
+    rosterDetails: {
+      first_name: 'Ada',
+      middle_name: null,
+      last_name: 'Lovelace',
+      birth_date: '2010-12-10',
+      student_ids: [{ id_type: 'State', id_value: 'S-1' }],
+      school_years: [2025],
+      future_field: 'kept',
+    },
+  };
 
   let job: Awaited<ReturnType<typeof seedJob>>;
   /** corr-1's result, with suggestions at ordinals 0 and 1. */
@@ -267,7 +290,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     it('ignores a target sent with an exclude or a clear', async () => {
-      const target = { resultId, ordinal: 0 };
+      const target = { resultId, ordinal: 0, searchHit: SEARCH_HIT };
 
       const excluded = await decide({ replacesVersion: null, kind: 'exclude', ...target });
       const cleared = await decide({ replacesVersion: 1, kind: 'clear', ...target });
@@ -459,30 +482,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   });
 
   describe('a match to a search hit', () => {
-    /** The details a reviewer searched with, as search sent them to IDRS. */
-    const SEARCH_DETAILS = {
-      first_name: 'Ada',
-      last_name: 'Lovelace',
-      birth_date: '2010-12-10',
-      school_ids: [101],
-      student_ids: ['S-1'],
-    };
-    /** A hit as the search route returned it, with the details it was found with. */
-    const SEARCH_HIT = {
-      searchDetails: SEARCH_DETAILS,
-      studentUniqueId: 'SUID-FOUND',
-      score: 0.97,
-      rosterDetails: {
-        first_name: 'Ada',
-        middle_name: null,
-        last_name: 'Lovelace',
-        birth_date: '2010-12-10',
-        student_ids: [{ id_type: 'State', id_value: 'S-1' }],
-        school_years: [2025],
-        future_field: 'kept',
-      },
-    };
-
     const matchHit = (replacesVersion: number | null, searchHit: unknown = SEARCH_HIT) =>
       decide({ replacesVersion, kind: 'match', searchHit });
 
