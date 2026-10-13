@@ -1,10 +1,13 @@
 import {
   EarthmoverBundleTypes,
   GetStudentMatchCountsDto,
+  GetStudentSearchHitDto,
   JobInputParamDto,
   JsonArray,
+  pickStudentSearchDetails,
   PostStudentMatchDecisionDto,
   StudentMatchDecisionWithUser,
+  StudentSearchDetailsDto,
   studentMatchStatus,
   toGetJobTemplateDto,
 } from '@edanalytics/models';
@@ -18,6 +21,7 @@ import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service'
 import { AppConfigService } from '../config/app-config.service';
 import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
+import { IdrsSearchService } from '../idrs/idrs-search.service';
 
 /**
  * Far more than a reviewer will work through (typically under 10, at most a
@@ -25,6 +29,24 @@ import { ApiTokenClient } from '../external-api/external-api-token-client.decora
  * suggestions each, the response is about 3.5 MB.
  */
 export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
+
+/**
+ * Whether a job could load a student IDRS found. With cross-year matching on,
+ * the partner has sideloading, so any student IDRS knows can be loaded;
+ * otherwise only one in the job's school year. `school_years` holds Ed-Fi
+ * school years, which are end years, like `endYear`.
+ *
+ * The Executor's suggestion filter must apply the same rule. A match an ODS job
+ * keeps only through cross-year matching is delivered by sideloading (PR 4),
+ * not to the ODS.
+ */
+export const isLoadableSearchHit = (
+  hit: { school_years?: unknown },
+  endYear: number,
+  crossYearMatchingEnabled: boolean
+) =>
+  crossYearMatchingEnabled ||
+  (Array.isArray(hit.school_years) && hit.school_years.includes(endYear));
 
 const noStudentsToMatch: GetStudentMatchCountsDto = {
   total: 0,
@@ -41,7 +63,8 @@ export class JobsService {
     private fileService: FileService,
     @Inject(EXECUTOR_SERVICE) private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
-    private appConfig: AppConfigService
+    private appConfig: AppConfigService,
+    private idrsSearch: IdrsSearchService
   ) {}
 
   async getStatusUpdates(jobId: Job['id']) {
@@ -274,6 +297,73 @@ export class JobsService {
         decision: row.kind === 'clear' ? null : { ...decision, version: row.seq, decidedBy: user },
       },
     };
+  }
+
+  /**
+   * Searches IDRS for a student with a reviewer's details, and returns the
+   * students the job could load. `returned` is how many IDRS found, for the
+   * log only.
+   */
+  async searchStudentMatch(input: {
+    job: Job;
+    correlationId: string;
+    details: StudentSearchDetailsDto;
+  }): Promise<
+    | {
+        status: 'SUCCESS';
+        data: {
+          hits: GetStudentSearchHitDto[];
+          returned: number;
+        };
+      }
+    | { status: 'ERROR'; code: 'not_found' }
+    | { status: 'ERROR'; code: 'identity_service_unavailable'; cause: string }
+  > {
+    const { job, correlationId } = input;
+
+    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
+    // would fail on it with a 500.
+    if (correlationId.includes('\0')) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+
+    // The partner's setting is read live, as the Executor's payload reads it,
+    // not snapshotted onto the job.
+    const student = await this.prisma.studentInputDetails.findUnique({
+      where: { jobId_correlationId: { jobId: job.id, correlationId } },
+      select: {
+        job: {
+          select: {
+            schoolYear: { select: { endYear: true } },
+            tenant: { select: { partner: { select: { crossYearMatchingEnabled: true } } } },
+          },
+        },
+      },
+    });
+    if (!student) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+    const { endYear } = student.job.schoolYear;
+    const { crossYearMatchingEnabled } = student.job.tenant.partner;
+
+    const result = await this.idrsSearch.searchStudent({
+      partnerId: job.partnerId,
+      tenantCode: job.tenantCode,
+      correlationId,
+      details: pickStudentSearchDetails(input.details),
+    });
+    if (result.status === 'ERROR') {
+      return result;
+    }
+
+    const hits = result.data
+      .filter((match) => isLoadableSearchHit(match, endYear, crossYearMatchingEnabled))
+      .map(({ student_unique_id, score, ...rosterDetails }) => ({
+        studentUniqueId: student_unique_id,
+        score,
+        rosterDetails,
+      }));
+    return { status: 'SUCCESS', data: { hits, returned: result.data.length } };
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<
