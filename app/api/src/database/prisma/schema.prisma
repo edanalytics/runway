@@ -522,6 +522,12 @@ model StudentMatchDecision {
   ordinal                Int?
   decidedById            Int?                     @map("decided_by_id")
   decidedOn              DateTime                 @default(now()) @map("decided_on") @db.Timestamp(6)
+  studentUniqueId        String?                  @map("student_unique_id")
+  score                  Decimal?                 @db.Decimal
+  /// [StudentRosterDetailsJson]
+  rosterDetails          Json?                    @map("roster_details")
+  /// [StudentInputDetailsJson]
+  searchDetails          Json?                    @map("search_details")
   user                   User?                    @relation(fields: [decidedById], references: [id], onUpdate: NoAction)
   studentInputDetails    StudentInputDetails      @relation(fields: [jobId, correlationId], references: [jobId, correlationId], onDelete: Cascade, onUpdate: NoAction)
   studentMatchResult     StudentMatchResult?      @relation(fields: [resultId, jobId, correlationId], references: [id, jobId, correlationId], onDelete: NoAction, onUpdate: NoAction)
