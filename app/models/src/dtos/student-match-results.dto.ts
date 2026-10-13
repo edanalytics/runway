@@ -243,7 +243,11 @@ export class GetStudentMatchDecisionDto {
   decidedOn: Date;
 }
 
-export type StudentMatchDecisionWithUser = StudentMatchDecision & {
+/** A decision row, with its hit's columns only in `searchHit`. */
+export type StudentMatchDecisionWithUser = Omit<
+  StudentMatchDecision,
+  'studentUniqueId' | 'score' | 'rosterDetails' | 'searchDetails'
+> & {
   version: number;
   decidedBy: User | null;
   searchHit: {

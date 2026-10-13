@@ -63,12 +63,15 @@ export const isLoadableSearchHit = (
  */
 const toStudentMatchDecision = ({
   user,
+  studentUniqueId,
+  score,
+  rosterDetails,
+  searchDetails,
   ...row
 }: StudentMatchDecision & { user: User | null }): StudentMatchDecisionWithUser | null => {
   if (row.kind === 'clear') {
     return null;
   }
-  const { studentUniqueId, score, rosterDetails, searchDetails } = row;
   return {
     ...row,
     version: row.seq,
