@@ -40,6 +40,10 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
   const failedSum = failed.reduce((acc, [_, summary]) => acc + summary?.failed, 0);
   const success = summariesToDisplay.filter(([_, summary]) => summary?.success > 0);
   const successSum = success.reduce((acc, [_, summary]) => acc + summary?.success, 0);
+  const notSent = summariesToDisplay.filter(
+    ([_, summary]) => summary.failed === 0 && summary.success === 0
+  );
+  const notSentNames = notSent.map(([resource]) => resource).join(', ');
 
   const supportMessage = `Resources failed to ${job.sendToOds ? 'send' : 'process'}: ${failed
     .map(([resource, summary]) => `${resource} (${summary.failed})`) // add some info to help triaging
@@ -48,7 +52,7 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
   return (
     <>
       {
-        failed.length === 0 && success.length > 0 ? (
+        failed.length === 0 && notSent.length === 0 && success.length > 0 ? (
           <Box>
             <HStack gap="200">
               <Box bg="green.300" padding="100" borderRadius="21px">
@@ -119,7 +123,18 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
             </HStack>
             <ContactSupport message={supportMessage} />
           </HStack>
-        ) : null // shouldn't fall into this case unless something very odd happens like lightbeam skips all records or a user loads an empty file (and it somehow gets through to lightbeam)
+        ) : notSent.length > 0 ? (
+          <HStack width="100%" bg="blue.600" padding="400" borderRadius="8px" gap="200">
+            <Box bg="pink.400" padding="200" borderRadius="21px">
+              <IconExclamation />
+            </Box>
+            <Box textStyle="bodyLargeBold" textColor="blue.50">
+              {job.sendToOds
+                ? `Runway didn't send any ${notSentNames} resources to the ODS.`
+                : `Runway didn't process any ${notSentNames} resources.`}
+            </Box>
+          </HStack>
+        ) : null // only when none of the reported resources is in the summary
       }
       <Grid templateColumns="repeat(4, 1fr)" gap="200" width="100%">
         <GridItem textStyle="bodyBold" colSpan={2}>
