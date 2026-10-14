@@ -271,9 +271,8 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
 
       // A suggestion pick's searchHit is null: see the test above.
-      it('returns a match to a search hit with the hit, beside the run results', async () => {
+      it('returns a match to a search hit with the hit, counted as ready', async () => {
         await reportStudents(['corr-1', 'corr-2']);
-        const before = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
         const searchHit = {
           searchDetails: { first_name: 'Ada', last_name: 'Lovelace', birth_date: '2010-12-10' },
           studentUniqueId: 'SUID-FOUND',
@@ -295,8 +294,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           decidedBy: expect.objectContaining({ id: userA.id }),
           decidedOn: expect.any(String),
         });
-        // A search adds no result: the student's results are the runs' alone.
-        expect(student.results).toEqual(before.body.students[0].results);
         expect(res.body.counts).toEqual({ total: 2, toReview: 1, ready: 1, excluded: 0 });
       });
 

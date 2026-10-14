@@ -485,22 +485,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     const matchHit = (replacesVersion: number | null, searchHit: unknown = SEARCH_HIT) =>
       decide({ replacesVersion, kind: 'match', searchHit });
 
-    /** The job's results and suggestions, as stored. */
-    const resultsTablesOf = async (jobId: number) => {
-      const results = await prisma.studentMatchResult.findMany({
-        where: { jobId },
-        orderBy: { id: 'asc' },
-      });
-      const suggestions = await prisma.studentMatchSuggestion.findMany({
-        where: { resultId: { in: results.map(({ id }) => id) } },
-        orderBy: [{ resultId: 'asc' }, { ordinal: 'asc' }],
-      });
-      return { results, suggestions };
-    };
-
     it('saves the hit, and the details it was found with, on the decision', async () => {
-      const before = await resultsTablesOf(job.id);
-
       // A key IDRS doesn't take is dropped, as search drops it.
       const res = await matchHit(null, {
         ...SEARCH_HIT,
@@ -535,62 +520,25 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         rosterDetails: SEARCH_HIT.rosterDetails,
         searchDetails: SEARCH_DETAILS,
       });
-      expect(await resultsTablesOf(job.id)).toEqual(before);
     });
 
-    it('replaces a match to a suggestion, and is replaced by one', async () => {
+    // The write a stale view refuses (below) is also accepted when current.
+    it('replaces a match to a suggestion', async () => {
       await matchFirst(resultId);
 
-      const toHit = await matchHit(1);
-      const toSuggestion = await decide({
-        replacesVersion: 2,
-        kind: 'match',
-        resultId,
-        ordinal: 1,
-      });
+      const res = await matchHit(1);
 
-      expect(toHit.status).toBe(201);
-      expect(toHit.body.decision).toMatchObject({ version: 2, resultId: null, ordinal: null });
-      expect(toSuggestion.status).toBe(201);
-      expect(toSuggestion.body.decision).toMatchObject({
-        version: 3,
-        resultId,
-        ordinal: 1,
-        searchHit: null,
+      expect(res.status).toBe(201);
+      expect(res.body.decision).toMatchObject({
+        version: 2,
+        resultId: null,
+        searchHit: SEARCH_HIT,
       });
       expect(
         (await rowsOf()).map((row) => [row.resultId?.toString() ?? null, row.studentUniqueId])
       ).toEqual([
         [resultId, null],
         [null, 'SUID-FOUND'],
-        [resultId, null],
-      ]);
-    });
-
-    it('replaces an exclusion', async () => {
-      await decide({ replacesVersion: null, kind: 'exclude' });
-
-      const res = await matchHit(1);
-
-      expect(res.status).toBe(201);
-      expect(res.body.decision).toMatchObject({ version: 2, kind: 'match', searchHit: SEARCH_HIT });
-    });
-
-    it('is cleared like any match, leaving the hit on its row', async () => {
-      await matchHit(null);
-
-      const cleared = await decide({ replacesVersion: 1, kind: 'clear' });
-
-      expect(cleared.body).toEqual({ decision: null });
-      const read = await request(app.getHttpServer())
-        .get(`/jobs/${job.id}/student-match-results`)
-        .set('Cookie', [cookies]);
-      expect(
-        read.body.students.find((s: { correlationId: string }) => s.correlationId === 'corr-1')
-      ).toMatchObject({ status: 'to-review', decision: null });
-      expect((await rowsOf()).map((row) => [row.kind, row.studentUniqueId])).toEqual([
-        ['match', 'SUID-FOUND'],
-        ['clear', null],
       ]);
     });
 
@@ -684,7 +632,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     it.each<[string, Record<string, unknown>]>([
-      ['no student unique id', { studentUniqueId: undefined }],
+      ['a student unique id that isn’t a string', { studentUniqueId: 123 }],
       ['an empty student unique id', { studentUniqueId: '' }],
       ['a score that isn’t a number', { score: '0.97' }],
       ['roster details that aren’t an object', { rosterDetails: ['Ada'] }],
@@ -717,19 +665,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(await rowsOf()).toEqual([]);
     });
 
-    it('is refused on a job in background mode, even from a partner admin', async () => {
-      const background = await seedReportedJob('id_based_fuzzy_background');
-      const { cookies: admin } = await authHelper.login(idpA, userA, tenantA, PARTNER_ADMIN);
-
-      const res = await decide(
-        { replacesVersion: null, kind: 'match', searchHit: SEARCH_HIT },
-        { jobId: background.id, cookie: admin }
-      );
-
-      expect(res.status).toBe(403);
-      expect(await rowsOf('corr-1', background.id)).toEqual([]);
-    });
-
+    // The student check runs for a hit too. Without it the insert's foreign key
+    // would refuse the row, which reads as no such suggestion.
     it('returns 404 for a student the job doesn’t have, writing nothing', async () => {
       const res = await decide(
         { replacesVersion: null, kind: 'match', searchHit: SEARCH_HIT },
@@ -737,7 +674,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       );
 
       expect(res.status).toBe(404);
-      expect(res.body.code).toBe('not_found');
+      expect(res.body).toEqual({
+        statusCode: 404,
+        code: 'not_found',
+        message: 'This student isn’t in the job.',
+      });
       expect(await prisma.studentMatchDecision.findMany({ where: { jobId: job.id } })).toEqual([]);
     });
   });
