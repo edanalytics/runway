@@ -66,6 +66,8 @@ export class ExecutorLocalDockerService implements ExecutorService {
         this.logger.error(`Local docker executor exited with code ${code}`);
       }
     });
+
+    return { ecsTaskArn: null, taskSize: null };
   }
 
   private async ensureDockerAvailable() {

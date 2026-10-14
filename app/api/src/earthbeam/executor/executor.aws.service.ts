@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ExecutorService } from './executor.service';
+import { ExecutorService, ExecutorStartResult } from './executor.service';
 import { Job, JobFile, Run, SchoolYear } from '@prisma/client';
 import { AssumeRoleCommandInput, STSClient } from '@aws-sdk/client-sts';
 import { AssumeRoleCommand } from '@aws-sdk/client-sts';
@@ -29,7 +29,9 @@ export class ExecutorAwsService implements ExecutorService {
     this.ecsClient = new ECSClient({ region });
   }
 
-  async start(run: Run & { job: Job & { schoolYear: SchoolYear; files: JobFile[] } }) {
+  async start(
+    run: Run & { job: Job & { schoolYear: SchoolYear; files: JobFile[] } }
+  ): Promise<ExecutorStartResult> {
     const initToken = await this.apiAuth.createInitToken({ runId: run.id });
     const initJobUrl = this.apiAuth.initEndpoint({ runId: run.id });
     const timeoutSeconds = this.appConfig.get('TIMEOUT_SECONDS') ?? '3600';
@@ -125,7 +127,12 @@ export class ExecutorAwsService implements ExecutorService {
       throw new Error(`Failed to start ECS task for run ${run.id}. Reasons: ${reasons}`);
     }
 
-    return;
+    const ecsTaskArn = response.tasks?.[0]?.taskArn ?? null;
+    if (!ecsTaskArn) {
+      this.logger.warn(`ECS returned no task ARN for run ${run.id}; its logs won't be linkable`);
+    }
+
+    return { ecsTaskArn, taskSize };
   }
 
   // Large input files have caused the executor to run out of memory, so jobs
