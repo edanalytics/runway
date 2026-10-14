@@ -11,7 +11,11 @@ import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
-import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
+import {
+  ExecutorService,
+  ExecutorStartResult,
+  EXECUTOR_SERVICE,
+} from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 
 /**
@@ -455,8 +459,9 @@ export class JobsService {
       include: { job: { include: { schoolYear: true, files: true } } },
     });
 
+    let startResult: ExecutorStartResult;
     try {
-      await this.executor.start(run);
+      startResult = await this.executor.start(run);
     } catch (e) {
       this.logger.error(`Failed to start run ${run.id}: ${e}`);
 
@@ -480,6 +485,17 @@ export class JobsService {
       });
 
       return { result: 'JOB_START_FAILED', job, error: e };
+    }
+
+    if (startResult.ecsTaskArn || startResult.taskSize) {
+      try {
+        await prisma.run.update({
+          where: { id: run.id },
+          data: { ecsTaskArn: startResult.ecsTaskArn, taskSize: startResult.taskSize },
+        });
+      } catch (e) {
+        this.logger.error(`Failed to record ECS task for run ${run.id}: ${e}`);
+      }
     }
 
     return { result: 'JOB_STARTED', job, run };
