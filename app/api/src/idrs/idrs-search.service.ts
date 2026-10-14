@@ -7,7 +7,7 @@ import { idrsStudentSearchUrl } from './idrs-student-search-url';
  * The search request's own bound. Getting credentials is bounded separately,
  * at 5 s for the secret and 5 s for the token.
  */
-const IDRS_SEARCH_TIMEOUT_MS = 10_000;
+const IDRS_SEARCH_TIMEOUT_MS = 20_000;
 
 /** One of IDRS's matches, as returned, including fields not named here. */
 type IdrsStudentMatch = StudentRosterDetailsJson & {
