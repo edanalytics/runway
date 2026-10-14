@@ -2,10 +2,10 @@ import { AppConfigService } from '../../src/config/app-config.service';
 import { IdrsCredentialsService } from '../../src/idrs/idrs-credentials.service';
 
 /**
- * Stubs IDRS's config so the real credentials service runs against fakes:
- * only AWS is faked here, and the caller stubs `fetch` for the OAuth server
- * and IDRS. Each partner's OAuth client is `<partnerId>-client`. Returns the
- * stubbed config.
+ * Stubs IDRS's config and per-partner secrets, so the real credentials service
+ * runs against fakes; the caller stubs `fetch` for the OAuth server and IDRS.
+ * Each partner's OAuth client is `<partnerId>-client`. Returns the stubbed
+ * config.
  */
 export const stubIdrsConfig = ({ idrsUrl, tokenUrl }: { idrsUrl: string; tokenUrl: string }) => {
   // Tokens are cached per app instance, and the app is shared across tests.

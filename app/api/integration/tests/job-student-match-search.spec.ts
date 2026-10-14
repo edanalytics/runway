@@ -261,7 +261,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
         method: 'POST',
         headers: { Authorization: 'Bearer issued-token', 'Content-Type': 'application/json' },
       });
-      // Pins the timeout, which no test waits out.
+      // Pins that the request can time out; no test waits for one.
       expect(init.signal).toBeInstanceOf(AbortSignal);
       expect(JSON.parse(init.body)).toEqual([{ correlation_id: 'corr-1', ...DETAILS }]);
     });
