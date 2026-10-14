@@ -3,7 +3,10 @@ import { StudentRosterDetailsJson, StudentSearchDetailsDto } from '@edanalytics/
 import { IdrsCredentials, IdrsCredentialsService } from './idrs-credentials.service';
 import { idrsStudentSearchUrl } from './idrs-student-search-url';
 
-/** Getting credentials is bounded separately, at 5 s for the secret and 5 s for the token. */
+/**
+ * The search request's own bound. Getting credentials is bounded separately,
+ * at 5 s for the secret and 5 s for the token.
+ */
 const IDRS_SEARCH_TIMEOUT_MS = 10_000;
 
 /** One of IDRS's matches, as returned, including fields not named here. */
@@ -54,7 +57,8 @@ export class IdrsSearchService {
   /**
    * Returns every match IDRS found. Doesn't log: the caller logs once, with
    * the job. A failure's `cause` is safe to log: an error name, a status, or
-   * the credentials service's own message, never a response body.
+   * a credentials error as the identity-service callback logs it, never a
+   * response body.
    */
   async searchStudent(input: {
     partnerId: string;

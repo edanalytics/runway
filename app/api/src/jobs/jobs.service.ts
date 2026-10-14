@@ -40,13 +40,12 @@ export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
 
 /**
  * Whether a job could load a student IDRS found. With cross-year matching on,
- * the partner has sideloading, so any student IDRS knows can be loaded;
+ * any student IDRS knows can be, outside the ODS as cross-year matches are;
  * otherwise only one in the job's school year. `school_years` holds Ed-Fi
  * school years, which are end years, like `endYear`.
  *
  * The Executor's suggestion filter must apply the same rule. A match an ODS job
- * keeps only through cross-year matching is delivered by sideloading (PR 4),
- * not to the ODS.
+ * keeps only through cross-year matching must never be sent to the ODS.
  */
 export const isLoadableSearchHit = (
   hit: { school_years?: unknown },
@@ -76,7 +75,7 @@ const toStudentMatchDecision = ({
     ...row,
     version: row.seq,
     decidedBy: user,
-    // The table's check sets all four, or none.
+    // The table's check requires all four, or none.
     searchHit:
       studentUniqueId !== null && score !== null && rosterDetails !== null && searchDetails !== null
         ? { searchDetails, studentUniqueId, score, rosterDetails }
@@ -297,7 +296,6 @@ export class JobsService {
       // clear) for null. A clear needs a decision to clear.
       // Two racing writes compute the same seq, so the loser collides with
       // the winner on the primary key and does nothing.
-      // The hit's columns are null unless the match is to a search hit.
       inserted = await prisma.$queryRaw<{ seq: number }[]>`
         INSERT INTO public.student_match_decision
           (job_id, correlation_id, seq, kind, result_id, ordinal,
