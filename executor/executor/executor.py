@@ -413,13 +413,13 @@ class JobExecutor:
                 )
                 os.environ[env_name] = local_path
                 self.input_sources[env_name] = {"path": local_path}
-                # capture path to original input file
-                self.original_input_path = self.input_sources["INPUT_FILE"]["path"]
             except botocore.exceptions.ClientError:
                 self.error = error.InputS3DownloadError(
                     env_name, f"{self.s3_in_path}/{uri_path}"
                 )
                 raise
+        # capture path to original input file
+        self.original_input_path = self.input_sources["INPUT_FILE"]["path"]
 
     def map_descriptors(self):
         """Replace assessment bundle seed files' Ed-Fi descriptors with custom values"""
