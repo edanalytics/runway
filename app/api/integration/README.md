@@ -11,7 +11,7 @@ The main motivation for using integration tests vs. e2e is the ability to provid
 
 We do the following on running tests:
 
-0. Load .env.test
+0. Load .env.test, then .env.test.local if present
 1. Spin up a test Postgres DB
 2. Perform migrations
 3. Seed data the app needs to do basic stuff (partners, tenants, users, school years, etc)
@@ -29,6 +29,15 @@ Avoid writing tests in a way that assume sequential processing. This includes sh
 Because seed data is refreshed before each test, tests don't need to manually clean up DB records they create — `refreshSeed` clears and reloads everything, including sessions. Tests should only use `afterEach` for non-DB teardown like restoring mocks.
 
 Note that if we implement dedicated schemas per test file, we have much more flexibility with how the tests interact with the DB.
+
+## Running Suites in Several Worktrees
+
+Each checkout runs its own test DB container, named by `COMPOSE_PROJECT_NAME` and published on `POSTGRES_PORT`. Both default to `.env.test`'s values, so two checkouts collide unless one overrides them in a gitignored `app/api/.env.test.local`:
+
+```
+POSTGRES_PORT=5434
+COMPOSE_PROJECT_NAME=runway_app_test_review
+```
 
 ## Test Data: Xs and As, Fixtures & Factories
 

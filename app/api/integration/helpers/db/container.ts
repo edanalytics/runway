@@ -3,13 +3,15 @@ import { execSync } from 'child_process';
 import { join } from 'path';
 
 const dockerComposePath = join(__dirname, './docker-compose.test.yml');
-const projectArgs = '--project-name runway_app_test';
+// The project name comes from .env.test (overridable in .env.test.local), so each
+// checkout gets its own container.
+const projectArgs = () => `--project-name ${process.env.COMPOSE_PROJECT_NAME}`;
 
 const up = async () => {
   console.log('Setting up test database...');
 
-  const { POSTGRES_USER, POSTGRES_DB } = process.env;
-  if (!POSTGRES_USER || !POSTGRES_DB) {
+  const { POSTGRES_USER, POSTGRES_DB, POSTGRES_PORT, COMPOSE_PROJECT_NAME } = process.env;
+  if (!POSTGRES_USER || !POSTGRES_DB || !POSTGRES_PORT || !COMPOSE_PROJECT_NAME) {
     throw new Error('.env.test must be loaded before running this script');
   }
 
@@ -17,7 +19,7 @@ const up = async () => {
     // Start the test database if not already running, and wait for it to be ready.
     // This is intentionally idempotent — if the container is already healthy it's a no-op.
     console.log('Starting test database container...');
-    execSync(`docker compose ${projectArgs} -f ${dockerComposePath} up -d --wait`, {
+    execSync(`docker compose ${projectArgs()} -f ${dockerComposePath} up -d --wait`, {
       stdio: 'inherit',
       cwd: join(__dirname, '../..'),
     });
@@ -32,7 +34,7 @@ const up = async () => {
 const down = async () => {
   try {
     console.log('Stopping test database container...');
-    execSync(`docker compose ${projectArgs} -f ${dockerComposePath} down -v`, {
+    execSync(`docker compose ${projectArgs()} -f ${dockerComposePath} down -v`, {
       stdio: 'inherit',
       cwd: join(__dirname, '../..'),
     });
