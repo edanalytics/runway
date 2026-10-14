@@ -1086,7 +1086,7 @@ class JobExecutor:
             return
         self.logger.debug(f"Sending {len(student_match_results)} student match results")
         resp = self.conn.post(self.student_match_results_url, json=student_match_results)
-        if resp.status_code != 201:
+        if not resp.ok:
             self.logger.error(f"student match results could not post: {resp.status_code} - {resp.text}")
             raise ValueError(f"student match results could not post: {resp.status_code} - {resp.text}")
 
