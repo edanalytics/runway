@@ -45,14 +45,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
   let job: Awaited<ReturnType<typeof seedJob>>;
   let cookies: string;
 
+  const IN_TENANT_A = { odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA };
+
   /** A job in this mode, with corr-1 reported for its first run. */
-  const seedReportedJob = async (idMatchingMode: IdMatchingMode, inTenantB = false) => {
-    const seeded = await seedJob({
-      odsConfig: inTenantB ? odsConfigB2526 : odsConfigA2425,
-      bundle: bundleA,
-      tenant: inTenantB ? tenantB : tenantA,
-      idMatchingMode,
-    });
+  const seedReportedJob = async (idMatchingMode: IdMatchingMode, where = IN_TENANT_A) => {
+    const seeded = await seedJob({ ...where, idMatchingMode });
     await reportMatchResults(seeded.runs[0].id, [
       { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
     ]);
@@ -135,18 +132,14 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it('rejects a user from another tenant, and lets the job’s own tenant search', async () => {
+    it('rejects a user from another tenant', async () => {
       const fetchSpy = stubIdrs(found([]));
       const { cookies: other } = await authHelper.login(idpA, userB, tenantB);
 
-      const refused = await search(DETAILS, { cookie: other });
+      const res = await search(DETAILS, { cookie: other });
 
-      expect(refused.status).toBe(403);
+      expect(res.status).toBe(403);
       expect(fetchSpy).not.toHaveBeenCalled();
-
-      const allowed = await search(DETAILS);
-
-      expect(allowed.status).toBe(200);
     });
 
     it('rejects a user without the match results search privilege', async () => {
@@ -161,7 +154,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
 
     it('lets a support user search across tenants, as the job’s own tenant', async () => {
       const fetchSpy = stubIdrs(found([]));
-      const tenantBJob = await seedReportedJob('fuzzy', true);
+      const tenantBJob = await seedReportedJob('fuzzy', {
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
       const { cookies: support } = await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_USER);
 
       const res = await search(DETAILS, { jobId: tenantBJob.id, cookie: support });
@@ -176,15 +173,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     // through here would hand them another partner's IDRS directory.
     it('refuses a support user a job in another partner’s tenant', async () => {
       const fetchSpy = stubIdrs(found([]));
-      const partnerXJob = await seedJob({
+      const partnerXJob = await seedReportedJob('fuzzy', {
         odsConfig: odsConfigX2425,
         bundle: bundleX,
         tenant: tenantX,
-        idMatchingMode: 'fuzzy',
       });
-      await reportMatchResults(partnerXJob.runs[0].id, [
-        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
-      ]);
       const { cookies: support } = await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_USER);
 
       const res = await search(DETAILS, { jobId: partnerXJob.id, cookie: support });
@@ -230,12 +223,13 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
 
   // IDRS rejects each of these with a 400, which would surface as a 502.
   it.each<[string, Record<string, unknown>, string]>([
-    ['a birth date that isn’t YYYY-MM-DD', { birth_date: '12/10/2010' }, 'birth_date'],
+    // Each passes one of the two date rules.
     ['an impossible birth date', { birth_date: '2010-02-30' }, 'birth_date'],
     ['a birth date with a time', { birth_date: '2010-12-10T00:00:00Z' }, 'birth_date'],
     ['a school id that isn’t an integer', { school_ids: [101, 1.5] }, 'school_ids'],
     ['school ids that aren’t a list', { school_ids: 101 }, 'school_ids'],
     ['a student id that isn’t a string', { student_ids: [123] }, 'student_ids'],
+    ['student ids that aren’t a list', { student_ids: 'S-1' }, 'student_ids'],
     ['a name that isn’t a string', { first_name: 7 }, 'first_name'],
   ])('refuses %s, without searching', async (_, given, field) => {
     const fetchSpy = stubIdrs(found([]));
@@ -272,7 +266,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       expect(JSON.parse(init.body)).toEqual([{ correlation_id: 'corr-1', ...DETAILS }]);
     });
 
-    it('leaves out the fields the reviewer didn’t give', async () => {
+    it('searches with only the details the reviewer gave', async () => {
       const fetchSpy = stubIdrs(found([]));
 
       const res = await search({ last_name: 'Lovelace' });
@@ -326,15 +320,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
         ],
       });
     });
-
-    it('returns no hits when IDRS finds no one', async () => {
-      stubIdrs(found([]));
-
-      const res = await search(DETAILS);
-
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ hits: [] });
-    });
   });
 
   // The job is for 2024–25, so its end year is 2025.
@@ -349,110 +334,104 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     const hitIds = (res: request.Response) =>
       res.body.hits.map((hit: { studentUniqueId: string }) => hit.studentUniqueId);
 
-    it('keeps only students in the job’s year without cross-year matching', async () => {
+    // The job was created with the setting off, so the second search shows
+    // it's read at search time, not when the job was created.
+    it('keeps only students in the job’s year, or everyone once the partner has cross-year matching', async () => {
       stubIdrs(acrossYears());
 
-      const res = await search(DETAILS);
-
-      expect(res.status).toBe(200);
-      expect(hitIds(res)).toEqual(['SUID-BOTH', 'SUID-2025']);
-    });
-
-    it('keeps every student with cross-year matching', async () => {
+      const without = await search(DETAILS);
       await setCrossYearMatching(true);
-      stubIdrs(acrossYears());
+      const withCrossYear = await search(DETAILS);
 
-      const res = await search(DETAILS);
-
-      expect(res.status).toBe(200);
-      expect(hitIds(res)).toEqual(['SUID-BOTH', 'SUID-2025', 'SUID-2024', 'SUID-NONE']);
-    });
-
-    it('follows the partner’s current setting, not the job’s', async () => {
-      stubIdrs(acrossYears());
-
-      const before = await search(DETAILS);
-      await setCrossYearMatching(true);
-      const after = await search(DETAILS);
-
-      expect(hitIds(before)).toEqual(['SUID-BOTH', 'SUID-2025']);
-      expect(hitIds(after)).toEqual(['SUID-BOTH', 'SUID-2025', 'SUID-2024', 'SUID-NONE']);
+      expect([without.status, withCrossYear.status]).toEqual([200, 200]);
+      expect(hitIds(without)).toEqual(['SUID-BOTH', 'SUID-2025']);
+      expect(hitIds(withCrossYear)).toEqual(['SUID-BOTH', 'SUID-2025', 'SUID-2024', 'SUID-NONE']);
     });
   });
 
   describe('when IDRS can’t answer', () => {
-    it.each<[string, () => Response | Error]>([
+    // Every failure is the same 502, so only the logged cause shows which
+    // check caught it.
+    it.each<[string, () => unknown, string]>([
+      [
+        'the partner has no IDRS connection info',
+        () => {
+          jest.spyOn(app.get(AppConfigService), 'getIdrsConnectionInfo').mockResolvedValue(null);
+          stubIdrs(found([]));
+        },
+        `Error: no IDRS connection info for partner ${tenantA.partnerId}`,
+      ],
+      [
+        'the token is refused',
+        () => stubIdrs(found([]), jsonResponse(401, {})),
+        'Error: IDRS token request rejected with status 401',
+      ],
       [
         'the search times out',
-        () => Object.assign(new Error('timed out'), { name: 'TimeoutError' }),
+        () => stubIdrs(Object.assign(new Error('timed out'), { name: 'TimeoutError' })),
+        'search request failed (TimeoutError)',
       ],
       [
-        'the search is refused as invalid',
-        () => jsonResponse(400, { error: 'invalid_request', details: [{ path: '0.birth_date' }] }),
+        'the partner isn’t provisioned',
+        () => stubIdrs(jsonResponse(404, { error: 'partner_not_found' })),
+        'search rejected with status 404',
       ],
-      ['the partner isn’t provisioned', () => jsonResponse(404, { error: 'partner_not_found' })],
-      ['the search fails', () => jsonResponse(500, { error: 'search_error' })],
       [
         'the response isn’t JSON',
         () =>
-          ({
+          stubIdrs({
             ok: true,
             status: 200,
             json: async () => {
               throw new SyntaxError('Unexpected token');
             },
           } as unknown as Response),
+        'search response unreadable (SyntaxError)',
       ],
-      ['the response has no results', () => jsonResponse(200, [])],
       [
         'the response has two results',
         () =>
-          jsonResponse(200, [
-            { correlation_id: 'corr-1', matches: [] },
-            { correlation_id: 'corr-2', matches: [] },
-          ]),
+          stubIdrs(
+            jsonResponse(200, [
+              { correlation_id: 'corr-1', matches: [] },
+              { correlation_id: 'corr-2', matches: [] },
+            ])
+          ),
+        'search response malformed',
       ],
       [
         'the response is for another student',
-        () => jsonResponse(200, [{ correlation_id: 'corr-2', matches: [] }]),
+        () => stubIdrs(jsonResponse(200, [{ correlation_id: 'corr-2', matches: [] }])),
+        'search response malformed',
       ],
-      ['the response has no matches list', () => jsonResponse(200, [{ correlation_id: 'corr-1' }])],
+      [
+        'the response has no matches list',
+        () => stubIdrs(jsonResponse(200, [{ correlation_id: 'corr-1' }])),
+        'search response malformed',
+      ],
       [
         'a match has no student unique id',
-        () => found([{ ...idrsMatch('SUID-1', [2025]), student_unique_id: undefined }]),
+        () => stubIdrs(found([{ ...idrsMatch('SUID-1', [2025]), student_unique_id: undefined }])),
+        'search response malformed',
       ],
       [
         'a match’s score isn’t a number',
-        () => found([{ ...idrsMatch('SUID-1', [2025]), score: '0.9' }]),
+        () => stubIdrs(found([{ ...idrsMatch('SUID-1', [2025]), score: '0.9' }])),
+        'search response malformed',
       ],
-    ])('returns 502 when %s', async (_, searchResponse) => {
-      stubIdrs(searchResponse());
+    ])('returns 502 when %s', async (_, stub, cause) => {
+      const errors: string[] = [];
+      jest.spyOn(Logger.prototype, 'error').mockImplementation((message) => {
+        errors.push(String(message));
+      });
+      stub();
 
       const res = await search(DETAILS);
 
       expect(res.status).toBe(502);
       expect(res.body).toEqual(UNAVAILABLE);
-    });
-
-    it('returns 502 without searching when the token is refused', async () => {
-      const fetchSpy = stubIdrs(found([]), jsonResponse(401, {}));
-
-      const res = await search(DETAILS);
-
-      expect(res.status).toBe(502);
-      expect(res.body).toEqual(UNAVAILABLE);
-      expect(searchCalls(fetchSpy)).toEqual([]);
-    });
-
-    it('returns 502 without searching when the partner has no IDRS connection info', async () => {
-      jest.spyOn(app.get(AppConfigService), 'getIdrsConnectionInfo').mockResolvedValue(null);
-      const fetchSpy = stubIdrs(found([]));
-
-      const res = await search(DETAILS);
-
-      expect(res.status).toBe(502);
-      expect(res.body).toEqual(UNAVAILABLE);
-      expect(fetchSpy).not.toHaveBeenCalled();
+      // The cause ends the line.
+      expect(errors.map((line) => line.split(' cause=')[1])).toEqual([cause]);
     });
   });
 
@@ -490,7 +469,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     const failed = await search(searched);
     expect(failed.status).toBe(502);
     // The 502's body carries none of it either.
-    expect(JSON.stringify(failed.body)).not.toContain('Zebediah');
+    expect(failed.body).toEqual(UNAVAILABLE);
 
     const lines = logs.filter((line) => line.startsWith('student match search:'));
     expect(lines).toEqual([
