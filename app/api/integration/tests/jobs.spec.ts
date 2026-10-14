@@ -253,13 +253,12 @@ describe('GET /jobs/:id', () => {
     });
 
     it('shows a reported resource with nothing sent as complete with errors', async () => {
-      // No failures either: every record was skipped.
       await prisma.run.updateMany({
         where: { jobId: jobA.id },
         data: {
           status: 'success',
           summary: {
-            studentAssessments: { records_processed: 3, records_skipped: 3, records_failed: 0 },
+            studentAssessments: { records_processed: 0, records_failed: 0 },
             students: { records_processed: 5, records_failed: 0 },
           },
         },
@@ -270,6 +269,22 @@ describe('GET /jobs/:id', () => {
 
       expect(job.resourceErrors.map(({ resource }) => resource)).toEqual(['studentAssessments']);
       expect(job.status).toBe('complete with errors');
+    });
+
+    it('shows a reported resource with records sent and none failed as success', async () => {
+      await prisma.run.updateMany({
+        where: { jobId: jobA.id },
+        data: {
+          status: 'success',
+          summary: { studentAssessments: { records_processed: 3, records_failed: 0 } },
+        },
+      });
+
+      const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
+      const job = plainToInstance(GetJobDto, res.body);
+
+      expect(job.resourceErrors).toEqual([]);
+      expect(job.status).toBe('success');
     });
 
     it('has no resource summaries when the last run has no summary', async () => {

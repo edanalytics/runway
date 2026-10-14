@@ -40,14 +40,15 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
   const failedSum = failed.reduce((acc, [_, summary]) => acc + summary?.failed, 0);
   const success = summariesToDisplay.filter(([_, summary]) => summary?.success > 0);
   const successSum = success.reduce((acc, [_, summary]) => acc + summary?.success, 0);
-  const notSent = summariesToDisplay.filter(
-    ([_, summary]) => summary.failed === 0 && summary.success === 0
-  );
-  const notSentNames = notSent.map(([resource]) => resource).join(', ');
+  const notSent = job.resourceErrors.filter(({ failed }) => failed === 0);
+  const notSentNames = notSent.map(({ resource }) => resource).join(', ');
 
-  const supportMessage = `Resources failed to ${job.sendToOds ? 'send' : 'process'}: ${failed
-    .map(([resource, summary]) => `${resource} (${summary.failed})`) // add some info to help triaging
-    .join(', ')}`;
+  const supportMessage =
+    failed.length > 0
+      ? `Resources failed to ${job.sendToOds ? 'send' : 'process'}: ${failed
+          .map(([resource, summary]) => `${resource} (${summary.failed})`) // add some info to help triaging
+          .join(', ')}`
+      : `No resources ${job.sendToOds ? 'sent' : 'processed'}: ${notSentNames}`;
 
   return (
     <>
@@ -70,7 +71,7 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
               </Box>
             )}
           </Box>
-        ) : failed.length > 0 ? (
+        ) : failed.length > 0 || notSent.length > 0 ? (
           <HStack
             width="100%"
             justifyContent="space-between"
@@ -86,7 +87,11 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
                     <IconExclamation />
                   </Box>
                   <Box textStyle="bodyLargeBold">
-                    {job.sendToOds
+                    {failed.length === 0
+                      ? job.sendToOds
+                        ? 'No resources sent to the ODS'
+                        : 'No resources processed'
+                      : job.sendToOds
                       ? successSum === 0
                         ? 'All resources failed to send to the ODS'
                         : failedSum === 1
@@ -100,7 +105,11 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
                   </Box>
                 </HStack>
                 <Box textStyle="body">
-                  {job.sendToOds
+                  {failed.length === 0
+                    ? job.sendToOds
+                      ? `Runway didn't send any ${notSentNames} resources to your ODS.`
+                      : `Runway didn't process any ${notSentNames} resources.`
+                    : job.sendToOds
                     ? failed.length === 1
                       ? `Runway was unable to send ${countOfString('failed', failed[0])}.`
                       : 'Runway was unable to send the resources listed as "Failed" below to your ODS.'
@@ -122,17 +131,6 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
               </VStack>
             </HStack>
             <ContactSupport message={supportMessage} />
-          </HStack>
-        ) : notSent.length > 0 ? (
-          <HStack width="100%" bg="blue.600" padding="400" borderRadius="8px" gap="200">
-            <Box bg="pink.400" padding="200" borderRadius="21px">
-              <IconExclamation />
-            </Box>
-            <Box textStyle="bodyLargeBold" textColor="blue.50">
-              {job.sendToOds
-                ? `Runway didn't send any ${notSentNames} resources to the ODS.`
-                : `Runway didn't process any ${notSentNames} resources.`}
-            </Box>
           </HStack>
         ) : null // only when none of the reported resources is in the summary
       }
