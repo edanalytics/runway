@@ -1,11 +1,27 @@
 import {
   EarthmoverBundleTypes,
+  GetStudentMatchCountsDto,
+  GetStudentSearchHitDto,
   JobInputParamDto,
   JsonArray,
+  pickStudentSearchDetails,
+  PostStudentMatchDecisionDto,
+  StudentMatchDecisionWithUser,
+  StudentSearchDetailsDto,
+  studentMatchStatus,
   toGetJobTemplateDto,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type {
+  FileStatus,
+  Job,
+  JobFile,
+  PrismaClient,
+  StudentMatchDecision,
+  Tenant,
+  User,
+} from '@prisma/client';
 import { FileService } from '../files/file.service';
 import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
@@ -13,6 +29,7 @@ import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service'
 import { AppConfigService } from '../config/app-config.service';
 import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
+import { IdrsSearchService } from '../idrs/idrs-search.service';
 
 /**
  * Far more than a reviewer will work through (typically under 10, at most a
@@ -20,6 +37,58 @@ import { ApiTokenClient } from '../external-api/external-api-token-client.decora
  * suggestions each, the response is about 3.5 MB.
  */
 export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
+
+/**
+ * Whether a job could load a student IDRS found. With cross-year matching on,
+ * any student IDRS knows can be, outside the ODS as cross-year matches are;
+ * otherwise only one in the job's school year. `school_years` holds Ed-Fi
+ * school years, which are end years, like `endYear`.
+ *
+ * The Executor's suggestion filter must apply the same rule. A match an ODS job
+ * keeps only through cross-year matching must never be sent to the ODS.
+ */
+export const isLoadableSearchHit = (
+  hit: { school_years?: unknown },
+  endYear: number,
+  crossYearMatchingEnabled: boolean
+) =>
+  crossYearMatchingEnabled ||
+  (Array.isArray(hit.school_years) && hit.school_years.includes(endYear));
+
+/**
+ * A decision row as the API shows it: none for a clear, and a search pick's hit
+ * gathered into `searchHit`. The hit's columns reach the client only through
+ * here.
+ */
+const toStudentMatchDecision = ({
+  user,
+  studentUniqueId,
+  score,
+  rosterDetails,
+  searchDetails,
+  ...row
+}: StudentMatchDecision & { user: User | null }): StudentMatchDecisionWithUser | null => {
+  if (row.kind === 'clear') {
+    return null;
+  }
+  return {
+    ...row,
+    version: row.seq,
+    decidedBy: user,
+    // The table's check requires all four, or none.
+    searchHit:
+      studentUniqueId !== null && score !== null && rosterDetails !== null && searchDetails !== null
+        ? { searchDetails, studentUniqueId, score, rosterDetails }
+        : null,
+  };
+};
+
+const noStudentsToMatch: GetStudentMatchCountsDto = {
+  total: 0,
+  toReview: 0,
+  ready: 0,
+  excluded: 0,
+};
 
 @Injectable()
 export class JobsService {
@@ -29,7 +98,8 @@ export class JobsService {
     private fileService: FileService,
     @Inject(EXECUTOR_SERVICE) private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
-    private appConfig: AppConfigService
+    private appConfig: AppConfigService,
+    private idrsSearch: IdrsSearchService
   ) {}
 
   async getStatusUpdates(jobId: Job['id']) {
@@ -54,41 +124,289 @@ export class JobsService {
   studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
 
   /**
-   * The job's students to match, each with every run's result for it and each
-   * result's suggestions in order.
+   * Each job's student match counts. Job reads and the review read both use
+   * this, so they count the same way. Jobs with no students are absent.
+   *
+   * Takes a Prisma client, though it only reads, so the review read can run it
+   * in its transaction. Other callers use the service's read-only client.
+   */
+  async getStudentMatchCounts(
+    jobIds: Job['id'][],
+    prisma: PrismaClient = this.prisma
+  ): Promise<Map<Job['id'], GetStudentMatchCountsDto>> {
+    // Keep the statuses in step with studentMatchStatus.
+    const rows = await prisma.$queryRaw<
+      { job_id: number; total: bigint; to_review: bigint; ready: bigint; excluded: bigint }[]
+    >`
+      SELECT i.job_id,
+             count(*) AS total,
+             count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
+             count(*) FILTER (WHERE d.kind = 'match') AS ready,
+             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded
+      FROM public.student_input_details i
+      LEFT JOIN LATERAL (
+        SELECT kind FROM public.student_match_decision d
+        WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
+        ORDER BY d.seq DESC
+        LIMIT 1
+      ) d ON true
+      WHERE i.job_id = ANY(${jobIds}::int[])
+      GROUP BY i.job_id
+    `;
+    return new Map(
+      rows.map((row) => [
+        row.job_id,
+        {
+          total: Number(row.total),
+          toReview: Number(row.to_review),
+          ready: Number(row.ready),
+          excluded: Number(row.excluded),
+        },
+      ])
+    );
+  }
+
+  /** Adds the counts every job read that shows a status needs. */
+  async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
+    const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
+    return jobs.map((job) => {
+      return { ...job, studentMatchCounts: counts.get(job.id) ?? noStudentsToMatch };
+    });
+  }
+
+  /**
+   * The job's students to match, each with their current decision and every
+   * run's result for it, and each result's suggestions in order.
    */
   async getStudentMatchResults(jobId: Job['id']) {
-    const count = await this.prisma.studentInputDetails.count({ where: { jobId } });
-    if (count > this.studentMatchReviewLimit) {
-      return { count, students: null };
+    // One snapshot, so the counts and the students agree with each other even
+    // while students are reported or decided.
+    return this.prisma.$transaction(
+      async (tx) => {
+        const counts =
+          (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ??
+          noStudentsToMatch;
+        if (counts.total > this.studentMatchReviewLimit) {
+          return { counts, students: null };
+        }
+
+        const inputs = await tx.studentInputDetails.findMany({
+          where: { jobId },
+          // Only for a stable order: correlation ids are opaque hashes, so it
+          // means nothing to a reviewer.
+          orderBy: { correlationId: 'asc' },
+          include: {
+            studentMatchDecision: { orderBy: { seq: 'desc' }, take: 1, include: { user: true } },
+            studentMatchResult: {
+              orderBy: { runId: 'asc' },
+              include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
+            },
+          },
+        });
+        return {
+          counts,
+          // Prisma names each relation after its table; the API calls them
+          // results and suggestions.
+          students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
+            const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
+            return {
+              ...input,
+              status: studentMatchStatus(latest?.kind),
+              decision: latest ? toStudentMatchDecision(latest) : null,
+              results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
+                ...result,
+                suggestions: studentMatchSuggestion,
+              })),
+            };
+          }),
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead }
+    );
+  }
+
+  /** Appends a decision to the student's history. See AGENTS.md. */
+  async decideStudentMatch(
+    input: {
+      jobId: Job['id'];
+      correlationId: string;
+      userId: number;
+      decision: PostStudentMatchDecisionDto;
+    },
+    prisma: PrismaClient
+  ): Promise<
+    | {
+        status: 'SUCCESS';
+        data: { decision: StudentMatchDecisionWithUser | null };
+      }
+    | {
+        status: 'ERROR';
+        code: 'not_found' | 'decision_changed' | 'results_changed' | 'invalid_target';
+      }
+  > {
+    const { jobId, correlationId, userId } = input;
+    const { replacesVersion, kind } = input.decision;
+    // Only a match names a target, either a hit from the reviewer's own search
+    // or a suggestion. A target sent with anything else is ignored, as is a
+    // suggestion sent beside a hit.
+    const searchHit = kind === 'match' ? input.decision.searchHit : undefined;
+    const picksSuggestion = kind === 'match' && !searchHit;
+    const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
+    const hit = searchHit && {
+      studentUniqueId: searchHit.studentUniqueId,
+      // As text, as ingestion passes it, so PostgreSQL parses it straight to numeric.
+      score: String(searchHit.score),
+      rosterDetails: JSON.stringify(searchHit.rosterDetails),
+      // Exactly what search sends IDRS for these details.
+      searchDetails: JSON.stringify(pickStudentSearchDetails(searchHit.searchDetails)),
+    };
+
+    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
+    // would fail on it with a 500.
+    if (correlationId.includes('\0')) {
+      return { status: 'ERROR', code: 'not_found' };
     }
 
-    const inputs = await this.prisma.studentInputDetails.findMany({
-      where: { jobId },
-      // Only for a stable order: correlation ids are opaque hashes, so it
-      // means nothing to a reviewer.
-      orderBy: { correlationId: 'asc' },
-      include: {
-        studentMatchResult: {
-          orderBy: { runId: 'asc' },
-          include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
+    const student = await prisma.studentInputDetails.findUnique({
+      where: { jobId_correlationId: { jobId, correlationId } },
+      select: { studentMatchResult: { select: { id: true }, orderBy: { runId: 'desc' } } },
+    });
+    if (!student) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+
+    if (picksSuggestion) {
+      const resultIds = student.studentMatchResult.map(({ id }) => id.toString());
+      if (!resultIds.includes(resultId!)) {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
+      // Reviewers pick from the latest search. A pick from an earlier one
+      // means the page predates it. Checked before the insert rather than in
+      // it: a search landing in between is harmless, since new results never
+      // invalidate a decision already made.
+      if (resultIds[0] !== resultId) {
+        return { status: 'ERROR', code: 'results_changed' };
+      }
+    }
+
+    let inserted: { seq: number }[];
+    try {
+      // Writes the row after the student's latest, if the caller saw what's
+      // current: that latest row for a version, or no decision (no rows, or a
+      // clear) for null. A clear needs a decision to clear.
+      // Two racing writes compute the same seq, so the loser collides with
+      // the winner on the primary key and does nothing.
+      inserted = await prisma.$queryRaw<{ seq: number }[]>`
+        INSERT INTO public.student_match_decision
+          (job_id, correlation_id, seq, kind, result_id, ordinal,
+           student_unique_id, score, roster_details, search_details, decided_by_id)
+        SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
+               ${kind}::public.student_match_decision_kind,
+               ${resultId}::bigint, ${ordinal}::int,
+               ${hit?.studentUniqueId ?? null}, ${hit?.score ?? null}::numeric,
+               ${hit?.rosterDetails ?? null}::jsonb, ${hit?.searchDetails ?? null}::jsonb,
+               ${userId}::int
+        FROM (SELECT 1) AS one
+        LEFT JOIN LATERAL (
+          SELECT seq, kind FROM public.student_match_decision
+          WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
+          ORDER BY seq DESC
+          LIMIT 1
+        ) latest ON true
+        WHERE CASE
+          WHEN ${replacesVersion}::int IS NULL
+            THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
+          ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
+        END
+        ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
+        RETURNING seq
+      `;
+    } catch (err) {
+      // The student and the result were checked above, so a foreign key
+      // violation means the ordinal isn't in the result, and so can only come
+      // from a suggestion pick. Matched by SQLSTATE alone: messages quote row
+      // values.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.meta?.code === '23503') {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
+      throw err;
+    }
+    if (inserted.length === 0) {
+      return { status: 'ERROR', code: 'decision_changed' };
+    }
+
+    const row = await prisma.studentMatchDecision.findUniqueOrThrow({
+      where: { jobId_correlationId_seq: { jobId, correlationId, seq: inserted[0].seq } },
+      include: { user: true },
+    });
+    return { status: 'SUCCESS', data: { decision: toStudentMatchDecision(row) } };
+  }
+
+  /**
+   * Searches IDRS for a student with a reviewer's details, and returns the
+   * students the job could load. `returned` is how many IDRS found, for the
+   * log only.
+   */
+  async searchStudentMatch(input: {
+    job: Job;
+    correlationId: string;
+    details: StudentSearchDetailsDto;
+  }): Promise<
+    | {
+        status: 'SUCCESS';
+        data: {
+          hits: GetStudentSearchHitDto[];
+          returned: number;
+        };
+      }
+    | { status: 'ERROR'; code: 'not_found' }
+    | { status: 'ERROR'; code: 'identity_service_unavailable'; cause: string }
+  > {
+    const { job, correlationId } = input;
+
+    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
+    // would fail on it with a 500.
+    if (correlationId.includes('\0')) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+
+    // The partner's setting is read live, as the Executor's payload reads it,
+    // not snapshotted onto the job.
+    const student = await this.prisma.studentInputDetails.findUnique({
+      where: { jobId_correlationId: { jobId: job.id, correlationId } },
+      select: {
+        job: {
+          select: {
+            schoolYear: { select: { endYear: true } },
+            tenant: { select: { partner: { select: { crossYearMatchingEnabled: true } } } },
+          },
         },
       },
     });
-    return {
-      // The fetched length, not the first count: students reported between the
-      // two queries would make count and students disagree.
-      count: inputs.length,
-      // Prisma names each relation after its table; the API calls them results
-      // and suggestions.
-      students: inputs.map(({ studentMatchResult, ...input }) => ({
-        ...input,
-        results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
-          ...result,
-          suggestions: studentMatchSuggestion,
-        })),
-      })),
-    };
+    if (!student) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+    const { endYear } = student.job.schoolYear;
+    const { crossYearMatchingEnabled } = student.job.tenant.partner;
+
+    const result = await this.idrsSearch.searchStudent({
+      partnerId: job.partnerId,
+      tenantCode: job.tenantCode,
+      correlationId,
+      details: pickStudentSearchDetails(input.details),
+    });
+    if (result.status === 'ERROR') {
+      return result;
+    }
+
+    const hits = result.data
+      .filter((match) => isLoadableSearchHit(match, endYear, crossYearMatchingEnabled))
+      .map(({ student_unique_id, score, ...rosterDetails }) => ({
+        studentUniqueId: student_unique_id,
+        score,
+        rosterDetails,
+      }));
+    return { status: 'SUCCESS', data: { hits, returned: result.data.length } };
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<

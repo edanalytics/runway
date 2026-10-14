@@ -384,7 +384,7 @@ export const ReviewSessionProvider = ({
   const session: Session = {
     job,
     groups,
-    overLimit: data && !data.students ? data.count : null,
+    overLimit: data && !data.students ? data.counts.total : null,
     isLoading,
     isError,
     roster,

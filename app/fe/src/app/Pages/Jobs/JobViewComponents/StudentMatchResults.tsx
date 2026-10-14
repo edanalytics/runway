@@ -47,7 +47,7 @@ export const StudentMatchResults = ({ job }: { job: GetJobDto }) => {
     return <Box textStyle="body">Couldn't load unmatched students.</Box>;
   }
   if (data && !data.students) {
-    return <Box textStyle="body">{data.count} unmatched students: too many to list here.</Box>;
+    return <Box textStyle="body">{data.counts.total} unmatched students: too many to list here.</Box>;
   }
   if (!groups?.length) {
     return (

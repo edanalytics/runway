@@ -17,6 +17,7 @@ import { GetSchoolYearDto } from './school-year.dto';
 import { GetRunDto } from './run.dto';
 import { GetUserDto } from './user.dto';
 import { GetJobNoteDto } from './job-note.dto';
+import { GetStudentMatchCountsDto } from './student-match-results.dto';
 
 interface IBaseJobDto {
   id: number;
@@ -37,7 +38,7 @@ export class JobInputParamDto extends GetJobTemplateInputParamDto {
 export type DtoableJob = Job & {
   files: JobFile[];
   runs?: Array<Run & { runError?: RunError[]; }>;
-  studentsToMatchCount: number;
+  studentMatchCounts: GetStudentMatchCountsDto;
 };
 export type TJobDisplayStatus =
   | Exclude<GetRunDto['status'], null>
@@ -99,9 +100,9 @@ export class GetJobDto
   @Expose()
   isResolved: boolean;
 
-  /** How many students the Executor sent for review. */
   @Expose()
-  studentsToMatchCount: number;
+  @Type(() => GetStudentMatchCountsDto)
+  studentMatchCounts: GetStudentMatchCountsDto;
 
   /** Snapshotted from the partner when the job was created. */
   @Expose()
@@ -167,12 +168,17 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: students waiting for a reviewer to pick their match in Runway,
-   * whose records aren't delivered until then. Never in fuzzy background mode,
-   * where the ID-based run has already delivered them.
+   * Fuzzy mode: students who aren't done. Excluded students are done; a saved
+   * match isn't, since it delivers nothing on its own. Once submission is
+   * built, a student is also done when a run with their submitted match has
+   * been attempted. Never in fuzzy background mode, where the ID-based run has
+   * already delivered them.
    */
   get hasFuzzyStudentsToMatch() {
-    return this.idMatchingMode === 'fuzzy' && this.studentsToMatchCount > 0;
+    return (
+      this.idMatchingMode === 'fuzzy' &&
+      this.studentMatchCounts.toReview + this.studentMatchCounts.ready > 0
+    );
   }
 
   /**
