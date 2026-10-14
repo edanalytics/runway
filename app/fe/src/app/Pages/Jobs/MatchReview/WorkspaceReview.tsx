@@ -57,7 +57,7 @@ import {
   SecondaryButton,
   studentName,
 } from './components';
-import { termsFrom, SearchTerms } from './idrsSearch';
+import { canSearch, termsFrom, SearchTerms } from './idrsSearch';
 import { SpreadsheetControls } from './spreadsheet';
 import {
   Batch,
@@ -2525,6 +2525,7 @@ const Search = ({
   const hits = remembered?.hits ?? null;
 
   const run = async () => {
+    if (!canSearch(terms)) return;
     setSearching(true);
     const found = await search(group.correlationId, terms);
     setSearch(group.correlationId, { terms, hits: found });
@@ -2550,11 +2551,13 @@ const Search = ({
         {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
       </SimpleGrid>
       <HStack gap="300">
-        <SecondaryButton onClick={run} isLoading={searching}>
+        <SecondaryButton onClick={run} isLoading={searching} isDisabled={!canSearch(terms)}>
           Search
         </SecondaryButton>
         <Box fontSize="0.8rem" opacity="0.7">
-          Results are compared with your file, not with these search terms.
+          {canSearch(terms)
+            ? 'Results are compared with your file, not with these search terms.'
+            : 'Enter a name, date of birth or ID to search.'}
         </Box>
       </HStack>
       {hits && !searching && hits.length === 0 && (

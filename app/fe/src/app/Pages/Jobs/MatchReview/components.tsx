@@ -20,7 +20,7 @@ import {
 import { GetStudentInputDetailsDto, StudentInputDetailsJson } from '@edanalytics/models';
 import { ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare, Comparison } from './compare';
-import { SearchHit, SearchTerms, termsFrom } from './idrsSearch';
+import { canSearch, SearchHit, SearchTerms, termsFrom } from './idrsSearch';
 import {
   Batch,
   Candidate,
@@ -269,6 +269,7 @@ export const SearchPanel = ({
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const run = async () => {
+    if (!canSearch(terms)) return;
     setSearching(true);
     setHits(await search(group.correlationId, terms));
     setSearching(false);
@@ -294,9 +295,14 @@ export const SearchPanel = ({
         {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
       </SimpleGrid>
       <HStack gap="300">
-        <SecondaryButton onClick={run} isLoading={searching}>
+        <SecondaryButton onClick={run} isLoading={searching} isDisabled={!canSearch(terms)}>
           Search
         </SecondaryButton>
+        {!canSearch(terms) && (
+          <Box fontSize="0.8rem" opacity="0.7">
+            Enter a name, date of birth or ID to search.
+          </Box>
+        )}
       </HStack>
       {searching && <Spinner size="sm" color="blue.50" />}
       {hits && !searching && (

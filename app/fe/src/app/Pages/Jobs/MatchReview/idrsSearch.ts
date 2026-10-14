@@ -40,6 +40,9 @@ export const toSearchDetails = (terms: SearchTerms): StudentSearchDetailsDto => 
   };
 };
 
+/** Whether there's anything to search on: a search with nothing would find no one useful. */
+export const canSearch = (terms: SearchTerms) => Object.keys(toSearchDetails(terms)).length > 0;
+
 /** IDRS's hits for one of the job's students, best first. Throws the API's error body. */
 export const searchIdrs = async (
   jobId: number,
