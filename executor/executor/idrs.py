@@ -119,7 +119,6 @@ class IDRSCandidate:
         errors = []
         if not isinstance(self.correlation_id, str) or not self.correlation_id:
             errors.append('correlation_id must be a non-empty string!')
-        if errors:
             raise IDRSCandidateError(errors)
 
     @classmethod
@@ -132,7 +131,8 @@ class IDRSCandidate:
         with open(candidates_path, 'r') as candidates:
             for index, record in enumerate(candidates):
                 try:
-                    idrs_candidates.append(cls.coerce_candidate(json.loads(record)))
+                    candidate = cls.coerce_candidate(json.loads(record))
+                    idrs_candidates.append(candidate)
                 except IDRSCandidateError as e:
                     errors.extend(f"[{index}] {error}" for error in e.errors)
 
@@ -159,8 +159,8 @@ class IDRSCandidate:
 
         # Coerce as needed
         values['birth_date'] = cls.coerce_date(candidate.get('birth_date'), candidate.get('birth_date_format'))
-        values['school_ids'] = [school_id for school_id in map(cls.coerce_school_id, candidate.get('school_ids') or []) if school_id is not None]
-        values['student_ids'] = [student_id for student_id in map(cls.coerce_student_id, candidate.get('student_ids') or []) if student_id is not None]
+        values['school_ids'] = list(filter(None, map(cls.coerce_school_id, candidate.get('school_ids', []))))
+        values['student_ids'] = list(filter(None, map(cls.coerce_student_id, candidate.get('student_ids', []))))
         
         return cls(**values)
     
@@ -176,11 +176,9 @@ class IDRSCandidate:
     @staticmethod
     def coerce_student_id(student_id: object) -> str | None:
         '''coerce student id values to str. Otherwise return None.'''
-        if isinstance(student_id, int):
-            return str(student_id)
-        if isinstance(student_id, str):
-            return student_id
-        return None
+        if not student_id:
+            return None
+        return str(student_id)
 
     @staticmethod
     def coerce_school_id(school_id: object) -> int | None:
@@ -192,8 +190,8 @@ class IDRSCandidate:
         return None
 
     # Cleaning
-    @staticmethod
-    def dedupe_candidates(candidates: list['IDRSCandidate']) -> list['IDRSCandidate']:
+    @classmethod
+    def dedupe_candidates(cls, candidates: list['IDRSCandidate']) -> list['IDRSCandidate']:
         '''drop duplicate records on correlation_id'''
         correlation_ids = set()
         deduped_candidates = []
@@ -265,12 +263,12 @@ class IDRSMatchResultSet:
             # Construct our candidates lookup with correlation_id as our join key
             candidates_lookup = {cand.correlation_id: cand for cand in candidates}     
 
-            records = {
-                m['correlation_id']: IDRSMatchResult.build_match_result(
-                    m, candidates_lookup[m['correlation_id']].to_dict(), match_threshold
+            records = {}
+            for match in matches:
+                records[match['correlation_id']] = IDRSMatchResult.build_match_result(
+                    match, candidates_lookup[match['correlation_id']].to_dict(), match_threshold
                 )
-                for m in matches
-            }
+                
 
             logger.info("Match results constructed!")
             return cls(records=records)
