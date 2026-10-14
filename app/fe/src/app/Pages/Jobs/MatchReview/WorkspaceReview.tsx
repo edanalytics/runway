@@ -57,7 +57,7 @@ import {
   SecondaryButton,
   studentName,
 } from './components';
-import { searchRoster, termsFrom, SearchTerms } from './mockIdrs';
+import { termsFrom, SearchTerms } from './idrsSearch';
 import { SpreadsheetControls } from './spreadsheet';
 import {
   Batch,
@@ -218,6 +218,8 @@ const suggestionsOf = (group: GetStudentInputDetailsDto): Candidate[] =>
       rosterDetails: s.rosterDetails,
       score: s.score,
       source: 'suggestion' as const,
+      resultId: latestResult(group).id,
+      ordinal: s.ordinal,
     }));
 
 const valueText = (value: JsonValue | undefined): string | null => {
@@ -2514,7 +2516,7 @@ const Search = ({
   saved: string | null;
   onUse: (candidate: Candidate) => void;
 }) => {
-  const { roster, searchOf, setSearch } = useReviewSession();
+  const { search, searchOf, setSearch } = useReviewSession();
   const remembered = searchOf(group.correlationId);
   const [terms, setTerms] = useState<SearchTerms>(
     remembered?.terms ?? termsFrom(group.inputDetails)
@@ -2524,7 +2526,7 @@ const Search = ({
 
   const run = async () => {
     setSearching(true);
-    const found = await searchRoster(roster, terms);
+    const found = await search(group.correlationId, terms);
     setSearch(group.correlationId, { terms, hits: found });
     setSearching(false);
   };
@@ -2552,8 +2554,7 @@ const Search = ({
           Search
         </SecondaryButton>
         <Box fontSize="0.8rem" opacity="0.7">
-          Results are compared with your file, not with these search terms. Prototype: a pretend
-          roster.
+          Results are compared with your file, not with these search terms.
         </Box>
       </HStack>
       {hits && !searching && hits.length === 0 && (
@@ -2568,6 +2569,7 @@ const Search = ({
               rosterDetails: hit.rosterDetails,
               score: hit.score,
               source: 'search' as const,
+              searchDetails: hit.searchDetails,
             }))}
             saved={saved}
             onUse={onUse}

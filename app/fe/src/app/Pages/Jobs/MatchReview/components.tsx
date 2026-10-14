@@ -20,14 +20,13 @@ import {
 import { GetStudentInputDetailsDto, StudentInputDetailsJson } from '@edanalytics/models';
 import { ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare, Comparison } from './compare';
-import { SearchHit, searchRoster, SearchTerms, termsFrom } from './mockIdrs';
+import { SearchHit, SearchTerms, termsFrom } from './idrsSearch';
 import {
   Batch,
   Candidate,
   isFinished,
   loadedOf,
   StudentStatus,
-  suggestedCandidates,
   totalOf,
   useReviewSession,
 } from './reviewSession';
@@ -265,13 +264,13 @@ export const SearchPanel = ({
   onPick: (candidate: Candidate) => void;
   heading?: ReactNode;
 }) => {
-  const { roster } = useReviewSession();
+  const { search } = useReviewSession();
   const [terms, setTerms] = useState<SearchTerms>(() => termsFrom(group.inputDetails));
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const run = async () => {
     setSearching(true);
-    setHits(await searchRoster(roster, terms));
+    setHits(await search(group.correlationId, terms));
     setSearching(false);
   };
   const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
@@ -298,9 +297,6 @@ export const SearchPanel = ({
         <SecondaryButton onClick={run} isLoading={searching}>
           Search
         </SecondaryButton>
-        <Box fontSize="0.8rem" opacity="0.7">
-          Prototype: searches a pretend roster.
-        </Box>
       </HStack>
       {searching && <Spinner size="sm" color="blue.50" />}
       {hits && !searching && (
@@ -326,8 +322,9 @@ export const SearchPanel = ({
                       onPick({
                         studentUniqueId: hit.studentUniqueId,
                         rosterDetails: hit.rosterDetails,
-                        score: null,
+                        score: hit.score,
                         source: 'search',
+                        searchDetails: hit.searchDetails,
                       })
                     }
                   >
@@ -660,14 +657,12 @@ export const useStartState = prototypeSetting<'start-screen' | 'selected'>(
 );
 
 /**
- * Simulations for how processing can go: a run that fails outright, a
- * submission that meets a conflicting change, and another reviewer's match.
+ * Simulations for how processing can go: a run that fails outright and a
+ * submission that meets a conflicting change. Another reviewer's match is
+ * real now: try it by deciding as a second user.
  */
 export const PrototypeControls = () => {
   const {
-    groups,
-    statusOf,
-    decide,
     failNextRun,
     setFailNextRun,
     conflictNextSubmit,
@@ -675,10 +670,6 @@ export const PrototypeControls = () => {
     simulateLarge,
     setSimulateLarge,
   } = useReviewSession();
-  // Someone else saving the top suggestion for a student still needing review.
-  const other = groups.find(
-    (g) => statusOf(g.correlationId) === 'to-review' && suggestedCandidates(g).length > 0
-  );
   // Folded by default, so they don't sit between a view and its controls.
   const [open, setOpen] = useState(false);
   const [orientation, setOrientation] = useOrientation();
@@ -733,22 +724,11 @@ export const PrototypeControls = () => {
             >
               Open on a start screen, with no student selected
             </Checkbox>
-            <QuietButton
-              size="xs"
-              isDisabled={!other}
-              onClick={() =>
-                other &&
-                decide(
-                  other.correlationId,
-                  { kind: 'match', candidate: suggestedCandidates(other)[0] },
-                  'another reviewer'
-                )
-              }
-            >
-              Another reviewer saves a match
-            </QuietButton>
           </HStack>
-          <Box>Decisions persist in this browser; reload to try leaving and coming back.</Box>
+          <Box>
+            Decisions and searches are real: decisions save to the server, and searches go to IDRS.
+            Submitting is simulated, and kept in this browser.
+          </Box>
           <ResetPrototype />
         </>
       )}
@@ -800,7 +780,7 @@ export const ResetPrototype = () => {
   const { reset } = useReviewSession();
   return (
     <QuietButton onClick={reset} fontSize="0.8rem" opacity="0.7">
-      Reset prototype
+      Reset prototype (clears saved decisions)
     </QuietButton>
   );
 };

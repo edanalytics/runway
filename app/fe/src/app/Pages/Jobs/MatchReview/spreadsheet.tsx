@@ -16,7 +16,7 @@ import { GetStudentInputDetailsDto } from '@edanalytics/models';
 import { parse, unparse } from 'papaparse';
 import { useRef, useState } from 'react';
 import { PrimaryButton, QuietButton, studentName } from './components';
-import { lookupStudents } from './mockIdrs';
+import { SearchHit, searchIdrs } from './idrsSearch';
 import { Candidate, StudentStatus, suggestedCandidates, useReviewSession } from './reviewSession';
 
 /*
@@ -78,7 +78,7 @@ type Report =
     };
 
 export const SpreadsheetControls = () => {
-  const { job, groups, statusOf, decisions, batchOf, roster, decide } = useReviewSession();
+  const { job, groups, statusOf, decisions, batchOf, decide } = useReviewSession();
   const input = useRef<HTMLInputElement>(null);
   const [checking, setChecking] = useState<number | null>(null);
   const [report, setReport] = useState<Report | null>(null);
@@ -200,16 +200,27 @@ export const SpreadsheetControls = () => {
       else if (!earlier) entries.set(record, { row, id, clash: false });
     });
 
-    // IDs IDRS didn't suggest are checked with IDRS, all at once.
-    const toCheck = new Set<string>();
+    // IDs IDRS didn't suggest are checked with IDRS: a search by the ID
+    // alone, under the student it's for, finds that student if anyone.
+    const toCheck = new Map<string, string>();
     for (const [record, { id, clash }] of entries) {
       const status = statusOf(record);
       const group = byId.get(record);
       if (!id || clash || !group || status !== 'to-review') continue;
-      if (!suggestedCandidates(group).some((c) => c.studentUniqueId === id)) toCheck.add(id);
+      if (!suggestedCandidates(group).some((c) => c.studentUniqueId === id))
+        toCheck.set(record, id);
     }
     setChecking(toCheck.size);
-    const found = toCheck.size ? await lookupStudents(roster, [...toCheck]) : new Map();
+    const found = new Map<string, SearchHit>();
+    for (const [record, id] of toCheck) {
+      try {
+        const hits = await searchIdrs(job.id, record, { student_ids: [id] });
+        const hit = hits.find((h) => h.studentUniqueId === id);
+        if (hit) found.set(id, hit);
+      } catch {
+        // Reported below as not found; the reviewer can search in Runway.
+      }
+    }
     setChecking(null);
 
     for (const [record, { row, id, clash }] of entries) {
@@ -252,15 +263,16 @@ export const SpreadsheetControls = () => {
         }
       } else {
         const suggested = suggestedCandidates(group).find((c) => c.studentUniqueId === id);
-        const student = found.get(id);
+        const hit = found.get(id);
         const candidate: Candidate | null =
           suggested ??
-          (student
+          (hit
             ? {
-                studentUniqueId: student.studentUniqueId,
-                rosterDetails: student.rosterDetails,
-                score: null,
+                studentUniqueId: hit.studentUniqueId,
+                rosterDetails: hit.rosterDetails,
+                score: hit.score,
                 source: 'search',
+                searchDetails: hit.searchDetails,
               }
             : null);
         if (!candidate) {
