@@ -1,22 +1,23 @@
 import json
 import logging
-import requests
 import re
+import requests
 from collections.abc import Iterator
 from datetime import datetime
-from executor.config import IDRS_BATCH_SIZE
 from dataclasses import dataclass, field, fields, asdict
+from typing import Literal
+from executor.config import IDRS_BATCH_SIZE
 
 
 class IDRSCandidateError(Exception):
-    '''error raised when an issue is encountered with an IDRSCandidate object'''
+    '''error raised when an IDRSCandidate object fails validation'''
     def __init__(self, errors: list[str]):
         self.errors = errors
         super().__init__(f"{len(errors)} candidate errors")
 
 
 class IDRSClient:
-
+    '''client object that handles interactions with the IDRS (obtaining credentials, posting candidates and returning matches)'''
     def __init__(self, logger: logging.Logger, conn: requests.Session, identity_url: str):
         # The logger to use to capture outputs
         self.logger = logger
@@ -26,7 +27,7 @@ class IDRSClient:
         self.identity_url = identity_url
 
     def get_credentials(self) -> dict:
-        '''return the IDRS credentials based on matching mode'''
+        '''return credentials used to POST to the IDRS'''
         try:
             idrs_resp = self.conn.get(
                 url=self.identity_url
@@ -76,7 +77,7 @@ class IDRSClient:
                 # Report counts
                 sent += len(batch)
                 matched += len(match)
-                self.logger.info(f'{sent} candidates sent to the IDRS; {matched} matches returned')     
+                self.logger.info(f'{sent} candidates sent to the IDRS; {matched} results returned')     
         except Exception as e:
             self.logger.error(f"Candidates not posted: {e}")
             raise
@@ -89,8 +90,7 @@ class IDRSClient:
         return matches
 
     def query_idrs(self, candidates_path: str) -> list[dict]:
-        '''Get IDRS token, send a list of idrs candidates and return an output set'''
-
+        '''get an IDRS token, send a list of idrs candidates and return the IDRS results list'''
         # Load up our candidates
         idrs_candidates = IDRSCandidate.construct_candidates(candidates_path, self.logger)
 
@@ -105,7 +105,7 @@ class IDRSClient:
 
 @dataclass(repr=False)
 class IDRSCandidate:
-
+    '''data structure that constructs and validates an IDRSCandidate record from inputs. coercion/validation based on IDRS API spec'''
     correlation_id: str
     first_name: str | None
     last_name: str | None
@@ -113,10 +113,18 @@ class IDRSCandidate:
     school_ids: list[int] = field(default_factory=list)
     student_ids: list[str] = field(default_factory=list)
 
+    # Validation
+    def __post_init__(self):
+        '''validate immediately after an IDRSCandidate object is created'''
+        errors = []
+        if not isinstance(self.correlation_id, str) or not self.correlation_id:
+            errors.append('correlation_id must be a non-empty string!')
+        if errors:
+            raise IDRSCandidateError(errors)
+
     @classmethod
     def construct_candidates(cls, candidates_path: str, logger: logging.Logger) -> list['IDRSCandidate']:
-        '''constructs IDRSCandidate objects from an input candidates.jsonl file'''
-
+        '''construct IDRSCandidate objects from an input candidates.jsonl file'''
         # Initialize candidates list
         idrs_candidates, errors = [], []
     
@@ -132,21 +140,20 @@ class IDRSCandidate:
         if errors:
             logger.error(f"{len(errors)} candidate input errors. First {min(len(errors), 5)}:")
             for error in errors[:5]:
-                logger.error(f"{error}")
+                logger.error(error)
             raise ValueError(f"{len(errors)} candidate input errors")
 
         # Dedupe candidates
         deduped = cls.dedupe_candidates(idrs_candidates)
 
         # Log success and return candidates
-        logger.info(f"{len(deduped)} candidates validated! {len(idrs_candidates) - len(deduped)} candidate records were dropped")
+        logger.info(f"{len(deduped)} candidates validated! {len(idrs_candidates) - len(deduped)} duplicate records were removed")
         return deduped
     
     # Coercion
     @classmethod
     def coerce_candidate(cls, candidate: dict) -> 'IDRSCandidate':
         '''coerce raw candidate record inputs to match the spec of the IDRS schema'''
-
         # Get a dict subset to only the defined fields of the dataclass
         values = {f.name: candidate.get(f.name) for f in fields(cls)}
 
@@ -158,7 +165,7 @@ class IDRSCandidate:
         return cls(**values)
     
     @staticmethod
-    def coerce_date(date, fmt: str) -> str | None:
+    def coerce_date(date: str | None, fmt: str | None) -> str | None:
         '''coerce dates to ISO format YYYY-MM-DD. If unable to coerce, fall back to None'''
         try:
             iso_date = datetime.strptime(date, fmt).date().isoformat()
@@ -167,7 +174,7 @@ class IDRSCandidate:
             return None
 
     @staticmethod
-    def coerce_student_id(student_id: str) -> str | None:
+    def coerce_student_id(student_id: object) -> str | None:
         '''coerce student id values to str. Otherwise return None.'''
         if isinstance(student_id, int):
             return str(student_id)
@@ -176,7 +183,7 @@ class IDRSCandidate:
         return None
 
     @staticmethod
-    def coerce_school_id(school_id: str) -> int | None:
+    def coerce_school_id(school_id: object) -> int | None:
         '''coerce school id values to int. Otherwise return None.'''
         if isinstance(school_id, int):
             return school_id
@@ -188,7 +195,6 @@ class IDRSCandidate:
     @staticmethod
     def dedupe_candidates(candidates: list['IDRSCandidate']) -> list['IDRSCandidate']:
         '''drop duplicate records on correlation_id'''
-
         correlation_ids = set()
         deduped_candidates = []
         for candidate in candidates:
@@ -201,13 +207,90 @@ class IDRSCandidate:
 
     # Return
     def to_dict(self) -> dict:
+        '''return an IDRSCandidate object as a dictionary'''
         return asdict(self)
 
-    # Validation
-    def __post_init__(self):
-        errors = []
-        if not isinstance(self.correlation_id, str) or not self.correlation_id:
-            errors.append('correlation_id must be a non-empty string!')
-        if errors:
-            raise IDRSCandidateError(errors)
+
+@dataclass(frozen=True, repr=False)
+class IDRSMatchResult:
+    '''data structure that constructs a match result from candidate and match inputs.'''
+    correlation_id: str
+    candidate: dict
+    matches: list[dict]
+    match_type: Literal['auto', 'user_input', 'none']
+    # TODO: Add in school_year and/or sideloading field
+
+    @classmethod
+    def build_match_result(cls, match_result: dict, candidate: dict, match_threshold: float) -> 'IDRSMatchResult':
+        '''build an IDRSMatchResult record with a correlation_id, matches, candidates and a match_type designation'''
+
+        match_scores = [match['score'] for match in match_result['matches']]
+
+        # If we have no match results
+        if not match_scores:
+            match_type = 'none'
+        # If we have a solo match above our threshold
+        elif len(match_scores) == 1 and match_scores[0] >= match_threshold:
+            match_type = 'auto'
+        # If we have multiple match results or one result below our threshold
+        else:
+            match_type = 'user_input'
+
+        return cls(
+            correlation_id=match_result['correlation_id'], 
+            candidate=candidate,
+            matches=match_result['matches'],
+            match_type=match_type)
+        
+
+    # Return
+    def to_dict(self) -> dict:
+        '''return an IDRSMatchResult object as a dictionary'''
+        return asdict(self)
+
+
+@dataclass(frozen=True, repr=False)
+class IDRSMatchResultSet:
+    '''data structure that constructs an IDRSMatchResultSet, which can generate id lookups for substitution of auto-matched candidates, as well as candidate sets that need additional review'''
+    records: dict[str, 'IDRSMatchResult']
+
+    @classmethod
+    def construct_match_result_set(cls, candidates_path: str, matches_path: str, match_threshold: float, logger: logging.Logger) -> 'IDRSMatchResultSet':
+        '''given matches and candidates file paths, return a set of IDRSMatchResult objects'''   
+        try:    
+            candidates = IDRSCandidate.construct_candidates(candidates_path, logger)
+            with open(matches_path, 'r') as file:
+                matches = json.load(file)
+
+            # Construct our candidates lookup with correlation_id as our join key
+            candidates_lookup = {cand.correlation_id: cand for cand in candidates}     
+
+            records = {
+                m['correlation_id']: IDRSMatchResult.build_match_result(
+                    m, candidates_lookup[m['correlation_id']].to_dict(), match_threshold
+                )
+                for m in matches
+            }
+
+            logger.info("Match results constructed!")
+            return cls(records=records)
+        
+        except Exception as e:
+            logger.error(f"Issue constructing match results: {e}")
+            raise  
+
+    def auto_matched(self) -> dict[str, str]:
+        '''return a correlation_id <-> student_unique_id lookup for auto-matched records'''
+        auto_matches = {record.correlation_id: record.matches[0]['student_unique_id'] for record in self.records.values() if record.match_type == 'auto'}
+        return auto_matches    
+
+    def needs_review(self) -> list[dict]:
+        '''return a subset of the IDRSMatchResultSet containing records that need review (user input or 'none')'''
+        needs_review = [
+            {'correlation_id': record.correlation_id, 'candidate': record.candidate, 'matches': record.matches}
+            for record in self.records.values() if record.match_type != 'auto']
+        return needs_review    
     
+    def to_list(self) -> list[dict]:
+        '''return the IDRSMatchResultSet as a list of dictionaries'''
+        return [record.to_dict() for record in self.records.values()]
