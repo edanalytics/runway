@@ -1,16 +1,28 @@
 import {
   EarthmoverBundleTypes,
   GetStudentMatchCountsDto,
+  GetStudentSearchHitDto,
   JobInputParamDto,
   JsonArray,
+  pickStudentSearchDetails,
   PostStudentMatchDecisionDto,
+  restsOnSearch,
   StudentMatchDecisionWithUser,
+  StudentSearchDetailsDto,
   studentMatchStatus,
   toGetJobTemplateDto,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/client';
+import type {
+  FileStatus,
+  Job,
+  JobFile,
+  PrismaClient,
+  StudentMatchDecision,
+  Tenant,
+  User,
+} from '@prisma/client';
 import { FileService } from '../files/file.service';
 import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
@@ -22,6 +34,7 @@ import {
   EXECUTOR_SERVICE,
 } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
+import { IdrsSearchService } from '../idrs/idrs-search.service';
 
 /**
  * Far more than a reviewer will work through (typically under 10, at most a
@@ -29,6 +42,46 @@ import { ApiTokenClient } from '../external-api/external-api-token-client.decora
  * suggestions each, the response is about 3.5 MB.
  */
 export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
+
+/**
+ * Whether a job could load a student IDRS found. With cross-year matching on,
+ * any student IDRS knows can be, outside the ODS as cross-year matches are;
+ * otherwise only one in the job's school year. `school_years` holds Ed-Fi
+ * school years, which are end years, like `endYear`.
+ *
+ * The Executor's suggestion filter must apply the same rule. A match an ODS job
+ * keeps only through cross-year matching must never be sent to the ODS.
+ */
+export const isLoadableSearchHit = (
+  hit: { school_years?: unknown },
+  endYear: number,
+  crossYearMatchingEnabled: boolean
+) =>
+  crossYearMatchingEnabled ||
+  (Array.isArray(hit.school_years) && hit.school_years.includes(endYear));
+
+/**
+ * A decision row as the API shows it: none for a clear, and a search basis's
+ * columns gathered into `search`. They reach the client only through here.
+ */
+const toStudentMatchDecision = ({
+  user,
+  searchDetails,
+  rosterDetails,
+  ...row
+}: StudentMatchDecision & { user: User | null }): StudentMatchDecisionWithUser | null => {
+  if (row.kind === 'clear') {
+    return null;
+  }
+  return {
+    ...row,
+    version: row.seq,
+    decidedBy: user,
+    // The table's check requires both, or neither.
+    search:
+      searchDetails !== null && rosterDetails !== null ? { searchDetails, rosterDetails } : null,
+  };
+};
 
 const noStudentsToMatch: GetStudentMatchCountsDto = {
   total: 0,
@@ -45,7 +98,8 @@ export class JobsService {
     private fileService: FileService,
     @Inject(EXECUTOR_SERVICE) private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
-    private appConfig: AppConfigService
+    private appConfig: AppConfigService,
+    private idrsSearch: IdrsSearchService
   ) {}
 
   async getStatusUpdates(jobId: Job['id']) {
@@ -158,10 +212,7 @@ export class JobsService {
             return {
               ...input,
               status: studentMatchStatus(latest?.kind),
-              decision:
-                latest && latest.kind !== 'clear'
-                  ? { ...latest, version: latest.seq, decidedBy: latest.user }
-                  : null,
+              decision: latest ? toStudentMatchDecision(latest) : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
                 suggestions: studentMatchSuggestion,
@@ -195,8 +246,17 @@ export class JobsService {
   > {
     const { jobId, correlationId, userId } = input;
     const { replacesVersion, kind } = input.decision;
-    // Only a match names a suggestion; a target sent with anything else is ignored.
-    const { resultId = null, ordinal = null } = kind === 'match' ? input.decision : {};
+    // Only a match has a basis, either the reviewer's own search or a
+    // suggestion. A basis sent with anything else is ignored, as is a
+    // suggestion sent beside a search.
+    const search = restsOnSearch(input.decision) ? input.decision.search : undefined;
+    const picksSuggestion = kind === 'match' && !search;
+    const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
+    const searchBasis = search && {
+      // Exactly what the search route sends IDRS for these details.
+      searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
+      rosterDetails: JSON.stringify(search.rosterDetails),
+    };
 
     // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
     // would fail on it with a 500.
@@ -212,57 +272,69 @@ export class JobsService {
       return { status: 'ERROR', code: 'not_found' };
     }
 
-    if (kind === 'match') {
+    let suggestion: { studentUniqueId: string } | null = null;
+    if (picksSuggestion) {
       const resultIds = student.studentMatchResult.map(({ id }) => id.toString());
       if (!resultIds.includes(resultId!)) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
-      // Reviewers pick from the latest search. A pick from an earlier one
+      // Reviewers pick from the latest result. A pick from an earlier one
       // means the page predates it. Checked before the insert rather than in
-      // it: a search landing in between is harmless, since new results never
+      // it: a result landing in between is harmless, since new results never
       // invalidate a decision already made.
       if (resultIds[0] !== resultId) {
         return { status: 'ERROR', code: 'results_changed' };
       }
-    }
-
-    let inserted: { seq: number }[];
-    try {
-      // Writes the row after the student's latest, if the caller saw what's
-      // current: that latest row for a version, or no decision (no rows, or a
-      // clear) for null. A clear needs a decision to clear.
-      // Two racing writes compute the same seq, so the loser collides with
-      // the winner on the primary key and does nothing.
-      inserted = await prisma.$queryRaw<{ seq: number }[]>`
-        INSERT INTO public.student_match_decision
-          (job_id, correlation_id, seq, kind, result_id, ordinal, decided_by_id)
-        SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
-               ${kind}::public.student_match_decision_kind,
-               ${resultId}::bigint, ${ordinal}::int, ${userId}::int
-        FROM (SELECT 1) AS one
-        LEFT JOIN LATERAL (
-          SELECT seq, kind FROM public.student_match_decision
-          WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
-          ORDER BY seq DESC
-          LIMIT 1
-        ) latest ON true
-        WHERE CASE
-          WHEN ${replacesVersion}::int IS NULL
-            THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
-          ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
-        END
-        ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
-        RETURNING seq
-      `;
-    } catch (err) {
-      // The student and the result were checked above, so a foreign key
-      // violation means the ordinal isn't in the result. Matched by SQLSTATE
-      // alone: messages quote row values.
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.meta?.code === '23503') {
+      // Suggestions never change, so this can't go stale before the insert.
+      suggestion = await prisma.studentMatchSuggestion.findUnique({
+        where: {
+          resultId_ordinal: {
+            resultId: student.studentMatchResult[0].id,
+            // The DTO requires an ordinal for a suggestion pick.
+            ordinal: ordinal!,
+          },
+        },
+        select: { studentUniqueId: true },
+      });
+      if (!suggestion) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
-      throw err;
     }
+    // The answer: the student the reviewer found, or the picked suggestion's.
+    const studentUniqueId = search
+      ? input.decision.studentUniqueId
+      : suggestion?.studentUniqueId ?? null;
+
+    // Writes the row after the student's latest, if the caller saw what's
+    // current: that latest row for a version, or no decision (no rows, or a
+    // clear) for null. A clear needs a decision to clear.
+    // Two racing writes compute the same seq, so the loser collides with
+    // the winner on the primary key and does nothing.
+    const inserted = await prisma.$queryRaw<{ seq: number }[]>`
+      INSERT INTO public.student_match_decision
+        (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
+         search_details, roster_details, decided_by_id)
+      SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
+             ${kind}::public.student_match_decision_kind, ${studentUniqueId},
+             ${resultId}::bigint, ${ordinal}::int,
+             ${searchBasis?.searchDetails ?? null}::jsonb,
+             ${searchBasis?.rosterDetails ?? null}::jsonb,
+             ${userId}::int
+      FROM (SELECT 1) AS one
+      LEFT JOIN LATERAL (
+        SELECT seq, kind FROM public.student_match_decision
+        WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
+        ORDER BY seq DESC
+        LIMIT 1
+      ) latest ON true
+      WHERE CASE
+        WHEN ${replacesVersion}::int IS NULL
+          THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
+        ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
+      END
+      ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
+      RETURNING seq
+    `;
     if (inserted.length === 0) {
       return { status: 'ERROR', code: 'decision_changed' };
     }
@@ -271,13 +343,74 @@ export class JobsService {
       where: { jobId_correlationId_seq: { jobId, correlationId, seq: inserted[0].seq } },
       include: { user: true },
     });
-    const { user, ...decision } = row;
-    return {
-      status: 'SUCCESS',
-      data: {
-        decision: row.kind === 'clear' ? null : { ...decision, version: row.seq, decidedBy: user },
+    return { status: 'SUCCESS', data: { decision: toStudentMatchDecision(row) } };
+  }
+
+  /**
+   * Searches IDRS for a student with a reviewer's details, and returns the
+   * students the job could load. `returned` is how many IDRS found, for the
+   * log only.
+   */
+  async searchStudentMatch(input: {
+    job: Job;
+    correlationId: string;
+    details: StudentSearchDetailsDto;
+  }): Promise<
+    | {
+        status: 'SUCCESS';
+        data: {
+          hits: GetStudentSearchHitDto[];
+          returned: number;
+        };
+      }
+    | { status: 'ERROR'; code: 'not_found' }
+    | { status: 'ERROR'; code: 'identity_service_unavailable'; cause: string }
+  > {
+    const { job, correlationId } = input;
+
+    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
+    // would fail on it with a 500.
+    if (correlationId.includes('\0')) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+
+    // The partner's setting is read live, as the Executor's payload reads it,
+    // not snapshotted onto the job.
+    const student = await this.prisma.studentInputDetails.findUnique({
+      where: { jobId_correlationId: { jobId: job.id, correlationId } },
+      select: {
+        job: {
+          select: {
+            schoolYear: { select: { endYear: true } },
+            tenant: { select: { partner: { select: { crossYearMatchingEnabled: true } } } },
+          },
+        },
       },
-    };
+    });
+    if (!student) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+    const { endYear } = student.job.schoolYear;
+    const { crossYearMatchingEnabled } = student.job.tenant.partner;
+
+    const result = await this.idrsSearch.searchStudent({
+      partnerId: job.partnerId,
+      tenantCode: job.tenantCode,
+      correlationId,
+      details: pickStudentSearchDetails(input.details),
+    });
+    if (result.status === 'ERROR') {
+      return result;
+    }
+
+    const hits = result.data
+      .filter((match) => isLoadableSearchHit(match, endYear, crossYearMatchingEnabled))
+      .map(({ student_unique_id, score, ...rosterDetails }) => ({
+        studentUniqueId: student_unique_id,
+        score,
+        rosterDetails,
+      }));
+    return { status: 'SUCCESS', data: { hits, returned: result.data.length } };
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<

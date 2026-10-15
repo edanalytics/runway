@@ -245,8 +245,10 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             decision: {
               version: 1,
               kind: 'match',
+              studentUniqueId: 'SUID-corr-1',
               resultId,
               ordinal: 0,
+              search: null,
               decidedBy,
               decidedOn: expect.any(String),
             },
@@ -257,8 +259,10 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             decision: {
               version: 1,
               kind: 'exclude',
+              studentUniqueId: null,
               resultId: null,
               ordinal: null,
+              search: null,
               decidedBy,
               decidedOn: expect.any(String),
             },
@@ -266,6 +270,37 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           { correlationId: 'corr-3', status: 'to-review', decision: null },
         ]);
         expect(res.body.counts).toEqual({ total: 3, toReview: 1, ready: 1, excluded: 1 });
+      });
+
+      // A suggestion pick's search is null: see the test above.
+      it('returns a match to a search with its answer and basis, counted as ready', async () => {
+        await reportStudents(['corr-1', 'corr-2']);
+        const search = {
+          searchDetails: { first_name: 'Ada', last_name: 'Lovelace', birth_date: '2010-12-10' },
+          rosterDetails: { first_name: 'Ada', school_years: [2025], future_field: 'kept' },
+        };
+        await decide(cookies, 'corr-1', {
+          replacesVersion: null,
+          kind: 'match',
+          studentUniqueId: 'SUID-FOUND',
+          search,
+        });
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        const [student] = res.body.students;
+        expect(student.status).toBe('ready');
+        expect(student.decision).toEqual({
+          version: 1,
+          kind: 'match',
+          studentUniqueId: 'SUID-FOUND',
+          resultId: null,
+          ordinal: null,
+          search,
+          decidedBy: expect.objectContaining({ id: userA.id }),
+          decidedOn: expect.any(String),
+        });
+        expect(res.body.counts).toEqual({ total: 2, toReview: 1, ready: 1, excluded: 0 });
       });
 
       it('shows no one as the decider once their user is deleted', async () => {
