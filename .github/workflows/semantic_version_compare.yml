@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   version_check:
@@ -19,61 +18,54 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
-      - name: Record incoming versions and changed files
-        id: incoming
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
-          echo "$files"
-          {
-            echo "files<<EOF"
-            echo "$files"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-          waf=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/0-waf.yml | awk -F"'" '{print $2}')
-          main=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')
-          echo "waf_version=$waf" >> "$GITHUB_OUTPUT"
-          echo "main_version=$main" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout base branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Compare version numbers
         env:
-          FILES: ${{ steps.incoming.outputs.files }}
-          NEW_WAF: ${{ steps.incoming.outputs.waf_version }}
-          NEW_MAIN: ${{ steps.incoming.outputs.main_version }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          current_waf=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/0-waf.yml | awk -F"'" '{print $2}')
-          current_main=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')
+          files=$(git diff --name-only "$BASE_SHA"...HEAD)
+          failed=0
 
           must_increase() {
-            label="$1"
-            current="$2"
-            new="$3"
-            echo "$label base version is $current and incoming version is $new"
+            file="$1"
+            version_name="$2"
+            reason="$3"
+            current=$(git show "$BASE_SHA:$file" | grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" | awk -F"'" '{print $2}')
+            new=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" "$file" | awk -F"'" '{print $2}')
+
+            echo "$reason"
+            echo "$version_name in $file: base=$current, incoming=$new"
             if [ "$(printf '%s\n' "$current" "$new" | sort -V | tail -n1)" = "$current" ]; then
-              echo "Error: Please adjust the version in $label. It must be greater than the version on the base branch. Base branch version is $current and incoming branch version is $new"
-              exit 1
+              echo "::error file=$file::Increase $version_name from $current to a higher semantic version. The incoming value is $new."
+              failed=1
+            else
+              echo "Version check passed for $file"
             fi
           }
 
           # 0-waf.yml is its own stack. 1-main.yml only receives the Web ACL ARN as a parameter.
-          if printf '%s\n' "$FILES" | grep -qx 'cloudformation/templates/0-waf.yml'; then
-            must_increase "cloudformation/templates/0-waf.yml" "$current_waf" "$NEW_WAF"
+          if printf '%s\n' "$files" | grep -qx 'cloudformation/templates/0-waf.yml'; then
+            must_increase \
+              "cloudformation/templates/0-waf.yml" \
+              "Outputs.BaseVersion" \
+              "0-waf.yml changed. Because WAF is a standalone stack, increase its own Outputs.BaseVersion."
           fi
 
-          others=$(printf '%s\n' "$FILES" | grep '^cloudformation/' | grep -v '^cloudformation/templates/0-waf.yml$' || true)
+          others=$(printf '%s\n' "$files" | grep '^cloudformation/' | grep -v '^cloudformation/templates/0-waf.yml$' || true)
           if [ -n "$others" ]; then
-            echo "Other cloudformation files changed:"
+            echo "CloudFormation files that are part of the main stack changed:"
             printf '%s\n' "$others"
-            must_increase "cloudformation/templates/1-main.yml" "$current_main" "$NEW_MAIN"
+            must_increase \
+              "cloudformation/templates/1-main.yml" \
+              "Outputs.TemplateVersion" \
+              "These files are deployed through 1-main.yml, so increase its Outputs.TemplateVersion."
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            echo "Version check failed. Update each version identified above and push the change to this pull request."
+            exit 1
           fi
 
           echo "Version check passed"
