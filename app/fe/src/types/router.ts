@@ -1,4 +1,4 @@
-import { router } from './app';
+import type { router } from '../app/app';
 
 // Register the type of our own router to the global level.
 declare module '@tanstack/react-router' {

@@ -756,11 +756,12 @@ describe('ExternalApiV1', () => {
       let earthbeamMock: jest.SpyInstance;
       let bundleMock: jest.SpyInstance;
       let jobUid: string;
+      const ecsTaskArn = 'arn:aws:ecs:us-east-1:123456789012:task/cluster/abc123';
 
       beforeEach(async () => {
         earthbeamMock = jest
           .spyOn(ExecutorAwsService.prototype, 'start')
-          .mockResolvedValue(undefined);
+          .mockResolvedValue({ ecsTaskArn, taskSize: 'medium' });
         bundleMock = jest
           .spyOn(EarthbeamBundlesService.prototype, 'getBundles')
           .mockResolvedValue(allBundles);
@@ -790,6 +791,16 @@ describe('ExternalApiV1', () => {
             .post(`/v1/jobs/${jobUid}/start`)
             .set('Authorization', `Bearer ${token}`);
           expect(res.status).toBe(202);
+        });
+
+        it('should record the ECS task on the run', async () => {
+          await request(app.getHttpServer())
+            .post(`/v1/jobs/${jobUid}/start`)
+            .set('Authorization', `Bearer ${token}`);
+
+          const run = await prisma.run.findFirst({ where: { job: { uid: jobUid } } });
+          expect(run?.ecsTaskArn).toBe(ecsTaskArn);
+          expect(run?.taskSize).toBe('medium');
         });
       });
 

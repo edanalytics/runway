@@ -17,6 +17,7 @@ export * from './job-error.dto';
 export * from './run.dto';
 export * from './output-file.dto';
 export * from './job-note.dto';
+export * from './student-match-results.dto';
 export * from './tenant.dto';
 export * from './external-api/job.v1.dto';
 export * from './external-api/output-set.v1.dto';

@@ -45,7 +45,10 @@
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "npx tsc --noEmit --project ./api/tsconfig.app.json"
+        "commands": [
+          "npx tsc --noEmit --project ./api/tsconfig.app.json",
+          "npx tsc --noEmit --project ./api/tsconfig.spec.json"
+        ]
       }
     }
   }

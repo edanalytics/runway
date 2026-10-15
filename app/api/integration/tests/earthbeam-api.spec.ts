@@ -820,6 +820,57 @@ describe('Earthbeam API', () => {
           );
         });
 
+        it('should report reportable resource errors and the input params', async () => {
+          // bundleA reports studentAssessments only, so students' failures don't count.
+          await prisma.run.update({
+            where: { id: runA.id },
+            data: {
+              summary: {
+                studentAssessments: {
+                  records_processed: 10,
+                  records_skipped: 1,
+                  records_failed: 2,
+                },
+                students: { records_processed: 5, records_failed: 5 },
+              },
+            },
+          });
+          const { inputParams } = await prisma.job.findUniqueOrThrow({ where: { id: runA.jobId } });
+
+          await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload.completedWithErrors).toBe(true);
+          expect(payload.result.hasResourceErrors).toBe(true);
+          expect(payload.summary).toContain('studentAssessments (2/10)');
+          expect(payload.summary).not.toContain('students (');
+          expect(payload.input.params).toEqual(
+            inputParams?.map(({ name, value }) => ({ name, value }))
+          );
+        });
+
+        it('should report unmatched students from the count the Executor sent', async () => {
+          await prisma.run.update({
+            where: { id: runA.id },
+            data: {
+              unmatchedStudentsInfo: { name: 'student_id', type: 'studentUniqueId', count: 3 },
+            },
+          });
+
+          await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload.completedWithErrors).toBe(true);
+          expect(payload.result.hasUnmatchedStudents).toBe(true);
+          expect(payload.unmatchedStudentsCount).toBe(3);
+        });
+
         it('should include user info if the job was initiated by a user', async () => {
           // Normally the created by user is populated in the DB by a PG trigger when the row is created,
           // but our seeding doesn't set up the context for the trigger to work. Eventually, I'd

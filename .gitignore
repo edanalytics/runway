@@ -1,4 +1,5 @@
 .env
+.env.test.local
 app/node_modules/
 storage/
 

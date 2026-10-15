@@ -46,6 +46,8 @@ npm run api:test
 npm run api:test:integration:local
 ```
 
+To run integration suites in more than one git worktree at once, give each worktree its own test DB port and Compose project in `app/api/.env.test.local` (see `app/api/integration/README.md`).
+
 **Unit tests** (no DB or Docker required):
 
 ```bash
@@ -73,9 +75,11 @@ Schema changes follow this workflow (all commands run from `app/`):
 
 **Do not edit `schema.prisma` directly** — it is generated from the database via `prisma:pull-and-generate`. The SQL migration is the source of truth.
 
-The one exception is typing JSON columns with `prisma-json-types-generator`: add a `/// [TypeName]` line directly above the field, and declare `TypeName` in the `PrismaJson` namespace in `app/api/src/types/prisma.d.ts`. Re-introspection preserves these annotations on existing fields, so they survive `prisma:pull-and-generate`. Types shared with the frontend belong in `app/models`, aliased from `prisma.d.ts`.
+The one exception is typing JSON columns with `prisma-json-types-generator`: add a `/// [TypeName]` line directly above the field, and declare `TypeName` in the `PrismaJson` namespace in `app/models/src/utils/prisma-json-types.ts`, where both the API and the frontend see it. Re-introspection preserves these annotations on existing fields, so they survive `prisma:pull-and-generate`.
 
 Migrations run automatically at the start of the integration test suite. If tests fail with schema errors, a missing or mismatched migration is the likely cause.
+
+The generated Prisma client lives in `node_modules` and isn't committed, so after pulling or merging changes to `schema.prisma` or `prisma-json-types.ts`, run `npm run prisma:generate-client`. Typecheck errors on Prisma JSON fields, such as `'run.job.template' is of type 'unknown'`, mean the client is stale.
 
 ## Architecture
 
@@ -256,6 +260,37 @@ This endpoint never changes run state; acting on a failure is the Executor's job
 
 **Outstanding:** the request byte limit is not yet set. The endpoint currently runs under Nest's default JSON parser, so a large batch is rejected by that default rather than by an agreed limit. Confirm the cap and any record cap with cloud engineering and the Executor, then register a route-scoped parser for this route only — check the `SizeRestrictions_BODY` rule in `cloudformation/templates/0-waf.yml` against deployed behavior rather than assuming the app-side constant is sufficient.
 
+`GET /api/jobs/:jobId/student-match-results` (`JobsService.getStudentMatchResults`) returns a job's students to match, for review; no frontend reads it yet. It is tenant-scoped like the job's other reads, and needs `job.match-results.read`, which every role has. Across tenants it also needs `job.metatenant.match-results.read`, which only support users have: each match-results route pairs its privilege with a `job.metatenant` one of the same name, as the output-file routes do, since the results expose students' details. It returns `{ counts, students }`, where `counts` is `{ total, toReview, ready, excluded }`: every student has exactly one status, so the statuses add up to the total. Each student carries its input details, its `status` and `decision` (see **Decisions**), and every run's result for it, ordered by run, with each result's suggestions in ordinal order. Students are ordered by correlation id for a stable order (the ids are opaque hashes, so it isn't file order). Result ids come back as strings because they are `BIGINT`, and scores as numbers. The details and roster JSON come back as stored, in snake_case. The counts and the students are read in one snapshot, so they agree.
+
+There is no pagination. A real review queue is under 10 students, a few hundred at most; thousands means the file needs fixing, not reviewing. Past `MATCH_REVIEW_STUDENT_LIMIT` (1,000) the endpoint returns `counts` with `students: null`, and doesn't fetch the students.
+
+**Decisions.** `POST /api/jobs/:jobId/student-match-results/:correlationId/decisions` saves a match to one of a student's suggestions, excludes the student from the job, or clears either, returning the student to review rather than restoring an earlier decision. The body is `{ replacesVersion, kind, resultId?, ordinal? }`, with `kind` one of `match`, `exclude` or `clear`. Only a match names a suggestion: `resultId`, a string since it is `BIGINT`, and `ordinal`. An exclude or clear ignores them. The endpoint needs `job.match-results.update`, which every role has, and across tenants also `job.metatenant.match-results.update`, which only support users have. It works only on `fuzzy` jobs. Any other mode is 403 for every role, checked in the handler from the job's own mode. The body is validated first, so a malformed body is 400 in any mode.
+
+Decisions are append-only, in `student_match_decision`. Each write inserts the student's next `seq`, from 1 with no gaps. The app never updates rows, and they are deleted only with their job. A student's current decision is their highest `seq`, and a `clear` there means they have none. Their `status` follows from it (`studentMatchStatus`): `match` is `ready`, `exclude` is `excluded`, and `clear` or none is `to-review`. `decided_by_id` and `decided_on` are written by the insert; the table has no audit triggers. A match references its suggestion by `(result_id, ordinal)` and copies nothing from it, and composite foreign keys ensure the suggestion comes from a search for the same student.
+
+A decision's `seq` is also its `version`, the concurrency token. A write names, as `replacesVersion`, the version of the decision it saw, or null if it saw none, and a single guarded insert writes the next `seq` only if that is still current: the latest row for a version, or no rows or a clear for null. Two racing writes compute the same `seq`, so the primary key refuses the loser in the same statement. Clears never reach the client, which only ever sees a decision or none. Since `seq` never restarts, a decision cleared and made again has a new version, so a view of the old one is refused. A view of no decision stays current across a decision made and cleared, since the student is undecided again, just as it showed.
+
+A match must pick from the student's latest result, the one from the highest run. New results never invalidate a decision already made, so a current match can point into an earlier result. That's why the read returns every result.
+
+| Status | Meaning |
+|---|---|
+| 201 | `{ decision }`: the student's current decision, which is null after a clear. A decision is `{ version, kind, resultId, ordinal, decidedBy, decidedOn }` |
+| 400 | The body doesn't match the DTO, or `invalid_target`: the suggestion isn't in one of this student's results |
+| 401 / 403 | Not logged in, another tenant, no privilege, or not a `fuzzy` job |
+| 404 | `not_found`: the job has no such student. An unknown job is also a 404, with Nest's body and no `code` |
+| 409 `decision_changed` | `replacesVersion` isn't the current decision's, or a clear has nothing to clear. Nothing was written |
+| 409 `results_changed` | A match to an earlier result: a later run has searched again. Nothing was written |
+| 500 | An unexpected database failure, logged with the job id and SQLSTATE, never the message. If it came after the insert, the decision was saved, and a retry gets a 409 |
+
+The coded errors (404, 400 `invalid_target`, 409) have the body `{ statusCode, code, message }`: the page acts on `code`, and `message` is for generic error display. Neither carries student data. On a 409 the page refetches. A 400 from DTO validation has Nest's own body, with no `code`.
+
+Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `studentMatchCounts`, the review read's `counts` from the same query. Their `total` never goes down. Status is computed by `GetJobDto` from these, so `toGetJobDto` requires the counts: set them with `JobsService.withStudentMatchCounts`, whose single query reads only the given jobs.
+
+The mode decides who reads the results and whether they affect the status:
+
+- **`id_based_fuzzy_background`**: only `PartnerAdmin` and `SupportUser`, through `job.match-results.background.read`. The mode exists for them to check suggestions before a partner switches to fuzzy. The ID-based run has already delivered, so nothing can be decided and the counts leave the status alone.
+- **`fuzzy`** (and `id_based`): any user with `job.match-results.read`. In fuzzy mode, a successful last run with any outstanding students makes the job `complete with errors`, which can be marked resolved, as with unmatched student IDs. Students with a saved match are outstanding, since a saved match delivers nothing on its own; excluded students aren't.
+
 ### S3 Path Structure
 
 ```
@@ -270,6 +305,7 @@ __rosters/{partnerId}/{tenantCode}/{schoolYearEndYear}/*
 - **API**: NestJS controller → service. Services use Prisma directly, including for transactions and raw SQL; there is no separate repository layer
 - **Error handling**: Services return result objects (`{ status: 'SUCCESS', data }` / `{ status: 'ERROR', code }`) for expected failure modes; unexpected errors throw. Controllers map error results to HTTP exceptions. Services should not import or throw HTTP exceptions.
 - **FE**: Chakra UI v2 with custom design tokens; prefer inline readable code over extracted helpers for short logic
+- **FE colors**: use the theme's color tokens (`app/fe/src/app/theme/index.ts`), not new hex values, and keep text at WCAG AA contrast (4.5:1) against its background. That rules out light accents like `blue.200` as text on white, and dark panels in the light UI
 - **Icons**: `app/fe/src/assets/icons/`
 - **Data fetching and suspense**:
   - Critical data → `useSuspenseQuery` in the component, `ensureQueryData` in an ancestor loader.

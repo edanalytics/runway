@@ -21,3 +21,6 @@ MAX_ENCODING_DETECTION_SECONDS = 300
 
 # Set the batch size for chunking calls to the IDRS
 IDRS_BATCH_SIZE = 5000
+
+# Set the auto matching threshold for IDRS matches
+IDRS_AUTO_MATCH_THRESHOLD = 1.0
