@@ -271,6 +271,7 @@ export class JobsService {
       return { status: 'ERROR', code: 'not_found' };
     }
 
+    let suggestion: { studentUniqueId: string } | null = null;
     if (picksSuggestion) {
       const resultIds = student.studentMatchResult.map(({ id }) => id.toString());
       if (!resultIds.includes(resultId!)) {
@@ -283,16 +284,20 @@ export class JobsService {
       if (resultIds[0] !== resultId) {
         return { status: 'ERROR', code: 'results_changed' };
       }
-    }
-    // Suggestions never change, so this can't go stale before the insert.
-    const suggestion = picksSuggestion
-      ? await prisma.studentMatchSuggestion.findUnique({
-          where: { resultId_ordinal: { resultId: BigInt(resultId!), ordinal: ordinal! } },
-          select: { studentUniqueId: true },
-        })
-      : null;
-    if (picksSuggestion && !suggestion) {
-      return { status: 'ERROR', code: 'invalid_target' };
+      // Suggestions never change, so this can't go stale before the insert.
+      suggestion = await prisma.studentMatchSuggestion.findUnique({
+        where: {
+          resultId_ordinal: {
+            resultId: student.studentMatchResult[0].id,
+            // The DTO requires an ordinal for a suggestion pick.
+            ordinal: ordinal!,
+          },
+        },
+        select: { studentUniqueId: true },
+      });
+      if (!suggestion) {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
     }
     // The answer: the student the reviewer found, or the picked suggestion's.
     const studentUniqueId = search
