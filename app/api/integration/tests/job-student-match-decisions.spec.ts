@@ -751,6 +751,61 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
   });
 
+  // The route can't send the database these rows: it reads a suggestion
+  // pick's answer from the suggestion, and validation shapes the basis. So
+  // they're written directly, to pin the constraints the route relies on.
+  describe('the table', () => {
+    type Row = {
+      kind: string;
+      studentUniqueId?: string;
+      resultId?: string;
+      ordinal?: number;
+      search?: boolean;
+    };
+    const insert = ({ kind, studentUniqueId, resultId, ordinal, search }: Row) =>
+      pool().query(
+        `INSERT INTO public.student_match_decision
+           (job_id, correlation_id, seq, kind, decided_by_id,
+            student_unique_id, result_id, ordinal, search_details, roster_details)
+         VALUES ($1, 'corr-1', 1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          job.id,
+          kind,
+          userA.id,
+          studentUniqueId ?? null,
+          resultId ?? null,
+          ordinal ?? null,
+          search ? JSON.stringify(SEARCH_DETAILS) : null,
+          search ? JSON.stringify(SEARCH_PICK.search.rosterDetails) : null,
+        ]
+      );
+
+    it('refuses a suggestion basis whose answer isn’t the suggestion’s student', async () => {
+      // Ordinal 0 suggests SUID-1.
+      await expect(
+        insert({ kind: 'match', studentUniqueId: 'SUID-2', resultId, ordinal: 0 })
+      ).rejects.toMatchObject({
+        code: '23503',
+        constraint: 'student_match_decision_suggestion_fkey',
+      });
+    });
+
+    it.each<[string, () => Row]>([
+      ['a match with no answer', () => ({ kind: 'match', resultId, ordinal: 0 })],
+      ['a match with no basis', () => ({ kind: 'match', studentUniqueId: 'SUID-1' })],
+      [
+        'a match with both bases',
+        () => ({ kind: 'match', studentUniqueId: 'SUID-1', resultId, ordinal: 0, search: true }),
+      ],
+      ['an exclude with an answer', () => ({ kind: 'exclude', studentUniqueId: 'SUID-1' })],
+    ])('refuses %s', async (_, row) => {
+      await expect(insert(row())).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'student_match_decision_check',
+      });
+    });
+  });
+
   // Validation lets a NUL through, but PostgreSQL's jsonb can't store one.
   it('answers a database failure with a 500, logging only codes', async () => {
     const logs: string[] = [];
