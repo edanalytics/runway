@@ -8,47 +8,72 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   version_check:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Compare Branch
+      - name: Checkout pull request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{github.ref}}
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # - name: current directory
-      #   run: ls -la
-
-      - name: Get New Version
-        id: get_new_version
+      - name: Record incoming versions and changed files
+        id: incoming
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          new_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')
-          echo "new_version=$new_version" >> $GITHUB_OUTPUT
-          echo "${new_version}"
+          files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
+          echo "$files"
+          {
+            echo "files<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          waf=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/0-waf.yml | awk -F"'" '{print $2}')
+          main=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')
+          echo "waf_version=$waf" >> "$GITHUB_OUTPUT"
+          echo "main_version=$main" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout Base Branch
+      - name: Checkout base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{github.event.pull_request.base.ref}}
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
-      - name: Get Current Version
-        id: get_current_version
+      - name: Compare version numbers
+        env:
+          FILES: ${{ steps.incoming.outputs.files }}
+          NEW_WAF: ${{ steps.incoming.outputs.waf_version }}
+          NEW_MAIN: ${{ steps.incoming.outputs.main_version }}
         run: |
-          current_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')
-          echo "current_version=$current_version" >> $GITHUB_OUTPUT
-          echo "${current_version}"
+          current_waf=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/0-waf.yml | awk -F"'" '{print $2}')
+          current_main=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')
 
-      - name: Compare Version Numbers
-        id: compare_versions
-        run: |
-          if [ "$(printf '%s\n' "${{ steps.get_current_version.outputs.current_version }}" "${{ steps.get_new_version.outputs.new_version }}" | sort -V | tail -n1)" = "${{ steps.get_current_version.outputs.current_version }}" ]; then
-            echo "Error: Please adjust version on new branch. It must be greater than version on base branch. Base branch version is ${{ steps.get_current_version.outputs.current_version }} and incoming branch version is ${{ steps.get_new_version.outputs.new_version }}"
-            exit 1
-          else
-            echo "Version check passed"
+          must_increase() {
+            label="$1"
+            current="$2"
+            new="$3"
+            echo "$label base version is $current and incoming version is $new"
+            if [ "$(printf '%s\n' "$current" "$new" | sort -V | tail -n1)" = "$current" ]; then
+              echo "Error: Please adjust the version in $label. It must be greater than the version on the base branch. Base branch version is $current and incoming branch version is $new"
+              exit 1
+            fi
+          }
+
+          # 0-waf.yml is its own stack. 1-main.yml only receives the Web ACL ARN as a parameter.
+          if printf '%s\n' "$FILES" | grep -qx 'cloudformation/templates/0-waf.yml'; then
+            must_increase "cloudformation/templates/0-waf.yml" "$current_waf" "$NEW_WAF"
           fi
+
+          others=$(printf '%s\n' "$FILES" | grep '^cloudformation/' | grep -v '^cloudformation/templates/0-waf.yml$' || true)
+          if [ -n "$others" ]; then
+            echo "Other cloudformation files changed:"
+            printf '%s\n' "$others"
+            must_increase "cloudformation/templates/1-main.yml" "$current_main" "$NEW_MAIN"
+          fi
+
+          echo "Version check passed"
