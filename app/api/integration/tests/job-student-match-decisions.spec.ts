@@ -29,19 +29,23 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     school_ids: [101],
     student_ids: ['S-1'],
   };
-  /** A hit as the search route returned it, with the details it was found with. */
-  const SEARCH_HIT = {
-    searchDetails: SEARCH_DETAILS,
+  /**
+   * A match to a student the reviewer found by searching: the answer, and the
+   * search it rests on, with the student as the search route returned them.
+   */
+  const SEARCH_PICK = {
     studentUniqueId: 'SUID-FOUND',
-    score: 0.97,
-    rosterDetails: {
-      first_name: 'Ada',
-      middle_name: null,
-      last_name: 'Lovelace',
-      birth_date: '2010-12-10',
-      student_ids: [{ id_type: 'State', id_value: 'S-1' }],
-      school_years: [2025],
-      future_field: 'kept',
+    search: {
+      searchDetails: SEARCH_DETAILS,
+      rosterDetails: {
+        first_name: 'Ada',
+        middle_name: null,
+        last_name: 'Lovelace',
+        birth_date: '2010-12-10',
+        student_ids: [{ id_type: 'State', id_value: 'S-1' }],
+        school_years: [2025],
+        future_field: 'kept',
+      },
     },
   };
 
@@ -246,9 +250,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         decision: {
           version: 1,
           kind: 'match',
+          // The suggestion's student, at ordinal 1.
+          studentUniqueId: 'SUID-2',
           resultId,
           ordinal: 1,
-          searchHit: null,
+          search: null,
           decidedBy: expect.objectContaining({ id: userA.id }),
           decidedOn: expect.any(String),
         },
@@ -261,9 +267,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         decision: {
           version: 2,
           kind: 'exclude',
+          studentUniqueId: null,
           resultId: null,
           ordinal: null,
-          searchHit: null,
+          search: null,
           decidedBy: expect.objectContaining({ id: userA.id }),
           decidedOn: expect.any(String),
         },
@@ -275,22 +282,60 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(cleared.body).toEqual({ decision: null });
 
       expect(
-        (await rowsOf()).map(({ seq, kind, resultId, ordinal, decidedById }) => ({
+        (await rowsOf()).map(({ seq, kind, studentUniqueId, resultId, ordinal, decidedById }) => ({
           seq,
           kind,
+          studentUniqueId,
           resultId: resultId?.toString() ?? null,
           ordinal,
           decidedById,
         }))
       ).toEqual([
-        { seq: 1, kind: 'match', resultId, ordinal: 1, decidedById: userA.id },
-        { seq: 2, kind: 'exclude', resultId: null, ordinal: null, decidedById: userA.id },
-        { seq: 3, kind: 'clear', resultId: null, ordinal: null, decidedById: userA.id },
+        {
+          seq: 1,
+          kind: 'match',
+          studentUniqueId: 'SUID-2',
+          resultId,
+          ordinal: 1,
+          decidedById: userA.id,
+        },
+        {
+          seq: 2,
+          kind: 'exclude',
+          studentUniqueId: null,
+          resultId: null,
+          ordinal: null,
+          decidedById: userA.id,
+        },
+        {
+          seq: 3,
+          kind: 'clear',
+          studentUniqueId: null,
+          resultId: null,
+          ordinal: null,
+          decidedById: userA.id,
+        },
       ]);
     });
 
+    // The answer is the suggestion's student. Here the one sent is another
+    // suggestion's, in the same result.
+    it('takes a suggestion pick’s answer from the suggestion, ignoring one sent', async () => {
+      const res = await decide({
+        replacesVersion: null,
+        kind: 'match',
+        resultId,
+        ordinal: 0,
+        studentUniqueId: 'SUID-2',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.decision.studentUniqueId).toBe('SUID-1');
+      expect((await rowsOf()).map((row) => row.studentUniqueId)).toEqual(['SUID-1']);
+    });
+
     it('ignores a target sent with an exclude or a clear', async () => {
-      const target = { resultId, ordinal: 0, searchHit: SEARCH_HIT };
+      const target = { resultId, ordinal: 0, ...SEARCH_PICK };
 
       const excluded = await decide({ replacesVersion: null, kind: 'exclude', ...target });
       const cleared = await decide({ replacesVersion: 1, kind: 'clear', ...target });
@@ -481,15 +526,20 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
   });
 
-  describe('a match to a search hit', () => {
-    const matchHit = (replacesVersion: number | null, searchHit: unknown = SEARCH_HIT) =>
-      decide({ replacesVersion, kind: 'match', searchHit });
+  describe('a match to a search', () => {
+    const matchSearch = (replacesVersion: number | null, pick: object = SEARCH_PICK) =>
+      decide({ replacesVersion, kind: 'match', ...pick });
 
-    it('saves the hit, and the details it was found with, on the decision', async () => {
-      // A key IDRS doesn't take is dropped, as search drops it.
-      const res = await matchHit(null, {
-        ...SEARCH_HIT,
-        searchDetails: { ...SEARCH_DETAILS, middle_name: 'Augusta' },
+    it('saves the answer and the search it rests on, without IDRS’s score', async () => {
+      // A key IDRS doesn't take is dropped, as search drops it. The score is
+      // sent as a page spreading the hit might send it.
+      const res = await matchSearch(null, {
+        ...SEARCH_PICK,
+        search: {
+          ...SEARCH_PICK.search,
+          searchDetails: { ...SEARCH_DETAILS, middle_name: 'Augusta' },
+          score: 0.97,
+        },
       });
 
       expect(res.status).toBe(201);
@@ -497,85 +547,93 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         decision: {
           version: 1,
           kind: 'match',
+          studentUniqueId: 'SUID-FOUND',
           resultId: null,
           ordinal: null,
-          searchHit: SEARCH_HIT,
+          search: SEARCH_PICK.search,
           decidedBy: expect.objectContaining({ id: userA.id }),
           decidedOn: expect.any(String),
         },
       });
-      const [row] = await rowsOf();
-      expect({
-        resultId: row.resultId,
-        ordinal: row.ordinal,
-        studentUniqueId: row.studentUniqueId,
-        score: row.score?.toString(),
-        rosterDetails: row.rosterDetails,
-        searchDetails: row.searchDetails,
-      }).toEqual({
-        resultId: null,
-        ordinal: null,
-        studentUniqueId: 'SUID-FOUND',
-        score: '0.97',
-        rosterDetails: SEARCH_HIT.rosterDetails,
-        searchDetails: SEARCH_DETAILS,
-      });
+      // The whole row, so nothing else about the search is stored.
+      expect(await rowsOf()).toEqual([
+        {
+          jobId: job.id,
+          correlationId: 'corr-1',
+          seq: 1,
+          kind: 'match',
+          studentUniqueId: 'SUID-FOUND',
+          resultId: null,
+          ordinal: null,
+          searchDetails: SEARCH_DETAILS,
+          rosterDetails: SEARCH_PICK.search.rosterDetails,
+          decidedById: userA.id,
+          decidedOn: expect.any(Date),
+        },
+      ]);
     });
 
     // The write a stale view refuses (below) is also accepted when current.
     it('replaces a match to a suggestion', async () => {
       await matchFirst(resultId);
 
-      const res = await matchHit(1);
+      const res = await matchSearch(1);
 
       expect(res.status).toBe(201);
       expect(res.body.decision).toMatchObject({
         version: 2,
+        studentUniqueId: 'SUID-FOUND',
         resultId: null,
-        searchHit: SEARCH_HIT,
+        search: SEARCH_PICK.search,
       });
       expect(
         (await rowsOf()).map((row) => [row.resultId?.toString() ?? null, row.studentUniqueId])
       ).toEqual([
-        [resultId, null],
+        [resultId, 'SUID-1'],
         [null, 'SUID-FOUND'],
       ]);
     });
 
     // Even one the student doesn't have: the suggestion checks don't run.
-    it('ignores a suggestion sent beside the hit', async () => {
+    it('ignores a suggestion sent beside the search', async () => {
       const res = await decide({
         replacesVersion: null,
         kind: 'match',
-        searchHit: SEARCH_HIT,
+        ...SEARCH_PICK,
         resultId: otherResultId,
         ordinal: 0,
       });
 
       expect(res.status).toBe(201);
       expect(res.body.decision).toMatchObject({
+        studentUniqueId: 'SUID-FOUND',
         resultId: null,
         ordinal: null,
-        searchHit: SEARCH_HIT,
+        search: SEARCH_PICK.search,
       });
       expect((await rowsOf()).map(({ resultId, ordinal }) => ({ resultId, ordinal }))).toEqual([
         { resultId: null, ordinal: null },
       ]);
     });
 
-    // The responses show a suggestion pick's searchHit as null, so a page may
+    // The responses show a suggestion pick's search as null, so a page may
     // send it back that way.
-    it('takes a null hit beside a suggestion as a suggestion pick', async () => {
+    it('takes a null search beside a suggestion as a suggestion pick', async () => {
       const res = await decide({
         replacesVersion: null,
         kind: 'match',
         resultId,
         ordinal: 0,
-        searchHit: null,
+        search: null,
       });
 
       expect(res.status).toBe(201);
-      expect(res.body.decision).toMatchObject({ resultId, ordinal: 0, searchHit: null });
+      expect(res.body.decision).toMatchObject({
+        studentUniqueId: 'SUID-1',
+        resultId,
+        ordinal: 0,
+        search: null,
+      });
     });
 
     describe('from a stale view', () => {
@@ -584,7 +642,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         await decide({ replacesVersion: 1, kind: 'clear' });
         await matchFirst(resultId);
 
-        const res = await matchHit(1);
+        const res = await matchSearch(1);
 
         expect(res.body).toEqual(DECISION_CHANGED);
         expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear', 'match']);
@@ -593,7 +651,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       it('is refused replacing nothing once the student has a decision', async () => {
         await matchFirst(resultId);
 
-        const res = await matchHit(null);
+        const res = await matchSearch(null);
 
         expect(res.body).toEqual(DECISION_CHANGED);
         expect(await rowsOf()).toHaveLength(1);
@@ -613,7 +671,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
           const { rows } = await other.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
 
           // then() sends the request now, rather than when it's awaited.
-          const pending = matchHit(null).then((res) => res);
+          const pending = matchSearch(null).then((res) => res);
           await waitUntilBlockedBy(rows[0].pid);
           await other.query('COMMIT');
           const res = await pending;
@@ -631,45 +689,44 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       });
     });
 
-    it.each<[string, Record<string, unknown>]>([
-      ['a student unique id that isn’t a string', { studentUniqueId: 123 }],
-      ['an empty student unique id', { studentUniqueId: '' }],
-      ['a score that isn’t a number', { score: '0.97' }],
-      ['roster details that aren’t an object', { rosterDetails: ['Ada'] }],
-      ['no search details', { searchDetails: undefined }],
+    it.each<[string, object, RegExp]>([
+      ['no student unique id', { studentUniqueId: undefined }, /^studentUniqueId /],
+      ['a student unique id that isn’t a string', { studentUniqueId: 123 }, /^studentUniqueId /],
+      ['an empty student unique id', { studentUniqueId: '' }, /^studentUniqueId /],
+      [
+        'roster details that aren’t an object',
+        { search: { ...SEARCH_PICK.search, rosterDetails: ['Ada'] } },
+        /^search\.rosterDetails /,
+      ],
+      [
+        'no search details',
+        { search: { rosterDetails: SEARCH_PICK.search.rosterDetails } },
+        /^search\.searchDetails /,
+      ],
       [
         'search details search would refuse',
-        { searchDetails: { ...SEARCH_DETAILS, birth_date: '2010-02-30' } },
+        {
+          search: {
+            ...SEARCH_PICK.search,
+            searchDetails: { ...SEARCH_DETAILS, birth_date: '2010-02-30' },
+          },
+        },
+        /^search\.searchDetails\.birth_date /,
       ],
-    ])('refuses a hit with %s', async (_, given) => {
-      const res = await matchHit(null, { ...SEARCH_HIT, ...given });
+    ])('refuses a match to a search with %s', async (_, given, refusal) => {
+      const res = await matchSearch(null, { ...SEARCH_PICK, ...given });
 
       expect(res.status).toBe(400);
       // Nest's validation body, so it was the DTO that refused it.
-      expect(res.body.message).toContainEqual(expect.stringMatching(/^searchHit\./));
+      expect(res.body.message).toContainEqual(expect.stringMatching(refusal));
       expect(await rowsOf()).toEqual([]);
     });
 
-    // JSON has no Infinity, but a number too large for a double parses to it.
-    it('refuses a hit with a score that isn’t finite', async () => {
-      const body = JSON.stringify({ replacesVersion: null, kind: 'match', searchHit: SEARCH_HIT });
-
-      const res = await request(app.getHttpServer())
-        .post(`/jobs/${job.id}/student-match-results/corr-1/decisions`)
-        .set('Cookie', [cookies])
-        .set('Content-Type', 'application/json')
-        .send(body.replace('"score":0.97', '"score":1e999'));
-
-      expect(res.status).toBe(400);
-      expect(res.body.message).toContainEqual(expect.stringMatching(/^searchHit\.score /));
-      expect(await rowsOf()).toEqual([]);
-    });
-
-    // The student check runs for a hit too. Without it the insert's foreign key
-    // would refuse the row, which reads as no such suggestion.
+    // The student check runs for a search too. Without it the insert's foreign
+    // key would refuse the row, with a 500.
     it('returns 404 for a student the job doesn’t have, writing nothing', async () => {
       const res = await decide(
-        { replacesVersion: null, kind: 'match', searchHit: SEARCH_HIT },
+        { replacesVersion: null, kind: 'match', ...SEARCH_PICK },
         { correlationId: 'corr-unknown' }
       );
 
@@ -684,8 +741,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   });
 
   // The DTO stops every input known to fail in the database, so this one gets
-  // past it in the service: a match with no ordinal, which the table's CHECK
-  // refuses. The real error quotes the failing row.
+  // past it in the service: a match to a search with no student unique id,
+  // which the table's CHECK refuses. The real error quotes the failing row.
   it('answers an unexpected database failure with a 500, logging only codes', async () => {
     const service = app.get(JobsService);
     const decideStudentMatch = service.decideStudentMatch.bind(service);
@@ -694,7 +751,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       .spyOn(service, 'decideStudentMatch')
       .mockImplementation(async (input, prisma) => {
         try {
-          const decision = { ...input.decision, kind: 'match' as const, resultId };
+          const decision = {
+            ...input.decision,
+            kind: 'match' as const,
+            search: SEARCH_PICK.search,
+          };
           return await decideStudentMatch({ ...input, decision }, prisma);
         } catch (err) {
           error = err;
