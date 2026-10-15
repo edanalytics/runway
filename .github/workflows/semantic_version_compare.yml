@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - cloudformation/**
+      - cloudformation/templates/*.yml
 
 permissions:
   contents: read
@@ -50,7 +50,7 @@ jobs:
               "0-waf.yml changed; increase BaseVersion."
           fi
 
-          others=$(printf '%s\n' "$files" | grep '^cloudformation/' | grep -v '^cloudformation/templates/0-waf.yml$' || true)
+          others=$(printf '%s\n' "$files" | grep '^cloudformation/templates/.*\.yml$' | grep -v '^cloudformation/templates/0-waf.yml$' || true)
           if [ -n "$others" ]; then
             echo "CloudFormation files that are part of the main stack changed:"
             printf '%s\n' "$others"
