@@ -60,16 +60,13 @@ export const isLoadableSearchHit = (
   (Array.isArray(hit.school_years) && hit.school_years.includes(endYear));
 
 /**
- * A decision row as the API shows it: none for a clear, and a search pick's hit
- * gathered into `searchHit`. The hit's columns reach the client only through
- * here.
+ * A decision row as the API shows it: none for a clear, and a search basis's
+ * columns gathered into `search`. They reach the client only through here.
  */
 const toStudentMatchDecision = ({
   user,
-  studentUniqueId,
-  score,
-  rosterDetails,
   searchDetails,
+  rosterDetails,
   ...row
 }: StudentMatchDecision & { user: User | null }): StudentMatchDecisionWithUser | null => {
   if (row.kind === 'clear') {
@@ -79,11 +76,9 @@ const toStudentMatchDecision = ({
     ...row,
     version: row.seq,
     decidedBy: user,
-    // The table's check requires all four, or none.
-    searchHit:
-      studentUniqueId !== null && score !== null && rosterDetails !== null && searchDetails !== null
-        ? { searchDetails, studentUniqueId, score, rosterDetails }
-        : null,
+    // The table's check requires both, or neither.
+    search:
+      searchDetails !== null && rosterDetails !== null ? { searchDetails, rosterDetails } : null,
   };
 };
 
@@ -250,19 +245,19 @@ export class JobsService {
   > {
     const { jobId, correlationId, userId } = input;
     const { replacesVersion, kind } = input.decision;
-    // Only a match names a target, either a hit from the reviewer's own search
-    // or a suggestion. A target sent with anything else is ignored, as is a
-    // suggestion sent beside a hit.
-    const searchHit = kind === 'match' ? input.decision.searchHit : undefined;
-    const picksSuggestion = kind === 'match' && !searchHit;
+    // Only a match has a basis, either the reviewer's own search or a
+    // suggestion. A basis sent with anything else is ignored, as is a
+    // suggestion sent beside a search.
+    const search = kind === 'match' ? input.decision.search : undefined;
+    const picksSuggestion = kind === 'match' && !search;
     const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
-    const hit = searchHit && {
-      studentUniqueId: searchHit.studentUniqueId,
-      // As text, as ingestion passes it, so PostgreSQL parses it straight to numeric.
-      score: String(searchHit.score),
-      rosterDetails: JSON.stringify(searchHit.rosterDetails),
+    // The answer: for a search pick, the student the reviewer found; for a
+    // suggestion pick, the suggestion's student, read below.
+    let { studentUniqueId = null } = search ? input.decision : {};
+    const searchBasis = search && {
       // Exactly what search sends IDRS for these details.
-      searchDetails: JSON.stringify(pickStudentSearchDetails(searchHit.searchDetails)),
+      searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
+      rosterDetails: JSON.stringify(search.rosterDetails),
     };
 
     // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
@@ -291,50 +286,47 @@ export class JobsService {
       if (resultIds[0] !== resultId) {
         return { status: 'ERROR', code: 'results_changed' };
       }
-    }
-
-    let inserted: { seq: number }[];
-    try {
-      // Writes the row after the student's latest, if the caller saw what's
-      // current: that latest row for a version, or no decision (no rows, or a
-      // clear) for null. A clear needs a decision to clear.
-      // Two racing writes compute the same seq, so the loser collides with
-      // the winner on the primary key and does nothing.
-      inserted = await prisma.$queryRaw<{ seq: number }[]>`
-        INSERT INTO public.student_match_decision
-          (job_id, correlation_id, seq, kind, result_id, ordinal,
-           student_unique_id, score, roster_details, search_details, decided_by_id)
-        SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
-               ${kind}::public.student_match_decision_kind,
-               ${resultId}::bigint, ${ordinal}::int,
-               ${hit?.studentUniqueId ?? null}, ${hit?.score ?? null}::numeric,
-               ${hit?.rosterDetails ?? null}::jsonb, ${hit?.searchDetails ?? null}::jsonb,
-               ${userId}::int
-        FROM (SELECT 1) AS one
-        LEFT JOIN LATERAL (
-          SELECT seq, kind FROM public.student_match_decision
-          WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
-          ORDER BY seq DESC
-          LIMIT 1
-        ) latest ON true
-        WHERE CASE
-          WHEN ${replacesVersion}::int IS NULL
-            THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
-          ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
-        END
-        ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
-        RETURNING seq
-      `;
-    } catch (err) {
-      // The student and the result were checked above, so a foreign key
-      // violation means the ordinal isn't in the result, and so can only come
-      // from a suggestion pick. Matched by SQLSTATE alone: messages quote row
-      // values.
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.meta?.code === '23503') {
+      // Suggestions never change, so this can't go stale before the insert.
+      const suggestion = await prisma.studentMatchSuggestion.findUnique({
+        where: { resultId_ordinal: { resultId: BigInt(resultId!), ordinal: ordinal! } },
+        select: { studentUniqueId: true },
+      });
+      if (!suggestion) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
-      throw err;
+      studentUniqueId = suggestion.studentUniqueId;
     }
+
+    // Writes the row after the student's latest, if the caller saw what's
+    // current: that latest row for a version, or no decision (no rows, or a
+    // clear) for null. A clear needs a decision to clear.
+    // Two racing writes compute the same seq, so the loser collides with
+    // the winner on the primary key and does nothing.
+    const inserted = await prisma.$queryRaw<{ seq: number }[]>`
+      INSERT INTO public.student_match_decision
+        (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
+         search_details, roster_details, decided_by_id)
+      SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
+             ${kind}::public.student_match_decision_kind, ${studentUniqueId},
+             ${resultId}::bigint, ${ordinal}::int,
+             ${searchBasis?.searchDetails ?? null}::jsonb,
+             ${searchBasis?.rosterDetails ?? null}::jsonb,
+             ${userId}::int
+      FROM (SELECT 1) AS one
+      LEFT JOIN LATERAL (
+        SELECT seq, kind FROM public.student_match_decision
+        WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
+        ORDER BY seq DESC
+        LIMIT 1
+      ) latest ON true
+      WHERE CASE
+        WHEN ${replacesVersion}::int IS NULL
+          THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
+        ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
+      END
+      ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
+      RETURNING seq
+    `;
     if (inserted.length === 0) {
       return { status: 'ERROR', code: 'decision_changed' };
     }
