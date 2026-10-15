@@ -11,7 +11,6 @@ import { authHelper } from '../helpers/oidc/auth-flow';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { withoutPrivilege } from '../helpers/without-privilege';
 import { pool } from '../helpers/db/client';
-import { JobsService } from 'api/src/jobs/jobs.service';
 
 describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () => {
   const PARTNER_ADMIN = ['runway.test.user', 'runway.test.partneradmin'];
@@ -769,36 +768,20 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
   });
 
-  // The DTO stops every input known to fail in the database, so this one gets
-  // past it in the service: a match to a search with no student unique id,
-  // which the table's CHECK refuses. The real error quotes the failing row.
-  it('answers an unexpected database failure with a 500, logging only codes', async () => {
-    const service = app.get(JobsService);
-    const decideStudentMatch = service.decideStudentMatch.bind(service);
-    let error: unknown;
-    const withTarget = jest
-      .spyOn(service, 'decideStudentMatch')
-      .mockImplementation(async (input, prisma) => {
-        try {
-          const decision = {
-            ...input.decision,
-            kind: 'match' as const,
-            search: SEARCH_PICK.search,
-          };
-          return await decideStudentMatch({ ...input, decision }, prisma);
-        } catch (err) {
-          error = err;
-          throw err;
-        }
-      });
+  // Validation lets a NUL through, but PostgreSQL's jsonb can't store one.
+  it('answers a database failure with a 500, logging only codes', async () => {
     const logs: string[] = [];
     const errorLog = jest.spyOn(Logger.prototype, 'error').mockImplementation((message) => {
       logs.push(String(message));
     });
     try {
-      const res = await decide({ replacesVersion: null, kind: 'exclude' });
+      const res = await decide({
+        replacesVersion: null,
+        kind: 'match',
+        ...SEARCH_PICK,
+        search: { ...SEARCH_PICK.search, rosterDetails: { first_name: 'Ada\u0000' } },
+      });
 
-      expect(error).toMatchObject({ message: expect.stringContaining('corr-1') });
       expect(res.status).toBe(500);
       expect(res.body).toEqual({
         statusCode: 500,
@@ -806,10 +789,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         error: 'Internal Server Error',
       });
       expect(logs).toEqual([
-        `student match decision: jobId=${job.id} outcome=FAILED cause=PrismaClientKnownRequestError sqlstate=23514`,
+        `student match decision: jobId=${job.id} outcome=FAILED cause=PrismaClientKnownRequestError sqlstate=22P05`,
       ]);
+      expect(await rowsOf()).toEqual([]);
     } finally {
-      withTarget.mockRestore();
       errorLog.mockRestore();
     }
   });
