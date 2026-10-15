@@ -105,6 +105,18 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       orderBy: { seq: 'asc' },
     });
 
+  /** Each of the student's decisions' answer and basis, as stored, in order. */
+  const answersAndBasesOf = async () =>
+    (await rowsOf()).map(
+      ({ studentUniqueId, resultId, ordinal, searchDetails, rosterDetails }) => ({
+        studentUniqueId,
+        resultId: resultId?.toString() ?? null,
+        ordinal,
+        searchDetails,
+        rosterDetails,
+      })
+    );
+
   /** The student's first decision: a match to the result's first suggestion. */
   const matchFirst = (resultId: string) =>
     decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 0 });
@@ -318,33 +330,51 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
-    // The answer is the suggestion's student. Here the one sent is another
-    // suggestion's, in the same result.
+    // The answer is the suggestion's student. The one sent is one validation
+    // would refuse, so it isn't validated either.
     it('takes a suggestion pick’s answer from the suggestion, ignoring one sent', async () => {
       const res = await decide({
         replacesVersion: null,
         kind: 'match',
         resultId,
         ordinal: 0,
-        studentUniqueId: 'SUID-2',
+        studentUniqueId: 123,
       });
 
       expect(res.status).toBe(201);
       expect(res.body.decision.studentUniqueId).toBe('SUID-1');
-      expect((await rowsOf()).map((row) => row.studentUniqueId)).toEqual(['SUID-1']);
+      expect(await answersAndBasesOf()).toEqual([
+        {
+          studentUniqueId: 'SUID-1',
+          resultId,
+          ordinal: 0,
+          searchDetails: null,
+          rosterDetails: null,
+        },
+      ]);
     });
 
-    it('ignores a target sent with an exclude or a clear', async () => {
-      const target = { resultId, ordinal: 0, ...SEARCH_PICK };
+    // Each one is one validation would refuse, so it isn't validated either.
+    it('ignores an answer or basis sent with an exclude or a clear', async () => {
+      const ignored = {
+        resultId,
+        ordinal: 0.5,
+        studentUniqueId: 123,
+        search: { searchDetails: 'Ada', rosterDetails: ['Ada'] },
+      };
 
-      const excluded = await decide({ replacesVersion: null, kind: 'exclude', ...target });
-      const cleared = await decide({ replacesVersion: 1, kind: 'clear', ...target });
+      const excluded = await decide({ replacesVersion: null, kind: 'exclude', ...ignored });
+      const cleared = await decide({ replacesVersion: 1, kind: 'clear', ...ignored });
 
       expect([excluded.status, cleared.status]).toEqual([201, 201]);
-      expect((await rowsOf()).map(({ resultId, ordinal }) => ({ resultId, ordinal }))).toEqual([
-        { resultId: null, ordinal: null },
-        { resultId: null, ordinal: null },
-      ]);
+      const none = {
+        studentUniqueId: null,
+        resultId: null,
+        ordinal: null,
+        searchDetails: null,
+        rosterDetails: null,
+      };
+      expect(await answersAndBasesOf()).toEqual([none, none]);
     });
 
     it('records who made each decision', async () => {
@@ -530,15 +560,13 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     const matchSearch = (replacesVersion: number | null, pick: object = SEARCH_PICK) =>
       decide({ replacesVersion, kind: 'match', ...pick });
 
-    it('saves the answer and the search it rests on, without IDRS’s score', async () => {
-      // A key IDRS doesn't take is dropped, as search drops it. The score is
-      // sent as a page spreading the hit might send it.
+    it('saves the answer and the search it rests on', async () => {
+      // A key IDRS doesn't take is dropped, as search drops it.
       const res = await matchSearch(null, {
         ...SEARCH_PICK,
         search: {
           ...SEARCH_PICK.search,
           searchDetails: { ...SEARCH_DETAILS, middle_name: 'Augusta' },
-          score: 0.97,
         },
       });
 
@@ -594,14 +622,15 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
-    // Even one the student doesn't have: the suggestion checks don't run.
+    // Neither the suggestion checks nor validation run on it: the student
+    // doesn't have this result, and validation would refuse the ordinal.
     it('ignores a suggestion sent beside the search', async () => {
       const res = await decide({
         replacesVersion: null,
         kind: 'match',
         ...SEARCH_PICK,
         resultId: otherResultId,
-        ordinal: 0,
+        ordinal: 0.5,
       });
 
       expect(res.status).toBe(201);
@@ -611,8 +640,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         ordinal: null,
         search: SEARCH_PICK.search,
       });
-      expect((await rowsOf()).map(({ resultId, ordinal }) => ({ resultId, ordinal }))).toEqual([
-        { resultId: null, ordinal: null },
+      expect(await answersAndBasesOf()).toEqual([
+        { studentUniqueId: 'SUID-FOUND', resultId: null, ordinal: null, ...SEARCH_PICK.search },
       ]);
     });
 
