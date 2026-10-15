@@ -279,9 +279,9 @@ export class JobsService {
       if (!resultIds.includes(resultId!)) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
-      // Reviewers pick from the latest search. A pick from an earlier one
+      // Reviewers pick from the latest result. A pick from an earlier one
       // means the page predates it. Checked before the insert rather than in
-      // it: a search landing in between is harmless, since new results never
+      // it: a result landing in between is harmless, since new results never
       // invalidate a decision already made.
       if (resultIds[0] !== resultId) {
         return { status: 'ERROR', code: 'results_changed' };
