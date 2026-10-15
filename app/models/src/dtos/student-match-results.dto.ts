@@ -159,6 +159,13 @@ const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'excl
 /** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
+/**
+ * Whether a decision is a match resting on the reviewer's search, rather than
+ * on a suggestion. A null `search` is the same as absent.
+ */
+export const restsOnSearch = (o: PostStudentMatchDecisionDto) =>
+  o.kind === 'match' && o.search != null;
+
 /** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
   /**
@@ -181,7 +188,7 @@ export class PostStudentMatchDecisionDto {
    * present, `resultId` and `ordinal` are ignored. Null is the same as absent,
    * as the responses show a suggestion pick's.
    */
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.search != null)
+  @ValidateIf(restsOnSearch)
   @IsObject()
   @ValidateNested()
   @Type(() => PostStudentMatchSearchDto)
@@ -191,7 +198,7 @@ export class PostStudentMatchDecisionDto {
    * The answer, the student found, for a match to a search; ignored otherwise.
    * A suggestion pick's answer is the suggestion's student.
    */
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.search != null)
+  @ValidateIf(restsOnSearch)
   @IsString()
   @IsNotEmpty()
   studentUniqueId?: string;
@@ -206,7 +213,7 @@ export class PostStudentMatchDecisionDto {
   /** The picked suggestion's position in its result, for a match without a search; ignored otherwise. */
   // Checked here because the database would round a fraction to the nearest
   // suggestion and save it.
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.search == null)
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && !restsOnSearch(o))
   @IsInt()
   @Min(0)
   @Max(POSTGRES_INTEGER_MAX)

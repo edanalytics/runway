@@ -6,6 +6,7 @@ import {
   JsonArray,
   pickStudentSearchDetails,
   PostStudentMatchDecisionDto,
+  restsOnSearch,
   StudentMatchDecisionWithUser,
   StudentSearchDetailsDto,
   studentMatchStatus,
@@ -248,7 +249,7 @@ export class JobsService {
     // Only a match has a basis, either the reviewer's own search or a
     // suggestion. A basis sent with anything else is ignored, as is a
     // suggestion sent beside a search.
-    const search = kind === 'match' ? input.decision.search : undefined;
+    const search = restsOnSearch(input.decision) ? input.decision.search : undefined;
     const picksSuggestion = kind === 'match' && !search;
     const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
     const searchBasis = search && {
