@@ -14,54 +14,53 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout pull request
+      - name: Checkout Compare Branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
+          ref: ${{github.ref}}
+          fetch-depth: 2
           persist-credentials: false
 
-      - name: Compare version numbers
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      - name: Get New Versions
+        id: get_new_versions
         run: |
-          files=$(git diff --name-only "$BASE_SHA"...HEAD)
-          failed=0
+          echo "waf_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/0-waf.yml | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "main_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
+          git diff --quiet HEAD^1 HEAD -- cloudformation/templates/0-waf.yml && waf_changed=false || waf_changed=true
+          git diff --quiet HEAD^1 HEAD -- 'cloudformation/templates/*.yml' ':(exclude)cloudformation/templates/0-waf.yml' && main_changed=false || main_changed=true
+          echo "waf_changed=$waf_changed" >> "$GITHUB_OUTPUT"
+          echo "main_changed=$main_changed" >> "$GITHUB_OUTPUT"
 
-          must_increase() {
-            file="$1"
-            version_name="$2"
+      - name: Checkout Base Branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{github.event.pull_request.base.ref}}
+          persist-credentials: false
+
+      - name: Get Current Versions
+        id: get_current_versions
+        run: |
+          echo "waf_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/0-waf.yml | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "main_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Compare Version Numbers
+        run: |
+          compare_version() {
+            current="$1"
+            new="$2"
             instruction="$3"
-            current=$(git show "$BASE_SHA:$file" | grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" | awk -F"'" '{print $2}')
-            new=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" "$file" | awk -F"'" '{print $2}')
-
-            echo "Checking $file $version_name: $current -> $new"
             if [ "$(printf '%s\n' "$current" "$new" | sort -V | tail -n1)" = "$current" ]; then
-              echo "::error file=$file::$instruction Current: $current; PR: $new."
-              failed=1
+              echo "Error: $instruction Base: $current; PR: $new."
+              exit 1
             fi
           }
 
-          # 0-waf.yml is its own stack. 1-main.yml only receives the Web ACL ARN as a parameter.
-          if printf '%s\n' "$files" | grep -qx 'cloudformation/templates/0-waf.yml'; then
-            must_increase \
-              "cloudformation/templates/0-waf.yml" \
-              "BaseVersion" \
-              "0-waf.yml changed; increase BaseVersion."
+          if [ "${{ steps.get_new_versions.outputs.waf_changed }}" = "true" ]; then
+            compare_version "${{ steps.get_current_versions.outputs.waf_version }}" "${{ steps.get_new_versions.outputs.waf_version }}" "0-waf.yml changed; increase BaseVersion."
           fi
 
-          others=$(printf '%s\n' "$files" | grep '^cloudformation/templates/.*\.yml$' | grep -v '^cloudformation/templates/0-waf.yml$' || true)
-          if [ -n "$others" ]; then
-            echo "CloudFormation files that are part of the main stack changed:"
-            printf '%s\n' "$others"
-            must_increase \
-              "cloudformation/templates/1-main.yml" \
-              "TemplateVersion" \
-              "A template used by 1-main.yml changed; increase TemplateVersion in 1-main.yml."
-          fi
-
-          if [ "$failed" -ne 0 ]; then
-            exit 1
+          if [ "${{ steps.get_new_versions.outputs.main_changed }}" = "true" ]; then
+            compare_version "${{ steps.get_current_versions.outputs.main_version }}" "${{ steps.get_new_versions.outputs.main_version }}" "A template used by 1-main.yml changed; increase TemplateVersion in 1-main.yml."
           fi
 
           echo "Version check passed"
