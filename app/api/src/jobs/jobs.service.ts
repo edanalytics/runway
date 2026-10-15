@@ -251,9 +251,6 @@ export class JobsService {
     const search = kind === 'match' ? input.decision.search : undefined;
     const picksSuggestion = kind === 'match' && !search;
     const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
-    // The answer: for a search pick, the student the reviewer found; for a
-    // suggestion pick, the suggestion's student, read below.
-    let { studentUniqueId = null } = search ? input.decision : {};
     const searchBasis = search && {
       // Exactly what search sends IDRS for these details.
       searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
@@ -286,16 +283,21 @@ export class JobsService {
       if (resultIds[0] !== resultId) {
         return { status: 'ERROR', code: 'results_changed' };
       }
-      // Suggestions never change, so this can't go stale before the insert.
-      const suggestion = await prisma.studentMatchSuggestion.findUnique({
-        where: { resultId_ordinal: { resultId: BigInt(resultId!), ordinal: ordinal! } },
-        select: { studentUniqueId: true },
-      });
-      if (!suggestion) {
-        return { status: 'ERROR', code: 'invalid_target' };
-      }
-      studentUniqueId = suggestion.studentUniqueId;
     }
+    // Suggestions never change, so this can't go stale before the insert.
+    const suggestion = picksSuggestion
+      ? await prisma.studentMatchSuggestion.findUnique({
+          where: { resultId_ordinal: { resultId: BigInt(resultId!), ordinal: ordinal! } },
+          select: { studentUniqueId: true },
+        })
+      : null;
+    if (picksSuggestion && !suggestion) {
+      return { status: 'ERROR', code: 'invalid_target' };
+    }
+    // The answer: the student the reviewer found, or the picked suggestion's.
+    const studentUniqueId = search
+      ? input.decision.studentUniqueId
+      : suggestion?.studentUniqueId ?? null;
 
     // Writes the row after the student's latest, if the caller saw what's
     // current: that latest row for a version, or no decision (no rows, or a
