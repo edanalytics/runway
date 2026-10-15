@@ -31,17 +31,14 @@ jobs:
           must_increase() {
             file="$1"
             version_name="$2"
-            reason="$3"
+            instruction="$3"
             current=$(git show "$BASE_SHA:$file" | grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" | awk -F"'" '{print $2}')
             new=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" "$file" | awk -F"'" '{print $2}')
 
-            echo "$reason"
-            echo "$version_name in $file: base=$current, incoming=$new"
+            echo "Checking $file $version_name: $current -> $new"
             if [ "$(printf '%s\n' "$current" "$new" | sort -V | tail -n1)" = "$current" ]; then
-              echo "::error file=$file::Increase $version_name from $current to a higher semantic version. The incoming value is $new."
+              echo "::error file=$file::$instruction Current: $current; PR: $new."
               failed=1
-            else
-              echo "Version check passed for $file"
             fi
           }
 
@@ -49,8 +46,8 @@ jobs:
           if printf '%s\n' "$files" | grep -qx 'cloudformation/templates/0-waf.yml'; then
             must_increase \
               "cloudformation/templates/0-waf.yml" \
-              "Outputs.BaseVersion" \
-              "0-waf.yml changed. Because WAF is a standalone stack, increase its own Outputs.BaseVersion."
+              "BaseVersion" \
+              "0-waf.yml changed; increase BaseVersion."
           fi
 
           others=$(printf '%s\n' "$files" | grep '^cloudformation/' | grep -v '^cloudformation/templates/0-waf.yml$' || true)
@@ -59,12 +56,11 @@ jobs:
             printf '%s\n' "$others"
             must_increase \
               "cloudformation/templates/1-main.yml" \
-              "Outputs.TemplateVersion" \
-              "These files are deployed through 1-main.yml, so increase its Outputs.TemplateVersion."
+              "TemplateVersion" \
+              "A template used by 1-main.yml changed; increase TemplateVersion in 1-main.yml."
           fi
 
           if [ "$failed" -ne 0 ]; then
-            echo "Version check failed. Update each version identified above and push the change to this pull request."
             exit 1
           fi
 
