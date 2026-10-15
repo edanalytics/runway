@@ -253,7 +253,7 @@ export class JobsService {
     const picksSuggestion = kind === 'match' && !search;
     const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
     const searchBasis = search && {
-      // Exactly what search sends IDRS for these details.
+      // Exactly what the search route sends IDRS for these details.
       searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
       rosterDetails: JSON.stringify(search.rosterDetails),
     };

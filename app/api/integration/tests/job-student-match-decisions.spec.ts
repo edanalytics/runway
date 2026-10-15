@@ -20,7 +20,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     code: 'decision_changed',
     message: 'This student’s decision has changed since the page loaded.',
   };
-  /** The details a reviewer searched with, as search sent them to IDRS. */
+  /** The details a reviewer searched with, as the search route sent them to IDRS. */
   const SEARCH_DETAILS = {
     first_name: 'Ada',
     last_name: 'Lovelace',
@@ -329,8 +329,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
-    // The answer is the suggestion's student. The one sent is one validation
-    // would refuse, so it isn't validated either.
+    // The answer sent would fail validation, so this also shows it isn't validated.
     it('takes a suggestion pick’s answer from the suggestion, ignoring one sent', async () => {
       const res = await decide({
         replacesVersion: null,
@@ -352,7 +351,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
-    // Each one is one validation would refuse, so it isn't validated either.
+    // Each would fail validation, so this also shows none is validated.
     it('ignores an answer or basis sent with an exclude or a clear', async () => {
       const ignored = {
         resultId,
@@ -559,7 +558,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       decide({ replacesVersion, kind: 'match', ...pick });
 
     it('saves the answer and the search it rests on', async () => {
-      // A key IDRS doesn't take is dropped, as search drops it.
+      // A key IDRS doesn't take is dropped, as the search route drops it.
       const res = await matchSearch(null, {
         ...SEARCH_PICK,
         search: {
@@ -717,7 +716,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         /^search\.searchDetails /,
       ],
       [
-        'search details search would refuse',
+        'search details the search route would refuse',
         {
           search: {
             ...SEARCH_PICK.search,

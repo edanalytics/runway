@@ -273,7 +273,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
 
       // A suggestion pick's search is null: see the test above.
-      it('returns a match to a search with its search, counted as ready', async () => {
+      it('returns a match to a search with its answer and basis, counted as ready', async () => {
         await reportStudents(['corr-1', 'corr-2']);
         const search = {
           searchDetails: { first_name: 'Ada', last_name: 'Lovelace', birth_date: '2010-12-10' },

@@ -135,7 +135,7 @@ export const toGetStudentSearchResultsDto = makeSerializer(GetStudentSearchResul
 
 /** The search a match rests on, when the reviewer found the student by searching. */
 export class PostStudentMatchSearchDto {
-  /** What the reviewer searched with. Stored as search would send it. */
+  /** What the reviewer searched with. Stored as the search route sends it to IDRS. */
   @IsObject()
   @ValidateNested()
   @Type(() => StudentSearchDetailsDto)
@@ -159,10 +159,7 @@ const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'excl
 /** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
-/**
- * Whether a decision is a match resting on the reviewer's search, rather than
- * on a suggestion. A null `search` is the same as absent.
- */
+/** Whether a decision is a match resting on the reviewer's search, rather than on a suggestion. */
 export const restsOnSearch = (o: PostStudentMatchDecisionDto) =>
   o.kind === 'match' && o.search != null;
 
