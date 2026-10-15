@@ -754,4 +754,4 @@ Outputs:
     Description: EnvLabel associated with this environment
     Value: !Ref 'EnvLabel'
     Export:
-      Name: !Sub '${AWS::StackName}-EnvLabel'    
+      Name: !Sub '${AWS::StackName}-EnvLabel'
