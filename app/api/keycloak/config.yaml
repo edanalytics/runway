@@ -67,11 +67,10 @@ clients:
         protocolMapper: oidc-hardcoded-claim-mapper
         consentRequired: false
         config:
-          claim.name : tenant_code
-          claim.value : runway-local-example-tenant
+          claim.name: tenant_code
+          claim.value: ea
           id.token.claim: 'true'
           access.token.claim: 'true'
-          claim.name: tenant_code
           jsonType.label: String
       - name: Roles
         protocol: openid-connect
