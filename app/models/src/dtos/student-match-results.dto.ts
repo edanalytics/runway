@@ -5,7 +5,6 @@ import {
   IsInt,
   IsISO8601,
   IsNotEmpty,
-  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -16,7 +15,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
-  Prisma,
   StudentInputDetails,
   StudentMatchDecision,
   StudentMatchDecisionKind,
@@ -38,9 +36,9 @@ export class GetStudentSearchHitDto {
   @Expose()
   studentUniqueId: string;
 
-  // A Prisma Decimal for a suggestion or a saved hit, converted to a number:
-  // precise enough for display. @Type rather than @Transform, which would run
-  // only after class-transformer tried, and failed, to copy the Decimal.
+  // A Prisma Decimal for a suggestion, converted to a number: precise enough
+  // for display. @Type rather than @Transform, which would run only after
+  // class-transformer tried, and failed, to copy the Decimal.
   @Expose()
   @Type(() => Number)
   score: number;
@@ -135,36 +133,35 @@ export class GetStudentSearchResultsDto {
 
 export const toGetStudentSearchResultsDto = makeSerializer(GetStudentSearchResultsDto);
 
-/** A hit sent back from a search, to save a match to it. */
-export class PostStudentSearchHitDto {
-  /** What the reviewer searched with. Stored as search would send it. */
+/** The search a match rests on, when the reviewer found the student by searching. */
+export class PostStudentMatchSearchDto {
+  /** What the reviewer searched with. Stored as the search route sends it to IDRS. */
   @IsObject()
   @ValidateNested()
   @Type(() => StudentSearchDetailsDto)
   searchDetails: StudentSearchDetailsDto;
 
-  @IsString()
-  @IsNotEmpty()
-  studentUniqueId: string;
-
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  score: number;
-
-  /** Stored as sent. */
+  /** The student as the reviewer saw them, a hit's `rosterDetails`. Stored as sent. */
   @IsObject()
   rosterDetails: StudentRosterDetailsJson;
 }
 
-/** A saved hit: the hit, and the details it was found with. */
-export class GetStudentMatchSearchHitDto extends GetStudentSearchHitDto {
+export class GetStudentMatchSearchDto {
   @Expose()
   searchDetails: StudentInputDetailsJson;
+
+  @Expose()
+  rosterDetails: StudentRosterDetailsJson;
 }
 
 const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'clear'];
 
 /** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
+
+/** Whether a decision is a match resting on the reviewer's search, rather than on a suggestion. */
+export const restsOnSearch = (o: PostStudentMatchDecisionDto) =>
+  o.kind === 'match' && o.search != null;
 
 /** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
@@ -183,28 +180,37 @@ export class PostStudentMatchDecisionDto {
   kind: StudentMatchDecisionKind;
 
   /**
-   * The picked hit from the reviewer's own search, for a match; ignored
-   * otherwise. A match names either this or a suggestion: when it's present,
-   * `resultId` and `ordinal` are ignored. Null is the same as absent, as the
-   * responses show a suggestion pick's.
+   * The reviewer's search, for a match to a student they found by searching;
+   * ignored otherwise. A match rests on either this or a suggestion: when it's
+   * present, `resultId` and `ordinal` are ignored. Null is the same as absent,
+   * as the responses show a suggestion pick's.
    */
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.searchHit != null)
+  @ValidateIf(restsOnSearch)
   @IsObject()
   @ValidateNested()
-  @Type(() => PostStudentSearchHitDto)
-  searchHit?: PostStudentSearchHitDto | null;
+  @Type(() => PostStudentMatchSearchDto)
+  search?: PostStudentMatchSearchDto | null;
 
   /**
-   * The picked suggestion's result, for a match without a hit; ignored
+   * The answer, the student found, for a match to a search; ignored otherwise.
+   * A suggestion pick's answer is the suggestion's student.
+   */
+  @ValidateIf(restsOnSearch)
+  @IsString()
+  @IsNotEmpty()
+  studentUniqueId?: string;
+
+  /**
+   * The picked suggestion's result, for a match without a search; ignored
    * otherwise. A BIGINT, so a string. Not validated here: the service checks
    * it against the student's own results.
    */
   resultId?: string;
 
-  /** The picked suggestion's position in its result, for a match without a hit; ignored otherwise. */
+  /** The picked suggestion's position in its result, for a match without a search; ignored otherwise. */
   // Checked here because the database would round a fraction to the nearest
   // suggestion and save it.
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && o.searchHit == null)
+  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && !restsOnSearch(o))
   @IsInt()
   @Min(0)
   @Max(POSTGRES_INTEGER_MAX)
@@ -220,7 +226,15 @@ export class GetStudentMatchDecisionDto {
   @Expose()
   kind: Exclude<StudentMatchDecisionKind, 'clear'>;
 
-  /** The picked suggestion's result, for a match to one. A BIGINT, so a string. */
+  /** The answer, for a match: the student this record is. */
+  @Expose()
+  studentUniqueId: string | null;
+
+  // A match's basis, what its answer rests on: either the suggestion it
+  // picked, `resultId` and `ordinal`, or the reviewer's `search`. The other
+  // is null.
+
+  /** The picked suggestion's result. A BIGINT, so a string. */
   @Expose()
   @Type(() => String)
   resultId: string | null;
@@ -228,10 +242,9 @@ export class GetStudentMatchDecisionDto {
   @Expose()
   ordinal: number | null;
 
-  /** The picked hit, for a match to a search hit. */
   @Expose()
-  @Type(() => GetStudentMatchSearchHitDto)
-  searchHit: GetStudentMatchSearchHitDto | null;
+  @Type(() => GetStudentMatchSearchDto)
+  search: GetStudentMatchSearchDto | null;
 
   /** Null if the user has since been deleted. */
   @Expose()
@@ -243,17 +256,15 @@ export class GetStudentMatchDecisionDto {
   decidedOn: Date;
 }
 
-/** A decision row, with its hit's columns only in `searchHit`. */
+/** A decision row, with its search's columns only in `search`. */
 export type StudentMatchDecisionWithUser = Omit<
   StudentMatchDecision,
-  'studentUniqueId' | 'score' | 'rosterDetails' | 'searchDetails'
+  'searchDetails' | 'rosterDetails'
 > & {
   version: number;
   decidedBy: User | null;
-  searchHit: {
+  search: {
     searchDetails: StudentInputDetailsJson;
-    studentUniqueId: string;
-    score: Prisma.Decimal;
     rosterDetails: StudentRosterDetailsJson;
   } | null;
 };

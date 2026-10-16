@@ -28,6 +28,10 @@ export class GetRunDto
   @Expose()
   @Type(() => UnmatchedStudentsInfoDto)
   unmatchedStudentsInfo: UnmatchedStudentsInfoDto | null;
+
+  //not exposed
+  ecsTaskArn: string | null;
+  taskSize: string | null;
 }
 
 export class UnmatchedStudentsInfoDto {

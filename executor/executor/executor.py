@@ -21,7 +21,7 @@ import executor.action_statuses as status
 import executor.artifacts as artifact
 import executor.config as config
 import executor.errors as error
-from executor.idrs_client import IDRSClient
+from executor.idrs import IDRSClient, IDRSMatchResultSet
 from executor.output_sets import OutputSet
  
 handler = logging.StreamHandler()
@@ -129,10 +129,12 @@ class JobExecutor:
 
             # Conditionally run matching processes based on the job matching mode
             # id_based is the default matching mode, set in unpack_job
-            # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
-            # when the matching_mode is fuzzy, we run earthmover with a separate wrapper in the match_candidates method
             if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
+                # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
                 self.orchestrate_earthmover()
+            # if self.id_matching_mode == 'fuzzy':
+            #     # when the matching_mode is fuzzy, we run earthmover with a separate wrapper in the match_candidates method
+            #     self.run_fuzzy_matching()
             
             self.lightbeam_send()
 
@@ -174,9 +176,8 @@ class JobExecutor:
             # e.g. deleting data from the container as a security measure
             self.logger.info("spinning down")
             self.send_update(action.DONE, status.SUCCESS if self.success else status.FAILURE)
-            if self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
-                self.match_candidates()
-                self.handle_idrs_matches(artifact.CANDIDATES.path)
+            if self.id_matching_mode == 'id_based_fuzzy_background' and self.em_runtime and self.em_runtime <= config.MAX_EM_RUNTIME_SECONDS:
+                self.run_fuzzy_matching()
 
     def unpack_job(self, job):
         """Parse the job definition received from the app"""
@@ -190,6 +191,7 @@ class JobExecutor:
             self.output_files_url = job["appUrls"]["outputFiles"]
 
             self.idrs_url = job.get("appUrls", {}).get("identityService", '')
+            self.student_match_results_url = job.get("appUrls", {}).get("studentMatchResults", '')
             self.id_matching_mode = job.get("idMatchingMode", "id_based")
             self.send_to_ods = job.get("sendToOds", True)
             self.cross_year_match_available = job.get("crossYearMatchAvailable", False)
@@ -416,6 +418,8 @@ class JobExecutor:
                     env_name, f"{self.s3_in_path}/{uri_path}"
                 )
                 raise
+        # capture path to original input file
+        self.original_input_path = self.input_sources["INPUT_FILE"]["path"]
 
     def map_descriptors(self):
         """Replace assessment bundle seed files' Ed-Fi descriptors with custom values"""
@@ -458,9 +462,6 @@ class JobExecutor:
         Conditionally run Earthmover a second time on input records that initially failed to match
         """
         self.set_action(action.EARTHMOVER_RUN)
-
-        # capture path to original input file
-        self.original_input_path = self.input_sources["INPUT_FILE"]["path"]
 
         # first pass
         self.unpack_id_types()
@@ -629,7 +630,7 @@ class JobExecutor:
         )
 
     def match_candidates(self):
-        '''run the match_candidates wrapper to generate candidates from the records in the input file.'''
+        """Run the match_candidates wrapper to generate candidates from the records in the input file."""
         self.set_action(action.MATCH_CANDIDATES)
 
         # Archive the active output dir as "pre-candidates". Create a new, empty output dir
@@ -642,31 +643,31 @@ class JobExecutor:
         os.environ["INPUT_FILE"] = self.original_input_path
         self.input_sources["INPUT_FILE"]["path"] = self.original_input_path
 
-        # Run earthmover deps 
+        # Run earthmover deps
         self.logger.info('installing earthmover deps...')
         self.earthmover_deps(self.candidate_wrapper_earthmover)
 
         # Run the wrapper
         self.logger.info('running match_candidates_wrapper...')
         self.earthmover_run(self.candidate_wrapper_earthmover, artifact.CANDIDATES_EM_RESULTS.path)
-        artifact.CANDIDATES.needs_upload=True
+        artifact.CANDIDATES.needs_upload = True
         self.upload_artifact(artifact.CANDIDATES)
         self.logger.info('candidates.jsonl uploaded!')
 
-    def handle_idrs_matches(self, candidates):
-        '''wrapper method encapsulating IDRS client orchestration and handle API outputs'''
+    def handle_idrs_matches(self, candidates_path):
+        """Wrapper method responsible for handling IDRS API outputs"""
 
         # Instantiate the IDRS Client
         idrs = IDRSClient(self.logger, self.conn, self.idrs_url)
 
         try:
             # Hit the IDRS and capture the JSON output
-            matches=idrs.query_idrs(candidates)
+            matches = idrs.query_idrs(candidates_path)
             # Write the IDRS matches to disk at the artifact output dir
             with open(artifact.IDRS_MATCHES.path, 'w', encoding='utf-8') as file:
                 json.dump(matches, file)
     
-            self.logger.info('matches written!')
+            self.logger.info('idrs_matches.json written!')
 
         except Exception:
             # If something goes wrong, raise an IDRS error type
@@ -675,7 +676,32 @@ class JobExecutor:
 
         # Upload IDRS Matches to S3
         self.upload_artifact(artifact.IDRS_MATCHES)
-        self.logger.info('matches.json uploaded!')
+        self.logger.info('idrs_matches.json uploaded!')
+
+    def create_match_results(self) -> IDRSMatchResultSet:
+        """TODO: PLACEHOLDER"""
+
+        # Create our IDRS Match Results
+        result_set = IDRSMatchResultSet.construct_match_result_set(artifact.CANDIDATES.path, artifact.IDRS_MATCHES.path, config.IDRS_AUTO_MATCH_THRESHOLD, self.logger)
+
+        with open(artifact.IDRS_MATCH_RESULTS.path, 'w', encoding='utf-8') as file:
+            json.dump(result_set.to_list(), file)
+
+        self.logger.info('match results file written!')
+        self.upload_artifact(artifact.IDRS_MATCH_RESULTS)
+        return result_set
+
+    def substitute_matches(self):
+        """Swap out correlation_ids for student_unique_ids in studentAssessments.jsonl"""
+        pass
+
+    def run_fuzzy_matching(self):
+        """Fuzzy match records by sending candidate metadata to the IDRS API for probabilistic matching"""
+        self.match_candidates()
+        self.handle_idrs_matches(artifact.CANDIDATES.path)
+        result_set = self.create_match_results()
+        self.send_student_match_results(result_set.needs_review())
+        # self.substitute_matches()
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""
@@ -1053,6 +1079,16 @@ class JobExecutor:
             "path": s3_prefix,
         })
 
+    def send_student_match_results(self, student_match_results: list[dict]):
+        """Send student match results that need additional review back to the app"""
+        if not student_match_results:
+            self.logger.info("no student match results to post")
+            return
+        self.logger.debug(f"Sending {len(student_match_results)} student match results")
+        resp = self.conn.post(self.student_match_results_url, json=student_match_results)
+        if not resp.ok:
+            self.logger.error(f"student match results could not post: {resp.status_code} - {resp.text}")
+            raise ValueError(f"student match results could not post: {resp.status_code} - {resp.text}")
 
 def localize_s3_path(path):
     """Convert an S3 'path' to a single filename"""
