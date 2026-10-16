@@ -6,6 +6,10 @@ ROSTER_DOWNLOAD_DIR = 'roster-download-dir'
 CROSS_YEAR_ROSTER_PATH = 'cross_year_roster.jsonl'
 # when matching candidates with the ID Resolution Service: location to move previous output sets to
 PRE_CANDIDATES_DIR = 'pre-candidates'
+# location for original studentAssessments.jsonl in the fuzzy matching workflow, before substitution
+ORIGINAL_DIR = 'original'
+# location for studentAssessments records that are still unmatched after fuzzy matching runs
+UNMATCHED_DIR = 'unmatched'
 
 REQUIRED_ID_MATCH_RATE = 0.5
 STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75
