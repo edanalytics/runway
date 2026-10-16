@@ -22,6 +22,23 @@ export class EarthbeamApiInitResponseDto {
 }
 export const toEarthbeamApiInitResponseDto = makeSerializer(EarthbeamApiInitResponseDto);
 
+/**
+ * SPIKE: what a send run is told about its batch. An assumed contract; see
+ * send-run.service.ts in the API.
+ */
+export class EarthbeamApiSendRunDto {
+  @Expose()
+  batchId: number;
+
+  /** The job's first run, whose transformed JSONL the send run filters. */
+  @Expose()
+  sourceRunId: number;
+
+  /** Exactly the batch's members, each with its decision's answer. */
+  @Expose()
+  students: { correlationId: string; studentUniqueId: string }[];
+}
+
 export class EarthbeamApiJobResponseDto {
   @Expose()
   appDataBasePath: string;
@@ -76,6 +93,14 @@ export class EarthbeamApiJobResponseDto {
 
   @Expose()
   rosterFilePath?: string;
+
+  /** SPIKE: present only for a send run, which delivers a batch. */
+  @Expose()
+  runType?: 'send';
+
+  /** SPIKE: present only for a send run. */
+  @Expose()
+  send?: EarthbeamApiSendRunDto;
 
   @Expose()
   assessmentDatastore?: {

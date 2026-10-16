@@ -21,3 +21,4 @@ export * from './student-match-results.dto';
 export * from './tenant.dto';
 export * from './external-api/job.v1.dto';
 export * from './external-api/output-set.v1.dto';
+export * from './student-match-batch.dto';

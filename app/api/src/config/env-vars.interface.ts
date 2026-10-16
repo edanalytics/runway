@@ -40,6 +40,9 @@ export interface IEnvironmentVariables {
   LOCAL_S3_ENDPOINT_URL?: string; // e.g. "http://localhost:9090" for S3Mock
   LOCAL_EVENT_EMITTER?: 'log' | 'noop'; // default (unset) = EventBridge
   LOCAL_BUNDLE_CACHE_DISABLED?: 'true' | 'false';
+  // SPIKE: `executor` makes a submitted batch launch its send run; unset, the
+  // app only logs the start (see send-run.service.ts).
+  SEND_RUN_START?: 'executor';
 
   // Identity Data Resolution Service (IDRS). One service per deployment, with
   // each partner addressed by request path and authenticated as its own OAuth

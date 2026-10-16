@@ -5,8 +5,10 @@ import {
   JobInputParamDto,
   JsonArray,
   pickStudentSearchDetails,
+  PostStudentMatchBatchStudentDto,
   PostStudentMatchDecisionDto,
   restsOnSearch,
+  StudentMatchBatchForDisplay,
   StudentMatchDecisionWithUser,
   StudentSearchDetailsDto,
   studentMatchStatus,
@@ -35,6 +37,7 @@ import {
 } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 import { IdrsSearchService } from '../idrs/idrs-search.service';
+import { SendRunService } from '../earthbeam/executor/send-run.service';
 
 /**
  * Far more than a reviewer will work through (typically under 10, at most a
@@ -88,6 +91,7 @@ const noStudentsToMatch: GetStudentMatchCountsDto = {
   toReview: 0,
   ready: 0,
   excluded: 0,
+  reprocessing: 0,
 };
 
 @Injectable()
@@ -99,7 +103,8 @@ export class JobsService {
     @Inject(EXECUTOR_SERVICE) private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
     private appConfig: AppConfigService,
-    private idrsSearch: IdrsSearchService
+    private idrsSearch: IdrsSearchService,
+    private sendRun: SendRunService
   ) {}
 
   async getStatusUpdates(jobId: Job['id']) {
@@ -136,16 +141,29 @@ export class JobsService {
   ): Promise<Map<Job['id'], GetStudentMatchCountsDto>> {
     // Keep the statuses in step with studentMatchStatus.
     const rows = await prisma.$queryRaw<
-      { job_id: number; total: bigint; to_review: bigint; ready: bigint; excluded: bigint }[]
+      {
+        job_id: number;
+        total: bigint;
+        to_review: bigint;
+        ready: bigint;
+        excluded: bigint;
+        reprocessing: bigint;
+      }[]
     >`
       SELECT i.job_id,
              count(*) AS total,
              count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
-             count(*) FILTER (WHERE d.kind = 'match') AS ready,
-             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded
+             count(*) FILTER (WHERE d.kind = 'match' AND NOT d.submitted) AS ready,
+             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.submitted) AS reprocessing
       FROM public.student_input_details i
       LEFT JOIN LATERAL (
-        SELECT kind FROM public.student_match_decision d
+        SELECT kind, EXISTS (
+                 SELECT 1 FROM public.student_match_batch_member m
+                 WHERE m.job_id = d.job_id AND m.correlation_id = d.correlation_id
+                   AND m.seq = d.seq
+               ) AS submitted
+        FROM public.student_match_decision d
         WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
         ORDER BY d.seq DESC
         LIMIT 1
@@ -161,6 +179,7 @@ export class JobsService {
           toReview: Number(row.to_review),
           ready: Number(row.ready),
           excluded: Number(row.excluded),
+          reprocessing: Number(row.reprocessing),
         },
       ])
     );
@@ -196,7 +215,11 @@ export class JobsService {
           // means nothing to a reviewer.
           orderBy: { correlationId: 'asc' },
           include: {
-            studentMatchDecision: { orderBy: { seq: 'desc' }, take: 1, include: { user: true } },
+            studentMatchDecision: {
+              orderBy: { seq: 'desc' },
+              take: 1,
+              include: { user: true, _count: { select: { studentMatchBatchMember: true } } },
+            },
             studentMatchResult: {
               orderBy: { runId: 'asc' },
               include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
@@ -209,9 +232,10 @@ export class JobsService {
           // results and suggestions.
           students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
             const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
+            const submitted = (latest?._count.studentMatchBatchMember ?? 0) > 0;
             return {
               ...input,
-              status: studentMatchStatus(latest?.kind),
+              status: studentMatchStatus(latest?.kind, submitted),
               decision: latest ? toStudentMatchDecision(latest) : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
@@ -310,7 +334,13 @@ export class JobsService {
     // clear) for null. A clear needs a decision to clear.
     // Two racing writes compute the same seq, so the loser collides with
     // the winner on the primary key and does nothing.
-    const inserted = await prisma.$queryRaw<{ seq: number }[]>`
+    // A submitted decision is final until there's a correction path (project
+    // brief, Open question 1), so a write never replaces one. The share lock
+    // waits out a submit in progress, which locks the job row to update, so
+    // the insert's snapshot sees any batch it committed.
+    const inserted = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM public.job WHERE id = ${jobId}::int FOR SHARE`;
+      return tx.$queryRaw<{ seq: number }[]>`
       INSERT INTO public.student_match_decision
         (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
          search_details, roster_details, decided_by_id)
@@ -332,9 +362,15 @@ export class JobsService {
           THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
         ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
       END
+      AND NOT EXISTS (
+        SELECT 1 FROM public.student_match_batch_member m
+        WHERE m.job_id = ${jobId}::int AND m.correlation_id = ${correlationId}
+          AND m.seq = latest.seq
+      )
       ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
       RETURNING seq
     `;
+    });
     if (inserted.length === 0) {
       return { status: 'ERROR', code: 'decision_changed' };
     }
@@ -344,6 +380,172 @@ export class JobsService {
       include: { user: true },
     });
     return { status: 'SUCCESS', data: { decision: toStudentMatchDecision(row) } };
+  }
+
+  /**
+   * SPIKE: submits saved matches as a batch and starts the send run that
+   * delivers them. All or nothing: every student must still have the match
+   * the page loaded, unsubmitted. Submits are serialized per job, so no two
+   * batches ever hold the same student's decision.
+   */
+  async submitStudentMatchBatch(
+    input: {
+      job: Job;
+      userId: number;
+      students: PostStudentMatchBatchStudentDto[];
+    },
+    prisma: PrismaClient
+  ): Promise<
+    | { status: 'SUCCESS'; data: { batch: StudentMatchBatchForDisplay } }
+    | {
+        status: 'ERROR';
+        code: 'not_found' | 'decision_changed' | 'not_ready' | 'first_run_not_done';
+      }
+  > {
+    const { job, userId, students } = input;
+    // PostgreSQL text can't hold a NUL, so no student has one.
+    if (students.some(({ correlationId }) => correlationId.includes('\0'))) {
+      return { status: 'ERROR', code: 'not_found' };
+    }
+    const correlationIds = students.map(({ correlationId }) => correlationId);
+
+    const outcome = await prisma.$transaction(async (tx) => {
+      // Serializes submits, and decision writes, per job. The version check
+      // alone can't stop two overlapping submits of the same student, which
+      // both see the current version. Not FOR UPDATE, which would also block
+      // inserts that reference the job, such as ingestion's.
+      await tx.$queryRaw`SELECT 1 FROM public.job WHERE id = ${job.id}::int FOR NO KEY UPDATE`;
+
+      // The first run posts the students for review, and sends the ones IDRS
+      // resolved. A send run starts only once it has succeeded.
+      const firstRun = await tx.run.findFirst({
+        where: { jobId: job.id },
+        orderBy: { id: 'asc' },
+        select: { status: true },
+      });
+      if (firstRun?.status !== 'success') {
+        return { status: 'ERROR', code: 'first_run_not_done' } as const;
+      }
+
+      const latest = await tx.$queryRaw<
+        {
+          correlation_id: string;
+          seq: number | null;
+          kind: string | null;
+          submitted: boolean | null;
+        }[]
+      >`
+        SELECT i.correlation_id, d.seq, d.kind::text AS kind, d.submitted
+        FROM public.student_input_details i
+        LEFT JOIN LATERAL (
+          SELECT d.seq, d.kind, EXISTS (
+                   SELECT 1 FROM public.student_match_batch_member m
+                   WHERE m.job_id = d.job_id AND m.correlation_id = d.correlation_id
+                     AND m.seq = d.seq
+                 ) AS submitted
+          FROM public.student_match_decision d
+          WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
+          ORDER BY d.seq DESC
+          LIMIT 1
+        ) d ON true
+        WHERE i.job_id = ${job.id}::int AND i.correlation_id = ANY(${correlationIds}::text[])
+      `;
+      if (latest.length !== students.length) {
+        return { status: 'ERROR', code: 'not_found' } as const;
+      }
+      const byId = new Map(latest.map((row) => [row.correlation_id, row]));
+      if (students.some(({ correlationId, version }) => byId.get(correlationId)?.seq !== version)) {
+        return { status: 'ERROR', code: 'decision_changed' } as const;
+      }
+      // The version is current, but only an unsubmitted match is ready.
+      if (latest.some((row) => row.kind !== 'match' || row.submitted)) {
+        return { status: 'ERROR', code: 'not_ready' } as const;
+      }
+
+      const run = await tx.run.create({
+        data: { jobId: job.id, status: 'new' },
+        include: { job: { include: { schoolYear: true, files: true } } },
+      });
+      const batch = await tx.studentMatchBatch.create({
+        data: { jobId: job.id, runId: run.id, submittedById: userId },
+        include: { user: true },
+      });
+      await tx.studentMatchBatchMember.createMany({
+        data: students.map(({ correlationId, version }) => ({
+          batchId: batch.id,
+          jobId: job.id,
+          correlationId,
+          seq: version,
+        })),
+      });
+      return { status: 'SUCCESS', run, batch } as const;
+    });
+    if (outcome.status === 'ERROR') {
+      return outcome;
+    }
+
+    // Started after the commit, so the Executor's init call finds the run.
+    // A run that fails to start leaves its batch, as a failed run does: the
+    // retry is a new batch (PR 5).
+    const { run, batch } = outcome;
+    const memberCount = students.length;
+    try {
+      const started = await this.sendRun.startSendRun(run, { id: batch.id, memberCount });
+      if (started.ecsTaskArn || started.taskSize) {
+        await prisma.run.update({
+          where: { id: run.id },
+          data: { ecsTaskArn: started.ecsTaskArn, taskSize: started.taskSize },
+        });
+      }
+    } catch (e) {
+      this.logger.error(
+        `Failed to start send run ${run.id} for batch ${batch.id}: ${
+          e instanceof Error ? e.name : 'unknown'
+        }`
+      );
+      await prisma.run.update({
+        where: { id: run.id },
+        data: {
+          status: 'error',
+          runError: {
+            create: {
+              code: 'failed_to_start_executor',
+              payload: { stacktrace: 'stacktrace unavailable' },
+            },
+          },
+          runUpdate: { create: { action: 'done', status: 'failure' } },
+        },
+      });
+    }
+
+    return {
+      status: 'SUCCESS',
+      data: {
+        batch: {
+          id: batch.id,
+          runId: batch.runId,
+          submittedOn: batch.submittedOn,
+          submittedBy: batch.user,
+          memberCount,
+        },
+      },
+    };
+  }
+
+  /** SPIKE: a job's batches, oldest first, for display. */
+  async getStudentMatchBatches(jobId: Job['id']): Promise<StudentMatchBatchForDisplay[]> {
+    const batches = await this.prisma.studentMatchBatch.findMany({
+      where: { jobId },
+      orderBy: { id: 'asc' },
+      include: { user: true, _count: { select: { studentMatchBatchMember: true } } },
+    });
+    return batches.map(({ id, runId, submittedOn, user, _count }) => ({
+      id,
+      runId,
+      submittedOn,
+      submittedBy: user,
+      memberCount: _count.studentMatchBatchMember,
+    }));
   }
 
   /**
