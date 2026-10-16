@@ -63,7 +63,6 @@ import {
   Batch,
   Candidate,
   Decision,
-  isFinished,
   StudentStatus,
   useReviewSession,
 } from './reviewSession';
@@ -1487,7 +1486,7 @@ const BatchSummary = ({ batch, number }: { batch: Batch; number: number }) => {
         </Box>
         <Box flex="1" />
         <Box color={troubled ? 'pink.100' : undefined}>
-          {isFinished(batch) ? batchStatusLabel[batch.status] : 'Running'}
+          {batchStatusLabel[batch.status]}
         </Box>
       </HStack>
       {open && <BatchCard batch={batch} number={number} compact />}
