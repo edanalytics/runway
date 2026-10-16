@@ -70,5 +70,15 @@ IDRS_MATCH_RESULTS = JobArtifact(
     os.path.join(config.OUTPUT_DIR, "idrs_match_results.json"),
     False
 )
+ORIGINAL_STUDENT_ASSESSMENTS = JobArtifact(
+    "original_student_assessments",
+    os.path.join(config.ORIGINAL_DIR, "original_studentAssessments.jsonl"),
+    False
+)
+UNMATCHED_STUDENT_ASSESSMENTS = JobArtifact(
+    "unmatched_student_assessments",
+    os.path.join(config.UNMATCHED_DIR, "unmatched_studentAssessments.jsonl"),
+    False
+)
 
-ALL = [ROSTER, CROSS_YEAR_ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS, CANDIDATES, IDRS_MATCHES, IDRS_MATCH_RESULTS]
+ALL = [ROSTER, CROSS_YEAR_ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS, CANDIDATES, IDRS_MATCHES, IDRS_MATCH_RESULTS, ORIGINAL_STUDENT_ASSESSMENTS, UNMATCHED_STUDENT_ASSESSMENTS]
