@@ -10,6 +10,7 @@ import { StudentMatchResultsService } from './student-match-results.service';
 import { FileModule } from 'api/src/files/file.module';
 import { EventEmitterModule } from 'api/src/event-emitter/event-emitter.module';
 import { IdrsModule } from '../../idrs/idrs.module';
+import { EarthbeamModule } from '../earthbeam.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { IdrsModule } from '../../idrs/idrs.module';
     FileModule,
     EventEmitterModule,
     IdrsModule,
+    EarthbeamModule,
   ],
   providers: [
     EarthbeamApiService,

@@ -112,7 +112,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 2, toReview: 2, ready: 0, excluded: 0 },
+        counts: { total: 2, toReview: 2, ready: 0, excluded: 0, reprocessing: 0 },
         students: [
           {
             correlationId: 'corr-1',
@@ -210,7 +210,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
+        counts: { total: 0, toReview: 0, ready: 0, excluded: 0, reprocessing: 0 },
         students: [],
       });
     });
@@ -269,7 +269,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           },
           { correlationId: 'corr-3', status: 'to-review', decision: null },
         ]);
-        expect(res.body.counts).toEqual({ total: 3, toReview: 1, ready: 1, excluded: 1 });
+        expect(res.body.counts).toEqual({ total: 3, toReview: 1, ready: 1, excluded: 1, reprocessing: 0 });
       });
 
       // A suggestion pick's search is null: see the test above.
@@ -300,7 +300,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           decidedBy: expect.objectContaining({ id: userA.id }),
           decidedOn: expect.any(String),
         });
-        expect(res.body.counts).toEqual({ total: 2, toReview: 1, ready: 1, excluded: 0 });
+        expect(res.body.counts).toEqual({ total: 2, toReview: 1, ready: 1, excluded: 0, reprocessing: 0 });
       });
 
       it('shows no one as the decider once their user is deleted', async () => {
@@ -362,7 +362,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
-          counts: { total: 3, toReview: 2, ready: 0, excluded: 1 },
+          counts: { total: 3, toReview: 2, ready: 0, excluded: 1, reprocessing: 0 },
           students: null,
         });
       });
@@ -459,9 +459,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     /** The counts, as the job read and the list each report them. */
     const countsOf = async (jobId: number) =>
       (await readJob(jobId)).map(({ studentMatchCounts }) => {
-        const { total, toReview, ready, excluded } = studentMatchCounts;
+        const { total, toReview, ready, excluded, reprocessing } = studentMatchCounts;
         // Every student has exactly one status.
-        expect(toReview + ready + excluded).toBe(total);
+        expect(toReview + ready + excluded + reprocessing).toBe(total);
         return studentMatchCounts;
       });
 
@@ -479,7 +479,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       await decide(cookies, 'corr-excluded', { replacesVersion: null, kind: 'exclude' });
 
       expect(await countsOf(jobA.id)).toEqual(
-        Array(2).fill({ total: 4, toReview: 2, ready: 1, excluded: 1 })
+        Array(2).fill({ total: 4, toReview: 2, ready: 1, excluded: 1, reprocessing: 0 })
       );
     });
 
@@ -553,9 +553,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       };
 
       expect([countsIn(jobA.id), countsIn(jobB.id), countsIn(jobC.id)]).toEqual([
-        { total: 2, toReview: 1, ready: 0, excluded: 1 },
-        { total: 1, toReview: 1, ready: 0, excluded: 0 },
-        { total: 0, toReview: 0, ready: 0, excluded: 0 },
+        { total: 2, toReview: 1, ready: 0, excluded: 1, reprocessing: 0 },
+        { total: 1, toReview: 1, ready: 0, excluded: 0, reprocessing: 0 },
+        { total: 0, toReview: 0, ready: 0, excluded: 0, reprocessing: 0 },
       ]);
     });
 

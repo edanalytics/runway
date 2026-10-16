@@ -9,11 +9,13 @@ import { ExecutorLocalPythonService } from './executor/executor.local-python.ser
 import { ExecutorLocalDockerService } from './executor/executor.local-docker.service';
 import { FileModule } from '../files/file.module';
 import { FileService } from '../files/file.service';
+import { SendRunService } from './executor/send-run.service';
 
 @Module({
   imports: [EarthbeamApiAuthModule, FileModule],
   providers: [
     EarthbeamBundlesService,
+    SendRunService,
     {
       provide: EXECUTOR_SERVICE,
       inject: [AppConfigService, EarthbeamApiAuthService, FileService],
@@ -38,6 +40,6 @@ import { FileService } from '../files/file.service';
       },
     },
   ],
-  exports: [EarthbeamBundlesService, EXECUTOR_SERVICE],
+  exports: [EarthbeamBundlesService, EXECUTOR_SERVICE, SendRunService],
 })
 export class EarthbeamModule {}

@@ -32,6 +32,7 @@ import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
+import { SendRunService } from '../executor/send-run.service';
 
 @Injectable()
 export class EarthbeamApiService {
@@ -42,7 +43,8 @@ export class EarthbeamApiService {
     private readonly encryptionService: EncryptionService,
     private readonly fileService: FileService,
     private readonly configService: AppConfigService,
-    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
+    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService,
+    private readonly sendRunService: SendRunService
   ) {}
 
   async earthbeamInputForRun(runId: Run['id']) {
@@ -152,11 +154,14 @@ export class EarthbeamApiService {
 
     // The job's snapshot, not the partner's current setting
     const idMatchingMode = job.idMatchingMode;
+    // SPIKE: a send run delivers a batch, and neither matches against a
+    // roster nor calls IDRS (send-run.service.ts).
+    const sendRun = await this.sendRunService.sendRunPayload(runId, this.prisma);
     // Pure fuzzy does no roster matching at all, so neither roster source is
     // handed over. id_based_fuzzy_background still needs them.
-    const usesIdBasedMatching = idMatchingMode !== 'fuzzy';
+    const usesIdBasedMatching = idMatchingMode !== 'fuzzy' && !sendRun;
     // Share identity service only if the executor needs it
-    const needsIdentityService = idMatchingMode !== 'id_based';
+    const needsIdentityService = idMatchingMode !== 'id_based' && !sendRun;
 
     const payload: EarthbeamApiJobResponseDto = {
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
@@ -190,6 +195,7 @@ export class EarthbeamApiService {
       },
       crossYearMatchAvailable,
       idMatchingMode,
+      ...(sendRun ? { runType: 'send' as const, send: sendRun } : {}),
       sendToOds: job.sendToOds,
       // When cross-year matching is available, the executor pulls the roster
       // from EDU via appUrls.roster, so the S3 file path would be a dangling

@@ -34,15 +34,18 @@ import {
   NOTE_CHAR_LIMIT,
   PostJobDto,
   PostJobResponseDto,
+  PostStudentMatchBatchDto,
   PostStudentMatchDecisionDto,
   PutJobResolveDto,
   StudentSearchDetailsDto,
   toGetJobDto,
   toGetOutputFileDto,
   toGetRunUpdateDto,
+  toGetStudentMatchBatchesDto,
   toGetStudentMatchResultsDto,
   toGetStudentSearchResultsDto,
   toJobErrorWrapperDto,
+  toPostStudentMatchBatchResponseDto,
   toPostStudentMatchDecisionResponseDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
@@ -276,7 +279,7 @@ export class JobsController {
       // responses: a separate cleanup.
       return toGetJobDto({
         ...updatedJob,
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
+        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0, reprocessing: 0 },
       });
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
@@ -484,6 +487,95 @@ export class JobsController {
         throw new InternalServerErrorException(`Unhandled search outcome: ${unhandled}`);
       }
     }
+  }
+
+  /** SPIKE: submits saved matches as a batch, and starts its send run. */
+  @Post(':jobId/student-match-batches')
+  @AllowMetatenant('job.metatenant.match-results.submit')
+  @Authorize('job.match-results.submit')
+  async submitStudentMatchBatch(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Body() body: PostStudentMatchBatchDto,
+    @ReqSession() session: IPassportSession,
+    @Req() req: Request
+  ) {
+    if (!req.job) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    // Only fuzzy mode's review is actionable, as for decisions.
+    if (req.job.idMatchingMode !== 'fuzzy') {
+      throw new ForbiddenException('Forbidden');
+    }
+
+    let result: Awaited<ReturnType<JobsService['submitStudentMatchBatch']>>;
+    try {
+      result = await this.jobService.submitStudentMatchBatch(
+        { job: req.job, userId: session.user.id, students: body.students },
+        this.prisma
+      );
+    } catch (err) {
+      // Ids and codes only: a database error's message can quote row values.
+      const sqlstate =
+        err instanceof Prisma.PrismaClientKnownRequestError && typeof err.meta?.code === 'string'
+          ? ` sqlstate=${err.meta.code}`
+          : '';
+      this.logger.error(
+        `student match batch: jobId=${jobId} outcome=FAILED cause=${
+          err instanceof Error ? err.name : 'unknown'
+        }${sqlstate}`
+      );
+      throw new InternalServerErrorException('Failed to submit the batch');
+    }
+
+    if (result.status === 'ERROR') {
+      // No student data, not even which students: the page refetches.
+      const { code } = result;
+      switch (code) {
+        case 'not_found':
+          throw new NotFoundException({
+            statusCode: 404,
+            code,
+            message: 'A student isn’t in the job.',
+          });
+        case 'decision_changed':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student’s decision has changed since the page loaded.',
+          });
+        case 'not_ready':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student isn’t ready to submit.',
+          });
+        case 'first_run_not_done':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'The job’s first run hasn’t finished successfully.',
+          });
+        default: {
+          const unhandled: never = code;
+          throw new InternalServerErrorException(`Unhandled batch outcome: ${unhandled}`);
+        }
+      }
+    }
+    this.logger.log(
+      `student match batch: jobId=${jobId} userId=${session.user.id} outcome=SUCCESS batchId=${result.data.batch.id} runId=${result.data.batch.runId} students=${result.data.batch.memberCount}`
+    );
+    return toPostStudentMatchBatchResponseDto(result.data);
+  }
+
+  /** SPIKE: a job's batches, for display. */
+  @Get(':jobId/student-match-batches')
+  @AllowMetatenant('job.metatenant.match-results.read')
+  @Authorize('job.match-results.read')
+  async getStudentMatchBatches(@Param('jobId', ParseIntPipe) jobId: number) {
+    return toGetStudentMatchBatchesDto({
+      batches: await this.jobService.getStudentMatchBatches(jobId),
+    });
   }
 
   @Get(':jobId/notes')
