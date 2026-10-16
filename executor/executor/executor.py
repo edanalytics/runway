@@ -131,13 +131,12 @@ class JobExecutor:
             if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
                 # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
                 self.orchestrate_earthmover()
+                self.report_unmatched_students()
             if self.id_matching_mode == 'fuzzy':
                 # when the matching_mode is fuzzy, we run earthmover with a separate wrapper in the match_candidates method
                 self.run_fuzzy_matching()
             
             self.lightbeam_send()
-
-            self.report_unmatched_students()
             self.upload_output()
             self.compile_summary()
 
@@ -196,7 +195,7 @@ class JobExecutor:
             self.send: dict = job.get('send', {})
             self.send_to_ods = job.get("sendToOds", True)
             self.cross_year_match_available = job.get("crossYearMatchAvailable", False)
-            if self.cross_year_match_available:
+            if self.cross_year_match_available and self.id_matching_mode != "fuzzy":
                 self.cross_year_roster_url = job["appUrls"]["roster"]
 
             self.assessment_project = os.path.join(
@@ -637,8 +636,8 @@ class JobExecutor:
         # Archive the active output dir as "pre-candidates". Create a new, empty output dir
         pre_candidates_output_dir = os.path.abspath(config.PRE_CANDIDATES_DIR)
         shutil.rmtree(pre_candidates_output_dir, ignore_errors=True)
-        os.rename(self.output_dir, pre_candidates_output_dir)
-        os.mkdir(self.output_dir)
+        # os.rename(self.output_dir, pre_candidates_output_dir)
+        # os.mkdir(self.output_dir)
 
         # explicitly set our input file to the original input
         os.environ["INPUT_FILE"] = self.original_input_path
@@ -701,10 +700,11 @@ class JobExecutor:
         unsubstituted = []
         with open(student_assessments_path, 'r', encoding='utf-8') as file:
             for line in file:
-                student_assessment = (json.loads(line))
-                student_unique_id = student_assessment['studentReference']['studentUniqueId']
-                if student_unique_id in lookup:
-                    student_assessment['studentReference']['studentUniqueId'] = lookup[student_unique_id]
+                student_assessment = json.loads(line)
+                correlation_id: str = student_assessment['studentReference']['studentUniqueId']
+                correlation_id = correlation_id.split('CANDIDATE_')[1]
+                if correlation_id in lookup:
+                    student_assessment['studentReference']['studentUniqueId'] = lookup[correlation_id]
                     substituted.append(student_assessment)
                 else:
                     unsubstituted.append(student_assessment)
@@ -748,11 +748,12 @@ class JobExecutor:
         # Download our unmatched student assessments from our original run
         source_path = artifact.UNMATCHED_STUDENT_ASSESSMENTS.path
         os.makedirs(config.UNMATCHED_DIR, exist_ok=True)
+        os.mkdir(config.OUTPUT_DIR)
         self.s3.download_file(self.app_bucket, f"{self.s3_out_path}/{os.path.basename(source_path)}", source_path)
 
         # Perform substitution
         substituted, unsubstituted = self.perform_substitution(source_path, verified_matches)
-
+        # self.logger.info(substituted, unsubstituted)
         # Write files to relevant dirs
         with open(output_student_assessment_path, 'w', encoding='utf-8') as file:
             for record in substituted:
