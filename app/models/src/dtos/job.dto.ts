@@ -245,7 +245,10 @@ export const getResourceSummaries = (
     })
   );
 
-/** The resources with failed records in a run's summary that the bundle reports on. */
+/**
+ * The resources in a run's summary that the bundle reports on and that failed
+ * records or sent none at all.
+ */
 export const getResourceErrors = (
   summary: GetRunDto['summary'] | undefined,
   reportResources: string[] | null | undefined
@@ -253,7 +256,10 @@ export const getResourceErrors = (
   const reportableResources = reportResources ?? [];
 
   return Object.entries(summary ? getResourceSummaries(summary) : {})
-    .filter(([resource, { failed }]) => failed > 0 && reportableResources.includes(resource))
+    .filter(
+      ([resource, { failed, success }]) =>
+        (failed > 0 || success === 0) && reportableResources.includes(resource)
+    )
     .map(([resource, { skipped, failed, success }]) => ({
       resource,
       failed,
