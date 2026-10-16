@@ -43,8 +43,12 @@ import { syntheticStudents } from './syntheticStudents';
 export type Candidate = {
   studentUniqueId: string;
   rosterDetails: StudentRosterDetailsJson;
-  /** IDRS's score. */
-  score: number;
+  /**
+   * IDRS's score. Null for a saved match to a search hit: the server doesn't
+   * store a hit's score, since it measures the hit against the search terms,
+   * not the file.
+   */
+  score: number | null;
 } & (
   | { source: 'suggestion'; resultId: string; ordinal: number }
   | { source: 'search'; searchDetails: StudentSearchDetailsDto }
@@ -557,14 +561,14 @@ const fromServer = (
       : 'a deleted user';
   const stamp = { decidedAt: new Date(saved.decidedOn).getTime(), decidedBy };
   if (saved.kind === 'exclude') return { kind: 'not-in-roster', ...stamp };
-  if (saved.searchHit) {
-    const { studentUniqueId, rosterDetails, score, searchDetails } = saved.searchHit;
+  if (saved.search) {
+    const { rosterDetails, searchDetails } = saved.search;
     return {
       kind: 'match',
       candidate: {
-        studentUniqueId,
+        studentUniqueId: saved.studentUniqueId as string,
         rosterDetails,
-        score,
+        score: null,
         source: 'search',
         // Stored as search sent it, so it's search details.
         searchDetails: searchDetails as StudentSearchDetailsDto,
@@ -601,12 +605,8 @@ const decisionBody = (
     ? { kind: 'match', resultId: candidate.resultId, ordinal: candidate.ordinal }
     : {
         kind: 'match',
-        searchHit: {
-          searchDetails: candidate.searchDetails,
-          studentUniqueId: candidate.studentUniqueId,
-          score: candidate.score,
-          rosterDetails: candidate.rosterDetails,
-        },
+        studentUniqueId: candidate.studentUniqueId,
+        search: { searchDetails: candidate.searchDetails, rosterDetails: candidate.rosterDetails },
       };
 };
 
