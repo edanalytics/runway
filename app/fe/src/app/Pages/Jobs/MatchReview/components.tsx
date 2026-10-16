@@ -468,9 +468,10 @@ export const BatchCard = ({
       {!compact && (
         <HStack justifyContent="space-between" gap="300" flexWrap="wrap">
           <Box fontWeight="600">
-            Batch {number} · {batch.items.length}{' '}
-            {batch.items.length === 1 ? 'student' : 'students'} · submitted{' '}
+            Batch {number} · {batch.memberCount}{' '}
+            {batch.memberCount === 1 ? 'student' : 'students'} · submitted{' '}
             {time(batch.submittedAt)}
+            {batch.submittedBy !== 'you' && ` by ${batch.submittedBy}`}
           </Box>
           <Box
             fontSize="0.9rem"
@@ -535,6 +536,13 @@ export const BatchCard = ({
               <Box opacity="0.8">→ {item.decision.candidate.studentUniqueId}</Box>
             </HStack>
           ))}
+          {batch.items.length < batch.memberCount && (
+            // SPIKE: the batch read returns a count, not its members.
+            <Box opacity="0.7">
+              {batch.memberCount - batch.items.length} more not listed: this page only knows the
+              students it submitted.
+            </Box>
+          )}
         </VStack>
       )}
     </Box>
@@ -663,19 +671,11 @@ export const useStartState = prototypeSetting<'start-screen' | 'selected'>(
 );
 
 /**
- * Simulations for how processing can go: a run that fails outright and a
- * submission that meets a conflicting change. Another reviewer's match is
- * real now: try it by deciding as a second user.
+ * Layout settings for the review designs. Everything else is on the real
+ * API: try another reviewer's match or a conflicting submit by deciding as a
+ * second user.
  */
 export const PrototypeControls = () => {
-  const {
-    failNextRun,
-    setFailNextRun,
-    conflictNextSubmit,
-    setConflictNextSubmit,
-    simulateLarge,
-    setSimulateLarge,
-  } = useReviewSession();
   // Folded by default, so they don't sit between a view and its controls.
   const [open, setOpen] = useState(false);
   const [orientation, setOrientation] = useOrientation();
@@ -697,27 +697,6 @@ export const PrototypeControls = () => {
           <HStack gap="300" flexWrap="wrap">
             <Checkbox
               size="sm"
-              isChecked={failNextRun}
-              onChange={(e) => setFailNextRun(e.target.checked)}
-            >
-              Next batch's run fails outright
-            </Checkbox>
-            <Checkbox
-              size="sm"
-              isChecked={conflictNextSubmit}
-              onChange={(e) => setConflictNextSubmit(e.target.checked)}
-            >
-              Next submission finds a conflicting change
-            </Checkbox>
-            <Checkbox
-              size="sm"
-              isChecked={simulateLarge}
-              onChange={(e) => setSimulateLarge(e.target.checked)}
-            >
-              Simulate a large file (240 more students)
-            </Checkbox>
-            <Checkbox
-              size="sm"
               isChecked={orientation === 'rows'}
               onChange={(e) => setOrientation(e.target.checked ? 'rows' : 'columns')}
             >
@@ -732,8 +711,8 @@ export const PrototypeControls = () => {
             </Checkbox>
           </HStack>
           <Box>
-            Decisions and searches are real: decisions save to the server, and searches go to IDRS.
-            Submitting is simulated, and kept in this browser.
+            Decisions, searches and submitting are real: submitting creates a batch and its send
+            run. Retrying a failed batch isn't built yet.
           </Box>
           <ResetPrototype />
         </>
@@ -786,7 +765,7 @@ export const ResetPrototype = () => {
   const { reset } = useReviewSession();
   return (
     <QuietButton onClick={reset} fontSize="0.8rem" opacity="0.7">
-      Reset prototype (clears saved decisions)
+      Reset prototype (clears unsubmitted decisions)
     </QuietButton>
   );
 };

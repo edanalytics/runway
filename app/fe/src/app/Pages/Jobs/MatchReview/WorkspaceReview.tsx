@@ -1482,7 +1482,7 @@ const BatchSummary = ({ batch, number }: { batch: Batch; number: number }) => {
         <BatchIcon status={batch.status} />
         <Box fontWeight="600">Batch {number}</Box>
         <Box opacity="0.85">
-          {batch.items.length} {batch.items.length === 1 ? 'student' : 'students'} · submitted{' '}
+          {batch.memberCount} {batch.memberCount === 1 ? 'student' : 'students'} · submitted{' '}
           {time(batch.submittedAt)}
         </Box>
         <Box flex="1" />
@@ -2051,17 +2051,19 @@ const DecisionState = ({
     }. Not submitted yet.`;
   } else if (status === 'excluded') {
     body = `Excluded from this job${by}. Its records won't be reprocessed.`;
-  } else if (
-    batch &&
-    (status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed')
-  ) {
-    const chosen = batch.items.find((it) => it.correlationId === correlationId)?.decision.candidate
-      .studentUniqueId;
+  } else if (status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed') {
+    // SPIKE: the batch is known only if this page submitted it, since the
+    // batch read doesn't list members; the match is the student's decision.
+    const chosen =
+      batch?.items.find((it) => it.correlationId === correlationId)?.decision.candidate
+        .studentUniqueId ??
+      (decision?.kind === 'match' ? decision.candidate.studentUniqueId : undefined);
     body = (
       <VStack alignItems="flex-start" gap="100">
         <Box>
-          Submitted in batch {batchNumber}
-          {chosen ? ` with ${chosen}` : ''} · batch {batch.status}.
+          {batch ? `Submitted in batch ${batchNumber}` : 'Submitted'}
+          {chosen ? ` with ${chosen}` : ''}
+          {batch ? ` · batch ${batch.status}` : ' · reprocessing'}.
         </Box>
         {status === 'run-failed' ? (
           <Box fontSize="0.85rem" opacity="0.85">
@@ -2763,11 +2765,13 @@ const SubmitReview = ({
           <QuietButton onClick={onClose}>Keep reviewing</QuietButton>
           <PrimaryButton
             isDisabled={sent || !ready.length}
-            onClick={() => {
+            onClick={async () => {
               setSent(true);
-              const result = submit(ready.map((g) => g.correlationId));
+              const result = await submit(ready.map((g) => g.correlationId));
               if (result.ok) onClose();
-              else setConflict(true);
+              else if (result.reason === 'conflict') setConflict(true);
+              // Any other failure was toasted; let the reviewer try again.
+              else setSent(false);
             }}
           >
             Submit batch
