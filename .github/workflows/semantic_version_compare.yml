@@ -21,6 +21,11 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      # 0-waf.yml is deployed as a separate stack rather than through 1-main.yml.
+      # Its TemplateVersion tracks our WAF deployments; BaseVersion remains aligned
+      # with the source template in the AWS standard CloudFormation repository.
+      # All other child templates are deployed through 1-main.yml, so they share
+      # its TemplateVersion instead of defining versions of their own.
       - name: Get New Versions
         id: get_new_versions
         run: |
@@ -57,7 +62,7 @@ jobs:
             new="$2"
             file="$3"
             if [ "$(printf '%s\n' "$current" "$new" | sort -V | tail -n1)" = "$current" ]; then
-              echo "Error: Please adjust version on new branch. Update TemplateVersion in $file. It must be greater than version on base branch. Base branch version is $current and incoming branch version is $new"
+              echo "Error: Update TemplateVersion in $file. It must be greater than version on base branch. Base branch version is $current and incoming branch version is $new. Please adjust version on new branch."
               failed=1
             fi
           }
