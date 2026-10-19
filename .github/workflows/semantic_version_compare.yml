@@ -24,8 +24,8 @@ jobs:
       - name: Get New Versions
         id: get_new_versions
         run: |
-          echo "waf_version=$(awk -F"'" '/^  TemplateVersion:/{found=1} found && /Value:/{print $2; exit}' ./cloudformation/templates/0-waf.yml)" >> "$GITHUB_OUTPUT"
-          echo "main_version=$(awk -F"'" '/^  TemplateVersion:/{found=1} found && /Value:/{print $2; exit}' ./cloudformation/templates/1-main.yml)" >> "$GITHUB_OUTPUT"
+          echo "waf_version=$(grep -A 2 -m 1 "^  TemplateVersion:" ./cloudformation/templates/0-waf.yml | grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "main_version=$(grep -A 2 -m 1 "^  TemplateVersion:" ./cloudformation/templates/1-main.yml | grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
           git diff --quiet HEAD^1 HEAD -- cloudformation/templates/0-waf.yml && waf_changed=false || waf_changed=true
           main_changed_files=$(git diff --name-only HEAD^1 HEAD -- 'cloudformation/templates/*.yml' ':(exclude)cloudformation/templates/0-waf.yml' | tr '\n' ' ')
           [ -z "$main_changed_files" ] && main_changed=false || main_changed=true
@@ -42,31 +42,37 @@ jobs:
       - name: Get Current Versions
         id: get_current_versions
         run: |
-          waf_version=$(awk -F"'" '/^  TemplateVersion:/{found=1} found && /Value:/{print $2; exit}' ./cloudformation/templates/0-waf.yml)
+          waf_version=$(grep -A 2 -m 1 "^  TemplateVersion:" ./cloudformation/templates/0-waf.yml | grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" | awk -F"'" '{print $2}')
           echo "waf_version=${waf_version:-0.0.0}" >> "$GITHUB_OUTPUT"
-          echo "main_version=$(awk -F"'" '/^  TemplateVersion:/{found=1} found && /Value:/{print $2; exit}' ./cloudformation/templates/1-main.yml)" >> "$GITHUB_OUTPUT"
+          echo "main_version=$(grep -A 2 -m 1 "^  TemplateVersion:" ./cloudformation/templates/1-main.yml | grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
 
       - name: Compare Version Numbers
         env:
           MAIN_CHANGED_FILES: ${{ steps.get_new_versions.outputs.main_changed_files }}
         run: |
+          failed=0
+
           compare_version() {
             current="$1"
             new="$2"
-            instruction="$3"
+            file="$3"
             if [ "$(printf '%s\n' "$current" "$new" | sort -V | tail -n1)" = "$current" ]; then
-              echo "Error: $instruction Base: $current; PR: $new."
-              exit 1
+              echo "Error: Please adjust version on new branch. Update TemplateVersion in $file. It must be greater than version on base branch. Base branch version is $current and incoming branch version is $new"
+              failed=1
             fi
           }
 
           if [ "${{ steps.get_new_versions.outputs.waf_changed }}" = "true" ]; then
-            compare_version "${{ steps.get_current_versions.outputs.waf_version }}" "${{ steps.get_new_versions.outputs.waf_version }}" "0-waf.yml changed; increase TemplateVersion."
+            compare_version "${{ steps.get_current_versions.outputs.waf_version }}" "${{ steps.get_new_versions.outputs.waf_version }}" "cloudformation/templates/0-waf.yml"
           fi
 
           if [ "${{ steps.get_new_versions.outputs.main_changed }}" = "true" ]; then
             echo "Changed files: $MAIN_CHANGED_FILES"
-            compare_version "${{ steps.get_current_versions.outputs.main_version }}" "${{ steps.get_new_versions.outputs.main_version }}" "A template used by 1-main.yml changed; increase TemplateVersion in 1-main.yml."
+            compare_version "${{ steps.get_current_versions.outputs.main_version }}" "${{ steps.get_new_versions.outputs.main_version }}" "cloudformation/templates/1-main.yml"
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            exit 1
           fi
 
           echo "Version check passed"
