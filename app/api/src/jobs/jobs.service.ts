@@ -307,11 +307,52 @@ export class JobsService {
       return { status: 'ERROR', code: 'not_found' };
     }
 
-    const columns = await this.decisionColumns(decision, student.studentMatchResult, prisma);
-    if (columns.status === 'ERROR') {
-      return columns;
+    // What the row stores beside its kind. Only a match has an answer and a
+    // basis. Anything else sent with a decision is ignored: a basis sent with
+    // an exclude or a clear, or a suggestion sent beside a search.
+    let columns: DecisionColumns;
+    if (restsOnSearch(decision)) {
+      // A match to the reviewer's search: the student they found, with the
+      // details they searched with and the student as they saw them.
+      columns = {
+        ...noAnswerOrBasis,
+        studentUniqueId: decision.studentUniqueId,
+        // Exactly what the search route sends IDRS for these details.
+        searchDetails: JSON.stringify(pickStudentSearchDetails(decision.search.searchDetails)),
+        rosterDetails: JSON.stringify(decision.search.rosterDetails),
+      };
+    } else if (picksSuggestion(decision)) {
+      // A match to a suggestion: the suggestion's student, never the client's.
+      const results = student.studentMatchResult;
+      if (!results.some(({ id }) => id.toString() === decision.resultId)) {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
+      // Reviewers pick from the latest result. A pick from an earlier one
+      // means the page predates it. Checked before the insert rather than in
+      // it: a result landing in between is harmless, since new results never
+      // invalidate a decision already made.
+      const [latest] = results;
+      if (latest.id.toString() !== decision.resultId) {
+        return { status: 'ERROR', code: 'results_changed' };
+      }
+      // Suggestions never change, so this can't go stale before the insert.
+      const suggestion = await prisma.studentMatchSuggestion.findUnique({
+        where: { resultId_ordinal: { resultId: latest.id, ordinal: decision.ordinal } },
+        select: { studentUniqueId: true },
+      });
+      if (!suggestion) {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
+      columns = {
+        ...noAnswerOrBasis,
+        studentUniqueId: suggestion.studentUniqueId,
+        resultId: latest.id,
+        ordinal: decision.ordinal,
+      };
+    } else {
+      // An exclude or a clear.
+      columns = noAnswerOrBasis;
     }
-    const { studentUniqueId, resultId, ordinal, searchDetails, rosterDetails } = columns.data;
 
     // Writes the row after the student's latest, if the caller saw what's
     // current: that latest row for a version, or no decision (no rows, or a
@@ -323,9 +364,9 @@ export class JobsService {
         (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
          search_details, roster_details, decided_by_id)
       SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
-             ${kind}::public.student_match_decision_kind, ${studentUniqueId},
-             ${resultId}::bigint, ${ordinal}::int,
-             ${searchDetails}::jsonb, ${rosterDetails}::jsonb,
+             ${kind}::public.student_match_decision_kind, ${columns.studentUniqueId},
+             ${columns.resultId}::bigint, ${columns.ordinal}::int,
+             ${columns.searchDetails}::jsonb, ${columns.rosterDetails}::jsonb,
              ${userId}::int
       FROM (SELECT 1) AS one
       LEFT JOIN LATERAL (
@@ -351,74 +392,6 @@ export class JobsService {
       include: { user: true },
     });
     return { status: 'SUCCESS', data: { decision: toStudentMatchDecision(row) } };
-  }
-
-  /**
-   * The columns a decision stores beside its kind. Only a match has an answer
-   * and a basis. Anything else sent with a decision is ignored: a basis sent
-   * with an exclude or a clear, or a suggestion sent beside a search.
-   *
-   * `results` are the student's, latest first.
-   */
-  private async decisionColumns(
-    decision: PostStudentMatchDecisionDto,
-    results: { id: bigint }[],
-    prisma: PrismaClient
-  ): Promise<
-    | { status: 'SUCCESS'; data: DecisionColumns }
-    | { status: 'ERROR'; code: 'results_changed' | 'invalid_target' }
-  > {
-    // A match to the reviewer's search: the student they found, with the
-    // details they searched with and the student as they saw them.
-    if (restsOnSearch(decision)) {
-      const { studentUniqueId, search } = decision;
-      return {
-        status: 'SUCCESS',
-        data: {
-          ...noAnswerOrBasis,
-          studentUniqueId,
-          // Exactly what the search route sends IDRS for these details.
-          searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
-          rosterDetails: JSON.stringify(search.rosterDetails),
-        },
-      };
-    }
-
-    // A match to a suggestion: the suggestion's student, never the client's.
-    if (picksSuggestion(decision)) {
-      const { resultId, ordinal } = decision;
-      if (!results.some(({ id }) => id.toString() === resultId)) {
-        return { status: 'ERROR', code: 'invalid_target' };
-      }
-      // Reviewers pick from the latest result. A pick from an earlier one
-      // means the page predates it. Checked before the insert rather than in
-      // it: a result landing in between is harmless, since new results never
-      // invalidate a decision already made.
-      const [latest] = results;
-      if (latest.id.toString() !== resultId) {
-        return { status: 'ERROR', code: 'results_changed' };
-      }
-      // Suggestions never change, so this can't go stale before the insert.
-      const suggestion = await prisma.studentMatchSuggestion.findUnique({
-        where: { resultId_ordinal: { resultId: latest.id, ordinal } },
-        select: { studentUniqueId: true },
-      });
-      if (!suggestion) {
-        return { status: 'ERROR', code: 'invalid_target' };
-      }
-      return {
-        status: 'SUCCESS',
-        data: {
-          ...noAnswerOrBasis,
-          studentUniqueId: suggestion.studentUniqueId,
-          resultId: latest.id,
-          ordinal,
-        },
-      };
-    }
-
-    // An exclude or a clear.
-    return { status: 'SUCCESS', data: noAnswerOrBasis };
   }
 
   /**
