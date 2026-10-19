@@ -109,6 +109,9 @@ export class StudentSearchDetailsDto implements StudentInputDetailsJson {
  * Only IDRS's own fields. Validation keeps unknown keys, and IDRS rejects
  * them, so whatever goes to IDRS, or is stored as what was searched, is built
  * from this.
+ *
+ * A global `ValidationPipe` with `whitelist: true` would make this unnecessary,
+ * but would change every request DTO in the app, each needing to be checked.
  */
 export const pickStudentSearchDetails = ({
   first_name,
