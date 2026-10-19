@@ -440,6 +440,16 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       });
       expect(await rowsOf()).toEqual([]);
     });
+
+    // The page predates the latest result, so refetching is the fix,
+    // whatever it picked from the earlier one.
+    it('reports an earlier result as stale before checking its ordinal', async () => {
+      const res = await decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 7 });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('results_changed');
+      expect(await rowsOf()).toEqual([]);
+    });
   });
 
   it('accepts a write replacing a match made before a later run searched again', async () => {

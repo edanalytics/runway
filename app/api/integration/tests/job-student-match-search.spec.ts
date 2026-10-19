@@ -452,6 +452,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     const fetchSpy = stubIdrs(
       found([
         { ...idrsMatch('SUID-PLUGH', [2025]), first_name: 'Hortensia', last_name: 'Frobnitz' },
+        // Outside the job's year, so found but not kept.
+        idrsMatch('SUID-XYZZY-2024', [2024]),
       ])
     );
 
@@ -474,7 +476,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     expect(lines).toEqual([
       expect.stringMatching(
         new RegExp(
-          `^student match search: jobId=${job.id} partnerId=${tenantA.partnerId} userId=${userA.id} outcome=SUCCESS `
+          `^student match search: jobId=${job.id} partnerId=${tenantA.partnerId} userId=${userA.id} outcome=SUCCESS found=2 kept=1 durationMs=`
         )
       ),
       expect.stringMatching(
@@ -491,6 +493,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       '987654',
       'SID-XYZZY',
       'SUID-PLUGH',
+      'SUID-XYZZY-2024',
       'Hortensia',
       'Frobnitz',
       'corr-1',
