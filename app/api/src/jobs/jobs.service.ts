@@ -85,23 +85,43 @@ const toStudentMatchDecision = ({
   };
 };
 
-/**
- * What a decision row stores beside its kind: a match's answer, the student
- * unique id, and its basis, either a suggestion or a search. An exclude or a
- * clear stores none of them.
- */
-type DecisionColumns = {
-  studentUniqueId: string | null;
-  resultId: bigint | null;
-  ordinal: number | null;
+/** An exclude or a clear: nothing beside its kind. */
+type NoAnswerColumns = {
+  studentUniqueId: null;
+  resultId: null;
+  ordinal: null;
+  searchDetails: null;
+  rosterDetails: null;
+};
+
+/** A match to a suggestion: its answer, and the suggestion it picked. */
+type SuggestionMatchColumns = {
+  studentUniqueId: string;
+  resultId: bigint;
+  ordinal: number;
+  searchDetails: null;
+  rosterDetails: null;
+};
+
+/** A match to a search: its answer, and the search. */
+type SearchMatchColumns = {
+  studentUniqueId: string;
+  resultId: null;
+  ordinal: null;
   // JSON text, for the insert's ::jsonb casts. Prisma would bind an object as
   // JSON itself, but an array as a PostgreSQL array, so text doesn't depend on
   // how it binds a value.
-  searchDetails: string | null;
-  rosterDetails: string | null;
+  searchDetails: string;
+  rosterDetails: string;
 };
 
-const noAnswerOrBasis: DecisionColumns = {
+/**
+ * What a decision row stores beside its kind: a match's answer, the student
+ * unique id, and exactly one basis. The table's check enforces the same sets.
+ */
+type DecisionColumns = NoAnswerColumns | SuggestionMatchColumns | SearchMatchColumns;
+
+const noAnswerOrBasis: NoAnswerColumns = {
   studentUniqueId: null,
   resultId: null,
   ordinal: null,
