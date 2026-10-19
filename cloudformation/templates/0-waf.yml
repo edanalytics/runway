@@ -968,8 +968,11 @@ Resources:
 
 Outputs:
   BaseVersion:
-    Description: The version of the cloudformation template
-    Value: '1.0.3'
+    Description: The version of the source template in the AWS standard CloudFormation repository
+    Value: '1.0.2'
+  TemplateVersion:
+    Description: The version of this customized CloudFormation template
+    Value: '1.0.0'
   RegionalWebAclArn: 
     Value: !GetAtt RegionalWebAcl.Arn
     Description: ARN of the Web ACL used to create rules to inspect web requests. 

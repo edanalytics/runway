@@ -24,8 +24,8 @@ jobs:
       - name: Get New Versions
         id: get_new_versions
         run: |
-          echo "waf_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/0-waf.yml | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "main_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "waf_version=$(awk -F"'" '/^  TemplateVersion:/{found=1} found && /Value:/{print $2; exit}' ./cloudformation/templates/0-waf.yml)" >> "$GITHUB_OUTPUT"
+          echo "main_version=$(awk -F"'" '/^  TemplateVersion:/{found=1} found && /Value:/{print $2; exit}' ./cloudformation/templates/1-main.yml)" >> "$GITHUB_OUTPUT"
           git diff --quiet HEAD^1 HEAD -- cloudformation/templates/0-waf.yml && waf_changed=false || waf_changed=true
           main_changed_files=$(git diff --name-only HEAD^1 HEAD -- 'cloudformation/templates/*.yml' ':(exclude)cloudformation/templates/0-waf.yml' | tr '\n' ' ')
           [ -z "$main_changed_files" ] && main_changed=false || main_changed=true
@@ -42,8 +42,9 @@ jobs:
       - name: Get Current Versions
         id: get_current_versions
         run: |
-          echo "waf_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/0-waf.yml | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "main_version=$(grep -m 1 "Value: '[0-9]*\.[0-9]*\.[0-9]*'" ./cloudformation/templates/1-main.yml | awk -F"'" '{print $2}')" >> "$GITHUB_OUTPUT"
+          waf_version=$(awk -F"'" '/^  TemplateVersion:/{found=1} found && /Value:/{print $2; exit}' ./cloudformation/templates/0-waf.yml)
+          echo "waf_version=${waf_version:-0.0.0}" >> "$GITHUB_OUTPUT"
+          echo "main_version=$(awk -F"'" '/^  TemplateVersion:/{found=1} found && /Value:/{print $2; exit}' ./cloudformation/templates/1-main.yml)" >> "$GITHUB_OUTPUT"
 
       - name: Compare Version Numbers
         env:
@@ -60,7 +61,7 @@ jobs:
           }
 
           if [ "${{ steps.get_new_versions.outputs.waf_changed }}" = "true" ]; then
-            compare_version "${{ steps.get_current_versions.outputs.waf_version }}" "${{ steps.get_new_versions.outputs.waf_version }}" "0-waf.yml changed; increase BaseVersion."
+            compare_version "${{ steps.get_current_versions.outputs.waf_version }}" "${{ steps.get_new_versions.outputs.waf_version }}" "0-waf.yml changed; increase TemplateVersion."
           fi
 
           if [ "${{ steps.get_new_versions.outputs.main_changed }}" = "true" ]; then
