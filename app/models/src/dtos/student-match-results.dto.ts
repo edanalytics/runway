@@ -162,9 +162,17 @@ const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'excl
 /** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
-/** Whether a decision is a match resting on the reviewer's search, rather than on a suggestion. */
-export const restsOnSearch = (o: PostStudentMatchDecisionDto) =>
-  o.kind === 'match' && o.search != null;
+/**
+ * Whether a decision is a match resting on the reviewer's search, rather than
+ * on a suggestion. Validation requires `search` and `studentUniqueId` exactly
+ * when this holds.
+ */
+export const restsOnSearch = (
+  o: PostStudentMatchDecisionDto
+): o is PostStudentMatchDecisionDto & {
+  search: PostStudentMatchSearchDto;
+  studentUniqueId: string;
+} => o.kind === 'match' && o.search != null;
 
 /** Whether a decision is a match resting on a suggestion. Validation requires `ordinal` exactly when this holds. */
 export const picksSuggestion = (

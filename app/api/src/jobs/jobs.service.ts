@@ -85,6 +85,30 @@ const toStudentMatchDecision = ({
   };
 };
 
+/**
+ * What a decision row stores beside its kind: a match's answer, the student
+ * unique id, and its basis, either a suggestion or a search. An exclude or a
+ * clear stores none of them.
+ */
+type DecisionColumns = {
+  studentUniqueId: string | null;
+  resultId: bigint | null;
+  ordinal: number | null;
+  // JSON text, for the insert's ::jsonb casts. Prisma would bind an object as
+  // JSON itself, but an array as a PostgreSQL array, so text doesn't depend on
+  // how it binds a value.
+  searchDetails: string | null;
+  rosterDetails: string | null;
+};
+
+const noAnswerOrBasis: DecisionColumns = {
+  studentUniqueId: null,
+  resultId: null,
+  ordinal: null,
+  searchDetails: null,
+  rosterDetails: null,
+};
+
 const noStudentsToMatch: GetStudentMatchCountsDto = {
   total: 0,
   toReview: 0,
@@ -248,21 +272,6 @@ export class JobsService {
   > {
     const { jobId, correlationId, userId, decision } = input;
     const { replacesVersion, kind } = decision;
-    // Only a match has a basis, either the reviewer's own search or a
-    // suggestion. A basis sent with anything else is ignored, as is a
-    // suggestion sent beside a search.
-    const search = restsOnSearch(decision) ? decision.search : undefined;
-    const pick = picksSuggestion(decision)
-      ? { resultId: decision.resultId, ordinal: decision.ordinal }
-      : null;
-    // Text for the insert's ::jsonb casts. Prisma would bind these objects as
-    // JSON itself, but an array as a PostgreSQL array, so this doesn't depend
-    // on how it binds a value.
-    const searchBasis = search && {
-      // Exactly what the search route sends IDRS for these details.
-      searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
-      rosterDetails: JSON.stringify(search.rosterDetails),
-    };
 
     // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
     // would fail on it with a 500.
@@ -278,30 +287,11 @@ export class JobsService {
       return { status: 'ERROR', code: 'not_found' };
     }
 
-    let suggestion: { studentUniqueId: string } | null = null;
-    if (pick) {
-      const [latest] = student.studentMatchResult;
-      if (!student.studentMatchResult.some(({ id }) => id.toString() === pick.resultId)) {
-        return { status: 'ERROR', code: 'invalid_target' };
-      }
-      // Reviewers pick from the latest result. A pick from an earlier one
-      // means the page predates it. Checked before the insert rather than in
-      // it: a result landing in between is harmless, since new results never
-      // invalidate a decision already made.
-      if (latest.id.toString() !== pick.resultId) {
-        return { status: 'ERROR', code: 'results_changed' };
-      }
-      // Suggestions never change, so this can't go stale before the insert.
-      suggestion = await prisma.studentMatchSuggestion.findUnique({
-        where: { resultId_ordinal: { resultId: latest.id, ordinal: pick.ordinal } },
-        select: { studentUniqueId: true },
-      });
-      if (!suggestion) {
-        return { status: 'ERROR', code: 'invalid_target' };
-      }
+    const columns = await this.decisionColumns(decision, student.studentMatchResult, prisma);
+    if (columns.status === 'ERROR') {
+      return columns;
     }
-    // The answer: the student the reviewer found, or the picked suggestion's.
-    const studentUniqueId = search ? decision.studentUniqueId : suggestion?.studentUniqueId ?? null;
+    const { studentUniqueId, resultId, ordinal, searchDetails, rosterDetails } = columns.data;
 
     // Writes the row after the student's latest, if the caller saw what's
     // current: that latest row for a version, or no decision (no rows, or a
@@ -314,9 +304,8 @@ export class JobsService {
          search_details, roster_details, decided_by_id)
       SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
              ${kind}::public.student_match_decision_kind, ${studentUniqueId},
-             ${pick?.resultId ?? null}::bigint, ${pick?.ordinal ?? null}::int,
-             ${searchBasis?.searchDetails ?? null}::jsonb,
-             ${searchBasis?.rosterDetails ?? null}::jsonb,
+             ${resultId}::bigint, ${ordinal}::int,
+             ${searchDetails}::jsonb, ${rosterDetails}::jsonb,
              ${userId}::int
       FROM (SELECT 1) AS one
       LEFT JOIN LATERAL (
@@ -342,6 +331,74 @@ export class JobsService {
       include: { user: true },
     });
     return { status: 'SUCCESS', data: { decision: toStudentMatchDecision(row) } };
+  }
+
+  /**
+   * The columns a decision stores beside its kind. Only a match has an answer
+   * and a basis. Anything else sent with a decision is ignored: a basis sent
+   * with an exclude or a clear, or a suggestion sent beside a search.
+   *
+   * `results` are the student's, latest first.
+   */
+  private async decisionColumns(
+    decision: PostStudentMatchDecisionDto,
+    results: { id: bigint }[],
+    prisma: PrismaClient
+  ): Promise<
+    | { status: 'SUCCESS'; data: DecisionColumns }
+    | { status: 'ERROR'; code: 'results_changed' | 'invalid_target' }
+  > {
+    // A match to the reviewer's search: the student they found, with the
+    // details they searched with and the student as they saw them.
+    if (restsOnSearch(decision)) {
+      const { studentUniqueId, search } = decision;
+      return {
+        status: 'SUCCESS',
+        data: {
+          ...noAnswerOrBasis,
+          studentUniqueId,
+          // Exactly what the search route sends IDRS for these details.
+          searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
+          rosterDetails: JSON.stringify(search.rosterDetails),
+        },
+      };
+    }
+
+    // A match to a suggestion: the suggestion's student, never the client's.
+    if (picksSuggestion(decision)) {
+      const { resultId, ordinal } = decision;
+      if (!results.some(({ id }) => id.toString() === resultId)) {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
+      // Reviewers pick from the latest result. A pick from an earlier one
+      // means the page predates it. Checked before the insert rather than in
+      // it: a result landing in between is harmless, since new results never
+      // invalidate a decision already made.
+      const [latest] = results;
+      if (latest.id.toString() !== resultId) {
+        return { status: 'ERROR', code: 'results_changed' };
+      }
+      // Suggestions never change, so this can't go stale before the insert.
+      const suggestion = await prisma.studentMatchSuggestion.findUnique({
+        where: { resultId_ordinal: { resultId: latest.id, ordinal } },
+        select: { studentUniqueId: true },
+      });
+      if (!suggestion) {
+        return { status: 'ERROR', code: 'invalid_target' };
+      }
+      return {
+        status: 'SUCCESS',
+        data: {
+          ...noAnswerOrBasis,
+          studentUniqueId: suggestion.studentUniqueId,
+          resultId: latest.id,
+          ordinal,
+        },
+      };
+    }
+
+    // An exclude or a clear.
+    return { status: 'SUCCESS', data: noAnswerOrBasis };
   }
 
   /**
