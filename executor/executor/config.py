@@ -28,3 +28,6 @@ IDRS_BATCH_SIZE = 5000
 
 # Set the auto matching threshold for IDRS matches
 IDRS_AUTO_MATCH_THRESHOLD = 1.0
+
+# Set the batch size for posting results back to the app
+MATCHES_BATCH_SIZE = 1000
