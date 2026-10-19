@@ -166,6 +166,12 @@ const POSTGRES_INTEGER_MAX = 2_147_483_647;
 export const restsOnSearch = (o: PostStudentMatchDecisionDto) =>
   o.kind === 'match' && o.search != null;
 
+/** Whether a decision is a match resting on a suggestion. Validation requires `ordinal` exactly when this holds. */
+export const picksSuggestion = (
+  o: PostStudentMatchDecisionDto
+): o is PostStudentMatchDecisionDto & { ordinal: number } =>
+  o.kind === 'match' && !restsOnSearch(o);
+
 /** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
   /**
@@ -213,7 +219,7 @@ export class PostStudentMatchDecisionDto {
   /** The picked suggestion's position in its result, for a match without a search; ignored otherwise. */
   // Checked here because the database would round a fraction to the nearest
   // suggestion and save it.
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match' && !restsOnSearch(o))
+  @ValidateIf(picksSuggestion)
   @IsInt()
   @Min(0)
   @Max(POSTGRES_INTEGER_MAX)

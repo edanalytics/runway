@@ -4,6 +4,7 @@ import {
   GetStudentSearchHitDto,
   JobInputParamDto,
   JsonArray,
+  picksSuggestion,
   pickStudentSearchDetails,
   PostStudentMatchDecisionDto,
   restsOnSearch,
@@ -245,14 +246,15 @@ export class JobsService {
         code: 'not_found' | 'decision_changed' | 'results_changed' | 'invalid_target';
       }
   > {
-    const { jobId, correlationId, userId } = input;
-    const { replacesVersion, kind } = input.decision;
+    const { jobId, correlationId, userId, decision } = input;
+    const { replacesVersion, kind } = decision;
     // Only a match has a basis, either the reviewer's own search or a
     // suggestion. A basis sent with anything else is ignored, as is a
     // suggestion sent beside a search.
-    const search = restsOnSearch(input.decision) ? input.decision.search : undefined;
-    const picksSuggestion = kind === 'match' && !search;
-    const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
+    const search = restsOnSearch(decision) ? decision.search : undefined;
+    const pick = picksSuggestion(decision)
+      ? { resultId: decision.resultId, ordinal: decision.ordinal }
+      : null;
     // Text for the insert's ::jsonb casts. Prisma would bind these objects as
     // JSON itself, but an array as a PostgreSQL array, so this doesn't depend
     // on how it binds a value.
@@ -277,27 +279,21 @@ export class JobsService {
     }
 
     let suggestion: { studentUniqueId: string } | null = null;
-    if (picksSuggestion) {
-      const resultIds = student.studentMatchResult.map(({ id }) => id.toString());
-      if (!resultIds.includes(resultId!)) {
+    if (pick) {
+      const [latest] = student.studentMatchResult;
+      if (!student.studentMatchResult.some(({ id }) => id.toString() === pick.resultId)) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
       // Reviewers pick from the latest result. A pick from an earlier one
       // means the page predates it. Checked before the insert rather than in
       // it: a result landing in between is harmless, since new results never
       // invalidate a decision already made.
-      if (resultIds[0] !== resultId) {
+      if (latest.id.toString() !== pick.resultId) {
         return { status: 'ERROR', code: 'results_changed' };
       }
       // Suggestions never change, so this can't go stale before the insert.
       suggestion = await prisma.studentMatchSuggestion.findUnique({
-        where: {
-          resultId_ordinal: {
-            resultId: student.studentMatchResult[0].id,
-            // The DTO requires an ordinal for a suggestion pick.
-            ordinal: ordinal!,
-          },
-        },
+        where: { resultId_ordinal: { resultId: latest.id, ordinal: pick.ordinal } },
         select: { studentUniqueId: true },
       });
       if (!suggestion) {
@@ -305,9 +301,7 @@ export class JobsService {
       }
     }
     // The answer: the student the reviewer found, or the picked suggestion's.
-    const studentUniqueId = search
-      ? input.decision.studentUniqueId
-      : suggestion?.studentUniqueId ?? null;
+    const studentUniqueId = search ? decision.studentUniqueId : suggestion?.studentUniqueId ?? null;
 
     // Writes the row after the student's latest, if the caller saw what's
     // current: that latest row for a version, or no decision (no rows, or a
@@ -320,7 +314,7 @@ export class JobsService {
          search_details, roster_details, decided_by_id)
       SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
              ${kind}::public.student_match_decision_kind, ${studentUniqueId},
-             ${resultId}::bigint, ${ordinal}::int,
+             ${pick?.resultId ?? null}::bigint, ${pick?.ordinal ?? null}::int,
              ${searchBasis?.searchDetails ?? null}::jsonb,
              ${searchBasis?.rosterDetails ?? null}::jsonb,
              ${userId}::int
