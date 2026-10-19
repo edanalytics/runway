@@ -45,9 +45,10 @@ export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
 
 /**
  * Whether a job could load a student IDRS found. With cross-year matching on,
- * any student IDRS knows can be, outside the ODS as cross-year matches are;
- * otherwise only one in the job's school year. `school_years` holds Ed-Fi
- * school years, which are end years, like `endYear`.
+ * it can load any of them: one outside the job's school year is delivered
+ * outside the ODS, as cross-year matches are. With it off, only students whose
+ * `school_years` include the job's year. Both `school_years` and `endYear`
+ * name a school year by its end year (2025 for 2024–25).
  *
  * The Executor's suggestion filter must apply the same rule. A match an ODS job
  * keeps only through cross-year matching must never be sent to the ODS.
@@ -252,6 +253,9 @@ export class JobsService {
     const search = restsOnSearch(input.decision) ? input.decision.search : undefined;
     const picksSuggestion = kind === 'match' && !search;
     const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
+    // Text for the insert's ::jsonb casts. Prisma would bind these objects as
+    // JSON itself, but an array as a PostgreSQL array, so this doesn't depend
+    // on how it binds a value.
     const searchBasis = search && {
       // Exactly what the search route sends IDRS for these details.
       searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
