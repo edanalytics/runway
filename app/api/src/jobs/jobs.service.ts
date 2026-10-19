@@ -293,12 +293,6 @@ export class JobsService {
     const { jobId, correlationId, userId, decision } = input;
     const { replacesVersion, kind } = decision;
 
-    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
-    // would fail on it with a 500.
-    if (correlationId.includes('\0')) {
-      return { status: 'ERROR', code: 'not_found' };
-    }
-
     const student = await prisma.studentInputDetails.findUnique({
       where: { jobId_correlationId: { jobId, correlationId } },
       select: {
@@ -422,12 +416,6 @@ export class JobsService {
     | { status: 'ERROR'; code: 'identity_service_unavailable'; cause: string }
   > {
     const { job, correlationId } = input;
-
-    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
-    // would fail on it with a 500.
-    if (correlationId.includes('\0')) {
-      return { status: 'ERROR', code: 'not_found' };
-    }
 
     // The partner's setting is read live, as the Executor's payload reads it,
     // not snapshotted onto the job.
