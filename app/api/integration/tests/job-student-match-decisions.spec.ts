@@ -329,7 +329,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     // The answer sent would fail validation, so this also shows it isn't validated.
-    it('takes a suggestion pick’s answer from the suggestion, ignoring one sent', async () => {
+    it('takes a suggestion pick’s student from the suggestion, ignoring one sent', async () => {
       const res = await decide({
         replacesVersion: null,
         kind: 'match',
@@ -351,7 +351,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     // Each would fail validation, so this also shows none is validated.
-    it('ignores an answer or basis sent with an exclude or a clear', async () => {
+    it('ignores a student, suggestion or search sent with an exclude or a clear', async () => {
       const ignored = {
         resultId,
         ordinal: 0.5,
@@ -566,7 +566,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     const matchSearch = (replacesVersion: number | null, pick: object = SEARCH_PICK) =>
       decide({ replacesVersion, kind: 'match', ...pick });
 
-    it('saves the answer and the search it rests on', async () => {
+    it('saves the student found and the search that found them', async () => {
       // A key IDRS doesn't take is dropped, as the search route drops it.
       const res = await matchSearch(null, {
         ...SEARCH_PICK,
@@ -789,7 +789,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         ]
       );
 
-    it('refuses a suggestion basis whose answer isn’t the suggestion’s student', async () => {
+    it('refuses a suggestion match whose student isn’t the suggestion’s', async () => {
       // Ordinal 0 suggests SUID-1.
       await expect(
         insert({ kind: 'match', studentUniqueId: 'SUID-2', resultId, ordinal: 0 })
@@ -800,13 +800,16 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     it.each<[string, () => Row]>([
-      ['a match with no answer', () => ({ kind: 'match', resultId, ordinal: 0 })],
-      ['a match with no basis', () => ({ kind: 'match', studentUniqueId: 'SUID-1' })],
+      ['a match with no student', () => ({ kind: 'match', resultId, ordinal: 0 })],
       [
-        'a match with both bases',
+        'a match with no suggestion or search',
+        () => ({ kind: 'match', studentUniqueId: 'SUID-1' }),
+      ],
+      [
+        'a match with both a suggestion and a search',
         () => ({ kind: 'match', studentUniqueId: 'SUID-1', resultId, ordinal: 0, search: true }),
       ],
-      ['an exclude with an answer', () => ({ kind: 'exclude', studentUniqueId: 'SUID-1' })],
+      ['an exclude with a student', () => ({ kind: 'exclude', studentUniqueId: 'SUID-1' })],
     ])('refuses %s', async (_, row) => {
       await expect(insert(row())).rejects.toMatchObject({
         code: '23514',
