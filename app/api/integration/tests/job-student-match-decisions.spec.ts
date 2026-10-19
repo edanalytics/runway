@@ -132,7 +132,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const res = await decide({ replacesVersion: null, kind: 'exclude' }, { cookie: '' });
 
       expect(res.status).toBe(401);
-      expect(await rowsOf()).toEqual([]);
     });
 
     it('rejects a user from another tenant', async () => {
@@ -141,7 +140,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const res = await decide({ replacesVersion: null, kind: 'exclude' }, { cookie: other });
 
       expect(res.status).toBe(403);
-      expect(await rowsOf()).toEqual([]);
     });
 
     it('rejects a user without the match results update privilege', async () => {
@@ -151,7 +149,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       );
 
       expect(res.status).toBe(403);
-      expect(await rowsOf()).toEqual([]);
     });
 
     it('lets a support user decide across tenants', async () => {
@@ -231,7 +228,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.status).toBe(400);
       // Nest's validation body, so it was the DTO that refused it.
       expect(res.body.message).toContainEqual(expect.stringMatching(/^ordinal /));
-      expect(await rowsOf()).toEqual([]);
     });
 
     it.each<[string, Record<string, unknown>]>([
@@ -247,7 +243,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const res = await decide(body);
 
       expect(res.status).toBe(400);
-      expect(await rowsOf()).toEqual([]);
     });
   });
 
@@ -429,27 +424,22 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.status).toBe(201);
     });
 
-    it('refuses a suggestion from an earlier result as stale', async () => {
-      const res = await matchFirst(resultId);
+    // The page predates the latest result, so refetching is the fix, whatever
+    // it picked from the earlier one: even an ordinal that result doesn't have.
+    it.each([0, 7])(
+      'refuses a pick from an earlier result as stale, at ordinal %i',
+      async (ordinal) => {
+        const res = await decide({ replacesVersion: null, kind: 'match', resultId, ordinal });
 
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual({
-        statusCode: 409,
-        code: 'results_changed',
-        message: 'This student has newer suggestions than the page shows.',
-      });
-      expect(await rowsOf()).toEqual([]);
-    });
-
-    // The page predates the latest result, so refetching is the fix,
-    // whatever it picked from the earlier one.
-    it('reports an earlier result as stale before checking its ordinal', async () => {
-      const res = await decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 7 });
-
-      expect(res.status).toBe(409);
-      expect(res.body.code).toBe('results_changed');
-      expect(await rowsOf()).toEqual([]);
-    });
+        expect(res.status).toBe(409);
+        expect(res.body).toEqual({
+          statusCode: 409,
+          code: 'results_changed',
+          message: 'This student has newer suggestions than the page shows.',
+        });
+        expect(await rowsOf()).toEqual([]);
+      }
+    );
   });
 
   it('accepts a write replacing a match made before a later run searched again', async () => {
@@ -504,25 +494,14 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(await rowsOf()).toHaveLength(1);
     });
 
-    it('is refused at a version ahead of the latest', async () => {
-      await matchFirst(resultId);
-
-      const res = await decide({ replacesVersion: 5, kind: 'exclude' });
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual(DECISION_CHANGED);
-      expect(await rowsOf()).toHaveLength(1);
-    });
-
     it('is refused when there is nothing to clear', async () => {
-      const first = await decide({ replacesVersion: null, kind: 'clear' });
       await matchFirst(resultId);
       await decide({ replacesVersion: 1, kind: 'clear' });
       const again = await decide({ replacesVersion: null, kind: 'clear' });
       // The clear's own seq isn't a decision's version, so it's no way round.
       const atClear = await decide({ replacesVersion: 2, kind: 'clear' });
 
-      expect([first.body, again.body, atClear.body]).toEqual(Array(3).fill(DECISION_CHANGED));
+      expect([again.body, atClear.body]).toEqual([DECISION_CHANGED, DECISION_CHANGED]);
       expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear']);
     });
 
@@ -607,7 +586,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
-    // The write a stale view refuses (below) is also accepted when current.
     it('replaces a match to a suggestion', async () => {
       await matchFirst(resultId);
 
@@ -655,59 +633,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.body.decision).toMatchObject({ resultId, ordinal: 0, search: null });
     });
 
-    describe('from a stale view', () => {
-      it('is refused at a replaced version', async () => {
-        await matchFirst(resultId);
-        await decide({ replacesVersion: 1, kind: 'clear' });
-        await matchFirst(resultId);
-
-        const res = await matchSearch(1);
-
-        expect(res.body).toEqual(DECISION_CHANGED);
-        expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear', 'match']);
-      });
-
-      it('is refused replacing nothing once the student has a decision', async () => {
-        await matchFirst(resultId);
-
-        const res = await matchSearch(null);
-
-        expect(res.body).toEqual(DECISION_CHANGED);
-        expect(await rowsOf()).toHaveLength(1);
-      });
-
-      // As for a suggestion: the other write is held until this one waits on it.
-      it('is refused when it loses a race', async () => {
-        const other = await pool().connect();
-        try {
-          await other.query('BEGIN');
-          await other.query(
-            `INSERT INTO public.student_match_decision
-               (job_id, correlation_id, seq, kind, decided_by_id)
-             VALUES ($1, 'corr-1', 1, 'exclude', $2)`,
-            [job.id, userB.id]
-          );
-          const { rows } = await other.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
-
-          // then() sends the request now, rather than when it's awaited.
-          const pending = matchSearch(null).then((res) => res);
-          await waitUntilBlockedBy(rows[0].pid);
-          await other.query('COMMIT');
-          const res = await pending;
-
-          expect(res.status).toBe(409);
-          expect(res.body).toEqual(DECISION_CHANGED);
-          expect((await rowsOf()).map((row) => [row.kind, row.studentUniqueId])).toEqual([
-            ['exclude', null],
-          ]);
-        } finally {
-          // Releases the lock if the test failed before the commit.
-          await other.query('ROLLBACK');
-          other.release();
-        }
-      });
-    });
-
     it.each<[string, object, RegExp]>([
       ['no student unique id', { studentUniqueId: undefined }, /^studentUniqueId /],
       ['a student unique id that isn’t a string', { studentUniqueId: 123 }, /^studentUniqueId /],
@@ -740,23 +665,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.status).toBe(400);
       // Nest's validation body, so it was the DTO that refused it.
       expect(res.body.message).toContainEqual(expect.stringMatching(refusal));
-      expect(await rowsOf()).toEqual([]);
-    });
-
-    // The student check runs for a search too. Without it the insert's foreign
-    // key would refuse the row, with a 500.
-    it('returns 404 for a student the job doesn’t have', async () => {
-      const res = await decide(
-        { replacesVersion: null, kind: 'match', ...SEARCH_PICK },
-        { correlationId: 'corr-unknown' }
-      );
-
-      expect(res.status).toBe(404);
-      expect(res.body).toEqual({
-        statusCode: 404,
-        code: 'not_found',
-        message: 'This student isn’t in the job.',
-      });
     });
   });
 

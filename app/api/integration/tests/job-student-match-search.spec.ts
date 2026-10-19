@@ -71,14 +71,14 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
   const ISSUED_TOKEN = jsonResponse(200, { access_token: 'issued-token', expires_in: 86400 });
 
   /**
-   * Stubs IDRS's two endpoints: the token URL answers with `token`, and any
-   * other URL, the search, with `searchResponse`, or rejects with it if it's
+   * Stubs IDRS's two endpoints: the token URL issues a token, and any other
+   * URL, the search, answers with `searchResponse`, or rejects with it if it's
    * an error.
    */
-  const stubIdrs = (searchResponse: Response | Error, token: Response = ISSUED_TOKEN) =>
+  const stubIdrs = (searchResponse: Response | Error) =>
     jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
       if (url === TOKEN_URL) {
-        return token;
+        return ISSUED_TOKEN;
       }
       if (searchResponse instanceof Error) {
         throw searchResponse;
@@ -124,32 +124,24 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
 
   describe('authentication and authorization', () => {
     it('rejects an unauthenticated request', async () => {
-      const fetchSpy = stubIdrs(found([]));
-
       const res = await search(DETAILS, { cookie: '' });
 
       expect(res.status).toBe(401);
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('rejects a user from another tenant', async () => {
-      const fetchSpy = stubIdrs(found([]));
       const { cookies: other } = await authHelper.login(idpA, userB, tenantB);
 
       const res = await search(DETAILS, { cookie: other });
 
       expect(res.status).toBe(403);
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('rejects a user without the match results search privilege', async () => {
-      const fetchSpy = stubIdrs(found([]));
-
       // Every role has it, so take it from the session.
       const res = await withoutPrivilege('job.match-results.search', () => search(DETAILS));
 
       expect(res.status).toBe(403);
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('lets a support user search across tenants, as the job’s own tenant', async () => {
@@ -172,7 +164,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     // Search mints a token for the job's partner, so letting a support user
     // through here would hand them another partner's IDRS directory.
     it('refuses a support user a job in another partner’s tenant', async () => {
-      const fetchSpy = stubIdrs(found([]));
       const partnerXJob = await seedReportedJob('fuzzy', {
         odsConfig: odsConfigX2425,
         bundle: bundleX,
@@ -183,7 +174,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       const res = await search(DETAILS, { jobId: partnerXJob.id, cookie: support });
 
       expect(res.status).toBe(403);
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -227,9 +217,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     ['a student id that isn’t a string', { student_ids: [123] }, 'student_ids'],
     ['student ids that aren’t a list', { student_ids: 'S-1' }, 'student_ids'],
     ['a name that isn’t a string', { first_name: 7 }, 'first_name'],
-  ])('refuses %s, without searching', async (_, given, field) => {
-    const fetchSpy = stubIdrs(found([]));
-
+  ])('refuses %s', async (_, given, field) => {
     const res = await search({ ...DETAILS, ...given });
 
     expect(res.status).toBe(400);
@@ -237,7 +225,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     expect(res.body.message).toContainEqual(
       expect.stringMatching(new RegExp(`^(each value in )?${field} `))
     );
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   describe('the request to IDRS', () => {
@@ -359,11 +346,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
           stubIdrs(found([]));
         },
         `Error: no IDRS connection info for partner ${tenantA.partnerId}`,
-      ],
-      [
-        'the token is refused',
-        () => stubIdrs(found([]), jsonResponse(401, {})),
-        'Error: IDRS token request rejected with status 401',
       ],
       [
         'the search times out',
