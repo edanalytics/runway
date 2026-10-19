@@ -301,7 +301,16 @@ export class JobsService {
 
     const student = await prisma.studentInputDetails.findUnique({
       where: { jobId_correlationId: { jobId, correlationId } },
-      select: { studentMatchResult: { select: { id: true }, orderBy: { runId: 'desc' } } },
+      select: {
+        // Latest first. A suggestion pick reads its student from these.
+        studentMatchResult: {
+          select: {
+            id: true,
+            studentMatchSuggestion: { select: { ordinal: true, studentUniqueId: true } },
+          },
+          orderBy: { runId: 'desc' },
+        },
+      },
     });
     if (!student) {
       return { status: 'ERROR', code: 'not_found' };
@@ -324,30 +333,28 @@ export class JobsService {
     } else if (picksSuggestion(decision)) {
       // A match to a suggestion: the suggestion's student, never the client's.
       const results = student.studentMatchResult;
-      if (!results.some(({ id }) => id.toString() === decision.resultId)) {
+      const picked = results.find(({ id }) => id.toString() === decision.resultId);
+      if (!picked) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
       // Reviewers pick from the latest result. A pick from an earlier one
       // means the page predates it. Checked before the insert rather than in
       // it: a result landing in between is harmless, since new results never
       // invalidate a decision already made.
-      const [latest] = results;
-      if (latest.id.toString() !== decision.resultId) {
+      if (picked !== results[0]) {
         return { status: 'ERROR', code: 'results_changed' };
       }
-      // Suggestions never change, so this can't go stale before the insert.
-      const suggestion = await prisma.studentMatchSuggestion.findUnique({
-        where: { resultId_ordinal: { resultId: latest.id, ordinal: decision.ordinal } },
-        select: { studentUniqueId: true },
-      });
+      const suggestion = picked.studentMatchSuggestion.find(
+        ({ ordinal }) => ordinal === decision.ordinal
+      );
       if (!suggestion) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
       columns = {
         ...noAnswerOrBasis,
         studentUniqueId: suggestion.studentUniqueId,
-        resultId: latest.id,
-        ordinal: decision.ordinal,
+        resultId: picked.id,
+        ordinal: suggestion.ordinal,
       };
     } else {
       // An exclude or a clear.
