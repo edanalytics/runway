@@ -1,7 +1,7 @@
 import {
   EarthmoverBundleTypes,
   GetStudentMatchCountsDto,
-  GetStudentSearchHitDto,
+  GetIdrsStudentDto,
   JobInputParamDto,
   JsonArray,
   picksSuggestion,
@@ -54,13 +54,13 @@ export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
  * The Executor's suggestion filter must apply the same rule. A match an ODS job
  * keeps only through cross-year matching must never be sent to the ODS.
  */
-export const isLoadableSearchHit = (
-  hit: { school_years?: unknown },
+export const isLoadableStudent = (
+  student: { school_years?: unknown },
   endYear: number,
   crossYearMatchingEnabled: boolean
 ) =>
   crossYearMatchingEnabled ||
-  (Array.isArray(hit.school_years) && hit.school_years.includes(endYear));
+  (Array.isArray(student.school_years) && student.school_years.includes(endYear));
 
 /**
  * A decision row as the API shows it: none for a clear, and a search basis's
@@ -397,7 +397,7 @@ export class JobsService {
 
   /**
    * Searches IDRS for a student with a reviewer's details, and returns the
-   * students the job could load. `returned` is how many IDRS found, for the
+   * students the job could load. `found` is how many IDRS returned, for the
    * log only.
    */
   async searchStudentMatch(input: {
@@ -408,8 +408,8 @@ export class JobsService {
     | {
         status: 'SUCCESS';
         data: {
-          hits: GetStudentSearchHitDto[];
-          returned: number;
+          students: GetIdrsStudentDto[];
+          found: number;
         };
       }
     | { status: 'ERROR'; code: 'not_found' }
@@ -446,14 +446,14 @@ export class JobsService {
       return result;
     }
 
-    const hits = result.data
-      .filter((match) => isLoadableSearchHit(match, endYear, crossYearMatchingEnabled))
+    const students = result.data
+      .filter((match) => isLoadableStudent(match, endYear, crossYearMatchingEnabled))
       .map(({ student_unique_id, score, ...rosterDetails }) => ({
         studentUniqueId: student_unique_id,
         score,
         rosterDetails,
       }));
-    return { status: 'SUCCESS', data: { hits, returned: result.data.length } };
+    return { status: 'SUCCESS', data: { students, found: result.data.length } };
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<

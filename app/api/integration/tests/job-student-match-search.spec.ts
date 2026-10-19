@@ -274,7 +274,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     });
   });
 
-  describe('the hits', () => {
+  describe('the students', () => {
     it('returns IDRS’s matches in its order, with their roster details as returned', async () => {
       stubIdrs(
         found([
@@ -286,35 +286,33 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       const res = await search(DETAILS);
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({
-        hits: [
-          {
-            studentUniqueId: 'SUID-1',
-            score: 0.97,
-            rosterDetails: {
-              first_name: 'Ada',
-              middle_name: null,
-              last_name: 'Lovelace',
-              birth_date: '2010-12-10',
-              student_ids: [{ id_type: 'State', id_value: 'S-1' }],
-              school_years: [2025],
-              future_field: 'kept',
-            },
+      expect(res.body).toEqual([
+        {
+          studentUniqueId: 'SUID-1',
+          score: 0.97,
+          rosterDetails: {
+            first_name: 'Ada',
+            middle_name: null,
+            last_name: 'Lovelace',
+            birth_date: '2010-12-10',
+            student_ids: [{ id_type: 'State', id_value: 'S-1' }],
+            school_years: [2025],
+            future_field: 'kept',
           },
-          {
-            studentUniqueId: 'SUID-2',
-            score: 0.41,
-            rosterDetails: {
-              first_name: 'Ada',
-              middle_name: null,
-              last_name: 'Lovelace',
-              birth_date: '2010-12-10',
-              student_ids: [{ id_type: 'State', id_value: 'S-1' }],
-              school_years: [2025],
-            },
+        },
+        {
+          studentUniqueId: 'SUID-2',
+          score: 0.41,
+          rosterDetails: {
+            first_name: 'Ada',
+            middle_name: null,
+            last_name: 'Lovelace',
+            birth_date: '2010-12-10',
+            student_ids: [{ id_type: 'State', id_value: 'S-1' }],
+            school_years: [2025],
           },
-        ],
-      });
+        },
+      ]);
     });
   });
 
@@ -327,8 +325,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
         idrsMatch('SUID-2024', [2024]),
         idrsMatch('SUID-NONE', []),
       ]);
-    const hitIds = (res: request.Response) =>
-      res.body.hits.map((hit: { studentUniqueId: string }) => hit.studentUniqueId);
+    const studentIds = (res: request.Response) =>
+      res.body.map((student: { studentUniqueId: string }) => student.studentUniqueId);
 
     // The job was created with the setting off, so the second search shows
     // it's read at search time, not when the job was created.
@@ -340,8 +338,13 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       const withCrossYear = await search(DETAILS);
 
       expect([without.status, withCrossYear.status]).toEqual([200, 200]);
-      expect(hitIds(without)).toEqual(['SUID-BOTH', 'SUID-2025']);
-      expect(hitIds(withCrossYear)).toEqual(['SUID-BOTH', 'SUID-2025', 'SUID-2024', 'SUID-NONE']);
+      expect(studentIds(without)).toEqual(['SUID-BOTH', 'SUID-2025']);
+      expect(studentIds(withCrossYear)).toEqual([
+        'SUID-BOTH',
+        'SUID-2025',
+        'SUID-2024',
+        'SUID-NONE',
+      ]);
     });
   });
 

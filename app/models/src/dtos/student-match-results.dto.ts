@@ -31,8 +31,8 @@ import { GetUserDto } from './user.dto';
  * snake_case.
  */
 
-/** A student IDRS found, as a reviewer may match to them. */
-export class GetStudentSearchHitDto {
+/** A student record from IDRS, with IDRS's score, as a reviewer may match to them. */
+export class GetIdrsStudentDto {
   @Expose()
   studentUniqueId: string;
 
@@ -48,8 +48,8 @@ export class GetStudentSearchHitDto {
   rosterDetails: StudentRosterDetailsJson;
 }
 
-/** One of a run's suggestions: a hit at its position in the result. */
-export class GetStudentMatchSuggestionDto extends GetStudentSearchHitDto {
+/** One of a run's suggestions: an IDRS student at its position in the result. */
+export class GetStudentMatchSuggestionDto extends GetIdrsStudentDto {
   @Expose()
   ordinal: number;
 }
@@ -127,14 +127,8 @@ export const pickStudentSearchDetails = ({
   student_ids,
 });
 
-/** IDRS's matches the job could load, in IDRS's order: highest score first. */
-export class GetStudentSearchResultsDto {
-  @Expose()
-  @Type(() => GetStudentSearchHitDto)
-  hits: GetStudentSearchHitDto[];
-}
-
-export const toGetStudentSearchResultsDto = makeSerializer(GetStudentSearchResultsDto);
+/** Search returns an array of these: the students the job could load, highest score first. */
+export const toGetIdrsStudentDto = makeSerializer(GetIdrsStudentDto);
 
 /** The search a match rests on, when the reviewer found the student by searching. */
 export class PostStudentMatchSearchDto {
@@ -144,7 +138,7 @@ export class PostStudentMatchSearchDto {
   @Type(() => StudentSearchDetailsDto)
   searchDetails: StudentSearchDetailsDto;
 
-  /** The student as the reviewer saw them, a hit's `rosterDetails`. Stored as sent. */
+  /** The student as the reviewer saw them, a search's `rosterDetails`. Stored as sent. */
   @IsObject()
   rosterDetails: StudentRosterDetailsJson;
 }
