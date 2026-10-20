@@ -458,6 +458,18 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear', 'match']);
     });
 
+    // Versions only come from the API's responses, so one past the latest names
+    // a decision that doesn't exist. The next seq is the one an insert would write.
+    it('refuses a write at a version ahead of the latest', async () => {
+      await matchFirst(resultId);
+
+      const res = await decide({ replacesVersion: 2, kind: 'exclude' });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(DECISION_CHANGED);
+      expect(await rowsOf()).toHaveLength(1);
+    });
+
     // A page that saw no decision is still current once a decision is made
     // and cleared: the student is undecided, just as it showed.
     it('accepts a write that saw no decision, after one was made and cleared', async () => {
@@ -480,14 +492,16 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(await rowsOf()).toHaveLength(1);
     });
 
+    // No decision is either no rows or a clear on top, so both are tried.
     it('refuses a clear when there is nothing to clear', async () => {
+      const never = await decide({ replacesVersion: null, kind: 'clear' });
       await matchFirst(resultId);
       await decide({ replacesVersion: 1, kind: 'clear' });
       const again = await decide({ replacesVersion: null, kind: 'clear' });
       // The clear's own seq isn't a decision's version, so it's no way round.
       const atClear = await decide({ replacesVersion: 2, kind: 'clear' });
 
-      expect([again.body, atClear.body]).toEqual([DECISION_CHANGED, DECISION_CHANGED]);
+      expect([never.body, again.body, atClear.body]).toEqual(Array(3).fill(DECISION_CHANGED));
       expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear']);
     });
 
