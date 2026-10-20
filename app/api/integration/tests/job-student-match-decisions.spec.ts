@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { Logger } from '@nestjs/common';
 import { IdMatchingMode } from '@prisma/client';
+import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
 import { seedJob } from '../factories/job-factory';
 import { bundleA } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigB2526 } from '../fixtures/context-fixtures/ods-fixture';
@@ -56,7 +57,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   let otherResultId: string;
   let cookies: string;
 
-  /** A job in this mode, with corr-1 and corr-2 reported for its first run. */
+  /**
+   * A job in this mode, with corr-1 and corr-2 reported for its first run.
+   * Each suggestion has school years, as IDRS returns them, so a match can be
+   * submitted.
+   */
   const seedReportedJob = async (idMatchingMode: IdMatchingMode, inTenantB = false) => {
     const seeded = await seedJob({
       odsConfig: inTenantB ? odsConfigB2526 : odsConfigA2425,
@@ -69,14 +74,14 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         correlation_id: 'corr-1',
         candidate: { first_name: 'Ada' },
         matches: [
-          { student_unique_id: 'SUID-1', score: 0.9 },
-          { student_unique_id: 'SUID-2', score: 0.4 },
+          { student_unique_id: 'SUID-1', score: 0.9, school_years: [2025] },
+          { student_unique_id: 'SUID-2', score: 0.4, school_years: [2025] },
         ],
       },
       {
         correlation_id: 'corr-2',
         candidate: { first_name: 'Grace' },
-        matches: [{ student_unique_id: 'SUID-3', score: 0.8 }],
+        matches: [{ student_unique_id: 'SUID-3', score: 0.8, school_years: [2025] }],
       },
     ]);
     return seeded;
@@ -556,6 +561,102 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         await other.query('ROLLBACK');
         other.release();
       }
+    });
+  });
+
+  // Every send of a student delivers the same decision row, so once any of
+  // their rows is in a send run, no new decision is accepted.
+  describe('a submitted student', () => {
+    const ALREADY_SUBMITTED = {
+      statusCode: 409,
+      code: 'already_submitted',
+      message: 'This student’s match has been submitted.',
+    };
+    let executorStart: jest.SpyInstance;
+
+    const submit = (version: number, { correlationId = 'corr-1', jobId = job.id } = {}) =>
+      request(app.getHttpServer())
+        .post(`/jobs/${jobId}/student-match-results/submit`)
+        .set('Cookie', [cookies])
+        .send({ students: [{ correlationId, version }] });
+
+    beforeEach(async () => {
+      executorStart = jest
+        .spyOn(ExecutorAwsService.prototype, 'start')
+        .mockResolvedValue({ ecsTaskArn: null, taskSize: null });
+      // Submitting needs the job's full run to have succeeded.
+      await prisma.run.update({ where: { id: job.runs[0].id }, data: { status: 'success' } });
+      expect((await matchFirst(resultId)).status).toBe(201);
+    });
+
+    afterEach(() => {
+      executorStart.mockRestore();
+    });
+
+    it.each<[string, () => Record<string, unknown>]>([
+      ['another match', () => ({ kind: 'match', resultId, ordinal: 1 })],
+      ['an exclude', () => ({ kind: 'exclude' })],
+      ['a clear', () => ({ kind: 'clear' })],
+    ])('refuses %s, writing nothing', async (_, body) => {
+      expect((await submit(1)).status).toBe(201);
+
+      const res = await decide({ replacesVersion: 1, ...body() });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(ALREADY_SUBMITTED);
+      expect((await rowsOf()).map(({ seq, kind }) => [seq, kind])).toEqual([[1, 'match']]);
+    });
+
+    // A reviewer decides a student while another submits them. The job row is
+    // held from another connection until both requests are queued behind it,
+    // in a chosen order, so each order happens every time. Whichever goes
+    // first wins, and the other is refused.
+    describe('racing a submit', () => {
+      /** Sends the requests in order, each queued behind a held job-row lock, then releases it. */
+      const raceInOrder = async <T extends unknown[]>(requests: {
+        [K in keyof T]: () => Promise<T[K]>;
+      }) => {
+        const holder = await pool().connect();
+        try {
+          await holder.query('BEGIN');
+          await holder.query('SELECT id FROM public.job WHERE id = $1 FOR NO KEY UPDATE', [job.id]);
+          const { rows } = await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+          const pending: Promise<unknown>[] = [];
+          for (const send of requests) {
+            pending.push(send());
+            await waitUntilBlockedBy(rows[0].pid, pending.length);
+          }
+          await holder.query('ROLLBACK');
+          return (await Promise.all(pending)) as T;
+        } finally {
+          // Releases the lock if the test failed before the rollback.
+          await holder.query('ROLLBACK');
+          holder.release();
+        }
+      };
+
+      // then() sends each request when called, rather than when it's awaited.
+      const excludeAfterTheMatch = () =>
+        decide({ replacesVersion: 1, kind: 'exclude' }).then((res) => res);
+      const submitTheMatch = () => submit(1).then((res) => res);
+
+      it('refuses the decision once the submit has gone first', async () => {
+        const [submitted, decided] = await raceInOrder([submitTheMatch, excludeAfterTheMatch]);
+
+        expect(submitted.status).toBe(201);
+        expect(decided.status).toBe(409);
+        expect(decided.body).toEqual(ALREADY_SUBMITTED);
+        expect((await rowsOf()).map(({ seq, kind }) => [seq, kind])).toEqual([[1, 'match']]);
+      });
+
+      it('refuses the submit once the decision has gone first', async () => {
+        const [decided, submitted] = await raceInOrder([excludeAfterTheMatch, submitTheMatch]);
+
+        expect(decided.status).toBe(201);
+        expect(submitted.status).toBe(409);
+        expect(submitted.body.code).toBe('decision_changed');
+        expect(await prisma.sendRunDecision.count({ where: { jobId: job.id } })).toBe(0);
+      });
     });
   });
 
