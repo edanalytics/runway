@@ -21,11 +21,7 @@ import { IdrsModule } from '../../idrs/idrs.module';
     EventEmitterModule,
     IdrsModule,
   ],
-  providers: [
-    EarthbeamApiService,
-    EduSnowflakePoolService,
-    StudentMatchResultsService,
-  ],
+  providers: [EarthbeamApiService, EduSnowflakePoolService, StudentMatchResultsService],
   controllers: [EarthbeamApiController],
   exports: [EduSnowflakePoolService],
 })

@@ -253,8 +253,9 @@ export class PostStudentMatchDecisionDto {
 
   /**
    * The picked suggestion's result, for a match without a search. A BIGINT,
-   * so a string. Only whether it's sent is validated here: the service checks
-   * it against the student's own results.
+   * so a string. Validation only refuses it outside that shape: the service
+   * checks it against the student's own results, so a missing one is
+   * `invalid_target`.
    */
   resultId?: string;
 
