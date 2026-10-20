@@ -168,7 +168,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       // search again, and its results are kept alongside.
       // Everything goes in out of order, so only the query's ordering can
       // put it right: the later run reports first, corr-2 before corr-1.
-      const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+      const runB = await prisma.run.create({
+        data: { jobId: jobA.id, kind: 'full', status: 'new' },
+      });
       const noMatches = (correlation_id: string) => ({
         correlation_id,
         candidate: { first_name: 'Ada' },
@@ -330,7 +332,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           resultId: earlierResultId,
           ordinal: 0,
         });
-        const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+        const runB = await prisma.run.create({
+          data: { jobId: jobA.id, kind: 'full', status: 'new' },
+        });
         await reportStudents(['corr-1'], runB.id);
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);

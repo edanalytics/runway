@@ -829,6 +829,7 @@ export class JobsService {
     const run = await prisma.run.create({
       data: {
         jobId: job.id,
+        kind: 'full',
         status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
       },
       include: { job: { include: { schoolYear: true, files: true } } },

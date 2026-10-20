@@ -48,7 +48,8 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
       .send(body as object);
 
   /** A later run of job A. */
-  const newRunOfJobA = () => prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+  const newRunOfJobA = () =>
+    prisma.run.create({ data: { jobId: jobA.id, kind: 'full', status: 'new' } });
 
   const snapshot = async () => ({
     inputs: await prisma.studentInputDetails.findMany({

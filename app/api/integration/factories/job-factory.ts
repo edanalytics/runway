@@ -65,6 +65,7 @@ export const seedJob = async (
       },
       runs: {
         create: {
+          kind: 'full',
           status: runStatus,
           ...(summary && {
             summary: { testSummary: randomString('test-summary') },

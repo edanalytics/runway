@@ -401,7 +401,9 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   describe('when a later run has searched again', () => {
     let laterResultId: string;
     beforeEach(async () => {
-      const laterRun = await prisma.run.create({ data: { jobId: job.id, status: 'new' } });
+      const laterRun = await prisma.run.create({
+        data: { jobId: job.id, kind: 'full', status: 'new' },
+      });
       await reportMatchResults(laterRun.id, [
         {
           correlation_id: 'corr-1',
@@ -443,7 +445,9 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
   it('accepts a write replacing a match made before a later run searched again', async () => {
     await matchFirst(resultId);
-    const laterRun = await prisma.run.create({ data: { jobId: job.id, status: 'new' } });
+    const laterRun = await prisma.run.create({
+      data: { jobId: job.id, kind: 'full', status: 'new' },
+    });
     await reportMatchResults(laterRun.id, [
       { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
     ]);
