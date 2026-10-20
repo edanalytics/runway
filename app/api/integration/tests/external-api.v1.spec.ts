@@ -804,6 +804,27 @@ describe('ExternalApiV1', () => {
         });
       });
 
+      // The external API is how a job is re-run. A full run asks IDRS again,
+      // so its own send could deliver a submitted student under a different
+      // identity.
+      it('should return a 400 for a re-run of a fuzzy job with a send run, creating no run', async () => {
+        const job = await prisma.job.update({
+          where: { uid: jobUid },
+          data: { idMatchingMode: 'fuzzy' },
+        });
+        await prisma.run.create({ data: { jobId: job.id, kind: 'full', status: 'success' } });
+        await prisma.run.create({ data: { jobId: job.id, kind: 'send', status: 'success' } });
+
+        const res = await request(app.getHttpServer())
+          .post(`/v1/jobs/${jobUid}/start`)
+          .set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe(`Job has send runs: ${jobUid}`);
+        expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(2);
+        expect(earthbeamMock).not.toHaveBeenCalled();
+      });
+
       describe('Invalid Request', () => {
         it('should return a 401 if not given a valid token', async () => {
           const res = await request(app.getHttpServer())
