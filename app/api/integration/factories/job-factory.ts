@@ -47,6 +47,7 @@ export const seedJob = async (
       odsId,
       sendToOds,
       idMatchingMode,
+      configStatus: 'input_complete', // as createJob writes it, so a seeded job can start
       inputParams: postJobDto.inputParams,
       template: postJobDto.template,
       tenantCode: tenant.code,

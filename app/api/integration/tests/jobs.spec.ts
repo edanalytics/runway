@@ -21,6 +21,7 @@ import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
 import { FileService } from 'api/src/files/file.service';
+import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
 import { Job, JobNote } from '@prisma/client';
@@ -920,6 +921,67 @@ describe('POST /jobs', () => {
       expect(res.status).toBe(400);
     });
   });
+});
+
+describe('PUT /jobs/:id/start', () => {
+  const endpoint = (id: number) => `/jobs/${id}/start`;
+  const ecsTaskArn = 'arn:aws:ecs:us-east-1:123456789012:task/cluster/abc123';
+  let executorStart: jest.SpyInstance;
+  let cookieA: string;
+
+  beforeEach(async () => {
+    executorStart = jest
+      .spyOn(ExecutorAwsService.prototype, 'start')
+      .mockResolvedValue({ ecsTaskArn, taskSize: 'medium' });
+    cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
+  });
+
+  afterEach(() => {
+    executorStart.mockRestore();
+  });
+
+  it('re-runs a fuzzy job whose full run failed, launching a new full run', async () => {
+    const job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+      runStatus: 'error',
+    });
+
+    const res = await request(app.getHttpServer()).put(endpoint(job.id)).set('Cookie', [cookieA]);
+
+    expect(res.status).toBe(200);
+    const newRun = await prisma.run.findFirstOrThrow({
+      where: { jobId: job.id, id: { not: job.runs[0].id } },
+    });
+    expect(newRun).toMatchObject({ kind: 'full', status: 'new', ecsTaskArn });
+  });
+
+  // A full run asks IDRS again, so its own send could deliver a submitted
+  // student under a different identity.
+  it.each(['success', 'error'] as const)(
+    'refuses a fuzzy job with a send run that ended in %s, creating no run',
+    async (sendRunStatus) => {
+      const job = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        idMatchingMode: 'fuzzy',
+        runStatus: 'success',
+      });
+      await prisma.run.create({ data: { jobId: job.id, kind: 'send', status: sendRunStatus } });
+
+      const res = await request(app.getHttpServer())
+        .put(endpoint(job.id))
+        .set('Cookie', [cookieA]);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(`Job has send runs: ${job.id}`);
+      expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(2);
+      expect(executorStart).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('PUT /jobs/:id/resolve', () => {
