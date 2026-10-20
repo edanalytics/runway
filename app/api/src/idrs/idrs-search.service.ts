@@ -55,10 +55,12 @@ export class IdrsSearchService {
   constructor(private readonly credentials: IdrsCredentialsService) {}
 
   /**
-   * Returns every match IDRS found. Doesn't log: the caller logs once, with
-   * the job. A failure's `cause` is safe to log: an error name, a status, or
-   * a credentials error as the identity-service callback logs it, never a
-   * response body.
+   * Returns every match IDRS found. Writes no log line of its own: the
+   * controller logs one line per search, with the job and user ids this
+   * service doesn't have. So a failure's `cause` must be safe to log: a short
+   * description, with IDRS's status or the error's name where it helps, or the
+   * credentials service's own error, whose messages name no secrets. Never a
+   * response body, which could quote student data.
    */
   async searchStudent(input: {
     partnerId: string;

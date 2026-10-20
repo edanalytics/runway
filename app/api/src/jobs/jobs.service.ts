@@ -46,10 +46,11 @@ export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
 
 /**
  * Whether a job could load a student IDRS found. With cross-year matching on,
- * it can load any of them: one outside the job's school year is delivered
- * outside the ODS, as cross-year matches are. With it off, only students whose
- * `school_years` include the job's year. Both `school_years` and `endYear`
- * name a school year by its end year (2025 for 2024–25).
+ * it can load any of them: one outside the job's school year is a cross-year
+ * match, which is sideloaded rather than sent to the ODS. With it off, it can
+ * load only students whose `school_years` include the job's year. Both
+ * `school_years` and `endYear` name a school year by its end year (2025 for
+ * 2024–25).
  *
  * The Executor's suggestion filter must apply the same rule. A match an ODS job
  * keeps only through cross-year matching must never be sent to the ODS.
