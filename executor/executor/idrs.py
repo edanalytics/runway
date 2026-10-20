@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import requests
+import os
 from collections.abc import Iterator
 from datetime import datetime
 from dataclasses import dataclass, field, fields, asdict
@@ -216,7 +217,6 @@ class IDRSMatchResult:
     candidate: dict
     matches: list[dict]
     match_type: Literal['auto', 'user_input', 'none']
-    # TODO: Add in school_year and/or sideloading field
 
     @classmethod
     def build_match_result(cls, match_result: dict, candidate: dict, match_threshold: float) -> 'IDRSMatchResult':
@@ -277,9 +277,10 @@ class IDRSMatchResultSet:
             logger.error(f"Issue constructing match results: {e}")
             raise  
 
-    def auto_matched(self) -> dict[str, str]:
+    def auto_matched(self) -> dict[str, dict]:
         '''return a correlation_id <-> student_unique_id lookup for auto-matched records'''
-        auto_matches = {record.correlation_id: record.matches[0]['student_unique_id'] for record in self.records.values() if record.match_type == 'auto'}
+        current_year = int(os.environ['API_YEAR'])
+        auto_matches = {record.correlation_id: {"student_unique_id": record.matches[0]['student_unique_id'], "cross_year_flag": current_year not in record.matches[0].get('school_years') or []} for record in self.records.values() if record.match_type == 'auto'}
         return auto_matches    
 
     def needs_review(self) -> list[dict]:
