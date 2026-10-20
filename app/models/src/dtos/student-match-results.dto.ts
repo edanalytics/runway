@@ -11,8 +11,12 @@ import {
   Matches,
   Max,
   Min,
+  Validate,
   ValidateIf,
   ValidateNested,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
 import {
   StudentInputDetails,
@@ -159,7 +163,7 @@ const POSTGRES_INTEGER_MAX = 2_147_483_647;
 /**
  * Whether a decision is a match resting on the reviewer's search, rather than
  * on a suggestion. Validation requires `search` and `studentUniqueId` exactly
- * when this holds.
+ * when this holds, and refuses them otherwise.
  */
 export const restsOnSearch = (
   o: PostStudentMatchDecisionDto
@@ -168,11 +172,42 @@ export const restsOnSearch = (
   studentUniqueId: string;
 } => o.kind === 'match' && o.search != null;
 
-/** Whether a decision is a match resting on a suggestion. Validation requires `ordinal` exactly when this holds. */
+/**
+ * Whether a decision is a match resting on a suggestion. Validation requires
+ * `ordinal` exactly when this holds, and refuses it and `resultId` otherwise.
+ */
 export const picksSuggestion = (
   o: PostStudentMatchDecisionDto
 ): o is PostStudentMatchDecisionDto & { ordinal: number } =>
   o.kind === 'match' && !restsOnSearch(o);
+
+/** A decision's shape, and the fields it sent that the shape doesn't have. Null is absent. */
+const strayFields = (o: PostStudentMatchDecisionDto) => {
+  const [shape, allowed]: [string, string[]] = restsOnSearch(o)
+    ? ['a match to a search', ['studentUniqueId', 'search']]
+    : picksSuggestion(o)
+    ? ['a match to a suggestion', ['resultId', 'ordinal']]
+    : [o.kind === 'exclude' ? 'an exclude' : 'a clear', []];
+  const stray = (['resultId', 'ordinal', 'studentUniqueId', 'search'] as const).filter(
+    (field) => !allowed.includes(field) && o[field] != null
+  );
+  return { shape, stray };
+};
+
+/** Refuses a decision with stray fields, naming them but never their values, which are student data. */
+@ValidatorConstraint({ name: 'decisionShape' })
+class DecisionShape implements ValidatorConstraintInterface {
+  validate(_: unknown, { object }: ValidationArguments) {
+    const o = object as PostStudentMatchDecisionDto;
+    // An unknown kind has no shape, and is refused by its own check.
+    return !STUDENT_MATCH_DECISION_KINDS.includes(o.kind) || strayFields(o).stray.length === 0;
+  }
+
+  defaultMessage({ object }: ValidationArguments) {
+    const { shape, stray } = strayFields(object as PostStudentMatchDecisionDto);
+    return `${stray.join(', ')} must be absent from ${shape}`;
+  }
+}
 
 /** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
@@ -187,14 +222,19 @@ export class PostStudentMatchDecisionDto {
   @Max(POSTGRES_INTEGER_MAX)
   replacesVersion: number | null;
 
+  /**
+   * Each kind has its own fields, and any other is refused: a match to a
+   * suggestion has `resultId` and `ordinal`, a match to a search
+   * `studentUniqueId` and `search`, and an exclude or a clear none. Null is the
+   * same as absent, as the responses show a suggestion pick's `search`.
+   */
   @IsIn(STUDENT_MATCH_DECISION_KINDS)
+  @Validate(DecisionShape)
   kind: StudentMatchDecisionKind;
 
   /**
-   * The reviewer's search, for a match to a student they found by searching;
-   * ignored otherwise. A match rests on either this or a suggestion: when it's
-   * present, `resultId` and `ordinal` are ignored. Null is the same as absent,
-   * as the responses show a suggestion pick's.
+   * The reviewer's search, for a match to a student they found by searching.
+   * A match rests on either this or a suggestion.
    */
   @ValidateIf(restsOnSearch)
   @IsObject()
@@ -203,8 +243,8 @@ export class PostStudentMatchDecisionDto {
   search?: PostStudentMatchSearchDto | null;
 
   /**
-   * The answer, the student found, for a match to a search; ignored otherwise.
-   * A suggestion pick's answer is the suggestion's student.
+   * The answer, the student found, for a match to a search. A suggestion
+   * pick's answer is the suggestion's student.
    */
   @ValidateIf(restsOnSearch)
   @IsString()
@@ -212,13 +252,13 @@ export class PostStudentMatchDecisionDto {
   studentUniqueId?: string;
 
   /**
-   * The picked suggestion's result, for a match without a search; ignored
-   * otherwise. A BIGINT, so a string. Not validated here: the service checks
+   * The picked suggestion's result, for a match without a search. A BIGINT,
+   * so a string. Only whether it's sent is validated here: the service checks
    * it against the student's own results.
    */
   resultId?: string;
 
-  /** The picked suggestion's position in its result, for a match without a search; ignored otherwise. */
+  /** The picked suggestion's position in its result, for a match without a search. */
   // Checked here because the database would round a fraction to the nearest
   // suggestion and save it.
   @ValidateIf(picksSuggestion)

@@ -318,8 +318,7 @@ export class JobsService {
     }
 
     // What the row stores beside its kind. Only a match has an answer and a
-    // basis. Anything else sent with a decision is ignored: a basis sent with
-    // an exclude or a clear, or a suggestion sent beside a search.
+    // basis, and validation refuses any field the decision's shape doesn't have.
     let columns: DecisionColumns;
     if (restsOnSearch(decision)) {
       // A match to the reviewer's search: the student they found, with the
@@ -332,7 +331,7 @@ export class JobsService {
         rosterDetails: JSON.stringify(decision.search.rosterDetails),
       };
     } else if (picksSuggestion(decision)) {
-      // A match to a suggestion: the suggestion's student, never the client's.
+      // A match to a suggestion: its answer is the suggestion's student.
       const results = student.studentMatchResult;
       const picked = results.find(({ id }) => id.toString() === decision.resultId);
       if (!picked) {
