@@ -835,6 +835,23 @@ export class JobsService {
       include: { job: { include: { schoolYear: true, files: true } } },
     });
 
+    const launch = await this.launchRun(run, prisma);
+    if (launch.status === 'ERROR') {
+      return { result: 'JOB_START_FAILED', job };
+    }
+
+    return { result: 'JOB_STARTED', job, run };
+  }
+
+  /**
+   * Starts the Executor on a run that's already committed, since the Executor
+   * reads the run back from another connection. A failure to start leaves the
+   * run done, in error.
+   */
+  async launchRun(
+    run: Parameters<ExecutorService['start']>[0],
+    prisma: PrismaClient
+  ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; code: 'failed_to_start_executor' }> {
     let startResult: ExecutorStartResult;
     try {
       startResult = await this.executor.start(run);
@@ -860,7 +877,7 @@ export class JobsService {
         },
       });
 
-      return { result: 'JOB_START_FAILED', job, error: e };
+      return { status: 'ERROR', code: 'failed_to_start_executor' };
     }
 
     if (startResult.ecsTaskArn || startResult.taskSize) {
@@ -874,6 +891,6 @@ export class JobsService {
       }
     }
 
-    return { result: 'JOB_STARTED', job, run };
+    return { status: 'SUCCESS' };
   }
 }
