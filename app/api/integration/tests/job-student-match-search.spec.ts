@@ -161,6 +161,23 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       ]);
     });
 
+    // Support users hold every metatenant privilege, so only taking this one
+    // away shows the route names the right one.
+    it('refuses a support user without the metatenant search privilege', async () => {
+      const tenantBJob = await seedReportedJob('fuzzy', {
+        odsConfig: odsConfigB2526,
+        bundle: bundleA,
+        tenant: tenantB,
+      });
+      const { cookies: support } = await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_USER);
+
+      const res = await withoutPrivilege('job.metatenant.match-results.search', () =>
+        search(DETAILS, { jobId: tenantBJob.id, cookie: support })
+      );
+
+      expect(res.status).toBe(403);
+    });
+
     // Search mints a token for the job's partner, so letting a support user
     // through here would hand them another partner's IDRS directory.
     it('refuses a support user a job in another partner’s tenant', async () => {
@@ -191,6 +208,16 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
         expect(fetchSpy).not.toHaveBeenCalled();
       }
     );
+
+    // The body is validated before the mode is checked, so a malformed body
+    // is a 400 in any mode.
+    it('refuses a malformed body as a 400 on a job in id_based mode', async () => {
+      const other = await seedReportedJob('id_based');
+
+      const res = await search({ first_name: 7 }, { jobId: other.id });
+
+      expect(res.status).toBe(400);
+    });
   });
 
   it.each([
@@ -253,14 +280,15 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       expect(JSON.parse(init.body)).toEqual([{ correlation_id: 'corr-1', ...DETAILS }]);
     });
 
+    // A null passes validation as an absent detail does, and IDRS takes it.
     it('searches with only the details the reviewer gave', async () => {
       const fetchSpy = stubIdrs(found([]));
 
-      const res = await search({ last_name: 'Lovelace' });
+      const res = await search({ first_name: null, last_name: 'Lovelace' });
 
       expect(res.status).toBe(200);
       expect(JSON.parse(searchCalls(fetchSpy)[0][1].body)).toEqual([
-        { correlation_id: 'corr-1', last_name: 'Lovelace' },
+        { correlation_id: 'corr-1', first_name: null, last_name: 'Lovelace' },
       ]);
     });
   });

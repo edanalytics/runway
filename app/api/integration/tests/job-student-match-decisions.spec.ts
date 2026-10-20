@@ -169,6 +169,19 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         expect(await rowsOf('corr-1', other.id)).toEqual([]);
       }
     );
+
+    // The body is validated before the mode is checked, so a malformed body
+    // is a 400 in any mode: the shape check lives in the DTO for this.
+    it('refuses a malformed body as a 400 on a job in id_based mode', async () => {
+      const other = await seedReportedJob('id_based');
+
+      const res = await decide(
+        { replacesVersion: null, kind: 'exclude', studentUniqueId: 'SUID-1' },
+        { jobId: other.id }
+      );
+
+      expect(res.status).toBe(400);
+    });
   });
 
   it.each([
@@ -660,7 +673,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       studentUniqueId?: string;
       resultId?: string;
       ordinal?: number;
-      search?: boolean;
+      /** Which of a search's two columns to fill. */
+      search?: 'both' | 'details only' | 'roster only';
     };
     const insert = ({ kind, studentUniqueId, resultId, ordinal, search }: Row) =>
       pool().query(
@@ -675,8 +689,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
           studentUniqueId ?? null,
           resultId ?? null,
           ordinal ?? null,
-          search ? JSON.stringify(SEARCH_DETAILS) : null,
-          search ? JSON.stringify(SEARCH_PICK.search.rosterDetails) : null,
+          search && search !== 'roster only' ? JSON.stringify(SEARCH_DETAILS) : null,
+          search && search !== 'details only'
+            ? JSON.stringify(SEARCH_PICK.search.rosterDetails)
+            : null,
         ]
       );
 
@@ -698,7 +714,16 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ],
       [
         'a match with both a suggestion and a search',
-        () => ({ kind: 'match', studentUniqueId: 'SUID-1', resultId, ordinal: 0, search: true }),
+        () => ({ kind: 'match', studentUniqueId: 'SUID-1', resultId, ordinal: 0, search: 'both' }),
+      ],
+      // The read builds a search from both columns, so neither comes alone.
+      [
+        'a match to a search with no roster details',
+        () => ({ kind: 'match', studentUniqueId: 'SUID-1', search: 'details only' }),
+      ],
+      [
+        'a match to a search with no search details',
+        () => ({ kind: 'match', studentUniqueId: 'SUID-1', search: 'roster only' }),
       ],
       [
         'an exclude with a student unique id',
