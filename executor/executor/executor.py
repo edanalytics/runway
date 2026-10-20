@@ -78,6 +78,7 @@ class JobExecutor:
         shutil.rmtree(config.ROSTER_DOWNLOAD_DIR, ignore_errors=True)
 
         self.output_dir = os.path.abspath(config.OUTPUT_DIR)
+        self.cross_year_dir = os.path.abspath(config.CROSS_YEAR_OUTPUT_DIR)
         os.mkdir(self.output_dir)
         os.environ["DATA_DIR"] = self.output_dir
         os.environ["OUTPUT_DIR"] = self.output_dir
@@ -126,13 +127,14 @@ class JobExecutor:
 
             else:
                 self.earthmover_deps(self.student_id_wrapper_earthmover)
-                self.get_student_roster()
+                
                 self.get_input_files()
                 self.map_descriptors()
 
                 # Conditionally run matching processes based on the job matching mode
                 # id_based is the default matching mode, set in unpack_job
                 if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
+                    self.get_student_roster()
                     # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
                     self.orchestrate_earthmover()
                 if self.id_matching_mode == 'fuzzy':
@@ -200,7 +202,7 @@ class JobExecutor:
             self.send: dict = job.get('send', {})
             self.send_to_ods = job.get("sendToOds", True)
             self.cross_year_match_available = job.get("crossYearMatchAvailable", False)
-            if self.cross_year_match_available:
+            if self.cross_year_match_available and self.id_matching_mode != "fuzzy":
                 self.cross_year_roster_url = job["appUrls"]["roster"]
 
             self.assessment_project = os.path.join(
@@ -216,7 +218,7 @@ class JobExecutor:
             if not self.send_to_ods:
                 self.logger.info("this job is not sending Earthmover output set to an ODS")
                 artifact.LB_SEND_RESULTS.needs_upload = False
-                if not self.cross_year_match_available:
+                if not self.cross_year_match_available and self.id_matching_mode != "fuzzy":
                     # If bypassing the ODS and not pulling from EDU, require that a roster file exists in S3
                     self.roster_file_path = job["rosterFilePath"]
             else:
@@ -640,8 +642,9 @@ class JobExecutor:
         # Archive the active output dir as "pre-candidates". Create a new, empty output dir
         pre_candidates_output_dir = os.path.abspath(config.PRE_CANDIDATES_DIR)
         shutil.rmtree(pre_candidates_output_dir, ignore_errors=True)
-        os.rename(self.output_dir, pre_candidates_output_dir)
-        os.mkdir(self.output_dir)
+        if os.path.exists(self.output_dir):
+            os.rename(self.output_dir, pre_candidates_output_dir)
+        os.makedirs(self.output_dir, exist_ok=True)
 
         # explicitly set our input file to the original input
         os.environ["INPUT_FILE"] = self.original_input_path
@@ -696,26 +699,53 @@ class JobExecutor:
         return result_set
 
     @staticmethod
-    def perform_substitution(path: str, lookup: dict[str, str], student_field: str) -> tuple[list[dict], list[dict]]:
-        '''Given a lookup of verified matches, perform substitution against a given input'''
-        
+    def perform_substitution(path: str, lookup: dict[str, dict], student_field: str) -> tuple[list[dict], list[dict], list[dict]]:
+        '''Given a lookup of verified matches, perform substitution against a given input'''        
         # Loop through a resource at a path and substitute the student_unique_id from the lookup
-        substituted = []
+        ods_substituted = []
+        cross_year_substituted = []
         unsubstituted = []
         with open(path, 'r', encoding='utf-8') as file:
             for line in file:
                 record = (json.loads(line))
-                student_unique_id = record[student_field]['studentUniqueId']
+                student_unique_id = record[student_field]['studentUniqueId'].removeprefix("CANDIDATE_")
                 if student_unique_id in lookup:
-                    record[student_field]['studentUniqueId'] = lookup[student_unique_id]
-                    substituted.append(record)
+                    record[student_field]['studentUniqueId'] = lookup[student_unique_id]['student_unique_id']
+                    if lookup[student_unique_id]['cross_year_flag']:
+                        cross_year_substituted.append(record)
+                    else: ods_substituted.append(record)
                 else:
                     unsubstituted.append(record)
 
         # return our substituted and unsubstituted studentAssessments, to be saved to an appropriate location by the executor
-        return substituted, unsubstituted
+        return ods_substituted, cross_year_substituted, unsubstituted
 
-    def auto_run(self, artifacts_to_substitute: dict[str, tuple[artifact.JobArtifact, artifact.JobArtifact, str]], matches: dict[str, str]) -> None:
+    def route_results(self, output_path: str, ods_substituted: dict, cross_year_substituted: dict, resource_name: str) -> None:
+        if self.send_to_ods:
+            output_json_lines(output_path, ods_substituted)
+            if cross_year_substituted:
+                os.makedirs(self.cross_year_dir, exist_ok=True)
+                output_json_lines(os.path.join(self.cross_year_dir, f"{resource_name}.jsonl"), cross_year_substituted)
+        else:
+            output_json_lines(output_path, ods_substituted + cross_year_substituted)
+
+    def build_output_sets(self) -> None:
+        '''container for OutputSets '''
+        self.output_sets = [OutputSet(
+                    local_dir=self.output_dir,
+                    s3_subdir="ods" if self.send_to_ods else "non-ods",
+                    sent_to_ods=self.send_to_ods,
+                    em_results_path=artifact.CANDIDATES_EM_RESULTS.path,
+                    lb_send_results_path=artifact.LB_SEND_RESULTS.path if self.send_to_ods else None,
+                )]
+        cross_year_dir = os.path.abspath(config.CROSS_YEAR_OUTPUT_DIR)
+        if self.send_to_ods and os.path.isdir(cross_year_dir):
+            self.output_sets.append(OutputSet(
+                local_dir=cross_year_dir, s3_subdir="non-ods", sent_to_ods=False,
+                em_results_path=artifact.CANDIDATES_EM_RESULTS.path,
+            ))
+
+    def auto_run(self, artifacts_to_substitute: dict[str, tuple[artifact.JobArtifact, artifact.JobArtifact, str]], matches: dict[str, dict]) -> None:
         """Substitution method for our auto runs. Preserve original studentAssessments, Substitute match ids for auto matches and preserve unmatched records for future reference."""
 
         for k,v in artifacts_to_substitute.items():
@@ -727,24 +757,23 @@ class JobExecutor:
             self.upload_artifact(v[0])
 
             # Perform substitution
-            substituted, unsubstituted = self.perform_substitution(v[0].path, matches, v[2])
+            ods_substituted, cross_year_substituted, unsubstituted = self.perform_substitution(v[0].path, matches, v[2])
 
             # Write files to relevant dirs
-            output_json_lines(output_path, substituted)
+            self.route_results(output_path, ods_substituted, cross_year_substituted, k)
 
             if unsubstituted:
                 os.makedirs(config.UNMATCHED_DIR, exist_ok=True)
                 output_json_lines(v[1].path, unsubstituted)
                 self.upload_artifact(v[1])
 
-            self.logger.info(f"{len(substituted)} matching records substituted for resource {k}. {len(unsubstituted)} records still need review")
+            self.logger.info(f"{len(ods_substituted)} ODS matching records and {len(cross_year_substituted)} cross-year matching records substituted for resource {k}. {len(unsubstituted)} records still need review")
 
     def send_run(self, artifacts_to_substitute: dict[str, tuple[artifact.JobArtifact, artifact.JobArtifact, str]], matches: list[dict]) -> None:
         """Substitution method for our send runs. Download our unmatched students from the initial run, and perform our substitutions"""
 
         self.set_action(action.SEND_RUN)
-        
-        verified_matches = {s['correlationId']: s['studentUniqueId'] for s in matches}
+        verified_matches = {s['correlationId']: {'student_unique_id': s['studentUniqueId'], 'cross_year_flag': s['crossYearFlag']} for s in matches}
         for k, v in artifacts_to_substitute.items():
             output_path = os.path.join(self.output_dir, f"{k}.jsonl")
             try:
@@ -754,26 +783,20 @@ class JobExecutor:
                 self.s3.download_file(self.app_bucket, f"{self.s3_out_path}/{os.path.basename(source_path)}", source_path)
             
                 # Perform substitution
-                substituted, _ = self.perform_substitution(source_path, verified_matches, v[2])
+                ods_substituted, cross_year_substituted, _ = self.perform_substitution(source_path, verified_matches, v[2])
 
                 # Write files to relevant dirs
-                output_json_lines(output_path, substituted)
+                self.route_results(output_path, ods_substituted, cross_year_substituted, k)
 
-                self.logger.info(f"{len(substituted)} matching records substituted for resource {k}.")
+                # Report
+                self.logger.info(f"{len(ods_substituted)} ODS matching records and {len(cross_year_substituted)} cross-year matching records substituted for resource {k}.")
             except botocore.exceptions.ClientError as e:
                 if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
                     self.logger.info(f"could not download resource {k} -- {e}. Continuing...")
                     continue
                 raise
-
-        self.output_sets = [OutputSet(
-            local_dir=self.output_dir,
-            s3_subdir="ods" if self.send_to_ods else "non-ods",
-            sent_to_ods=self.send_to_ods,
-            em_results_path=artifact.CANDIDATES_EM_RESULTS.path,
-            lb_send_results_path=artifact.LB_SEND_RESULTS.path if self.send_to_ods else None,
-        )]
-
+        self.write_output_sets()
+            
     def run_fuzzy_matching(self):
         """Fuzzy match records by sending candidate metadata to the IDRS API for probabilistic matching"""
         self.match_candidates()
@@ -782,14 +805,8 @@ class JobExecutor:
         result_set = self.create_match_results()
         self.send_student_match_results(result_set.needs_review())
         self.auto_run(artifact.FUZZY_MATCHING, result_set.auto_matched())
-
-        self.output_sets = [OutputSet(
-            local_dir=self.output_dir,
-            s3_subdir="ods" if self.send_to_ods else "non-ods",
-            sent_to_ods=self.send_to_ods,
-            em_results_path=artifact.CANDIDATES_EM_RESULTS.path,
-            lb_send_results_path=artifact.LB_SEND_RESULTS.path if self.send_to_ods else None,
-        )]
+        # TODO: Write auto matched csv and upload artifact
+        self.write_output_sets()
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""
