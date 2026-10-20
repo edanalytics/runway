@@ -391,12 +391,40 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
 
     it('is the latest one: accepts a submit once a re-run succeeds after a failure', async () => {
       const other = await seedReportedJob({ fullRunStatus: 'error' });
-      await prisma.run.create({ data: { jobId: other.id, kind: 'full', status: 'success' } });
       const v1 = await matchSuggestion(other.id, 'corr-1', cookies);
+      const reRun = await prisma.run.create({
+        data: { jobId: other.id, kind: 'full', status: 'success' },
+      });
+      await reportStudents(reRun.id, { 'corr-1': { school_years: [JOB_YEAR] } });
 
       const res = await submit(other.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
 
       expect(res.status).toBe(201);
+    });
+
+    // The re-run's IDRS resolved corr-1 itself, so the re-run has already sent
+    // it, and its files don't hold corr-1 for a send run.
+    it('must have reported the student: refuses, submitting nothing, a match for one it resolved itself', async () => {
+      const other = await seedReportedJob({ fullRunStatus: 'error' });
+      const v1 = await matchSuggestion(other.id, 'corr-1', cookies);
+      const v2 = await matchSuggestion(other.id, 'corr-2', cookies);
+      const reRun = await prisma.run.create({
+        data: { jobId: other.id, kind: 'full', status: 'success' },
+      });
+      await reportStudents(reRun.id, { 'corr-2': { school_years: [JOB_YEAR] } });
+
+      const res = await submit(
+        other.id,
+        [
+          { correlationId: 'corr-1', version: v1 },
+          { correlationId: 'corr-2', version: v2 },
+        ],
+        cookies
+      );
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(NOT_READY);
+      expect(await sendRunsOf(other.id)).toEqual([]);
     });
   });
 
