@@ -381,20 +381,21 @@ export class JobsService {
       columns = noAnswerOrBasis;
     }
 
-    const outcome = await prisma.$transaction(async (tx) => {
-      // Waits out a submit in progress, which locks the job row to update, so
-      // the insert sees any send run it committed. Decisions don't block each
-      // other: the primary key settles a race between them.
-      await tx.$executeRaw`SELECT id FROM public.job WHERE id = ${jobId}::int FOR SHARE`;
+    const outcome = await prisma.$transaction(
+      async (tx) => {
+        // Waits out a submit in progress, which locks the job row to update, so
+        // the insert sees any send run it committed. Decisions don't block each
+        // other: the primary key settles a race between them.
+        await tx.$executeRaw`SELECT id FROM public.job WHERE id = ${jobId}::int FOR SHARE`;
 
-      // Writes the row after the student's latest, if the caller saw what's
-      // current: that latest row for a version, or no decision (no rows, or a
-      // clear) for null. A clear needs a decision to clear. A submitted
-      // student takes no new decision: every send of a student delivers the
-      // same decision row.
-      // Two racing writes compute the same seq, so the loser collides with
-      // the winner on the primary key and does nothing.
-      const rows = await tx.$queryRaw<{ seq: number }[]>`
+        // Writes the row after the student's latest, if the caller saw what's
+        // current: that latest row for a version, or no decision (no rows, or a
+        // clear) for null. A clear needs a decision to clear. A submitted
+        // student takes no new decision: every send of a student delivers the
+        // same decision row.
+        // Two racing writes compute the same seq, so the loser collides with
+        // the winner on the primary key and does nothing.
+        const rows = await tx.$queryRaw<{ seq: number }[]>`
         INSERT INTO public.student_match_decision
           (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
            search_details, roster_details, decided_by_id)
@@ -422,18 +423,22 @@ export class JobsService {
         ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
         RETURNING seq
       `;
-      if (rows.length > 0) {
-        return { status: 'SUCCESS', seq: rows[0].seq } as const;
-      }
-      const submitted = await tx.sendRunDecision.findFirst({
-        where: { jobId, correlationId },
-        select: { runId: true },
-      });
-      return {
-        status: 'ERROR',
-        code: submitted ? 'already_submitted' : 'decision_changed',
-      } as const;
-    });
+        if (rows.length > 0) {
+          return { status: 'SUCCESS', seq: rows[0].seq } as const;
+        }
+        const submitted = await tx.sendRunDecision.findFirst({
+          where: { jobId, correlationId },
+          select: { runId: true },
+        });
+        return {
+          status: 'ERROR',
+          code: submitted ? 'already_submitted' : 'decision_changed',
+        } as const;
+      },
+      // Each statement sees what committed before it, so the insert sees a
+      // send run committed while this transaction waited at the lock.
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted }
+    );
     if (outcome.status === 'ERROR') {
       return outcome;
     }
@@ -865,8 +870,9 @@ export class JobsService {
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      // Every writer of a job's runs or decisions takes this lock first, so
-      // a full run can't start while matches are being submitted.
+      // Everything that creates a job's runs or writes its decisions takes
+      // this lock first, so a full run can't start while matches are being
+      // submitted.
       await tx.$executeRaw`SELECT id FROM job WHERE id = ${job.id} FOR NO KEY UPDATE`;
 
       const runs = await tx.run.findMany({ where: { jobId: job.id } });

@@ -43,8 +43,9 @@ export class StudentMatchSubmitService {
 
     const outcome = await prisma.$transaction(
       async (tx) => {
-        // Every writer of the job's runs or decisions takes this lock first,
-        // so nothing these checks rely on changes before commit. Not FOR
+        // Everything that creates the job's runs or writes its decisions takes
+        // this lock first, so nothing these checks rely on changes before
+        // commit. Not FOR
         // UPDATE, which would also block inserts that reference the job, such
         // as ingestion's.
         await tx.$executeRaw`SELECT id FROM public.job WHERE id = ${jobId} FOR NO KEY UPDATE`;
