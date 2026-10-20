@@ -11,6 +11,7 @@ import { authHelper } from '../helpers/oidc/auth-flow';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { withoutPrivilege } from '../helpers/without-privilege';
 import { pool } from '../helpers/db/client';
+import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () => {
   const PARTNER_ADMIN = ['runway.test.user', 'runway.test.partneradmin'];
@@ -769,18 +770,3 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     }
   });
 });
-
-/** Waits until a session is blocked waiting on the given database backend. */
-const waitUntilBlockedBy = async (pid: number) => {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const { rowCount } = await pool().query(
-      'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
-      [pid]
-    );
-    if (rowCount) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`Nothing waited on backend ${pid}`);
-};
