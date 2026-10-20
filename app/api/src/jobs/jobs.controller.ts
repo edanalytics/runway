@@ -424,6 +424,12 @@ export class JobsController {
             code,
             message: 'This student has newer suggestions than the page shows.',
           });
+        case 'already_submitted':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'This student’s match has been submitted.',
+          });
         default: {
           const unhandled: never = code;
           throw new InternalServerErrorException(`Unhandled decision outcome: ${unhandled}`);

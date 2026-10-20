@@ -302,7 +302,12 @@ export class JobsService {
       }
     | {
         status: 'ERROR';
-        code: 'not_found' | 'decision_changed' | 'results_changed' | 'invalid_target';
+        code:
+          | 'not_found'
+          | 'decision_changed'
+          | 'already_submitted'
+          | 'results_changed'
+          | 'invalid_target';
       }
   > {
     const { jobId, correlationId, userId, decision } = input;
@@ -376,41 +381,65 @@ export class JobsService {
       columns = noAnswerOrBasis;
     }
 
-    // Writes the row after the student's latest, if the caller saw what's
-    // current: that latest row for a version, or no decision (no rows, or a
-    // clear) for null. A clear needs a decision to clear.
-    // Two racing writes compute the same seq, so the loser collides with
-    // the winner on the primary key and does nothing.
-    const inserted = await prisma.$queryRaw<{ seq: number }[]>`
-      INSERT INTO public.student_match_decision
-        (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
-         search_details, roster_details, decided_by_id)
-      SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
-             ${kind}::public.student_match_decision_kind, ${columns.studentUniqueId},
-             ${columns.resultId}::bigint, ${columns.ordinal}::int,
-             ${columns.searchDetails}::jsonb, ${columns.rosterDetails}::jsonb,
-             ${userId}::int
-      FROM (SELECT 1) AS one
-      LEFT JOIN LATERAL (
-        SELECT seq, kind FROM public.student_match_decision
-        WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
-        ORDER BY seq DESC
-        LIMIT 1
-      ) latest ON true
-      WHERE CASE
-        WHEN ${replacesVersion}::int IS NULL
-          THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
-        ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
-      END
-      ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
-      RETURNING seq
-    `;
-    if (inserted.length === 0) {
-      return { status: 'ERROR', code: 'decision_changed' };
+    const outcome = await prisma.$transaction(async (tx) => {
+      // Waits out a submit in progress, which locks the job row to update, so
+      // the insert sees any send run it committed. Decisions don't block each
+      // other: the primary key settles a race between them.
+      await tx.$executeRaw`SELECT id FROM public.job WHERE id = ${jobId}::int FOR SHARE`;
+
+      // Writes the row after the student's latest, if the caller saw what's
+      // current: that latest row for a version, or no decision (no rows, or a
+      // clear) for null. A clear needs a decision to clear. A submitted
+      // student takes no new decision: every send of a student delivers the
+      // same decision row.
+      // Two racing writes compute the same seq, so the loser collides with
+      // the winner on the primary key and does nothing.
+      const rows = await tx.$queryRaw<{ seq: number }[]>`
+        INSERT INTO public.student_match_decision
+          (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
+           search_details, roster_details, decided_by_id)
+        SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
+               ${kind}::public.student_match_decision_kind, ${columns.studentUniqueId},
+               ${columns.resultId}::bigint, ${columns.ordinal}::int,
+               ${columns.searchDetails}::jsonb, ${columns.rosterDetails}::jsonb,
+               ${userId}::int
+        FROM (SELECT 1) AS one
+        LEFT JOIN LATERAL (
+          SELECT seq, kind FROM public.student_match_decision
+          WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
+          ORDER BY seq DESC
+          LIMIT 1
+        ) latest ON true
+        WHERE CASE
+          WHEN ${replacesVersion}::int IS NULL
+            THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
+          ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
+        END
+        AND NOT EXISTS (
+          SELECT 1 FROM public.send_run_decision s
+          WHERE s.job_id = ${jobId}::int AND s.correlation_id = ${correlationId}
+        )
+        ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
+        RETURNING seq
+      `;
+      if (rows.length > 0) {
+        return { status: 'SUCCESS', seq: rows[0].seq } as const;
+      }
+      const submitted = await tx.sendRunDecision.findFirst({
+        where: { jobId, correlationId },
+        select: { runId: true },
+      });
+      return {
+        status: 'ERROR',
+        code: submitted ? 'already_submitted' : 'decision_changed',
+      } as const;
+    });
+    if (outcome.status === 'ERROR') {
+      return outcome;
     }
 
     const row = await prisma.studentMatchDecision.findUniqueOrThrow({
-      where: { jobId_correlationId_seq: { jobId, correlationId, seq: inserted[0].seq } },
+      where: { jobId_correlationId_seq: { jobId, correlationId, seq: outcome.seq } },
       include: { user: true },
     });
     return { status: 'SUCCESS', data: { decision: toStudentMatchDecision(row) } };
