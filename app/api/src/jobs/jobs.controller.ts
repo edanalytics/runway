@@ -276,7 +276,7 @@ export class JobsController {
       // responses: a separate cleanup.
       return toGetJobDto({
         ...updatedJob,
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
+        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0, reprocessing: 0 },
       });
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);

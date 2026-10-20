@@ -135,6 +135,7 @@ const noStudentsToMatch: GetStudentMatchCountsDto = {
   toReview: 0,
   ready: 0,
   excluded: 0,
+  reprocessing: 0,
 };
 
 @Injectable()
@@ -183,16 +184,29 @@ export class JobsService {
   ): Promise<Map<Job['id'], GetStudentMatchCountsDto>> {
     // Keep the statuses in step with studentMatchStatus.
     const rows = await prisma.$queryRaw<
-      { job_id: number; total: bigint; to_review: bigint; ready: bigint; excluded: bigint }[]
+      {
+        job_id: number;
+        total: bigint;
+        to_review: bigint;
+        ready: bigint;
+        excluded: bigint;
+        reprocessing: bigint;
+      }[]
     >`
       SELECT i.job_id,
              count(*) AS total,
              count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
-             count(*) FILTER (WHERE d.kind = 'match') AS ready,
-             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded
+             count(*) FILTER (WHERE d.kind = 'match' AND NOT d.submitted) AS ready,
+             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.submitted) AS reprocessing
       FROM public.student_input_details i
       LEFT JOIN LATERAL (
-        SELECT kind FROM public.student_match_decision d
+        SELECT kind, EXISTS (
+                 SELECT 1 FROM public.send_run_decision s
+                 WHERE s.job_id = d.job_id AND s.correlation_id = d.correlation_id
+                   AND s.seq = d.seq
+               ) AS submitted
+        FROM public.student_match_decision d
         WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
         ORDER BY d.seq DESC
         LIMIT 1
@@ -208,6 +222,7 @@ export class JobsService {
           toReview: Number(row.to_review),
           ready: Number(row.ready),
           excluded: Number(row.excluded),
+          reprocessing: Number(row.reprocessing),
         },
       ])
     );
@@ -243,7 +258,11 @@ export class JobsService {
           // means nothing to a reviewer.
           orderBy: { correlationId: 'asc' },
           include: {
-            studentMatchDecision: { orderBy: { seq: 'desc' }, take: 1, include: { user: true } },
+            studentMatchDecision: {
+              orderBy: { seq: 'desc' },
+              take: 1,
+              include: { user: true, _count: { select: { sendRunDecision: true } } },
+            },
             studentMatchResult: {
               orderBy: { runId: 'asc' },
               include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
@@ -256,9 +275,10 @@ export class JobsService {
           // results and suggestions.
           students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
             const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
+            const submitted = (latest?._count.sendRunDecision ?? 0) > 0;
             return {
               ...input,
-              status: studentMatchStatus(latest?.kind),
+              status: studentMatchStatus(latest?.kind, submitted),
               decision: latest ? toStudentMatchDecision(latest) : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
