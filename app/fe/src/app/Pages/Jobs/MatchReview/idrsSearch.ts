@@ -1,10 +1,11 @@
 import {
-  GetStudentSearchResultsDto,
+  GetIdrsStudentDto,
   StudentInputDetailsJson,
   StudentRosterDetailsJson,
   StudentSearchDetailsDto,
 } from '@edanalytics/models';
-import { methods } from '../../../api/methods';
+import { instanceToPlain, plainToInstance } from 'class-transformer';
+import { apiClient } from '../../../api/methods';
 import { compare } from './compare';
 
 /*
@@ -49,18 +50,19 @@ export const searchIdrs = async (
   correlationId: string,
   searchDetails: StudentSearchDetailsDto
 ): Promise<SearchHit[]> => {
-  const { hits } = await methods.post(
+  // The response is a bare array, which `methods.post` doesn't type.
+  const res = (await apiClient.post(
     `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}/search`,
-    StudentSearchDetailsDto,
-    GetStudentSearchResultsDto,
-    searchDetails
+    instanceToPlain(plainToInstance(StudentSearchDetailsDto, searchDetails))
+  )) as unknown as object[];
+  return plainToInstance(GetIdrsStudentDto, res).map(
+    ({ studentUniqueId, score, rosterDetails }) => ({
+      studentUniqueId,
+      score,
+      rosterDetails,
+      searchDetails,
+    })
   );
-  return hits.map(({ studentUniqueId, score, rosterDetails }) => ({
-    studentUniqueId,
-    score,
-    rosterDetails,
-    searchDetails,
-  }));
 };
 
 const text = (value: unknown) => (typeof value === 'string' && value ? value : null);
