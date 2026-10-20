@@ -28,7 +28,7 @@ import {
 import { FileService } from 'api/src/files/file.service';
 import { rosterFileKey } from 'api/src/earthbeam/roster-path';
 import { AppConfigService } from 'api/src/config/app-config.service';
-import { groupBy, mapValues } from 'lodash';
+import { groupBy, mapValues, uniq } from 'lodash';
 import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
@@ -274,9 +274,23 @@ export class EarthbeamApiService {
       },
     });
 
-    // Save output files
-    const basePath = `${run.job.fileBasePath}/output/`;
-    const outputFiles = await this.fileService.listFilesAtPath(basePath);
+    // Save output files. A full run's are what's in the job's output
+    // directory. A send run writes where the Executor chooses, so its files
+    // are exactly those in the output sets it posted. They're named by their
+    // key within the job's directory, since a set may be outside output/:
+    // keys are unique, so names are too, and a file in two nested sets is
+    // recorded once.
+    let outputFiles: { key: string; name: string }[];
+    if (run.kind === 'full') {
+      outputFiles = await this.fileService.listFilesAtPath(`${run.job.fileBasePath}/output/`);
+    } else {
+      const outputFileSets = await prisma.runOutputFileSet.findMany({ where: { runId } });
+      const keys = uniq(
+        outputFileSets.flatMap(({ path, files }) => files.map((file) => `${path}/${file}`))
+      );
+      const jobDirectory = `${run.job.fileBasePath}/`;
+      outputFiles = keys.map((key) => ({ key, name: key.slice(jobDirectory.length) }));
+    }
     if (outputFiles.length > 0) {
       await prisma.runOutputFile.createMany({
         data: outputFiles.map((file) => ({
