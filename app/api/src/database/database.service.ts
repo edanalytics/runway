@@ -79,6 +79,13 @@ export const providePrismaReadonly = {
   },
 };
 
+// $transaction's two forms: an array of operations, or a function given an
+// interactive transaction.
+type TransactionArg =
+  | Prisma.PrismaPromise<unknown>[]
+  | ((tx: Prisma.TransactionClient) => Promise<unknown>);
+type TransactionOptions = Parameters<PrismaClient['$transaction']>[1];
+
 export const providePrismaWrite = {
   scope: Scope.REQUEST,
   inject: [PRISMA_ANONYMOUS, REQUEST],
@@ -88,39 +95,61 @@ export const providePrismaWrite = {
 
     if ('user' in request && request.user) {
       const session = request.user;
-      const addUserContextExt = Prisma.defineExtension((prisma) =>
-        prisma.$extends({
+      const addUserContextExt = Prisma.defineExtension((prisma) => {
+        // Local to the transaction it runs in.
+        const setUser = (client: Pick<PrismaClient, '$executeRaw'>) => client.$executeRaw`
+          SELECT
+            set_config('app.current_user_id', ${String(session.user.id)}, true),
+            set_config('app.current_user_username', ${session.user.email}, true)`;
+        return prisma.$extends({
+          client: {
+            // Each operation below runs in its own transaction, which can't
+            // join an interactive one. So an interactive transaction runs on
+            // the underlying client, and sets the user once, at its start.
+            $transaction(arg: TransactionArg, options?: TransactionOptions) {
+              if (typeof arg !== 'function') {
+                return prisma.$transaction(arg, options);
+              }
+              return prisma.$transaction(async (tx) => {
+                await setUser(tx);
+                return arg(tx as Prisma.TransactionClient);
+              }, options);
+            },
+          },
           query: {
             async $allOperations({ args, query }) {
-              const [, result] = await prisma.$transaction([
-                prisma.$executeRaw`
-                  SELECT
-                    set_config('app.current_user_id', ${String(session.user.id)}, true),
-                    set_config('app.current_user_username', ${session.user.email}, true)`,
-                query(args),
-              ]);
+              const [, result] = await prisma.$transaction([setUser(prisma), query(args)]);
               return result;
             },
           },
-        })
-      );
-      extendedClient = prismaAnon.$extends(addUserContextExt) as PrismaClient;
+        });
+      });
+      extendedClient = prismaAnon.$extends(addUserContextExt) as unknown as PrismaClient;
     } else {
+      const refuse = (): never => {
+        logger.error('DB interaction misconfigured to use authenticated client in public route.');
+        throw new CustomServerErrorException('Trouble connecting to the database');
+      };
       const disallowAnonymousWritesExt = Prisma.defineExtension((prisma) =>
         prisma.$extends({
+          client: {
+            async $transaction(arg: TransactionArg, options?: TransactionOptions) {
+              if (typeof arg === 'function') {
+                return refuse();
+              }
+              return prisma.$transaction(arg, options);
+            },
+          },
           query: {
             $allModels: {
               $allOperations() {
-                logger.error(
-                  'DB interaction misconfigured to use authenticated client in public route.'
-                );
-                throw new CustomServerErrorException('Trouble connecting to the database');
+                return refuse();
               },
             },
           },
         })
       );
-      extendedClient = prismaAnon.$extends(disallowAnonymousWritesExt) as PrismaClient;
+      extendedClient = prismaAnon.$extends(disallowAnonymousWritesExt) as unknown as PrismaClient;
     }
     return extendedClient;
   },
