@@ -3,6 +3,7 @@ import {
   GetJobTemplateDto,
   JobInputParamDto,
   getResourceErrors,
+  schoolYearsOf,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
@@ -155,10 +156,54 @@ export class EarthbeamApiService {
     // Pure fuzzy does no roster matching at all, so neither roster source is
     // handed over. id_based_fuzzy_background still needs them.
     const usesIdBasedMatching = idMatchingMode !== 'fuzzy';
-    // Share identity service only if the executor needs it
-    const needsIdentityService = idMatchingMode !== 'id_based';
+    // Share identity service only if the executor needs it. A send run
+    // matches no one: it delivers the answers of exactly its recorded
+    // decisions.
+    const needsIdentityService = run.kind === 'full' && idMatchingMode !== 'id_based';
+
+    let send: EarthbeamApiJobResponseDto['send'];
+    if (run.kind === 'send') {
+      const sendRunDecisions = await this.prisma.sendRunDecision.findMany({
+        where: { runId },
+        orderBy: { correlationId: 'asc' },
+        select: {
+          correlationId: true,
+          studentMatchDecision: {
+            select: {
+              studentUniqueId: true,
+              rosterDetails: true,
+              studentMatchSuggestion: { select: { rosterDetails: true } },
+            },
+          },
+        },
+      });
+      const students = [];
+      for (const { correlationId, studentMatchDecision: decision } of sendRunDecisions) {
+        // A match has exactly one basis (037's check): a suggestion, or a
+        // search with its own roster details.
+        const schoolYears = schoolYearsOf(
+          decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails ?? {}
+        );
+        // Submit refuses such a match, so this is only a backstop.
+        if (schoolYears === null) {
+          return {
+            status: 'ERROR',
+            type: 'server_error',
+            message: 'A send run’s decision has missing or malformed school_years',
+          };
+        }
+        students.push({
+          correlationId,
+          // Submit records only matches, and every match has an answer (037's check).
+          studentUniqueId: decision.studentUniqueId!,
+          inJobYear: schoolYears.includes(job.schoolYear.endYear),
+        });
+      }
+      send = { runId, students };
+    }
 
     const payload: EarthbeamApiJobResponseDto = {
+      runType: run.kind,
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
       inputParams: paramsForEarthbeam,
@@ -190,6 +235,7 @@ export class EarthbeamApiService {
       },
       crossYearMatchAvailable,
       idMatchingMode,
+      send,
       sendToOds: job.sendToOds,
       // When cross-year matching is available, the executor pulls the roster
       // from EDU via appUrls.roster, so the S3 file path would be a dangling
