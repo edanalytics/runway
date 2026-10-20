@@ -43,7 +43,7 @@ import {
   toGetRunUpdateDto,
   toGetStudentMatchBatchesDto,
   toGetStudentMatchResultsDto,
-  toGetStudentSearchResultsDto,
+  toGetIdrsStudentDto,
   toJobErrorWrapperDto,
   toPostStudentMatchBatchResponseDto,
   toPostStudentMatchDecisionResponseDto,
@@ -453,7 +453,7 @@ export class JobsController {
       correlationId,
       details,
     });
-    // Ids, counts and safe causes only: no search terms, hits or correlation id.
+    // Ids, counts and safe causes only: no search terms, students or correlation id.
     // The user id records who looked students up.
     const logLine = `student match search: jobId=${jobId} partnerId=${req.job.partnerId} userId=${
       session.user.id
@@ -462,9 +462,9 @@ export class JobsController {
 
     if (result.status === 'SUCCESS') {
       this.logger.log(
-        `${logLine} hits=${result.data.returned} kept=${result.data.hits.length} durationMs=${durationMs}`
+        `${logLine} found=${result.data.found} kept=${result.data.students.length} durationMs=${durationMs}`
       );
-      return toGetStudentSearchResultsDto({ hits: result.data.hits });
+      return toGetIdrsStudentDto(result.data.students);
     }
     const { code } = result;
     switch (code) {

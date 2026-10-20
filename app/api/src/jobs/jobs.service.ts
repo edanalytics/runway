@@ -1,9 +1,10 @@
 import {
   EarthmoverBundleTypes,
   GetStudentMatchCountsDto,
-  GetStudentSearchHitDto,
+  GetIdrsStudentDto,
   JobInputParamDto,
   JsonArray,
+  picksSuggestion,
   pickStudentSearchDetails,
   PostStudentMatchBatchStudentDto,
   PostStudentMatchDecisionDto,
@@ -48,20 +49,21 @@ export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
 
 /**
  * Whether a job could load a student IDRS found. With cross-year matching on,
- * any student IDRS knows can be, outside the ODS as cross-year matches are;
- * otherwise only one in the job's school year. `school_years` holds Ed-Fi
- * school years, which are end years, like `endYear`.
+ * it can load any of them: one outside the job's school year is delivered
+ * outside the ODS, as cross-year matches are. With it off, only students whose
+ * `school_years` include the job's year. Both `school_years` and `endYear`
+ * name a school year by its end year (2025 for 2024–25).
  *
  * The Executor's suggestion filter must apply the same rule. A match an ODS job
  * keeps only through cross-year matching must never be sent to the ODS.
  */
-export const isLoadableSearchHit = (
-  hit: { school_years?: unknown },
+export const isLoadableStudent = (
+  student: { school_years?: unknown },
   endYear: number,
   crossYearMatchingEnabled: boolean
 ) =>
   crossYearMatchingEnabled ||
-  (Array.isArray(hit.school_years) && hit.school_years.includes(endYear));
+  (Array.isArray(student.school_years) && student.school_years.includes(endYear));
 
 /**
  * A decision row as the API shows it: none for a clear, and a search basis's
@@ -84,6 +86,50 @@ const toStudentMatchDecision = ({
     search:
       searchDetails !== null && rosterDetails !== null ? { searchDetails, rosterDetails } : null,
   };
+};
+
+/** An exclude or a clear: nothing beside its kind. */
+type NoAnswerColumns = {
+  studentUniqueId: null;
+  resultId: null;
+  ordinal: null;
+  searchDetails: null;
+  rosterDetails: null;
+};
+
+/** A match to a suggestion: its answer, and the suggestion it picked. */
+type SuggestionMatchColumns = {
+  studentUniqueId: string;
+  resultId: bigint;
+  ordinal: number;
+  searchDetails: null;
+  rosterDetails: null;
+};
+
+/** A match to a search: its answer, and the search. */
+type SearchMatchColumns = {
+  studentUniqueId: string;
+  resultId: null;
+  ordinal: null;
+  // JSON text, for the insert's ::jsonb casts. Prisma would bind an object as
+  // JSON itself, but an array as a PostgreSQL array, so text doesn't depend on
+  // how it binds a value.
+  searchDetails: string;
+  rosterDetails: string;
+};
+
+/**
+ * What a decision row stores beside its kind: a match's answer, the student
+ * unique id, and exactly one basis. The table's check enforces the same sets.
+ */
+type DecisionColumns = NoAnswerColumns | SuggestionMatchColumns | SearchMatchColumns;
+
+const noAnswerOrBasis: NoAnswerColumns = {
+  studentUniqueId: null,
+  resultId: null,
+  ordinal: null,
+  searchDetails: null,
+  rosterDetails: null,
 };
 
 const noStudentsToMatch: GetStudentMatchCountsDto = {
@@ -268,66 +314,76 @@ export class JobsService {
         code: 'not_found' | 'decision_changed' | 'results_changed' | 'invalid_target';
       }
   > {
-    const { jobId, correlationId, userId } = input;
-    const { replacesVersion, kind } = input.decision;
-    // Only a match has a basis, either the reviewer's own search or a
-    // suggestion. A basis sent with anything else is ignored, as is a
-    // suggestion sent beside a search.
-    const search = restsOnSearch(input.decision) ? input.decision.search : undefined;
-    const picksSuggestion = kind === 'match' && !search;
-    const { resultId = null, ordinal = null } = picksSuggestion ? input.decision : {};
-    const searchBasis = search && {
-      // Exactly what the search route sends IDRS for these details.
-      searchDetails: JSON.stringify(pickStudentSearchDetails(search.searchDetails)),
-      rosterDetails: JSON.stringify(search.rosterDetails),
-    };
+    const { jobId, correlationId, userId, decision } = input;
+    const { replacesVersion, kind } = decision;
 
     // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
-    // would fail on it with a 500.
+    // would fail on it with a 500. An app-wide check on route parameters
+    // should replace this ad hoc one.
     if (correlationId.includes('\0')) {
       return { status: 'ERROR', code: 'not_found' };
     }
 
     const student = await prisma.studentInputDetails.findUnique({
       where: { jobId_correlationId: { jobId, correlationId } },
-      select: { studentMatchResult: { select: { id: true }, orderBy: { runId: 'desc' } } },
+      select: {
+        // Latest first. A suggestion pick reads its student from these.
+        studentMatchResult: {
+          select: {
+            id: true,
+            studentMatchSuggestion: { select: { ordinal: true, studentUniqueId: true } },
+          },
+          orderBy: { runId: 'desc' },
+        },
+      },
     });
     if (!student) {
       return { status: 'ERROR', code: 'not_found' };
     }
 
-    let suggestion: { studentUniqueId: string } | null = null;
-    if (picksSuggestion) {
-      const resultIds = student.studentMatchResult.map(({ id }) => id.toString());
-      if (!resultIds.includes(resultId!)) {
+    // What the row stores beside its kind. Only a match has an answer and a
+    // basis, and validation refuses any field the decision's shape doesn't have.
+    let columns: DecisionColumns;
+    if (restsOnSearch(decision)) {
+      // A match to the reviewer's search: the student they found, with the
+      // details they searched with and the student as they saw them.
+      columns = {
+        ...noAnswerOrBasis,
+        studentUniqueId: decision.studentUniqueId,
+        // Exactly what the search route sends IDRS for these details.
+        searchDetails: JSON.stringify(pickStudentSearchDetails(decision.search.searchDetails)),
+        rosterDetails: JSON.stringify(decision.search.rosterDetails),
+      };
+    } else if (picksSuggestion(decision)) {
+      // A match to a suggestion: its answer is the suggestion's student.
+      const results = student.studentMatchResult;
+      const picked = results.find(({ id }) => id.toString() === decision.resultId);
+      if (!picked) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
       // Reviewers pick from the latest result. A pick from an earlier one
       // means the page predates it. Checked before the insert rather than in
       // it: a result landing in between is harmless, since new results never
       // invalidate a decision already made.
-      if (resultIds[0] !== resultId) {
+      if (picked !== results[0]) {
         return { status: 'ERROR', code: 'results_changed' };
       }
-      // Suggestions never change, so this can't go stale before the insert.
-      suggestion = await prisma.studentMatchSuggestion.findUnique({
-        where: {
-          resultId_ordinal: {
-            resultId: student.studentMatchResult[0].id,
-            // The DTO requires an ordinal for a suggestion pick.
-            ordinal: ordinal!,
-          },
-        },
-        select: { studentUniqueId: true },
-      });
+      const suggestion = picked.studentMatchSuggestion.find(
+        ({ ordinal }) => ordinal === decision.ordinal
+      );
       if (!suggestion) {
         return { status: 'ERROR', code: 'invalid_target' };
       }
+      columns = {
+        ...noAnswerOrBasis,
+        studentUniqueId: suggestion.studentUniqueId,
+        resultId: picked.id,
+        ordinal: suggestion.ordinal,
+      };
+    } else {
+      // An exclude or a clear.
+      columns = noAnswerOrBasis;
     }
-    // The answer: the student the reviewer found, or the picked suggestion's.
-    const studentUniqueId = search
-      ? input.decision.studentUniqueId
-      : suggestion?.studentUniqueId ?? null;
 
     // Writes the row after the student's latest, if the caller saw what's
     // current: that latest row for a version, or no decision (no rows, or a
@@ -345,10 +401,9 @@ export class JobsService {
         (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
          search_details, roster_details, decided_by_id)
       SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
-             ${kind}::public.student_match_decision_kind, ${studentUniqueId},
-             ${resultId}::bigint, ${ordinal}::int,
-             ${searchBasis?.searchDetails ?? null}::jsonb,
-             ${searchBasis?.rosterDetails ?? null}::jsonb,
+             ${kind}::public.student_match_decision_kind, ${columns.studentUniqueId},
+             ${columns.resultId}::bigint, ${columns.ordinal}::int,
+             ${columns.searchDetails}::jsonb, ${columns.rosterDetails}::jsonb,
              ${userId}::int
       FROM (SELECT 1) AS one
       LEFT JOIN LATERAL (
@@ -550,7 +605,7 @@ export class JobsService {
 
   /**
    * Searches IDRS for a student with a reviewer's details, and returns the
-   * students the job could load. `returned` is how many IDRS found, for the
+   * students the job could load. `found` is how many IDRS returned, for the
    * log only.
    */
   async searchStudentMatch(input: {
@@ -561,8 +616,8 @@ export class JobsService {
     | {
         status: 'SUCCESS';
         data: {
-          hits: GetStudentSearchHitDto[];
-          returned: number;
+          students: GetIdrsStudentDto[];
+          found: number;
         };
       }
     | { status: 'ERROR'; code: 'not_found' }
@@ -571,7 +626,8 @@ export class JobsService {
     const { job, correlationId } = input;
 
     // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
-    // would fail on it with a 500.
+    // would fail on it with a 500. An app-wide check on route parameters
+    // should replace this ad hoc one.
     if (correlationId.includes('\0')) {
       return { status: 'ERROR', code: 'not_found' };
     }
@@ -605,14 +661,14 @@ export class JobsService {
       return result;
     }
 
-    const hits = result.data
-      .filter((match) => isLoadableSearchHit(match, endYear, crossYearMatchingEnabled))
+    const students = result.data
+      .filter((match) => isLoadableStudent(match, endYear, crossYearMatchingEnabled))
       .map(({ student_unique_id, score, ...rosterDetails }) => ({
         studentUniqueId: student_unique_id,
         score,
         rosterDetails,
       }));
-    return { status: 'SUCCESS', data: { hits, returned: result.data.length } };
+    return { status: 'SUCCESS', data: { students, found: result.data.length } };
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<

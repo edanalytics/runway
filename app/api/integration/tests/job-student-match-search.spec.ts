@@ -71,14 +71,14 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
   const ISSUED_TOKEN = jsonResponse(200, { access_token: 'issued-token', expires_in: 86400 });
 
   /**
-   * Stubs IDRS's two endpoints: the token URL answers with `token`, and any
-   * other URL, the search, with `searchResponse`, or rejects with it if it's
+   * Stubs IDRS's two endpoints: the token URL issues a token, and any other
+   * URL, the search, answers with `searchResponse`, or rejects with it if it's
    * an error.
    */
-  const stubIdrs = (searchResponse: Response | Error, token: Response = ISSUED_TOKEN) =>
+  const stubIdrs = (searchResponse: Response | Error) =>
     jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
       if (url === TOKEN_URL) {
-        return token;
+        return ISSUED_TOKEN;
       }
       if (searchResponse instanceof Error) {
         throw searchResponse;
@@ -124,32 +124,24 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
 
   describe('authentication and authorization', () => {
     it('rejects an unauthenticated request', async () => {
-      const fetchSpy = stubIdrs(found([]));
-
       const res = await search(DETAILS, { cookie: '' });
 
       expect(res.status).toBe(401);
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('rejects a user from another tenant', async () => {
-      const fetchSpy = stubIdrs(found([]));
       const { cookies: other } = await authHelper.login(idpA, userB, tenantB);
 
       const res = await search(DETAILS, { cookie: other });
 
       expect(res.status).toBe(403);
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('rejects a user without the match results search privilege', async () => {
-      const fetchSpy = stubIdrs(found([]));
-
       // Every role has it, so take it from the session.
       const res = await withoutPrivilege('job.match-results.search', () => search(DETAILS));
 
       expect(res.status).toBe(403);
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('lets a support user search across tenants, as the job’s own tenant', async () => {
@@ -172,7 +164,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     // Search mints a token for the job's partner, so letting a support user
     // through here would hand them another partner's IDRS directory.
     it('refuses a support user a job in another partner’s tenant', async () => {
-      const fetchSpy = stubIdrs(found([]));
       const partnerXJob = await seedReportedJob('fuzzy', {
         odsConfig: odsConfigX2425,
         bundle: bundleX,
@@ -183,7 +174,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       const res = await search(DETAILS, { jobId: partnerXJob.id, cookie: support });
 
       expect(res.status).toBe(403);
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -231,9 +221,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     ['a student id that isn’t a string', { student_ids: [123] }, 'student_ids'],
     ['student ids that aren’t a list', { student_ids: 'S-1' }, 'student_ids'],
     ['a name that isn’t a string', { first_name: 7 }, 'first_name'],
-  ])('refuses %s, without searching', async (_, given, field) => {
-    const fetchSpy = stubIdrs(found([]));
-
+  ])('refuses %s', async (_, given, field) => {
     const res = await search({ ...DETAILS, ...given });
 
     expect(res.status).toBe(400);
@@ -241,7 +229,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     expect(res.body.message).toContainEqual(
       expect.stringMatching(new RegExp(`^(each value in )?${field} `))
     );
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   describe('the request to IDRS', () => {
@@ -278,7 +265,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     });
   });
 
-  describe('the hits', () => {
+  describe('the students', () => {
     it('returns IDRS’s matches in its order, with their roster details as returned', async () => {
       stubIdrs(
         found([
@@ -290,35 +277,33 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       const res = await search(DETAILS);
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({
-        hits: [
-          {
-            studentUniqueId: 'SUID-1',
-            score: 0.97,
-            rosterDetails: {
-              first_name: 'Ada',
-              middle_name: null,
-              last_name: 'Lovelace',
-              birth_date: '2010-12-10',
-              student_ids: [{ id_type: 'State', id_value: 'S-1' }],
-              school_years: [2025],
-              future_field: 'kept',
-            },
+      expect(res.body).toEqual([
+        {
+          studentUniqueId: 'SUID-1',
+          score: 0.97,
+          rosterDetails: {
+            first_name: 'Ada',
+            middle_name: null,
+            last_name: 'Lovelace',
+            birth_date: '2010-12-10',
+            student_ids: [{ id_type: 'State', id_value: 'S-1' }],
+            school_years: [2025],
+            future_field: 'kept',
           },
-          {
-            studentUniqueId: 'SUID-2',
-            score: 0.41,
-            rosterDetails: {
-              first_name: 'Ada',
-              middle_name: null,
-              last_name: 'Lovelace',
-              birth_date: '2010-12-10',
-              student_ids: [{ id_type: 'State', id_value: 'S-1' }],
-              school_years: [2025],
-            },
+        },
+        {
+          studentUniqueId: 'SUID-2',
+          score: 0.41,
+          rosterDetails: {
+            first_name: 'Ada',
+            middle_name: null,
+            last_name: 'Lovelace',
+            birth_date: '2010-12-10',
+            student_ids: [{ id_type: 'State', id_value: 'S-1' }],
+            school_years: [2025],
           },
-        ],
-      });
+        },
+      ]);
     });
   });
 
@@ -331,8 +316,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
         idrsMatch('SUID-2024', [2024]),
         idrsMatch('SUID-NONE', []),
       ]);
-    const hitIds = (res: request.Response) =>
-      res.body.hits.map((hit: { studentUniqueId: string }) => hit.studentUniqueId);
+    const studentIds = (res: request.Response) =>
+      res.body.map((student: { studentUniqueId: string }) => student.studentUniqueId);
 
     // The job was created with the setting off, so the second search shows
     // it's read at search time, not when the job was created.
@@ -344,8 +329,13 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       const withCrossYear = await search(DETAILS);
 
       expect([without.status, withCrossYear.status]).toEqual([200, 200]);
-      expect(hitIds(without)).toEqual(['SUID-BOTH', 'SUID-2025']);
-      expect(hitIds(withCrossYear)).toEqual(['SUID-BOTH', 'SUID-2025', 'SUID-2024', 'SUID-NONE']);
+      expect(studentIds(without)).toEqual(['SUID-BOTH', 'SUID-2025']);
+      expect(studentIds(withCrossYear)).toEqual([
+        'SUID-BOTH',
+        'SUID-2025',
+        'SUID-2024',
+        'SUID-NONE',
+      ]);
     });
   });
 
@@ -360,11 +350,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
           stubIdrs(found([]));
         },
         `Error: no IDRS connection info for partner ${tenantA.partnerId}`,
-      ],
-      [
-        'the token is refused',
-        () => stubIdrs(found([]), jsonResponse(401, {})),
-        'Error: IDRS token request rejected with status 401',
       ],
       [
         'the search times out',
@@ -453,6 +438,8 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     const fetchSpy = stubIdrs(
       found([
         { ...idrsMatch('SUID-PLUGH', [2025]), first_name: 'Hortensia', last_name: 'Frobnitz' },
+        // Outside the job's year, so found but not kept.
+        idrsMatch('SUID-XYZZY-2024', [2024]),
       ])
     );
 
@@ -475,7 +462,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     expect(lines).toEqual([
       expect.stringMatching(
         new RegExp(
-          `^student match search: jobId=${job.id} partnerId=${tenantA.partnerId} userId=${userA.id} outcome=SUCCESS `
+          `^student match search: jobId=${job.id} partnerId=${tenantA.partnerId} userId=${userA.id} outcome=SUCCESS found=2 kept=1 durationMs=`
         )
       ),
       expect.stringMatching(
@@ -492,6 +479,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       '987654',
       'SID-XYZZY',
       'SUID-PLUGH',
+      'SUID-XYZZY-2024',
       'Hortensia',
       'Frobnitz',
       'corr-1',

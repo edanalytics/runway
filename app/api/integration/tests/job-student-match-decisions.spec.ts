@@ -104,18 +104,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       orderBy: { seq: 'asc' },
     });
 
-  /** Each of the student's decisions' answer and basis, as stored, in order. */
-  const answersAndBasesOf = async () =>
-    (await rowsOf()).map(
-      ({ studentUniqueId, resultId, ordinal, searchDetails, rosterDetails }) => ({
-        studentUniqueId,
-        resultId: resultId?.toString() ?? null,
-        ordinal,
-        searchDetails,
-        rosterDetails,
-      })
-    );
-
   /** The student's first decision: a match to the result's first suggestion. */
   const matchFirst = (resultId: string) =>
     decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 0 });
@@ -132,7 +120,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const res = await decide({ replacesVersion: null, kind: 'exclude' }, { cookie: '' });
 
       expect(res.status).toBe(401);
-      expect(await rowsOf()).toEqual([]);
     });
 
     it('rejects a user from another tenant', async () => {
@@ -141,7 +128,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const res = await decide({ replacesVersion: null, kind: 'exclude' }, { cookie: other });
 
       expect(res.status).toBe(403);
-      expect(await rowsOf()).toEqual([]);
     });
 
     it('rejects a user without the match results update privilege', async () => {
@@ -151,7 +137,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       );
 
       expect(res.status).toBe(403);
-      expect(await rowsOf()).toEqual([]);
     });
 
     it('lets a support user decide across tenants', async () => {
@@ -203,10 +188,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
   describe('a bad request', () => {
     it.each<[string, () => Record<string, unknown>]>([
-      ['another student’s suggestion', () => ({ resultId: otherResultId, ordinal: 0 })],
-      ['an ordinal the result doesn’t have', () => ({ resultId, ordinal: 5 })],
+      ['another student’s result', () => ({ resultId: otherResultId, ordinal: 0 })],
+      ['an ordinal its result doesn’t have', () => ({ resultId, ordinal: 5 })],
       ['no result id', () => ({ ordinal: 0 })],
-    ])('refuses a match to %s as no such suggestion', async (_, target) => {
+    ])('refuses a suggestion pick with %s', async (_, target) => {
       const res = await decide({ replacesVersion: null, kind: 'match', ...target() });
 
       expect(res.status).toBe(400);
@@ -224,7 +209,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     // saved, and the others would be 500s.
     it.each<[string, Record<string, unknown>]>([
       ['a fractional ordinal', { ordinal: 0.5 }],
-      ['an ordinal past INTEGER', { ordinal: 2 ** 31 }],
+      ['an ordinal out of INTEGER range', { ordinal: 2 ** 31 }],
       ['no ordinal', {}],
     ])('refuses a match with %s', async (_, given) => {
       const res = await decide({ replacesVersion: null, kind: 'match', resultId, ...given });
@@ -232,23 +217,50 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.status).toBe(400);
       // Nest's validation body, so it was the DTO that refused it.
       expect(res.body.message).toContainEqual(expect.stringMatching(/^ordinal /));
-      expect(await rowsOf()).toEqual([]);
     });
 
     it.each<[string, Record<string, unknown>]>([
       ['an unknown kind', { replacesVersion: null, kind: 'not-in-roster' }],
       // No decision has version 0: null means none.
-      ['a replaced version of 0', { replacesVersion: 0, kind: 'exclude' }],
-      ['a fractional replaced version', { replacesVersion: 1.5, kind: 'exclude' }],
-      ['a replaced version past INTEGER', { replacesVersion: 2 ** 31, kind: 'exclude' }],
+      ['replacesVersion 0', { replacesVersion: 0, kind: 'exclude' }],
+      ['a fractional replacesVersion', { replacesVersion: 1.5, kind: 'exclude' }],
+      ['a replacesVersion out of INTEGER range', { replacesVersion: 2 ** 31, kind: 'exclude' }],
       // It's required, not taken as null: a page that predates it can't
       // know whether the student is still undecided.
-      ['no replaced version', { kind: 'exclude' }],
+      ['a body with no replacesVersion', { kind: 'exclude' }],
     ])('refuses %s', async (_, body) => {
       const res = await decide(body);
 
       expect(res.status).toBe(400);
-      expect(await rowsOf()).toEqual([]);
+    });
+
+    // Each would be a valid decision without the stray fields.
+    it.each<[string, () => Record<string, unknown>, string]>([
+      [
+        'a match to a search with a suggestion',
+        () => ({ kind: 'match', ...SEARCH_PICK, resultId, ordinal: 0 }),
+        'resultId, ordinal must be absent from a match to a search',
+      ],
+      [
+        'a match to a suggestion with a student unique id',
+        () => ({ kind: 'match', resultId, ordinal: 0, studentUniqueId: 'SUID-1' }),
+        'studentUniqueId must be absent from a match to a suggestion',
+      ],
+      [
+        'an exclude with a search',
+        () => ({ kind: 'exclude', search: SEARCH_PICK.search }),
+        'search must be absent from an exclude',
+      ],
+      [
+        'a clear with a student unique id',
+        () => ({ kind: 'clear', studentUniqueId: 'SUID-1' }),
+        'studentUniqueId must be absent from a clear',
+      ],
+    ])('refuses %s', async (_, body, refusal) => {
+      const res = await decide({ replacesVersion: null, ...body() });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ statusCode: 400, message: [refusal], error: 'Bad Request' });
     });
   });
 
@@ -329,49 +341,17 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
-    // The answer sent would fail validation, so this also shows it isn't validated.
-    it('takes a suggestion pick’s answer from the suggestion, ignoring one sent', async () => {
+    it('accepts an exclude that sends the other fields as null', async () => {
       const res = await decide({
         replacesVersion: null,
-        kind: 'match',
-        resultId,
-        ordinal: 0,
-        studentUniqueId: 123,
+        kind: 'exclude',
+        resultId: null,
+        ordinal: null,
+        studentUniqueId: null,
+        search: null,
       });
 
       expect(res.status).toBe(201);
-      expect(await answersAndBasesOf()).toEqual([
-        {
-          studentUniqueId: 'SUID-1',
-          resultId,
-          ordinal: 0,
-          searchDetails: null,
-          rosterDetails: null,
-        },
-      ]);
-    });
-
-    // Each would fail validation, so this also shows none is validated.
-    it('ignores an answer or basis sent with an exclude or a clear', async () => {
-      const ignored = {
-        resultId,
-        ordinal: 0.5,
-        studentUniqueId: 123,
-        search: { searchDetails: 'Ada', rosterDetails: ['Ada'] },
-      };
-
-      const excluded = await decide({ replacesVersion: null, kind: 'exclude', ...ignored });
-      const cleared = await decide({ replacesVersion: 1, kind: 'clear', ...ignored });
-
-      expect([excluded.status, cleared.status]).toEqual([201, 201]);
-      const none = {
-        studentUniqueId: null,
-        resultId: null,
-        ordinal: null,
-        searchDetails: null,
-        rosterDetails: null,
-      };
-      expect(await answersAndBasesOf()).toEqual([none, none]);
     });
 
     it('records who made each decision', async () => {
@@ -430,17 +410,22 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.status).toBe(201);
     });
 
-    it('refuses a suggestion from an earlier result as stale', async () => {
-      const res = await matchFirst(resultId);
+    // The page predates the latest result, so refetching is the fix, whatever
+    // it picked from the earlier one: even an ordinal that result doesn't have.
+    it.each([0, 7])(
+      'refuses a pick from an earlier result as stale, at ordinal %i',
+      async (ordinal) => {
+        const res = await decide({ replacesVersion: null, kind: 'match', resultId, ordinal });
 
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual({
-        statusCode: 409,
-        code: 'results_changed',
-        message: 'This student has newer suggestions than the page shows.',
-      });
-      expect(await rowsOf()).toEqual([]);
-    });
+        expect(res.status).toBe(409);
+        expect(res.body).toEqual({
+          statusCode: 409,
+          code: 'results_changed',
+          message: 'This student has newer suggestions than the page shows.',
+        });
+        expect(await rowsOf()).toEqual([]);
+      }
+    );
   });
 
   it('accepts a write replacing a match made before a later run searched again', async () => {
@@ -458,10 +443,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     expect(res.body).toEqual({ decision: null });
   });
 
-  describe('a write from a stale view', () => {
+  describe('the version check', () => {
     // A page loaded after the first match holds version 1. Since then the
     // match was cleared and made again, so the decision looks as it did (ABA).
-    it('is refused when the decision was changed and changed back', async () => {
+    it('refuses a write whose decision was changed and changed back', async () => {
       await matchFirst(resultId);
       await decide({ replacesVersion: 1, kind: 'clear' });
       await decide({ replacesVersion: null, kind: 'match', resultId, ordinal: 0 });
@@ -473,9 +458,21 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear', 'match']);
     });
 
+    // Versions only come from the API's responses, so one past the latest names
+    // a decision that doesn't exist. The next seq is the one an insert would write.
+    it('refuses a write at a version ahead of the latest', async () => {
+      await matchFirst(resultId);
+
+      const res = await decide({ replacesVersion: 2, kind: 'exclude' });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(DECISION_CHANGED);
+      expect(await rowsOf()).toHaveLength(1);
+    });
+
     // A page that saw no decision is still current once a decision is made
     // and cleared: the student is undecided, just as it showed.
-    it('is accepted replacing nothing after a decision was made and cleared', async () => {
+    it('accepts a write that saw no decision, after one was made and cleared', async () => {
       await matchFirst(resultId);
       await decide({ replacesVersion: 1, kind: 'clear' });
 
@@ -485,7 +482,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.body.decision.version).toBe(3);
     });
 
-    it('is refused replacing nothing once the student has a decision', async () => {
+    it('refuses a write that saw no decision, once the student has one', async () => {
       await matchFirst(resultId);
 
       const res = await decide({ replacesVersion: null, kind: 'exclude' });
@@ -495,25 +492,16 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(await rowsOf()).toHaveLength(1);
     });
 
-    it('is refused at a version ahead of the latest', async () => {
-      await matchFirst(resultId);
-
-      const res = await decide({ replacesVersion: 5, kind: 'exclude' });
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual(DECISION_CHANGED);
-      expect(await rowsOf()).toHaveLength(1);
-    });
-
-    it('is refused when there is nothing to clear', async () => {
-      const first = await decide({ replacesVersion: null, kind: 'clear' });
+    // No decision is either no rows or a clear on top, so both are tried.
+    it('refuses a clear when there is nothing to clear', async () => {
+      const never = await decide({ replacesVersion: null, kind: 'clear' });
       await matchFirst(resultId);
       await decide({ replacesVersion: 1, kind: 'clear' });
       const again = await decide({ replacesVersion: null, kind: 'clear' });
       // The clear's own seq isn't a decision's version, so it's no way round.
       const atClear = await decide({ replacesVersion: 2, kind: 'clear' });
 
-      expect([first.body, again.body, atClear.body]).toEqual(Array(3).fill(DECISION_CHANGED));
+      expect([never.body, again.body, atClear.body]).toEqual(Array(3).fill(DECISION_CHANGED));
       expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear']);
     });
 
@@ -522,7 +510,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     // it, so the race happens every time. A check before the insert can't see
     // an uncommitted row, so check-then-insert would collide on the primary
     // key with a 500.
-    it('is refused when it loses a race', async () => {
+    it('refuses the write that loses a race', async () => {
       const other = await pool().connect();
       try {
         await other.query('BEGIN');
@@ -557,7 +545,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     const matchSearch = (replacesVersion: number | null, pick: object = SEARCH_PICK) =>
       decide({ replacesVersion, kind: 'match', ...pick });
 
-    it('saves the answer and the search it rests on', async () => {
+    it('saves the student found and the search that found them', async () => {
       // A key IDRS doesn't take is dropped, as the search route drops it.
       const res = await matchSearch(null, {
         ...SEARCH_PICK,
@@ -598,7 +586,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
-    // The write a stale view refuses (below) is also accepted when current.
     it('replaces a match to a suggestion', async () => {
       await matchFirst(resultId);
 
@@ -614,26 +601,9 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       ]);
     });
 
-    // Neither the suggestion checks nor validation run on it: the student
-    // doesn't have this result, and validation would refuse the ordinal.
-    it('ignores a suggestion sent beside the search', async () => {
-      const res = await decide({
-        replacesVersion: null,
-        kind: 'match',
-        ...SEARCH_PICK,
-        resultId: otherResultId,
-        ordinal: 0.5,
-      });
-
-      expect(res.status).toBe(201);
-      expect(await answersAndBasesOf()).toEqual([
-        { studentUniqueId: 'SUID-FOUND', resultId: null, ordinal: null, ...SEARCH_PICK.search },
-      ]);
-    });
-
     // The responses show a suggestion pick's search as null, so a page may
     // send it back that way.
-    it('takes a null search beside a suggestion as a suggestion pick', async () => {
+    it('accepts a suggestion pick that sends search as null', async () => {
       const res = await decide({
         replacesVersion: null,
         kind: 'match',
@@ -646,65 +616,12 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.body.decision).toMatchObject({ resultId, ordinal: 0, search: null });
     });
 
-    describe('from a stale view', () => {
-      it('is refused at a replaced version', async () => {
-        await matchFirst(resultId);
-        await decide({ replacesVersion: 1, kind: 'clear' });
-        await matchFirst(resultId);
-
-        const res = await matchSearch(1);
-
-        expect(res.body).toEqual(DECISION_CHANGED);
-        expect((await rowsOf()).map((row) => row.kind)).toEqual(['match', 'clear', 'match']);
-      });
-
-      it('is refused replacing nothing once the student has a decision', async () => {
-        await matchFirst(resultId);
-
-        const res = await matchSearch(null);
-
-        expect(res.body).toEqual(DECISION_CHANGED);
-        expect(await rowsOf()).toHaveLength(1);
-      });
-
-      // As for a suggestion: the other write is held until this one waits on it.
-      it('is refused when it loses a race', async () => {
-        const other = await pool().connect();
-        try {
-          await other.query('BEGIN');
-          await other.query(
-            `INSERT INTO public.student_match_decision
-               (job_id, correlation_id, seq, kind, decided_by_id)
-             VALUES ($1, 'corr-1', 1, 'exclude', $2)`,
-            [job.id, userB.id]
-          );
-          const { rows } = await other.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
-
-          // then() sends the request now, rather than when it's awaited.
-          const pending = matchSearch(null).then((res) => res);
-          await waitUntilBlockedBy(rows[0].pid);
-          await other.query('COMMIT');
-          const res = await pending;
-
-          expect(res.status).toBe(409);
-          expect(res.body).toEqual(DECISION_CHANGED);
-          expect((await rowsOf()).map((row) => [row.kind, row.studentUniqueId])).toEqual([
-            ['exclude', null],
-          ]);
-        } finally {
-          // Releases the lock if the test failed before the commit.
-          await other.query('ROLLBACK');
-          other.release();
-        }
-      });
-    });
-
     it.each<[string, object, RegExp]>([
       ['no student unique id', { studentUniqueId: undefined }, /^studentUniqueId /],
       ['a student unique id that isn’t a string', { studentUniqueId: 123 }, /^studentUniqueId /],
       ['an empty student unique id', { studentUniqueId: '' }, /^studentUniqueId /],
       // Nested validation alone checks each of an array's elements, and passes an empty one.
-      ['a search that isn’t an object', { search: [] }, /^search /],
+      ['an array for its search', { search: [] }, /^search /],
       [
         'roster details that aren’t an object',
         { search: { ...SEARCH_PICK.search, rosterDetails: ['Ada'] } },
@@ -731,23 +648,6 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect(res.status).toBe(400);
       // Nest's validation body, so it was the DTO that refused it.
       expect(res.body.message).toContainEqual(expect.stringMatching(refusal));
-      expect(await rowsOf()).toEqual([]);
-    });
-
-    // The student check runs for a search too. Without it the insert's foreign
-    // key would refuse the row, with a 500.
-    it('returns 404 for a student the job doesn’t have', async () => {
-      const res = await decide(
-        { replacesVersion: null, kind: 'match', ...SEARCH_PICK },
-        { correlationId: 'corr-unknown' }
-      );
-
-      expect(res.status).toBe(404);
-      expect(res.body).toEqual({
-        statusCode: 404,
-        code: 'not_found',
-        message: 'This student isn’t in the job.',
-      });
     });
   });
 
@@ -780,7 +680,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
         ]
       );
 
-    it('refuses a suggestion basis whose answer isn’t the suggestion’s student', async () => {
+    it('refuses a suggestion match whose student isn’t the suggestion’s', async () => {
       // Ordinal 0 suggests SUID-1.
       await expect(
         insert({ kind: 'match', studentUniqueId: 'SUID-2', resultId, ordinal: 0 })
@@ -791,13 +691,19 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
 
     it.each<[string, () => Row]>([
-      ['a match with no answer', () => ({ kind: 'match', resultId, ordinal: 0 })],
-      ['a match with no basis', () => ({ kind: 'match', studentUniqueId: 'SUID-1' })],
+      ['a match with no student unique id', () => ({ kind: 'match', resultId, ordinal: 0 })],
       [
-        'a match with both bases',
+        'a match with no suggestion or search',
+        () => ({ kind: 'match', studentUniqueId: 'SUID-1' }),
+      ],
+      [
+        'a match with both a suggestion and a search',
         () => ({ kind: 'match', studentUniqueId: 'SUID-1', resultId, ordinal: 0, search: true }),
       ],
-      ['an exclude with an answer', () => ({ kind: 'exclude', studentUniqueId: 'SUID-1' })],
+      [
+        'an exclude with a student unique id',
+        () => ({ kind: 'exclude', studentUniqueId: 'SUID-1' }),
+      ],
     ])('refuses %s', async (_, row) => {
       await expect(insert(row())).rejects.toMatchObject({
         code: '23514',

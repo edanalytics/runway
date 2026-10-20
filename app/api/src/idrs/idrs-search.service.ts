@@ -88,8 +88,8 @@ export class IdrsSearchService {
           Authorization: `Bearer ${credentials.token}`,
           'Content-Type': 'application/json',
         },
-        // IDRS ignores the correlation id for matching. It already has this
-        // one, from the Executor.
+        // The student's own correlation id, so a reviewer's search can be traced
+        // to the same student as the Executor's, in any IDRS logs that show it.
         body: JSON.stringify([{ correlation_id: correlationId, ...details }]),
         signal: AbortSignal.timeout(IDRS_SEARCH_TIMEOUT_MS),
       });
