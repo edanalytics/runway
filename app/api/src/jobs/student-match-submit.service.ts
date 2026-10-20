@@ -16,6 +16,8 @@ type SubmittingStudent = {
   kind: StudentMatchDecisionKind | null;
   /** Whether any of the student's decision rows is in a send run. */
   submitted: boolean;
+  /** Whether the job's latest full run reported the student for review. */
+  reported: boolean;
   /** The current decision's basis's roster details, for a match. */
   roster_details: StudentRosterDetailsJson | null;
 };
@@ -47,12 +49,26 @@ export class StudentMatchSubmitService {
         // as ingestion's.
         await tx.$executeRaw`SELECT id FROM public.job WHERE id = ${jobId} FOR NO KEY UPDATE`;
 
+        // Students are reviewed from the latest full run's results, and the
+        // send run delivers them from its files.
+        const fullRun = await tx.run.findFirst({
+          where: { jobId, kind: 'full' },
+          orderBy: { id: 'desc' },
+          select: { id: true, status: true },
+        });
+
         const rows = await tx.$queryRaw<SubmittingStudent[]>`
           SELECT i.correlation_id, d.seq, d.kind,
                  EXISTS (
                    SELECT 1 FROM public.send_run_decision s
                    WHERE s.job_id = i.job_id AND s.correlation_id = i.correlation_id
                  ) AS submitted,
+                 -- Whether the latest full run reported the student for review.
+                 EXISTS (
+                   SELECT 1 FROM public.student_match_result r
+                   WHERE r.job_id = i.job_id AND r.correlation_id = i.correlation_id
+                     AND r.run_id = ${fullRun?.id ?? null}::integer
+                 ) AS reported,
                  -- A match has exactly one basis (037's check), so one of these.
                  COALESCE(sg.roster_details, d.roster_details) AS roster_details
           FROM public.student_input_details i
@@ -81,13 +97,6 @@ export class StudentMatchSubmitService {
           return { status: 'ERROR', code: 'not_found' } as const;
         }
 
-        // Students are reviewed from the latest full run's results, and the
-        // send run delivers them from its files.
-        const fullRun = await tx.run.findFirst({
-          where: { jobId, kind: 'full' },
-          orderBy: { id: 'desc' },
-          select: { status: true },
-        });
         if (fullRun?.status !== 'success') {
           return { status: 'ERROR', code: 'full_run_not_done' } as const;
         }
@@ -96,8 +105,14 @@ export class StudentMatchSubmitService {
           return { status: 'ERROR', code: 'decision_changed' } as const;
         }
         // Any of the student's rows, not only the current one: every send of a
-        // student delivers the same decision row.
-        if (found.some(({ student }) => student.kind !== 'match' || student.submitted)) {
+        // student delivers the same decision row. And only a student the
+        // latest full run reported: one it resolved itself it has already
+        // sent, and its files don't hold them for a send run.
+        if (
+          found.some(
+            ({ student }) => student.kind !== 'match' || student.submitted || !student.reported
+          )
+        ) {
           return { status: 'ERROR', code: 'not_ready' } as const;
         }
         const indices = found.flatMap(({ student }, index) =>
