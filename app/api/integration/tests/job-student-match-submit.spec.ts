@@ -156,6 +156,17 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       await decide(job.id, 'corr-2', { replacesVersion: null, kind: 'exclude' }, cookies);
       await decide(job.id, 'corr-2', { replacesVersion: 1, kind: 'clear' }, cookies);
       const v3 = await matchSuggestion(job.id, 'corr-2', cookies);
+      // The Executor's init call reads the run and its decisions on another
+      // connection, so they must be committed by the time it's launched.
+      let decisionsAtLaunch: [string, number][] | undefined;
+      executorStart.mockImplementation(async ({ id }: { id: number }) => {
+        const rows = await prisma.sendRunDecision.findMany({
+          where: { runId: id },
+          orderBy: { correlationId: 'asc' },
+        });
+        decisionsAtLaunch = rows.map(({ correlationId, seq }) => [correlationId, seq]);
+        return { ecsTaskArn: ECS_TASK_ARN, taskSize: 'medium' };
+      });
 
       const res = await submit(
         job.id,
@@ -182,6 +193,10 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       );
       expect(executorStart).toHaveBeenCalledTimes(1);
       expect(executorStart.mock.calls[0][0]).toMatchObject({ id: sendRun.id, kind: 'send' });
+      expect(decisionsAtLaunch).toEqual([
+        ['corr-1', 1],
+        ['corr-2', 3],
+      ]);
 
       const read = await request(app.getHttpServer())
         .get(`/jobs/${job.id}/student-match-results`)
