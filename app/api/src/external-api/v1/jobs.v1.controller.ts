@@ -195,6 +195,8 @@ export class ExternalApiV1JobsController {
       throw new BadRequestException(`Job not initiated properly: ${jobUid}`);
     } else if (res.result === 'JOB_IN_PROGRESS') {
       throw new BadRequestException(`Job already in progress: ${jobUid}`);
+    } else if (res.result === 'JOB_HAS_SEND_RUNS') {
+      throw new BadRequestException(`Job has send runs: ${jobUid}`);
     } else if (res.result === 'JOB_START_FAILED') {
       throw new InternalServerErrorException(`Failed to start job ${jobUid}`);
     } else {

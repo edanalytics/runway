@@ -282,6 +282,8 @@ export class JobsController {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
     } else if (res.result === 'JOB_IN_PROGRESS') {
       throw new BadRequestException(`Job already in progress: ${jobId}`);
+    } else if (res.result === 'JOB_HAS_SEND_RUNS') {
+      throw new BadRequestException(`Job has send runs: ${jobId}`);
     } else if (res.result === 'JOB_START_FAILED') {
       throw new InternalServerErrorException(`Failed to start job ${jobId}`);
     } else {
