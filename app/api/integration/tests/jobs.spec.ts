@@ -24,11 +24,15 @@ import { FileService } from 'api/src/files/file.service';
 import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
-import { Job, JobNote } from '@prisma/client';
+import { Job, JobNote, PrismaClient } from '@prisma/client';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
+import { JobsService } from 'api/src/jobs/jobs.service';
+import { PRISMA_ANONYMOUS } from 'api/src/database';
+import { pool } from '../helpers/db/client';
+import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 type SeededJob = Awaited<ReturnType<typeof seedJob>>;
 
@@ -982,6 +986,43 @@ describe('PUT /jobs/:id/start', () => {
       expect(executorStart).not.toHaveBeenCalled();
     }
   );
+
+  // Called on the service, since both start routes update the job row before
+  // startJob, so a request would queue there instead of at startJob's lock.
+  it('refuses a fuzzy job whose send run was submitted while it waited, creating no full run', async () => {
+    const jobsService = app.get(JobsService);
+    const prismaAnon = app.get<PrismaClient>(PRISMA_ANONYMOUS);
+    const seeded = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+      runStatus: 'success',
+    });
+    const job = await jobsService.updateFileStatusForJob(seeded.id, 'upload_complete', prismaAnon);
+    const holder = await pool().connect();
+    try {
+      // Holds the job row as a submit does, until it commits its send run.
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM public.job WHERE id = $1 FOR NO KEY UPDATE', [job.id]);
+      const { rows } = await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+      const started = jobsService.startJob(job, prismaAnon);
+      await waitUntilBlockedBy(rows[0].pid);
+      await holder.query(
+        "INSERT INTO public.run (job_id, kind, status) VALUES ($1, 'send', 'new')",
+        [job.id]
+      );
+      await holder.query('COMMIT');
+
+      expect((await started).result).toBe('JOB_IN_PROGRESS');
+    } finally {
+      // Releases the lock if the test failed before the commit.
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await prisma.run.count({ where: { jobId: job.id, kind: 'full' } })).toBe(1);
+    expect(executorStart).not.toHaveBeenCalled();
+  });
 });
 
 describe('PUT /jobs/:id/resolve', () => {
