@@ -437,8 +437,13 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     it.each<[string, () => Promise<number>]>([
       [
         'excluded',
-        async () =>
-          (await decide(job.id, 'corr-2', { replacesVersion: null, kind: 'exclude' }, cookies))!,
+        () =>
+          decide(
+            job.id,
+            'corr-2',
+            { replacesVersion: null, kind: 'exclude' },
+            cookies
+          ) as Promise<number>,
       ],
       [
         'with a cleared match',

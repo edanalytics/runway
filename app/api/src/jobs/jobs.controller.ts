@@ -24,6 +24,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { JobsService } from './jobs.service';
+import { StudentMatchSubmitService } from './student-match-submit.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
 import type { Tenant as TTenant, User } from '@prisma/client';
@@ -35,6 +36,7 @@ import {
   PostJobDto,
   PostJobResponseDto,
   PostStudentMatchDecisionDto,
+  PostStudentMatchSubmitDto,
   PutJobResolveDto,
   StudentSearchDetailsDto,
   toGetJobDto,
@@ -44,6 +46,7 @@ import {
   toGetIdrsStudentDto,
   toJobErrorWrapperDto,
   toPostStudentMatchDecisionResponseDto,
+  toPostStudentMatchSubmitResponseDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { TenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
@@ -53,6 +56,19 @@ import { AllowMetatenant } from '../auth/authorization/allow-metatenant.decorato
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { ReqSession } from '../auth/helpers/session.decorator';
 
+/**
+ * An unexpected failure's error name, and its SQLSTATE when Prisma reports
+ * one, for a log line. Never the message, which for a database error can
+ * quote row values.
+ */
+const failureCause = (err: unknown) => {
+  const sqlstate =
+    err instanceof Prisma.PrismaClientKnownRequestError && typeof err.meta?.code === 'string'
+      ? ` sqlstate=${err.meta.code}`
+      : '';
+  return `${err instanceof Error ? err.name : 'unknown'}${sqlstate}`;
+};
+
 @Controller()
 @ApiTags('Job')
 @TenantResourceKey('job')
@@ -61,7 +77,8 @@ export class JobsController {
   private logger = new Logger(JobsController.name);
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
-    private jobService: JobsService
+    private jobService: JobsService,
+    private studentMatchSubmit: StudentMatchSubmitService
   ) {}
 
   @Get()
@@ -372,15 +389,8 @@ export class JobsController {
         this.prisma
       );
     } catch (err) {
-      // Ids and codes only: a database error's message can quote row values.
-      const sqlstate =
-        err instanceof Prisma.PrismaClientKnownRequestError && typeof err.meta?.code === 'string'
-          ? ` sqlstate=${err.meta.code}`
-          : '';
       this.logger.error(
-        `student match decision: jobId=${jobId} outcome=FAILED cause=${
-          err instanceof Error ? err.name : 'unknown'
-        }${sqlstate}`
+        `student match decision: jobId=${jobId} outcome=FAILED cause=${failureCause(err)}`
       );
       throw new InternalServerErrorException('Failed to save the decision');
     }
@@ -421,6 +431,81 @@ export class JobsController {
       }
     }
     return toPostStudentMatchDecisionResponseDto(result.data);
+  }
+
+  /** Submits saved matches for sending, in a new send run. See AGENTS.md. */
+  @Post(':jobId/student-match-results/submit')
+  @AllowMetatenant('job.metatenant.match-results.submit')
+  @Authorize('job.match-results.submit')
+  async submitStudentMatches(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Body() { students }: PostStudentMatchSubmitDto,
+    @Req() req: Request
+  ) {
+    if (!req.job) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    // Only fuzzy mode's review is actionable, as for decisions.
+    if (req.job.idMatchingMode !== 'fuzzy') {
+      throw new ForbiddenException('Forbidden');
+    }
+
+    let result: Awaited<ReturnType<StudentMatchSubmitService['submit']>>;
+    try {
+      result = await this.studentMatchSubmit.submit({ jobId, students }, this.prisma);
+    } catch (err) {
+      this.logger.error(
+        `student match submit: jobId=${jobId} outcome=FAILED cause=${failureCause(err)}`
+      );
+      throw new InternalServerErrorException('Failed to submit the matches');
+    }
+
+    if (result.status === 'ERROR') {
+      // No student data in these bodies, as for decisions. A 409 means the
+      // page is out of date, and it refetches.
+      const { code } = result;
+      switch (code) {
+        case 'not_found':
+          throw new NotFoundException({
+            statusCode: 404,
+            code,
+            message: 'A student isn’t in the job.',
+          });
+        case 'full_run_not_done':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'The job’s full run hasn’t succeeded.',
+          });
+        case 'decision_changed':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student’s decision has changed since the page loaded.',
+          });
+        case 'not_ready':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student has no match ready to submit.',
+          });
+        case 'invalid_school_years':
+          // The failing students' positions in the request, so the page can
+          // offer to exclude them.
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student’s match has no valid school years.',
+            indices: result.indices,
+          });
+        default: {
+          const unhandled: never = code;
+          throw new InternalServerErrorException(`Unhandled submit outcome: ${unhandled}`);
+        }
+      }
+    }
+    return toPostStudentMatchSubmitResponseDto(result.data);
   }
 
   /** Searches IDRS with a reviewer's details. See AGENTS.md. */
