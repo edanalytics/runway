@@ -29,6 +29,7 @@ import {
 import { makeSerializer, makeSerializerCustomType } from '../utils/make-serializer';
 import { StudentInputDetailsJson, StudentRosterDetailsJson } from './earthbeam-api.dto';
 import { GetUserDto } from './user.dto';
+import { POSTGRES_INTEGER_MAX } from '../constants';
 
 /*
  * The details and roster JSON are returned as stored, in the Executor's
@@ -156,9 +157,6 @@ export class GetStudentMatchSearchDto {
 }
 
 const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'clear'];
-
-/** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
-const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
 /**
  * Whether a decision is a match resting on the reviewer's search, rather than

@@ -4,6 +4,7 @@ import {
   GetIdrsStudentDto,
   JobInputParamDto,
   JsonArray,
+  MATCH_REVIEW_STUDENT_LIMIT,
   pickStudentSearchDetails,
   PostStudentMatchDecisionDto,
   restsOnSearch,
@@ -36,13 +37,6 @@ import {
 } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 import { IdrsSearchService } from '../idrs/idrs-search.service';
-
-/**
- * Far more than a reviewer will work through (typically under 10, at most a
- * few hundred). Past it, the file itself needs fixing. At the limit, with ten
- * suggestions each, the response is about 3.5 MB.
- */
-export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
 
 /**
  * Whether a job could load a student IDRS found. With cross-year matching on,
