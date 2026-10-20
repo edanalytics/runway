@@ -17,6 +17,8 @@ import { FileService } from 'api/src/files/file.service';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { StudentRosterDetailsJson } from '@edanalytics/models';
+import { authHelper } from '../helpers/oidc/auth-flow';
+import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -1005,6 +1007,128 @@ describe('Earthbeam API', () => {
         expect(outputFiles[1]).toMatchObject({
           name: 'summary.csv',
           path: 'partner/tenant/2025/1/output/summary.csv',
+        });
+      });
+
+      describe('of a send run', () => {
+        const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
+        /** What the job's full run left in its output directory. */
+        const FULL_RUN_KEYS = [
+          'test-base-path/output/ods/studentAssessments.jsonl',
+          'test-base-path/output/unmatched_studentAssessments.jsonl',
+          'test-base-path/output/lb-send-results.json',
+        ];
+
+        let job: Awaited<ReturnType<typeof seedJob>>;
+        let sendRun: Run;
+        let defaultListing: ReturnType<jest.Mock['getMockImplementation']>;
+
+        /** Lists these keys as S3 does: everything under the prefix, named relative to it. */
+        const listBucket = (keys: string[]) =>
+          fileServiceMock.listFilesAtPath.mockImplementation(async (prefix: string) =>
+            keys
+              .filter((key) => key.startsWith(prefix))
+              .map((key) => ({ key, name: key.slice(prefix.length) }))
+          );
+
+        const postAsExecutor = async (runId: number, route: string, body: object) => {
+          const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
+          const res = await request(app.getHttpServer())
+            .post(`/earthbeam/jobs/${runId}/${route}`)
+            .set('Authorization', `Bearer ${token}`)
+            .send(body);
+          expect(res.status).toBe(201);
+        };
+
+        const recordedFilesOf = (runId: number) =>
+          prisma.runOutputFile.findMany({
+            where: { runId },
+            orderBy: { name: 'asc' },
+            select: { name: true, path: true },
+          });
+
+        beforeEach(async () => {
+          defaultListing = fileServiceMock.listFilesAtPath.getMockImplementation();
+          job = await seedJob({
+            odsConfig: odsConfigA2425,
+            bundle: bundleA,
+            tenant: tenantA,
+            idMatchingMode: 'fuzzy',
+            runStatus: 'success',
+          });
+          sendRun = await prisma.run.create({
+            data: { jobId: job.id, kind: 'send', status: 'running' },
+          });
+        });
+
+        afterEach(() => {
+          fileServiceMock.listFilesAtPath.mockImplementation(defaultListing);
+        });
+
+        it('records exactly the files in its own output sets, named within the job’s directory', async () => {
+          // The Executor chooses where a send run writes: here, one set is
+          // outside output/.
+          const odsSet = `test-base-path/output/send-${sendRun.id}/ods`;
+          const sideloadSet = `test-base-path/send-${sendRun.id}/sideload`;
+          listBucket([
+            ...FULL_RUN_KEYS,
+            `${odsSet}/studentAssessments.jsonl`,
+            `${sideloadSet}/studentAssessments.jsonl`,
+          ]);
+          await postAsExecutor(sendRun.id, 'output-files', { path: odsSet, sentToOds: true });
+          await postAsExecutor(sendRun.id, 'output-files', { path: sideloadSet, sentToOds: false });
+
+          await postAsExecutor(sendRun.id, 'status', { action: 'done', status: 'success' });
+
+          expect(await recordedFilesOf(sendRun.id)).toEqual([
+            {
+              name: `output/send-${sendRun.id}/ods/studentAssessments.jsonl`,
+              path: `${odsSet}/studentAssessments.jsonl`,
+            },
+            {
+              name: `send-${sendRun.id}/sideload/studentAssessments.jsonl`,
+              path: `${sideloadSet}/studentAssessments.jsonl`,
+            },
+          ]);
+          const { cookies } = await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES);
+          const download = await request(app.getHttpServer())
+            .get(
+              `/jobs/${job.id}/output-files/${encodeURIComponent(
+                `send-${sendRun.id}/sideload/studentAssessments.jsonl`
+              )}`
+            )
+            .set('Cookie', [cookies]);
+          expect(download.status).toBe(200);
+          expect(download.text).toBe(
+            `s3-test-download-url://${sideloadSet}/studentAssessments.jsonl`
+          );
+        });
+
+        it('records a file once when two of its output sets hold it', async () => {
+          const runSet = `test-base-path/output/send-${sendRun.id}`;
+          listBucket([...FULL_RUN_KEYS, `${runSet}/ods/studentAssessments.jsonl`]);
+          await postAsExecutor(sendRun.id, 'output-files', { path: runSet, sentToOds: true });
+          await postAsExecutor(sendRun.id, 'output-files', {
+            path: `${runSet}/ods`,
+            sentToOds: true,
+          });
+
+          await postAsExecutor(sendRun.id, 'status', { action: 'done', status: 'success' });
+
+          expect(await recordedFilesOf(sendRun.id)).toEqual([
+            {
+              name: `output/send-${sendRun.id}/ods/studentAssessments.jsonl`,
+              path: `${runSet}/ods/studentAssessments.jsonl`,
+            },
+          ]);
+        });
+
+        it('records no files when it posted no output sets', async () => {
+          listBucket(FULL_RUN_KEYS);
+
+          await postAsExecutor(sendRun.id, 'status', { action: 'done', status: 'error' });
+
+          expect(await recordedFilesOf(sendRun.id)).toEqual([]);
         });
       });
 
