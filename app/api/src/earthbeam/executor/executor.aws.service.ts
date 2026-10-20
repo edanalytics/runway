@@ -135,10 +135,14 @@ export class ExecutorAwsService implements ExecutorService {
     return { ecsTaskArn, taskSize };
   }
 
-  // Large input files have caused the executor to run out of memory, so jobs
-  // whose input files total at least the configured threshold run on the
-  // large task instead of medium.
+  // Large input files have caused the executor to run out of memory, so full
+  // runs of jobs whose input files total at least the configured threshold
+  // run on the large task instead of medium. A send run doesn't transform the
+  // input files, so it always runs on medium.
   private async selectTaskSize(run: Run & { job: Job & { files: JobFile[] } }) {
+    if (run.kind === 'send') {
+      return 'medium';
+    }
     const fileSizes = await Promise.all(
       run.job.files.map((file) =>
         this.fileService.getFileSize(file.path, run.job.fileBucketOrHost!)

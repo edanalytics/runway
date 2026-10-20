@@ -86,7 +86,7 @@ The generated Prisma client lives in `node_modules` and isn't committed, so afte
 ### Deployed Infrastructure
 
 - **App**: Elastic Beanstalk (EC2 + ALB), frontend on S3 + CloudFront
-- **Executor**: ECS Fargate (3 task sizes: small/medium/large). The app picks the size per run: `medium` by default, `large` when the job's input files total at least `ECS_FILE_SIZE_THRESHOLD_MB` (default 100)
+- **Executor**: ECS Fargate (3 task sizes: small/medium/large). The app picks the size per run: `medium` by default, `large` for a full run when the job's input files total at least `ECS_FILE_SIZE_THRESHOLD_MB` (default 100). A send run is always `medium`
 - **Database**: RDS PostgreSQL (private subnet)
 - **Network**: VPC with public + private subnets across 2 AZs
 - **CI/CD**: CodePipeline + CodeBuild → Beanstalk deploy + ECR push
