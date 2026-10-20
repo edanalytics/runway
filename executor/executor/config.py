@@ -10,6 +10,8 @@ PRE_CANDIDATES_DIR = 'pre-candidates'
 ORIGINAL_DIR = 'original'
 # location for studentAssessments records that are still unmatched after fuzzy matching runs
 UNMATCHED_DIR = 'unmatched'
+# location for cross year records
+CROSS_YEAR_OUTPUT_DIR = 'cross-year-output-dir'
 
 REQUIRED_ID_MATCH_RATE = 0.5
 STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75
