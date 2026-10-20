@@ -183,11 +183,12 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     );
   });
 
-  it('returns 404 for a student the job doesn’t have', async () => {
-    const res = await decide(
-      { replacesVersion: null, kind: 'exclude' },
-      { correlationId: 'corr-unknown' }
-    );
+  it.each([
+    ['a student the job doesn’t have', 'corr-unknown'],
+    // PostgreSQL text can't hold one, so it must not reach a query.
+    ['a correlation id with a NUL', 'corr%00'],
+  ])('returns 404 for %s', async (_, correlationId) => {
+    const res = await decide({ replacesVersion: null, kind: 'exclude' }, { correlationId });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({

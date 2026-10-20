@@ -193,10 +193,14 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     );
   });
 
-  it('returns 404 for a student the job doesn’t have, without searching', async () => {
+  it.each([
+    ['a student the job doesn’t have', 'corr-unknown'],
+    // PostgreSQL text can't hold one, so it must not reach a query.
+    ['a correlation id with a NUL', 'corr%00'],
+  ])('returns 404 for %s, without searching', async (_, correlationId) => {
     const fetchSpy = stubIdrs(found([]));
 
-    const res = await search(DETAILS, { correlationId: 'corr-unknown' });
+    const res = await search(DETAILS, { correlationId });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({
