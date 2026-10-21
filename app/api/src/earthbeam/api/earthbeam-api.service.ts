@@ -28,7 +28,7 @@ import {
 import { FileService } from 'api/src/files/file.service';
 import { rosterFileKey } from 'api/src/earthbeam/roster-path';
 import { AppConfigService } from 'api/src/config/app-config.service';
-import { groupBy, mapValues, uniq } from 'lodash';
+import { groupBy, mapValues } from 'lodash';
 import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
@@ -289,23 +289,12 @@ export class EarthbeamApiService {
       },
     });
 
-    // Save output files. A full run's are what's in the job's output
-    // directory. A send run writes where the Executor chooses, so its files
-    // are exactly those in the output sets it posted. They're named by their
-    // key within the job's directory, since a set may be outside output/:
-    // keys are unique, so names are too, and a file in two nested sets is
-    // recorded once.
-    let outputFiles: { key: string; name: string }[];
-    if (run.kind === 'full') {
-      outputFiles = await this.fileService.listFilesAtPath(`${run.job.fileBasePath}/output/`);
-    } else {
-      const outputFileSets = await prisma.runOutputFileSet.findMany({ where: { runId } });
-      const keys = uniq(
-        outputFileSets.flatMap(({ path, files }) => files.map((file) => `${path}/${file}`))
-      );
-      const jobDirectory = `${run.job.fileBasePath}/`;
-      outputFiles = keys.map((key) => ({ key, name: key.slice(jobDirectory.length) }));
-    }
+    // A full run records the job's output directory. A send run records none,
+    // since its output sets are already recorded by their own callback.
+    const outputFiles =
+      run.kind === 'full'
+        ? await this.fileService.listFilesAtPath(`${run.job.fileBasePath}/output/`)
+        : [];
     if (outputFiles.length > 0) {
       await prisma.runOutputFile.createMany({
         data: outputFiles.map((file) => ({

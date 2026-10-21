@@ -181,7 +181,7 @@ In the fuzzy matching modes the executor also calls `appUrls.identityService` im
 
 **Run kinds.** Every run has a `kind`, sent in the payload as `runType`. A `full` run does the steps above. A job is started once, so it has one full run: starting a job that already has a run, of any kind or status, is a 400 (`JOB_ALREADY_STARTED`) from both start routes. Re-running isn't supported. A `send` run, created by submitting matches (see **Submitting** below), only delivers given match decisions, from the files the job's full run left in `output/`. Its payload adds `send: { runId, students: [{ correlationId, studentUniqueId, isCrossYear }] }`, read from its `send_run_decision` rows and sorted by correlation id, and has no `identityService` or `studentMatchResults` URL (nor a roster source, since only `fuzzy` jobs have send runs). `studentUniqueId` is the decision's answer. `isCrossYear` is whether its basis's roster `school_years` exclude the job's end year, whatever the partner's cross-year setting; the Executor keeps those students out of the ODS. Missing or malformed `school_years` fail the payload with a 500.
 
-On `done`, `completeRun` records a run's `run_output_file` rows. A full run records everything under the job's `output/`. A send run writes where the Executor chooses (from `send.runId`), so it records only the files of the output sets it posted, each named by its key relative to the job's directory, since a set may be outside `output/`.
+On `done`, `completeRun` records a run's `run_output_file` rows. A full run records everything under the job's `output/`. A send run records no output files: its output sets are recorded by the output-sets callback, as for any run.
 
 ### Cross-Year Matching Flow
 

@@ -1040,13 +1040,6 @@ describe('Earthbeam API', () => {
           expect(res.status).toBe(201);
         };
 
-        const recordedFilesOf = (runId: number) =>
-          prisma.runOutputFile.findMany({
-            where: { runId },
-            orderBy: { name: 'asc' },
-            select: { name: true, path: true },
-          });
-
         beforeEach(async () => {
           defaultListing = fileServiceMock.listFilesAtPath.getMockImplementation();
           const job = await seedJob({
@@ -1065,58 +1058,14 @@ describe('Earthbeam API', () => {
           fileServiceMock.listFilesAtPath.mockImplementation(defaultListing);
         });
 
-        it('records exactly the files in its own output sets, named within the job’s directory', async () => {
-          // The Executor chooses where a send run writes: here, one set is
-          // outside output/.
+        it('records no output files, even with an output set and the full run’s files in output/', async () => {
           const odsSet = `test-base-path/output/send-${sendRun.id}/ods`;
-          const sideloadSet = `test-base-path/send-${sendRun.id}/sideload`;
-          listBucket([
-            ...FULL_RUN_KEYS,
-            `${odsSet}/studentAssessments.jsonl`,
-            `${sideloadSet}/studentAssessments.jsonl`,
-          ]);
+          listBucket([...FULL_RUN_KEYS, `${odsSet}/studentAssessments.jsonl`]);
           await postAsExecutor(sendRun.id, 'output-files', { path: odsSet, sentToOds: true });
-          await postAsExecutor(sendRun.id, 'output-files', { path: sideloadSet, sentToOds: false });
 
           await postAsExecutor(sendRun.id, 'status', { action: 'done', status: 'success' });
 
-          expect(await recordedFilesOf(sendRun.id)).toEqual([
-            {
-              name: `output/send-${sendRun.id}/ods/studentAssessments.jsonl`,
-              path: `${odsSet}/studentAssessments.jsonl`,
-            },
-            {
-              name: `send-${sendRun.id}/sideload/studentAssessments.jsonl`,
-              path: `${sideloadSet}/studentAssessments.jsonl`,
-            },
-          ]);
-        });
-
-        it('records a file once when two of its output sets hold it', async () => {
-          const runSet = `test-base-path/output/send-${sendRun.id}`;
-          listBucket([...FULL_RUN_KEYS, `${runSet}/ods/studentAssessments.jsonl`]);
-          await postAsExecutor(sendRun.id, 'output-files', { path: runSet, sentToOds: true });
-          await postAsExecutor(sendRun.id, 'output-files', {
-            path: `${runSet}/ods`,
-            sentToOds: true,
-          });
-
-          await postAsExecutor(sendRun.id, 'status', { action: 'done', status: 'success' });
-
-          expect(await recordedFilesOf(sendRun.id)).toEqual([
-            {
-              name: `output/send-${sendRun.id}/ods/studentAssessments.jsonl`,
-              path: `${runSet}/ods/studentAssessments.jsonl`,
-            },
-          ]);
-        });
-
-        it('records no files when it posted no output sets', async () => {
-          listBucket(FULL_RUN_KEYS);
-
-          await postAsExecutor(sendRun.id, 'status', { action: 'done', status: 'error' });
-
-          expect(await recordedFilesOf(sendRun.id)).toEqual([]);
+          expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
         });
       });
 
