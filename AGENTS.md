@@ -320,11 +320,11 @@ A submit is all or nothing: one transaction on the session client, so the send r
 | 404 `not_found` | The job has no student with one of the correlation ids |
 | 409 `full_run_not_done` | The job's latest full run isn't `success`. Its results are what was reviewed, and its files are what the send run delivers from |
 | 409 `decision_changed` | A `version` isn't the student's current decision's, including for an undecided student |
-| 409 `not_ready` | A current decision isn't a match, one of the student's decision rows is already in a send run, or the latest full run didn't report the student (its IDRS resolved them, so it has sent them itself) |
+| 409 `not_ready` | A current decision isn't a match, one of the student's decision rows is already in a send run, or the latest full run didn't report the student (its IDRS resolved them, so it has sent them itself). The body adds `indices`, the failing positions in `students` |
 | 409 `invalid_school_years` | A match's basis has no `school_years` array of integers in its roster details. The body adds `indices`, the failing positions in `students`, so the reviewer can exclude those students and submit the rest |
 | 500 | An unexpected failure, logged with the job id and the cause, never the message |
 
-The coded errors have the decisions' body, `{ statusCode, code, message }`, plus `indices` for `invalid_school_years`. None names a student.
+The coded errors have the decisions' body, `{ statusCode, code, message }`, plus `indices` for `not_ready` and `invalid_school_years`. None names a student.
 
 Two rules have no database constraint: every send of a student delivers the same decision row, and a student is in at most one send run (today, one ever). Everything that creates a job's runs or writes its decisions takes the job row's lock first: submit and `startJob` take `FOR NO KEY UPDATE`, which doesn't block ingestion's foreign-key checks as `FOR UPDATE` would; a decision takes `FOR SHARE`, so decisions wait out a submit but not each other. The decision insert's guard refuses a student any of whose decision rows is in a send run, so any new decision writer must go through it. `startJob` refuses a job with any send run (`JOB_HAS_SEND_RUNS`, a 400 from both start routes), since a full re-run would ask IDRS again, possibly delivering a reviewed student under another identity, and would rewrite the `output/` files send runs read.
 

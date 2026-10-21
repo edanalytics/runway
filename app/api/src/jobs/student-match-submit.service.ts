@@ -34,9 +34,9 @@ export class StudentMatchSubmitService {
     | { status: 'SUCCESS'; data: { runId: number } }
     | {
         status: 'ERROR';
-        code: 'not_found' | 'full_run_not_done' | 'decision_changed' | 'not_ready';
+        code: 'not_found' | 'full_run_not_done' | 'decision_changed';
       }
-    | { status: 'ERROR'; code: 'invalid_school_years'; indices: number[] }
+    | { status: 'ERROR'; code: 'not_ready' | 'invalid_school_years'; indices: number[] }
   > {
     const { jobId, students } = input;
     const correlationIds = students.map(({ correlationId }) => correlationId);
@@ -109,18 +109,21 @@ export class StudentMatchSubmitService {
         // student delivers the same decision row. And only a student the
         // latest full run reported: one it resolved itself it has already
         // sent, and its files don't hold them for a send run.
-        if (
-          found.some(
-            ({ student }) => student.kind !== 'match' || student.submitted || !student.reported
-          )
-        ) {
-          return { status: 'ERROR', code: 'not_ready' } as const;
+        const notReady = found.flatMap(({ student }, index) =>
+          student.kind !== 'match' || student.submitted || !student.reported ? [index] : []
+        );
+        if (notReady.length > 0) {
+          return { status: 'ERROR', code: 'not_ready', indices: notReady } as const;
         }
-        const indices = found.flatMap(({ student }, index) =>
+        const invalidSchoolYears = found.flatMap(({ student }, index) =>
           schoolYearsOf(student.roster_details ?? {}) === null ? [index] : []
         );
-        if (indices.length > 0) {
-          return { status: 'ERROR', code: 'invalid_school_years', indices } as const;
+        if (invalidSchoolYears.length > 0) {
+          return {
+            status: 'ERROR',
+            code: 'invalid_school_years',
+            indices: invalidSchoolYears,
+          } as const;
         }
 
         const run = await tx.run.create({

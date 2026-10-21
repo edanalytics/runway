@@ -490,15 +490,16 @@ export class JobsController {
             code,
             message: 'A student’s decision has changed since the page loaded.',
           });
+        // These two add the failing students' positions in the request, so
+        // the page can offer to exclude them.
         case 'not_ready':
           throw new ConflictException({
             statusCode: 409,
             code,
             message: 'A student has no match ready to submit.',
+            indices: result.indices,
           });
         case 'invalid_school_years':
-          // The failing students' positions in the request, so the page can
-          // offer to exclude them.
           throw new ConflictException({
             statusCode: 409,
             code,
