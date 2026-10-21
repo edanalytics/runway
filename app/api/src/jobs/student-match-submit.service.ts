@@ -6,6 +6,7 @@ import {
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Job, PrismaClient, StudentMatchDecisionKind } from '@prisma/client';
+import { lockJobRow } from './job-row-lock';
 import { JobsService } from './jobs.service';
 
 /** A requested student, as submitting finds them. */
@@ -43,11 +44,7 @@ export class StudentMatchSubmitService {
 
     const outcome = await prisma.$transaction(
       async (tx) => {
-        // Everything that creates the job's runs or writes its decisions takes
-        // this lock first, so nothing these checks rely on changes before
-        // commit. Not FOR UPDATE, which would also block inserts that
-        // reference the job, such as ingestion's.
-        await tx.$executeRaw`SELECT id FROM public.job WHERE id = ${jobId} FOR NO KEY UPDATE`;
+        await lockJobRow(tx, jobId, 'FOR NO KEY UPDATE');
 
         // Students are reviewed from the latest full run's results, and the
         // send run delivers them from its files.

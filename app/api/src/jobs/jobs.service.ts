@@ -39,6 +39,7 @@ import {
 } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 import { IdrsSearchService } from '../idrs/idrs-search.service';
+import { lockJobRow } from './job-row-lock';
 
 /**
  * Whether a job could load a student IDRS found. With cross-year matching on,
@@ -384,10 +385,9 @@ export class JobsService {
 
     const outcome = await prisma.$transaction(
       async (tx) => {
-        // Waits out a submit in progress, which locks the job row to update, so
-        // the insert sees any send run it committed. Decisions don't block each
-        // other: the primary key settles a race between them.
-        await tx.$executeRaw`SELECT id FROM public.job WHERE id = ${jobId}::int FOR SHARE`;
+        // Waits out a submit in progress, so the insert sees any send run it
+        // committed.
+        await lockJobRow(tx, jobId, 'FOR SHARE');
 
         // Writes the row after the student's latest, if the caller saw what's
         // current: that latest row for a version, or no decision (no rows, or a
@@ -872,10 +872,8 @@ export class JobsService {
 
     const created = await prisma.$transaction(
       async (tx) => {
-        // Everything that creates a job's runs or writes its decisions takes
-        // this lock first, so a full run can't start while matches are being
-        // submitted.
-        await tx.$executeRaw`SELECT id FROM job WHERE id = ${job.id} FOR NO KEY UPDATE`;
+        // So a full run can't start while matches are being submitted.
+        await lockJobRow(tx, job.id, 'FOR NO KEY UPDATE');
 
         const runs = await tx.run.findMany({ where: { jobId: job.id } });
         if (runs.some((run) => run.status === 'running' || run.status === 'new')) {
