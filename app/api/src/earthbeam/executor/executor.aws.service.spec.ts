@@ -104,8 +104,7 @@ describe('ExecutorAwsService', () => {
   it('uses the medium task for a send run, whatever its job’s input files total', async () => {
     fileService.getFileSize.mockResolvedValueOnce(40 * MB).mockResolvedValueOnce(60 * MB);
 
-    // A send run doesn't transform the input files, so their size doesn't
-    // predict its memory use. The same job's full run gets the large task.
+    // The same job's full run gets the large task.
     await service.start({ ...run, kind: 'send' });
 
     const taskInput = ecsSend.mock.calls[0][0].input;

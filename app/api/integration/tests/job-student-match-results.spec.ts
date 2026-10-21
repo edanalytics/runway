@@ -300,8 +300,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         });
       });
 
-      // Until PR 5 tracks send runs' outcomes, a submitted match stays
-      // reprocessing whatever its run's status.
+      // A submitted match stays reprocessing whatever its send run's status.
       it.each(['running', 'success', 'error'] as const)(
         'returns a submitted match as reprocessing, with its decision, when its send run is %s',
         async (sendRunStatus) => {

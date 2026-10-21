@@ -60,7 +60,6 @@ export class StudentMatchSubmitService {
                    SELECT 1 FROM public.send_run_decision s
                    WHERE s.job_id = i.job_id AND s.correlation_id = i.correlation_id
                  ) AS submitted,
-                 -- Whether the latest full run reported the student for review.
                  EXISTS (
                    SELECT 1 FROM public.student_match_result r
                    WHERE r.job_id = i.job_id AND r.correlation_id = i.correlation_id

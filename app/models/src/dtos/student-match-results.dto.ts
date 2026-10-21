@@ -343,7 +343,7 @@ export const studentMatchStatus = (
 ): StudentMatchStatus => {
   switch (latestDecision) {
     case 'match':
-      // Only a match is ever submitted. PR 5 splits reprocessing by the send
+      // Only a match is ever submitted, and it's reprocessing whatever its send
       // run's outcome.
       return submitted ? 'reprocessing' : 'ready';
     case 'exclude':
