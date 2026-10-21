@@ -80,14 +80,14 @@ export class EarthbeamApiJobResponseDto {
 
   /**
    * Present only on a send run: the run's id, and the answers of the
-   * decisions it delivers, sorted by correlation id. `inJobYear` is whether
-   * the answer's school years include the job's, whatever the partner's
-   * cross-year setting; the Executor doesn't send the others to the ODS.
+   * decisions it delivers, sorted by correlation id. `crossYearFlag` is
+   * whether the answer's school years exclude the job's, whatever the
+   * partner's cross-year setting; the Executor doesn't send those to the ODS.
    */
   @Expose()
   send?: {
     runId: number;
-    students: Array<{ correlationId: string; studentUniqueId: string; inJobYear: boolean }>;
+    students: Array<{ correlationId: string; studentUniqueId: string; crossYearFlag: boolean }>;
   };
 
   @Expose()

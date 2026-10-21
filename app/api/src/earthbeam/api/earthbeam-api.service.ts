@@ -271,7 +271,7 @@ export class EarthbeamApiService {
         correlationId,
         // Submit records only matches, and every match has an answer (037's check).
         studentUniqueId: decision.studentUniqueId!,
-        inJobYear: schoolYears.includes(endYear),
+        crossYearFlag: !schoolYears.includes(endYear),
       });
     }
     return students;

@@ -426,15 +426,15 @@ describe('Earthbeam API', () => {
           send: {
             runId: sendRun.id,
             students: [
-              { correlationId: 'corr-1', studentUniqueId: 'SUID-corr-1', inJobYear: true },
-              { correlationId: 'corr-2', studentUniqueId: 'SUID-FOUND-corr-2', inJobYear: true },
+              { correlationId: 'corr-1', studentUniqueId: 'SUID-corr-1', crossYearFlag: false },
+              { correlationId: 'corr-2', studentUniqueId: 'SUID-FOUND-corr-2', crossYearFlag: false },
             ],
           },
         });
       });
 
       it.each([true, false])(
-        'tells a send run which answers are in the job’s year, from the basis’s school years, with crossYearMatchingEnabled %s',
+        'tells a send run which answers are outside the job’s year, from the basis’s school years, with crossYearMatchingEnabled %s',
         async (crossYearMatchingEnabled) => {
           await prisma.partner.update({
             where: { id: partnerA.id },
@@ -451,15 +451,15 @@ describe('Earthbeam API', () => {
           const res = await payloadOf(sendRun.id);
 
           expect(
-            res.body.send.students.map(({ correlationId, inJobYear }: Record<string, unknown>) => [
+            res.body.send.students.map(({ correlationId, crossYearFlag }: Record<string, unknown>) => [
               correlationId,
-              inJobYear,
+              crossYearFlag,
             ])
           ).toEqual([
-            ['corr-1', true],
-            ['corr-2', false],
-            ['corr-3', true],
-            ['corr-4', false],
+            ['corr-1', false],
+            ['corr-2', true],
+            ['corr-3', false],
+            ['corr-4', true],
           ]);
         }
       );
