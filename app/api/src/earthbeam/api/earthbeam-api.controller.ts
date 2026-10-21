@@ -32,7 +32,8 @@ import {
 } from '@edanalytics/models';
 import { EarthbeamApiService } from './earthbeam-api.service';
 import { StudentMatchResultsService } from './student-match-results.service';
-import { IdrsCredentialsService } from './idrs-credentials.service';
+import { IdrsCredentialsService } from '../../idrs/idrs-credentials.service';
+import { idrsStudentSearchUrl } from '../../idrs/idrs-student-search-url';
 import { EduSnowflakePoolService } from './edu-snowflake-pool.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -103,11 +104,8 @@ export class EarthbeamApiController {
         }`
       );
       // The executor uses this URL as-is, so hand over the full search route
-      // rather than the base. The configured base stays untouched elsewhere —
-      // it also serves as the OAuth audience, which must match verbatim.
-      const url = `${credentials.url.replace(/\/+$/, '')}/partners/${encodeURIComponent(
-        partnerId
-      )}/tenants/${encodeURIComponent(tenantCode)}/students/search`;
+      // rather than the base.
+      const url = idrsStudentSearchUrl(credentials.url, partnerId, tenantCode);
       return toEarthbeamApiIdentityServiceResponseDto({ token: credentials.token, url });
     } catch (err) {
       // Every mode and every failure lands here. The executor only distinguishes 200

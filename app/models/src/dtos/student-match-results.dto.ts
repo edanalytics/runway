@@ -1,5 +1,23 @@
 import { Expose, plainToInstance, Transform, Type } from 'class-transformer';
-import { IsIn, IsInt, Max, Min, ValidateIf } from 'class-validator';
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsISO8601,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  Min,
+  Validate,
+  ValidateIf,
+  ValidateNested,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+} from 'class-validator';
 import {
   StudentInputDetails,
   StudentMatchDecision,
@@ -8,7 +26,7 @@ import {
   StudentMatchSuggestion,
   User,
 } from '@prisma/client';
-import { makeSerializerCustomType } from '../utils/make-serializer';
+import { makeSerializer, makeSerializerCustomType } from '../utils/make-serializer';
 import { StudentInputDetailsJson, StudentRosterDetailsJson } from './earthbeam-api.dto';
 import { GetUserDto } from './user.dto';
 
@@ -17,22 +35,27 @@ import { GetUserDto } from './user.dto';
  * snake_case.
  */
 
-export class GetStudentMatchSuggestionDto {
-  @Expose()
-  ordinal: number;
-
+/** A student record from IDRS, with IDRS's score, as a reviewer may match to them. */
+export class GetIdrsStudentDto {
   @Expose()
   studentUniqueId: string;
 
-  // A Prisma Decimal, converted to a number: precise enough for display.
-  // @Type rather than @Transform, which would run only after class-transformer
-  // tried, and failed, to copy the Decimal.
+  // A Prisma Decimal for a suggestion, converted to a number: precise enough
+  // for display. @Type rather than @Transform, which would run only after
+  // class-transformer tried, and failed, to copy the Decimal.
   @Expose()
   @Type(() => Number)
   score: number;
 
+  /** The match as IDRS returned it, minus student_unique_id and score. */
   @Expose()
   rosterDetails: StudentRosterDetailsJson;
+}
+
+/** One of a run's suggestions: an IDRS student at its position in the result. */
+export class GetStudentMatchSuggestionDto extends GetIdrsStudentDto {
+  @Expose()
+  ordinal: number;
 }
 
 export class GetStudentMatchResultDto {
@@ -54,10 +77,137 @@ export class GetStudentMatchResultDto {
   suggestions: GetStudentMatchSuggestionDto[];
 }
 
+/**
+ * Details to search IDRS with: IDRS's own input fields, in its snake_case,
+ * the shape of the stored input details. Validated against IDRS's input
+ * schema. IDRS treats null and absent alike.
+ */
+export class StudentSearchDetailsDto implements StudentInputDetailsJson {
+  @IsOptional()
+  @IsString()
+  first_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  last_name?: string | null;
+
+  // The pattern alone would let through an impossible date, and the ISO
+  // check alone a date with a time.
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsISO8601({ strict: true })
+  birth_date?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  school_ids?: number[] | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  student_ids?: string[] | null;
+}
+
+/**
+ * Only IDRS's own fields. Validation keeps unknown keys, and IDRS rejects
+ * them, so whatever goes to IDRS, or is stored as what was searched, is built
+ * from this.
+ *
+ * A global `ValidationPipe` with `whitelist: true` would make this unnecessary,
+ * but would change every request DTO in the app, each needing to be checked.
+ */
+export const pickStudentSearchDetails = ({
+  first_name,
+  last_name,
+  birth_date,
+  school_ids,
+  student_ids,
+}: StudentSearchDetailsDto): StudentSearchDetailsDto => ({
+  first_name,
+  last_name,
+  birth_date,
+  school_ids,
+  student_ids,
+});
+
+/** Search returns an array of these: the students the job could load, highest score first. */
+export const toGetIdrsStudentDto = makeSerializer(GetIdrsStudentDto);
+
+/** The search a match rests on, when the reviewer found the student by searching. */
+export class PostStudentMatchSearchDto {
+  /** What the reviewer searched with. Stored as the search route sends it to IDRS. */
+  @IsObject()
+  @ValidateNested()
+  @Type(() => StudentSearchDetailsDto)
+  searchDetails: StudentSearchDetailsDto;
+
+  /** The student as the reviewer saw them, a search's `rosterDetails`. Stored as sent. */
+  @IsObject()
+  rosterDetails: StudentRosterDetailsJson;
+}
+
+export class GetStudentMatchSearchDto {
+  @Expose()
+  searchDetails: StudentInputDetailsJson;
+
+  @Expose()
+  rosterDetails: StudentRosterDetailsJson;
+}
+
 const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'clear'];
 
 /** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
+
+/**
+ * Whether a decision is a match resting on the reviewer's search, rather than
+ * on a suggestion. Validation requires `search` and `studentUniqueId` exactly
+ * when this holds, and refuses them otherwise.
+ */
+export const restsOnSearch = (
+  o: PostStudentMatchDecisionDto
+): o is PostStudentMatchDecisionDto & {
+  search: PostStudentMatchSearchDto;
+  studentUniqueId: string;
+} => o.kind === 'match' && o.search != null;
+
+/**
+ * Whether a decision is a match resting on a suggestion. Validation requires
+ * `ordinal` exactly when this holds, and refuses it and `resultId` otherwise.
+ */
+export const restsOnSuggestion = (
+  o: PostStudentMatchDecisionDto
+): o is PostStudentMatchDecisionDto & { ordinal: number } =>
+  o.kind === 'match' && !restsOnSearch(o);
+
+/** A decision's shape, and the fields it sent that the shape doesn't have. Null is absent. */
+const strayFields = (o: PostStudentMatchDecisionDto) => {
+  const [shape, allowed]: [string, string[]] = restsOnSearch(o)
+    ? ['a match to a search', ['studentUniqueId', 'search']]
+    : restsOnSuggestion(o)
+    ? ['a match to a suggestion', ['resultId', 'ordinal']]
+    : [o.kind === 'exclude' ? 'an exclude' : 'a clear', []];
+  const stray = (['resultId', 'ordinal', 'studentUniqueId', 'search'] as const).filter(
+    (field) => !allowed.includes(field) && o[field] != null
+  );
+  return { shape, stray };
+};
+
+/** Refuses a decision with stray fields, naming them but never their values, which are student data. */
+@ValidatorConstraint({ name: 'decisionShape' })
+class DecisionShape implements ValidatorConstraintInterface {
+  validate(_: unknown, { object }: ValidationArguments) {
+    const o = object as PostStudentMatchDecisionDto;
+    // An unknown kind has no shape, and is refused by its own check.
+    return !STUDENT_MATCH_DECISION_KINDS.includes(o.kind) || strayFields(o).stray.length === 0;
+  }
+
+  defaultMessage({ object }: ValidationArguments) {
+    const { shape, stray } = strayFields(object as PostStudentMatchDecisionDto);
+    return `${stray.join(', ')} must be absent from ${shape}`;
+  }
+}
 
 /** Save a match, exclude the student, or clear the student's current decision. */
 export class PostStudentMatchDecisionDto {
@@ -72,20 +222,47 @@ export class PostStudentMatchDecisionDto {
   @Max(POSTGRES_INTEGER_MAX)
   replacesVersion: number | null;
 
+  /**
+   * Each kind has its own fields, and any other is refused: a match to a
+   * suggestion has `resultId` and `ordinal`, a match to a search
+   * `studentUniqueId` and `search`, and an exclude or a clear none. Null is the
+   * same as absent, as the responses show a suggestion pick's `search`.
+   */
   @IsIn(STUDENT_MATCH_DECISION_KINDS)
+  @Validate(DecisionShape)
   kind: StudentMatchDecisionKind;
 
   /**
-   * The picked suggestion's result, for a match; ignored otherwise. A BIGINT,
-   * so a string. Not validated here: the service checks it against the
-   * student's own results.
+   * The reviewer's search, for a match to a student they found by searching.
+   * A match rests on either this or a suggestion.
+   */
+  @ValidateIf(restsOnSearch)
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PostStudentMatchSearchDto)
+  search?: PostStudentMatchSearchDto | null;
+
+  /**
+   * The answer, the student found, for a match to a search. A suggestion
+   * pick's answer is the suggestion's student.
+   */
+  @ValidateIf(restsOnSearch)
+  @IsString()
+  @IsNotEmpty()
+  studentUniqueId?: string;
+
+  /**
+   * The picked suggestion's result, for a match without a search. A BIGINT,
+   * so a string. Validation only refuses it outside that shape: the service
+   * checks it against the student's own results, so a missing one is
+   * `invalid_target`.
    */
   resultId?: string;
 
-  /** The picked suggestion's position in its result, for a match; ignored otherwise. */
+  /** The picked suggestion's position in its result, for a match without a search. */
   // Checked here because the database would round a fraction to the nearest
   // suggestion and save it.
-  @ValidateIf((o: PostStudentMatchDecisionDto) => o.kind === 'match')
+  @ValidateIf(restsOnSuggestion)
   @IsInt()
   @Min(0)
   @Max(POSTGRES_INTEGER_MAX)
@@ -101,13 +278,25 @@ export class GetStudentMatchDecisionDto {
   @Expose()
   kind: Exclude<StudentMatchDecisionKind, 'clear'>;
 
-  /** The picked suggestion's result, for a match. A BIGINT, so a string. */
+  /** The answer, for a match: the student this record is. */
+  @Expose()
+  studentUniqueId: string | null;
+
+  // A match's basis, what its answer rests on: either the suggestion it
+  // picked, `resultId` and `ordinal`, or the reviewer's `search`. The other
+  // is null.
+
+  /** The picked suggestion's result. A BIGINT, so a string. */
   @Expose()
   @Type(() => String)
   resultId: string | null;
 
   @Expose()
   ordinal: number | null;
+
+  @Expose()
+  @Type(() => GetStudentMatchSearchDto)
+  search: GetStudentMatchSearchDto | null;
 
   /** Null if the user has since been deleted. */
   @Expose()
@@ -119,9 +308,17 @@ export class GetStudentMatchDecisionDto {
   decidedOn: Date;
 }
 
-export type StudentMatchDecisionWithUser = StudentMatchDecision & {
+/** A decision row, with its search's columns only in `search`. */
+export type StudentMatchDecisionWithUser = Omit<
+  StudentMatchDecision,
+  'searchDetails' | 'rosterDetails'
+> & {
   version: number;
   decidedBy: User | null;
+  search: {
+    searchDetails: StudentInputDetailsJson;
+    rosterDetails: StudentRosterDetailsJson;
+  } | null;
 };
 
 export class PostStudentMatchDecisionResponseDto {

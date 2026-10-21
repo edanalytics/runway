@@ -12,7 +12,8 @@ export type IdrsCredentials = { token: string; url: string };
 type CacheEntry = { token: string; expiresAt: number };
 
 /**
- * Resolves what the executor needs to reach IDRS on a partner's behalf: the
+ * Resolves what's needed to reach IDRS on a partner's behalf, for the
+ * Executor's identity-service callback and for match review's search: the
  * deployment's IDRS base url and an access token minted with that partner's
  * own OAuth client. Tokens are cached per app instance and per partner, so
  * scaled instances each mint their own and observe a credential rotation at
