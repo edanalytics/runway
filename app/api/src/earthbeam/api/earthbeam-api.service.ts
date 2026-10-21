@@ -163,41 +163,13 @@ export class EarthbeamApiService {
 
     let send: EarthbeamApiJobResponseDto['send'];
     if (run.kind === 'send') {
-      const sendRunDecisions = await this.prisma.sendRunDecision.findMany({
-        where: { runId },
-        orderBy: { correlationId: 'asc' },
-        select: {
-          correlationId: true,
-          studentMatchDecision: {
-            select: {
-              studentUniqueId: true,
-              rosterDetails: true,
-              studentMatchSuggestion: { select: { rosterDetails: true } },
-            },
-          },
-        },
-      });
-      const students = [];
-      for (const { correlationId, studentMatchDecision: decision } of sendRunDecisions) {
-        // A match has exactly one basis (037's check): a suggestion, or a
-        // search with its own roster details.
-        const schoolYears = schoolYearsOf(
-          decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails
-        );
-        // Submit refuses such a match, so this is only a backstop.
-        if (schoolYears === null) {
-          return {
-            status: 'ERROR',
-            type: 'server_error',
-            message: 'A send run’s decision has missing or malformed school_years',
-          };
-        }
-        students.push({
-          correlationId,
-          // Submit records only matches, and every match has an answer (037's check).
-          studentUniqueId: decision.studentUniqueId!,
-          inJobYear: schoolYears.includes(job.schoolYear.endYear),
-        });
+      const students = await this.sendRunStudents(runId, job.schoolYear.endYear);
+      if (students === null) {
+        return {
+          status: 'ERROR',
+          type: 'server_error',
+          message: 'A send run’s decision has missing or malformed school_years',
+        };
       }
       send = { runId, students };
     }
@@ -260,6 +232,49 @@ export class EarthbeamApiService {
       status: 'SUCCESS',
       data: payload,
     };
+  }
+
+  /**
+   * A send run's students, in correlation-id order, or null if any decision's
+   * school years are missing or malformed. Submit refuses such a match, so
+   * null is only a backstop.
+   */
+  private async sendRunStudents(
+    runId: Run['id'],
+    endYear: number
+  ): Promise<NonNullable<EarthbeamApiJobResponseDto['send']>['students'] | null> {
+    const sendRunDecisions = await this.prisma.sendRunDecision.findMany({
+      where: { runId },
+      orderBy: { correlationId: 'asc' },
+      select: {
+        correlationId: true,
+        studentMatchDecision: {
+          select: {
+            studentUniqueId: true,
+            rosterDetails: true,
+            studentMatchSuggestion: { select: { rosterDetails: true } },
+          },
+        },
+      },
+    });
+    const students = [];
+    for (const { correlationId, studentMatchDecision: decision } of sendRunDecisions) {
+      // A match has exactly one basis (037's check): a suggestion, or a
+      // search with its own roster details.
+      const schoolYears = schoolYearsOf(
+        decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails
+      );
+      if (schoolYears === null) {
+        return null;
+      }
+      students.push({
+        correlationId,
+        // Submit records only matches, and every match has an answer (037's check).
+        studentUniqueId: decision.studentUniqueId!,
+        inJobYear: schoolYears.includes(endYear),
+      });
+    }
+    return students;
   }
 
   async completeRun(runId: Run['id'], status: 'success' | 'error', prisma: PrismaClient) {
