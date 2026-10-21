@@ -176,7 +176,7 @@ export const restsOnSearch = (
  * Whether a decision is a match resting on a suggestion. Validation requires
  * `ordinal` exactly when this holds, and refuses it and `resultId` otherwise.
  */
-export const picksSuggestion = (
+export const restsOnSuggestion = (
   o: PostStudentMatchDecisionDto
 ): o is PostStudentMatchDecisionDto & { ordinal: number } =>
   o.kind === 'match' && !restsOnSearch(o);
@@ -185,7 +185,7 @@ export const picksSuggestion = (
 const strayFields = (o: PostStudentMatchDecisionDto) => {
   const [shape, allowed]: [string, string[]] = restsOnSearch(o)
     ? ['a match to a search', ['studentUniqueId', 'search']]
-    : picksSuggestion(o)
+    : restsOnSuggestion(o)
     ? ['a match to a suggestion', ['resultId', 'ordinal']]
     : [o.kind === 'exclude' ? 'an exclude' : 'a clear', []];
   const stray = (['resultId', 'ordinal', 'studentUniqueId', 'search'] as const).filter(
@@ -262,7 +262,7 @@ export class PostStudentMatchDecisionDto {
   /** The picked suggestion's position in its result, for a match without a search. */
   // Checked here because the database would round a fraction to the nearest
   // suggestion and save it.
-  @ValidateIf(picksSuggestion)
+  @ValidateIf(restsOnSuggestion)
   @IsInt()
   @Min(0)
   @Max(POSTGRES_INTEGER_MAX)

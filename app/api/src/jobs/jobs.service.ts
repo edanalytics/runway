@@ -4,10 +4,10 @@ import {
   GetIdrsStudentDto,
   JobInputParamDto,
   JsonArray,
-  picksSuggestion,
   pickStudentSearchDetails,
   PostStudentMatchDecisionDto,
   restsOnSearch,
+  restsOnSuggestion,
   StudentMatchDecisionWithUser,
   StudentSearchDetailsDto,
   studentMatchStatus,
@@ -331,7 +331,7 @@ export class JobsService {
         searchDetails: JSON.stringify(pickStudentSearchDetails(decision.search.searchDetails)),
         rosterDetails: JSON.stringify(decision.search.rosterDetails),
       };
-    } else if (picksSuggestion(decision)) {
+    } else if (restsOnSuggestion(decision)) {
       // A match to a suggestion: its answer is the suggestion's student.
       const results = student.studentMatchResult;
       const picked = results.find(({ id }) => id.toString() === decision.resultId);
