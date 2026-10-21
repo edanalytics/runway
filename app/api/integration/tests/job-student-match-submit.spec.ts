@@ -25,11 +25,13 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     code: 'decision_changed',
     message: 'A student’s decision has changed since the page loaded.',
   };
-  const NOT_READY = {
+  /** The refusal for students with no match ready, at these positions in the request. */
+  const notReady = (indices: number[]) => ({
     statusCode: 409,
     code: 'not_ready',
     message: 'A student has no match ready to submit.',
-  };
+    indices,
+  });
 
   let job: Awaited<ReturnType<typeof seedJob>>;
   let cookies: string;
@@ -423,6 +425,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       const other = await seedReportedJob({ fullRunStatus: 'error' });
       const v1 = await matchSuggestion(other.id, 'corr-1', cookies);
       const v2 = await matchSuggestion(other.id, 'corr-2', cookies);
+      const v3 = await matchSuggestion(other.id, 'corr-3', cookies);
       const reRun = await prisma.run.create({
         data: { jobId: other.id, kind: 'full', status: 'success' },
       });
@@ -433,12 +436,13 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
         [
           { correlationId: 'corr-1', version: v1 },
           { correlationId: 'corr-2', version: v2 },
+          { correlationId: 'corr-3', version: v3 },
         ],
         cookies
       );
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual(NOT_READY);
+      expect(res.body).toEqual(notReady([0, 2]));
       expect(await sendRunsOf(other.id)).toEqual([]);
     });
   });
@@ -520,7 +524,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       );
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual(NOT_READY);
+      expect(res.body).toEqual(notReady([1]));
       expect(await sendRunsOf(job.id)).toHaveLength(sendRunsBefore);
     });
   });
@@ -651,7 +655,8 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
         cookies
       );
 
-      expect(res.body.code).toBe('not_ready');
+      // corr-2's invalid school years aren't among the indices.
+      expect(res.body).toEqual(notReady([0]));
     });
   });
 
@@ -674,7 +679,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       const responses = await Promise.all(pending);
 
       expect(responses.map((res) => res.status).sort()).toEqual([201, 409]);
-      expect(responses.find((res) => res.status === 409)?.body).toEqual(NOT_READY);
+      expect(responses.find((res) => res.status === 409)?.body).toEqual(notReady([0]));
       expect((await sendRunsOf(job.id)).map((run) => run.sendRunDecision.length)).toEqual([1]);
     } finally {
       // Releases the lock if the test failed before the rollback.
