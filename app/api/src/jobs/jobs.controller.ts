@@ -69,6 +69,22 @@ const failureCause = (err: unknown) => {
   return `${err instanceof Error ? err.name : 'unknown'}${sqlstate}`;
 };
 
+/**
+ * The request's job, if its review is actionable, or a 403. Only fuzzy mode's
+ * is: in background mode the ID-based run has already delivered, so its
+ * suggestions are read-only, for anyone.
+ */
+const actionableReviewJob = (req: Request) => {
+  if (!req.job) {
+    // Set by the job middleware; fail closed if it ever isn't.
+    throw new InternalServerErrorException('No job on the request');
+  }
+  if (req.job.idMatchingMode !== 'fuzzy') {
+    throw new ForbiddenException('Forbidden');
+  }
+  return req.job;
+};
+
 @Controller()
 @ApiTags('Job')
 @TenantResourceKey('job')
@@ -372,15 +388,7 @@ export class JobsController {
     @ReqSession() session: IPassportSession,
     @Req() req: Request
   ) {
-    if (!req.job) {
-      // Set by the job middleware; fail closed if it ever isn't.
-      throw new InternalServerErrorException('No job on the request');
-    }
-    // Only fuzzy mode's review is actionable. In background mode the ID-based
-    // run has already delivered, so its suggestions are read-only, for anyone.
-    if (req.job.idMatchingMode !== 'fuzzy') {
-      throw new ForbiddenException('Forbidden');
-    }
+    actionableReviewJob(req);
 
     let result: Awaited<ReturnType<JobsService['decideStudentMatch']>>;
     try {
@@ -448,14 +456,7 @@ export class JobsController {
     @Body() { students }: PostStudentMatchSubmitDto,
     @Req() req: Request
   ) {
-    if (!req.job) {
-      // Set by the job middleware; fail closed if it ever isn't.
-      throw new InternalServerErrorException('No job on the request');
-    }
-    // Only fuzzy mode's review is actionable, as for decisions.
-    if (req.job.idMatchingMode !== 'fuzzy') {
-      throw new ForbiddenException('Forbidden');
-    }
+    actionableReviewJob(req);
 
     let result: Awaited<ReturnType<StudentMatchSubmitService['submit']>>;
     try {
@@ -529,24 +530,17 @@ export class JobsController {
     @ReqSession() session: IPassportSession,
     @Req() req: Request
   ) {
-    if (!req.job) {
-      // Set by the job middleware; fail closed if it ever isn't.
-      throw new InternalServerErrorException('No job on the request');
-    }
-    // Only fuzzy mode's review is actionable, as for decisions.
-    if (req.job.idMatchingMode !== 'fuzzy') {
-      throw new ForbiddenException('Forbidden');
-    }
+    const job = actionableReviewJob(req);
 
     const startedAt = Date.now();
     const result = await this.jobService.searchStudentMatch({
-      job: req.job,
+      job,
       correlationId,
       details,
     });
     // Ids, counts and safe causes only: no search terms, students or correlation id.
     // The user id records who looked students up.
-    const logLine = `student match search: jobId=${jobId} partnerId=${req.job.partnerId} userId=${
+    const logLine = `student match search: jobId=${jobId} partnerId=${job.partnerId} userId=${
       session.user.id
     } outcome=${result.status === 'SUCCESS' ? 'SUCCESS' : result.code}`;
     const durationMs = Date.now() - startedAt;
