@@ -25,6 +25,11 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     code: 'decision_changed',
     message: 'A student’s decision has changed since the page loaded.',
   };
+  const FULL_RUN_NOT_DONE = {
+    statusCode: 409,
+    code: 'full_run_not_done',
+    message: 'The job’s full run hasn’t succeeded.',
+  };
   /** The refusal for students with no match ready, at these positions in the request. */
   const notReady = (indices: number[]) => ({
     statusCode: 409,
@@ -208,7 +213,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     });
 
     // The send run routes a match outside the job's year to sideloading.
-    it('accepts a match to a search, and a match outside the job’s year', async () => {
+    it('accepts a match to a search outside the job’s year', async () => {
       const v1 = await matchSearch(job.id, 'corr-1', { school_years: [JOB_YEAR - 6] }, cookies);
 
       const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
@@ -377,17 +382,13 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
         const res = await submit(other.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
 
         expect(res.status).toBe(409);
-        expect(res.body).toEqual({
-          statusCode: 409,
-          code: 'full_run_not_done',
-          message: 'The job’s full run hasn’t succeeded.',
-        });
+        expect(res.body).toEqual(FULL_RUN_NOT_DONE);
         expect(await sendRunsOf(other.id)).toEqual([]);
       }
     );
 
     // The send run is the job's latest run, and still new.
-    it('is a full run: accepts a submit while an earlier submit’s send run is in progress', async () => {
+    it('ignores send runs: accepts a submit while an earlier submit’s send run is in progress', async () => {
       const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
       const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
       await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
@@ -409,6 +410,19 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       const res = await submit(other.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
 
       expect(res.status).toBe(201);
+    });
+
+    // A re-run is allowed until something is submitted, and while it hasn't
+    // succeeded its files aren't the ones a send run would read.
+    it('is the latest one: refuses a submit once a re-run fails after a success', async () => {
+      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
+      await prisma.run.create({ data: { jobId: job.id, kind: 'full', status: 'error' } });
+
+      const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(FULL_RUN_NOT_DONE);
+      expect(await sendRunsOf(job.id)).toEqual([]);
     });
 
     // The re-run's IDRS resolved corr-1 itself, so the re-run has already sent
