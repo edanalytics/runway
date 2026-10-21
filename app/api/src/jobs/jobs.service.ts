@@ -9,7 +9,9 @@ import {
   PostStudentMatchDecisionDto,
   restsOnSearch,
   restsOnSuggestion,
+  schoolYearsOf,
   StudentMatchDecisionWithUser,
+  StudentRosterDetailsJson,
   StudentSearchDetailsDto,
   studentMatchStatus,
   toGetJobTemplateDto,
@@ -42,7 +44,8 @@ import { IdrsSearchService } from '../idrs/idrs-search.service';
  * Whether a job could load a student IDRS found. With cross-year matching on,
  * it can load any of them: one outside the job's school year is a cross-year
  * match, which is sideloaded rather than sent to the ODS. With it off, it can
- * load only students whose `school_years` include the job's year. Both
+ * load only students whose `school_years` include the job's year, read as
+ * submitting reads them, so malformed ones include no year. Both
  * `school_years` and `endYear` name a school year by its end year (2025 for
  * 2024–25).
  *
@@ -50,12 +53,10 @@ import { IdrsSearchService } from '../idrs/idrs-search.service';
  * keeps only through cross-year matching must never be sent to the ODS.
  */
 export const isLoadableStudent = (
-  student: { school_years?: unknown },
+  student: StudentRosterDetailsJson,
   endYear: number,
   crossYearMatchingEnabled: boolean
-) =>
-  crossYearMatchingEnabled ||
-  (Array.isArray(student.school_years) && student.school_years.includes(endYear));
+) => crossYearMatchingEnabled || (schoolYearsOf(student)?.includes(endYear) ?? false);
 
 /**
  * A decision row as the API shows it: none for a clear, and a search basis's

@@ -343,6 +343,9 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
         idrsMatch('SUID-2025', [2025]),
         idrsMatch('SUID-2024', [2024]),
         idrsMatch('SUID-NONE', []),
+        // Holds the job's year, but not as an array of integers, so submitting
+        // couldn't tell whether a match to it is in the job's year.
+        { ...idrsMatch('SUID-MALFORMED', []), school_years: [2025, '2024'] },
       ]);
     const studentIds = (res: request.Response) =>
       res.body.map((student: { studentUniqueId: string }) => student.studentUniqueId);
@@ -363,6 +366,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
         'SUID-2025',
         'SUID-2024',
         'SUID-NONE',
+        'SUID-MALFORMED',
       ]);
     });
   });
