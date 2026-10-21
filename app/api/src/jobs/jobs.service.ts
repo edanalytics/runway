@@ -869,33 +869,38 @@ export class JobsService {
       return { result: 'JOB_CONFIG_INCOMPLETE', job };
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-      // Everything that creates a job's runs or writes its decisions takes
-      // this lock first, so a full run can't start while matches are being
-      // submitted.
-      await tx.$executeRaw`SELECT id FROM job WHERE id = ${job.id} FOR NO KEY UPDATE`;
+    const created = await prisma.$transaction(
+      async (tx) => {
+        // Everything that creates a job's runs or writes its decisions takes
+        // this lock first, so a full run can't start while matches are being
+        // submitted.
+        await tx.$executeRaw`SELECT id FROM job WHERE id = ${job.id} FOR NO KEY UPDATE`;
 
-      const runs = await tx.run.findMany({ where: { jobId: job.id } });
-      if (runs.some((run) => run.status === 'running' || run.status === 'new')) {
-        return { refused: 'JOB_IN_PROGRESS' as const };
-      }
-      // A full run asks IDRS again, so its own send could deliver a submitted
-      // student under a different identity. It also rewrites the files that
-      // send runs read.
-      if (runs.some((run) => run.kind === 'send')) {
-        return { refused: 'JOB_HAS_SEND_RUNS' as const };
-      }
+        const runs = await tx.run.findMany({ where: { jobId: job.id } });
+        if (runs.some((run) => run.status === 'running' || run.status === 'new')) {
+          return { refused: 'JOB_IN_PROGRESS' as const };
+        }
+        // A full run asks IDRS again, so its own send could deliver a submitted
+        // student under a different identity. It also rewrites the files that
+        // send runs read.
+        if (runs.some((run) => run.kind === 'send')) {
+          return { refused: 'JOB_HAS_SEND_RUNS' as const };
+        }
 
-      const run = await tx.run.create({
-        data: {
-          jobId: job.id,
-          kind: 'full',
-          status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
-        },
-        include: { job: { include: { schoolYear: true, files: true } } },
-      });
-      return { run };
-    });
+        const run = await tx.run.create({
+          data: {
+            jobId: job.id,
+            kind: 'full',
+            status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
+          },
+          include: { job: { include: { schoolYear: true, files: true } } },
+        });
+        return { run };
+      },
+      // Each statement sees what committed before it, so reading the runs
+      // sees a send run committed while this transaction waited at the lock.
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted }
+    );
     if ('refused' in created) {
       return { result: created.refused, job };
     }
