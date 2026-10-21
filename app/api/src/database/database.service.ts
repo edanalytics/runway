@@ -105,7 +105,9 @@ export const providePrismaWrite = {
           client: {
             // Each operation below runs in its own transaction, which can't
             // join an interactive one. So an interactive transaction runs on
-            // the underlying client, and sets the user once, at its start.
+            // the underlying client, where the operation extension below
+            // doesn't run, and sets the user once, at its start. Anything
+            // added to that extension must be added here too.
             $transaction(arg: TransactionArg, options?: TransactionOptions) {
               if (typeof arg !== 'function') {
                 return prisma.$transaction(arg, options);
