@@ -70,11 +70,11 @@ const failureCause = (err: unknown) => {
 };
 
 /**
- * The request's job, if its review is actionable, or a 403. Only fuzzy mode's
- * is: in background mode the ID-based run has already delivered, so its
- * suggestions are read-only, for anyone.
+ * The request's job if it's in fuzzy mode, or a 403. Only a fuzzy job's
+ * students can be decided, searched or submitted: in background mode the
+ * ID-based run has already delivered, so its suggestions are read-only.
  */
-const actionableReviewJob = (req: Request) => {
+const fuzzyJobOrThrow = (req: Request) => {
   if (!req.job) {
     // Set by the job middleware; fail closed if it ever isn't.
     throw new InternalServerErrorException('No job on the request');
@@ -383,7 +383,7 @@ export class JobsController {
     @ReqSession() session: IPassportSession,
     @Req() req: Request
   ) {
-    actionableReviewJob(req);
+    fuzzyJobOrThrow(req);
 
     let result: Awaited<ReturnType<JobsService['decideStudentMatch']>>;
     try {
@@ -451,7 +451,7 @@ export class JobsController {
     @Body() { students }: PostStudentMatchSubmitDto,
     @Req() req: Request
   ) {
-    actionableReviewJob(req);
+    fuzzyJobOrThrow(req);
 
     let result: Awaited<ReturnType<StudentMatchSubmitService['submit']>>;
     try {
@@ -525,7 +525,7 @@ export class JobsController {
     @ReqSession() session: IPassportSession,
     @Req() req: Request
   ) {
-    const job = actionableReviewJob(req);
+    const job = fuzzyJobOrThrow(req);
 
     const startedAt = Date.now();
     const result = await this.jobService.searchStudentMatch({
