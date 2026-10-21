@@ -126,7 +126,7 @@ const noAnswerOrBasis: NoAnswerColumns = {
   rosterDetails: null,
 };
 
-const noStudentsToMatch: GetStudentMatchCountsDto = {
+export const noStudentsToMatch: GetStudentMatchCountsDto = {
   total: 0,
   toReview: 0,
   ready: 0,

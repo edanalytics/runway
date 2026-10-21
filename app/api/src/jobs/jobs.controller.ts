@@ -23,7 +23,7 @@ import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { JobsService } from './jobs.service';
+import { JobsService, noStudentsToMatch } from './jobs.service';
 import { StudentMatchSubmitService } from './student-match-submit.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
@@ -307,10 +307,7 @@ export class JobsController {
       // this one, so the counts are placeholders. Returning nothing here, from
       // resolve and from note updates needs those helpers to allow empty
       // responses: a separate cleanup.
-      return toGetJobDto({
-        ...updatedJob,
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0, reprocessing: 0 },
-      });
+      return toGetJobDto({ ...updatedJob, studentMatchCounts: noStudentsToMatch });
     } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
     } else if (res.result === 'JOB_IN_PROGRESS') {
