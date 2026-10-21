@@ -426,8 +426,8 @@ describe('Earthbeam API', () => {
           send: {
             runId: sendRun.id,
             students: [
-              { correlationId: 'corr-1', studentUniqueId: 'SUID-corr-1', crossYearFlag: false },
-              { correlationId: 'corr-2', studentUniqueId: 'SUID-FOUND-corr-2', crossYearFlag: false },
+              { correlationId: 'corr-1', studentUniqueId: 'SUID-corr-1', isCrossYear: false },
+              { correlationId: 'corr-2', studentUniqueId: 'SUID-FOUND-corr-2', isCrossYear: false },
             ],
           },
         });
@@ -451,10 +451,12 @@ describe('Earthbeam API', () => {
           const res = await payloadOf(sendRun.id);
 
           expect(
-            res.body.send.students.map(({ correlationId, crossYearFlag }: Record<string, unknown>) => [
-              correlationId,
-              crossYearFlag,
-            ])
+            res.body.send.students.map(
+              ({ correlationId, isCrossYear }: Record<string, unknown>) => [
+                correlationId,
+                isCrossYear,
+              ]
+            )
           ).toEqual([
             ['corr-1', false],
             ['corr-2', true],
