@@ -115,7 +115,7 @@ export class StudentMatchSubmitService {
           return { status: 'ERROR', code: 'not_ready', indices: notReady } as const;
         }
         const invalidSchoolYears = found.flatMap(({ student }, index) =>
-          schoolYearsOf(student.roster_details ?? {}) === null ? [index] : []
+          schoolYearsOf(student.roster_details) === null ? [index] : []
         );
         if (invalidSchoolYears.length > 0) {
           return {

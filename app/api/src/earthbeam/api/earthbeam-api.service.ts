@@ -182,7 +182,7 @@ export class EarthbeamApiService {
         // A match has exactly one basis (037's check): a suggestion, or a
         // search with its own roster details.
         const schoolYears = schoolYearsOf(
-          decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails ?? {}
+          decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails
         );
         // Submit refuses such a match, so this is only a backstop.
         if (schoolYears === null) {
