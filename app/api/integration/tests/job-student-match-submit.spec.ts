@@ -398,29 +398,6 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect(res.status).toBe(201);
       expect(await sendRunsOf(job.id)).toHaveLength(2);
     });
-
-    it('is the latest one: accepts a submit once a re-run succeeds after a failure', async () => {
-      const other = await seedReportedJob({ fullRunStatus: 'error' });
-      await prisma.run.create({ data: { jobId: other.id, kind: 'full', status: 'success' } });
-      const v1 = await matchSuggestion(other.id, 'corr-1', cookies);
-
-      const res = await submit(other.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
-
-      expect(res.status).toBe(201);
-    });
-
-    // A re-run is allowed until something is submitted, and while it hasn't
-    // succeeded its files aren't the ones a send run would read.
-    it('is the latest one: refuses a submit once a re-run fails after a success', async () => {
-      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-      await prisma.run.create({ data: { jobId: job.id, kind: 'full', status: 'error' } });
-
-      const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual(FULL_RUN_NOT_DONE);
-      expect(await sendRunsOf(job.id)).toEqual([]);
-    });
   });
 
   describe('the version check', () => {

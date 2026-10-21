@@ -24,7 +24,7 @@ import { FileService } from 'api/src/files/file.service';
 import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
-import { Job, JobNote, PrismaClient } from '@prisma/client';
+import { IdMatchingMode, Job, JobNote, PrismaClient, RunKind, RunStatus } from '@prisma/client';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
@@ -944,77 +944,86 @@ describe('PUT /jobs/:id/start', () => {
     executorStart.mockRestore();
   });
 
-  it('re-runs a fuzzy job whose full run failed, launching a new full run', async () => {
+  it('starts a job with no run, launching one full run', async () => {
     const job = await seedJob({
       odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
       idMatchingMode: 'fuzzy',
-      runStatus: 'error',
+      runStatus: null,
     });
 
     const res = await request(app.getHttpServer()).put(endpoint(job.id)).set('Cookie', [cookieA]);
 
     expect(res.status).toBe(200);
-    const newRun = await prisma.run.findFirstOrThrow({
-      where: { jobId: job.id, id: { not: job.runs[0].id } },
-    });
-    expect(newRun).toMatchObject({ kind: 'full', status: 'new', ecsTaskArn });
+    expect(await prisma.run.findMany({ where: { jobId: job.id } })).toEqual([
+      expect.objectContaining({ kind: 'full', status: 'new', ecsTaskArn }),
+    ]);
+    expect(executorStart).toHaveBeenCalledTimes(1);
   });
 
-  // A full run asks IDRS again, so its own send could deliver a submitted
-  // student under a different identity.
-  it.each(['success', 'error'] as const)(
-    'refuses a fuzzy job with a send run that ended in %s, creating no run',
-    async (sendRunStatus) => {
+  // A job is started once, in every mode.
+  it.each<[IdMatchingMode, string, { kind: RunKind; status: RunStatus }[]]>([
+    ['fuzzy', 'whose full run failed', [{ kind: 'full', status: 'error' }]],
+    ['fuzzy', 'whose full run is running', [{ kind: 'full', status: 'running' }]],
+    [
+      'fuzzy',
+      'with a send run',
+      [
+        { kind: 'full', status: 'success' },
+        { kind: 'send', status: 'success' },
+      ],
+    ],
+    ['id_based', 'whose full run failed', [{ kind: 'full', status: 'error' }]],
+  ])(
+    'refuses a job in %s mode %s, creating and launching no run',
+    async (idMatchingMode, _, runs) => {
       const job = await seedJob({
         odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
-        idMatchingMode: 'fuzzy',
-        runStatus: 'success',
+        idMatchingMode,
+        runStatus: null,
       });
-      await prisma.run.create({ data: { jobId: job.id, kind: 'send', status: sendRunStatus } });
+      await prisma.run.createMany({ data: runs.map((run) => ({ jobId: job.id, ...run })) });
 
-      const res = await request(app.getHttpServer())
-        .put(endpoint(job.id))
-        .set('Cookie', [cookieA]);
+      const res = await request(app.getHttpServer()).put(endpoint(job.id)).set('Cookie', [cookieA]);
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toBe(`Job has send runs: ${job.id}`);
-      expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(2);
+      expect(res.body.message).toBe(`Job already started: ${job.id}`);
+      expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(runs.length);
+      expect(executorStart).not.toHaveBeenCalled();
     }
   );
 
   // Called on the service, since both start routes update the job row before
   // startJob, so a request would queue there instead of at startJob's lock.
-  it('refuses a fuzzy job whose send run was submitted while it waited, creating no full run', async () => {
+  it('refuses a start that waited at the lock for another start, leaving one run', async () => {
     const jobsService = app.get(JobsService);
     const prismaAnon = app.get<PrismaClient>(PRISMA_ANONYMOUS);
     const seeded = await seedJob({
       odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
-      idMatchingMode: 'fuzzy',
-      runStatus: 'success',
+      runStatus: null,
     });
     const job = await jobsService.updateFileStatusForJob(seeded.id, 'upload_complete', prismaAnon);
-    // Holds the job row as a submit does, until it commits its send run.
+    // Holds the job row as the other start does, until it commits its run.
     const holder = await holdJobRow(job.id);
     try {
       const started = jobsService.startJob(job, prismaAnon);
       await waitUntilBlockedBy(holder.pid);
       await holder.client.query(
-        "INSERT INTO public.run (job_id, kind, status) VALUES ($1, 'send', 'new')",
+        "INSERT INTO public.run (job_id, kind, status) VALUES ($1, 'full', 'new')",
         [job.id]
       );
       await holder.client.query('COMMIT');
 
-      expect((await started).result).toBe('JOB_IN_PROGRESS');
+      expect((await started).result).toBe('JOB_ALREADY_STARTED');
     } finally {
       await holder.release();
     }
-    expect(await prisma.run.count({ where: { jobId: job.id, kind: 'full' } })).toBe(1);
+    expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(1);
   });
 });
 
