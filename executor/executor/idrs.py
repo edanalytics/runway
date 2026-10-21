@@ -280,7 +280,7 @@ class IDRSMatchResultSet:
     def auto_matched(self) -> dict[str, dict]:
         '''return a correlation_id <-> student_unique_id lookup for auto-matched records'''
         current_year = int(os.environ['API_YEAR'])
-        auto_matches = {record.correlation_id: {"student_unique_id": record.matches[0]['student_unique_id'], "cross_year_flag": current_year not in record.matches[0].get('school_years') or []} for record in self.records.values() if record.match_type == 'auto'}
+        auto_matches = {record.correlation_id: {"student_unique_id": record.matches[0]['student_unique_id'], "cross_year_flag": current_year not in (record.matches[0].get('school_years') or [])} for record in self.records.values() if record.match_type == 'auto'}
         return auto_matches    
 
     def needs_review(self) -> list[dict]:

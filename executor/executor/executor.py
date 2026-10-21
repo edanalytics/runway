@@ -795,7 +795,7 @@ class JobExecutor:
                     self.logger.info(f"could not download resource {k} -- {e}. Continuing...")
                     continue
                 raise
-        self.write_output_sets()
+        self.build_output_sets()
             
     def run_fuzzy_matching(self):
         """Fuzzy match records by sending candidate metadata to the IDRS API for probabilistic matching"""
@@ -806,7 +806,7 @@ class JobExecutor:
         self.send_student_match_results(result_set.needs_review())
         self.auto_run(artifact.FUZZY_MATCHING, result_set.auto_matched())
         # TODO: Write auto matched csv and upload artifact
-        self.write_output_sets()
+        self.build_output_sets()
 
     def check_input_encoding(self):
         """Determine whether assessment file should be loaded with a non-UTF-8 encoding"""
