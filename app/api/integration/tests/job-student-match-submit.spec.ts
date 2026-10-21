@@ -264,6 +264,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], other);
 
       expect(res.status).toBe(403);
+      expect(await sendRunsOf(job.id)).toEqual([]);
     });
 
     it('refuses a user without the submit privilege', async () => {
