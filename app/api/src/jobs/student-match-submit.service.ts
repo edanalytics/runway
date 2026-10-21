@@ -78,11 +78,10 @@ export class StudentMatchSubmitService {
           return { status: 'ERROR', code: 'not_found' } as const;
         }
 
-        // Students are reviewed from the latest full run's results, and the
-        // send run delivers them from its files.
+        // Students are reviewed from the full run's results, and the send run
+        // delivers them from its files. A job has one, since it's started once.
         const fullRun = await tx.run.findFirst({
           where: { jobId, kind: 'full' },
-          orderBy: { id: 'desc' },
           select: { status: true },
         });
         if (fullRun?.status !== 'success') {

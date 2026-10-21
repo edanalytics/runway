@@ -872,18 +872,12 @@ export class JobsService {
 
     const created = await prisma.$transaction(
       async (tx) => {
-        // So a full run can't start while matches are being submitted.
+        // So two starts can't both find the job without a run.
         await lockJobRow(tx, job.id, 'FOR NO KEY UPDATE');
 
-        const runs = await tx.run.findMany({ where: { jobId: job.id } });
-        if (runs.some((run) => run.status === 'running' || run.status === 'new')) {
-          return { refused: 'JOB_IN_PROGRESS' as const };
-        }
-        // A full run asks IDRS again, so its own send could deliver a submitted
-        // student under a different identity. It also rewrites the files that
-        // send runs read.
-        if (runs.some((run) => run.kind === 'send')) {
-          return { refused: 'JOB_HAS_SEND_RUNS' as const };
+        // A job is started once: re-running isn't supported.
+        if (await tx.run.findFirst({ where: { jobId: job.id }, select: { id: true } })) {
+          return { refused: 'JOB_ALREADY_STARTED' as const };
         }
 
         const run = await tx.run.create({
@@ -897,7 +891,7 @@ export class JobsService {
         return { run };
       },
       // Each statement sees what committed before it, so reading the runs
-      // sees a send run committed while this transaction waited at the lock.
+      // sees a run committed while this transaction waited at the lock.
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted }
     );
     if ('refused' in created) {
