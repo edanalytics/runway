@@ -63,7 +63,7 @@ export class StudentMatchSubmitService {
                  EXISTS (
                    SELECT 1 FROM public.student_match_result r
                    WHERE r.job_id = i.job_id AND r.correlation_id = i.correlation_id
-                     AND r.run_id = ${fullRun?.id ?? null}::integer
+                     AND r.run_id = ${fullRun?.id ?? null}::int
                  ) AS reported,
                  -- A match has exactly one basis (037's check), so one of these.
                  COALESCE(sg.roster_details, d.roster_details) AS roster_details
@@ -77,15 +77,15 @@ export class StudentMatchSubmitService {
           ) d ON true
           LEFT JOIN public.student_match_suggestion sg
             ON sg.result_id = d.result_id AND sg.ordinal = d.ordinal
-          WHERE i.job_id = ${jobId} AND i.correlation_id = ANY(${correlationIds}::text[])
+          WHERE i.job_id = ${jobId}::int AND i.correlation_id = ANY(${correlationIds}::text[])
         `;
         const byId = new Map(rows.map((row) => [row.correlation_id, row]));
-        const found = students.map(({ correlationId, version }) => ({
+        const requested = students.map(({ correlationId, version }) => ({
           version,
           student: byId.get(correlationId),
         }));
         if (
-          !found.every(
+          !requested.every(
             (entry): entry is { version: number; student: SubmittingStudent } =>
               entry.student !== undefined
           )
@@ -97,20 +97,20 @@ export class StudentMatchSubmitService {
           return { status: 'ERROR', code: 'full_run_not_done' } as const;
         }
 
-        if (found.some(({ version, student }) => student.seq !== version)) {
+        if (requested.some(({ version, student }) => student.seq !== version)) {
           return { status: 'ERROR', code: 'decision_changed' } as const;
         }
         // Any of the student's rows, not only the current one: every send of a
         // student delivers the same decision row. And only a student the
         // latest full run reported: one it resolved itself it has already
         // sent, and its files don't hold them for a send run.
-        const notReady = found.flatMap(({ student }, index) =>
+        const notReady = requested.flatMap(({ student }, index) =>
           student.kind !== 'match' || student.submitted || !student.reported ? [index] : []
         );
         if (notReady.length > 0) {
           return { status: 'ERROR', code: 'not_ready', indices: notReady } as const;
         }
-        const invalidSchoolYears = found.flatMap(({ student }, index) =>
+        const invalidSchoolYears = requested.flatMap(({ student }, index) =>
           schoolYearsOf(student.roster_details) === null ? [index] : []
         );
         if (invalidSchoolYears.length > 0) {
