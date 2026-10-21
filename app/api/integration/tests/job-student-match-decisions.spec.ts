@@ -12,6 +12,7 @@ import { authHelper } from '../helpers/oidc/auth-flow';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { withoutPrivilege } from '../helpers/without-privilege';
 import { pool } from '../helpers/db/client';
+import { holdJobRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () => {
@@ -616,22 +617,17 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       const raceInOrder = async <T extends unknown[]>(requests: {
         [K in keyof T]: () => Promise<T[K]>;
       }) => {
-        const holder = await pool().connect();
+        const holder = await holdJobRow(job.id);
         try {
-          await holder.query('BEGIN');
-          await holder.query('SELECT id FROM public.job WHERE id = $1 FOR NO KEY UPDATE', [job.id]);
-          const { rows } = await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
           const pending: Promise<unknown>[] = [];
           for (const send of requests) {
             pending.push(send());
-            await waitUntilBlockedBy(rows[0].pid, pending.length);
+            await waitUntilBlockedBy(holder.pid, pending.length);
           }
-          await holder.query('ROLLBACK');
+          await holder.client.query('ROLLBACK');
           return (await Promise.all(pending)) as T;
         } finally {
-          // Releases the lock if the test failed before the rollback.
-          await holder.query('ROLLBACK');
-          holder.release();
+          await holder.release();
         }
       };
 

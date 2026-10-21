@@ -11,7 +11,7 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { withoutPrivilege } from '../helpers/without-privilege';
-import { pool } from '../helpers/db/client';
+import { holdJobRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 describe('POST /jobs/:jobId/student-match-results/submit', () => {
@@ -664,27 +664,21 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
   // behind a job-row lock until both are waiting, so they race every time.
   it('gives a student raced by two submits to exactly one send run', async () => {
     const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-    const holder = await pool().connect();
+    const holder = await holdJobRow(job.id);
     try {
-      await holder.query('BEGIN');
-      await holder.query('SELECT id FROM public.job WHERE id = $1 FOR NO KEY UPDATE', [job.id]);
-      const { rows } = await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
-
       // then() sends each request now, rather than when it's awaited.
       const pending = [1, 2].map(() =>
         submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies).then((res) => res)
       );
-      await waitUntilBlockedBy(rows[0].pid, 2);
-      await holder.query('ROLLBACK');
+      await waitUntilBlockedBy(holder.pid, 2);
+      await holder.client.query('ROLLBACK');
       const responses = await Promise.all(pending);
 
       expect(responses.map((res) => res.status).sort()).toEqual([201, 409]);
       expect(responses.find((res) => res.status === 409)?.body).toEqual(notReady([0]));
       expect((await sendRunsOf(job.id)).map((run) => run.sendRunDecision.length)).toEqual([1]);
     } finally {
-      // Releases the lock if the test failed before the rollback.
-      await holder.query('ROLLBACK');
-      holder.release();
+      await holder.release();
     }
   });
 });

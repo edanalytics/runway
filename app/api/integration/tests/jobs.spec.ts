@@ -31,7 +31,7 @@ import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
 import { JobsService } from 'api/src/jobs/jobs.service';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
-import { pool } from '../helpers/db/client';
+import { holdJobRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 type SeededJob = Awaited<ReturnType<typeof seedJob>>;
@@ -1000,25 +1000,20 @@ describe('PUT /jobs/:id/start', () => {
       runStatus: 'success',
     });
     const job = await jobsService.updateFileStatusForJob(seeded.id, 'upload_complete', prismaAnon);
-    const holder = await pool().connect();
+    // Holds the job row as a submit does, until it commits its send run.
+    const holder = await holdJobRow(job.id);
     try {
-      // Holds the job row as a submit does, until it commits its send run.
-      await holder.query('BEGIN');
-      await holder.query('SELECT id FROM public.job WHERE id = $1 FOR NO KEY UPDATE', [job.id]);
-      const { rows } = await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
       const started = jobsService.startJob(job, prismaAnon);
-      await waitUntilBlockedBy(rows[0].pid);
-      await holder.query(
+      await waitUntilBlockedBy(holder.pid);
+      await holder.client.query(
         "INSERT INTO public.run (job_id, kind, status) VALUES ($1, 'send', 'new')",
         [job.id]
       );
-      await holder.query('COMMIT');
+      await holder.client.query('COMMIT');
 
       expect((await started).result).toBe('JOB_IN_PROGRESS');
     } finally {
-      // Releases the lock if the test failed before the commit.
-      await holder.query('ROLLBACK');
-      holder.release();
+      await holder.release();
     }
     expect(await prisma.run.count({ where: { jobId: job.id, kind: 'full' } })).toBe(1);
     expect(executorStart).not.toHaveBeenCalled();
