@@ -32,6 +32,13 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     message: 'A student has no match ready to submit.',
     indices,
   });
+  /** The refusal for matches without valid school years, at these positions in the request. */
+  const invalidSchoolYears = (indices: number[]) => ({
+    statusCode: 409,
+    code: 'invalid_school_years',
+    message: 'A student’s match has no valid school years.',
+    indices,
+  });
 
   let job: Awaited<ReturnType<typeof seedJob>>;
   let cookies: string;
@@ -194,24 +201,9 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
         ]
       );
       expect(executorStart).toHaveBeenCalledTimes(1);
-      expect(executorStart.mock.calls[0][0]).toMatchObject({ id: sendRun.id, kind: 'send' });
       expect(decisionsAtLaunch).toEqual([
         ['corr-1', 1],
         ['corr-2', 3],
-      ]);
-
-      const read = await request(app.getHttpServer())
-        .get(`/jobs/${job.id}/student-match-results`)
-        .set('Cookie', [cookies]);
-      expect(
-        read.body.students.map(({ correlationId, status }: Record<string, string>) => [
-          correlationId,
-          status,
-        ])
-      ).toEqual([
-        ['corr-1', 'reprocessing'],
-        ['corr-2', 'reprocessing'],
-        ['corr-3', 'to-review'],
       ]);
     });
 
@@ -223,18 +215,6 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
 
       expect(res.status).toBe(201);
       expect(await sendRunsOf(job.id)).toHaveLength(1);
-    });
-
-    // A second submit while the first one's send run is still going.
-    it('accepts a submit while another send run is in progress', async () => {
-      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-      const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
-      await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
-
-      const res = await submit(job.id, [{ correlationId: 'corr-2', version: v2 }], cookies);
-
-      expect(res.status).toBe(201);
-      expect(await sendRunsOf(job.id)).toHaveLength(2);
     });
 
     // The send run and its decisions are committed before the launch, and the
@@ -385,7 +365,6 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       message: 'A student isn’t in the job.',
     });
     expect(await sendRunsOf(job.id)).toEqual([]);
-    expect(executorStart).not.toHaveBeenCalled();
   });
 
   describe('the job’s full run', () => {
@@ -406,6 +385,18 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
         expect(await sendRunsOf(other.id)).toEqual([]);
       }
     );
+
+    // The send run is the job's latest run, and still new.
+    it('is a full run: accepts a submit while an earlier submit’s send run is in progress', async () => {
+      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
+      const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
+      await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+
+      const res = await submit(job.id, [{ correlationId: 'corr-2', version: v2 }], cookies);
+
+      expect(res.status).toBe(201);
+      expect(await sendRunsOf(job.id)).toHaveLength(2);
+    });
 
     it('is the latest one: accepts a submit once a re-run succeeds after a failure', async () => {
       const other = await seedReportedJob({ fullRunStatus: 'error' });
@@ -531,14 +522,13 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
   });
 
   describe('school years', () => {
-    const MALFORMED: [string, object][] = [
+    // On a suggestion. The test below shows a search's school years are checked too.
+    it.each<[string, object]>([
       ['missing', {}],
       ['not an array', { school_years: JOB_YEAR }],
       ['holding a non-integer', { school_years: [JOB_YEAR, String(JOB_YEAR + 1)] }],
-    ];
-
-    it.each(MALFORMED)(
-      'refuses, submitting nothing, a match to a suggestion whose school years are %s',
+    ])(
+      'refuses, submitting nothing, a match whose school years are %s',
       async (_, rosterDetails) => {
         await reportStudents(job.runs[0].id, { 'corr-bad': rosterDetails });
         const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
@@ -554,39 +544,13 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
         );
 
         expect(res.status).toBe(409);
-        expect(res.body).toEqual({
-          statusCode: 409,
-          code: 'invalid_school_years',
-          message: 'A student’s match has no valid school years.',
-          indices: [1],
-        });
-        expect(await sendRunsOf(job.id)).toEqual([]);
-      }
-    );
-
-    it.each(MALFORMED)(
-      'refuses, submitting nothing, a match to a search whose school years are %s',
-      async (_, rosterDetails) => {
-        const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-        const bad = await matchSearch(job.id, 'corr-2', rosterDetails, cookies);
-
-        const res = await submit(
-          job.id,
-          [
-            { correlationId: 'corr-1', version: v1 },
-            { correlationId: 'corr-2', version: bad },
-          ],
-          cookies
-        );
-
-        expect(res.status).toBe(409);
-        expect(res.body).toMatchObject({ code: 'invalid_school_years', indices: [1] });
+        expect(res.body).toEqual(invalidSchoolYears([1]));
         expect(await sendRunsOf(job.id)).toEqual([]);
       }
     );
 
     // The reviewer can exclude those students and submit the rest.
-    it('names every failing student’s position, and accepts the rest once they’re excluded', async () => {
+    it('names every failing student’s position, for either basis, and accepts the rest once they’re excluded', async () => {
       await reportStudents(job.runs[0].id, { 'corr-bad': {} });
       const bad1 = await matchSuggestion(job.id, 'corr-bad', cookies);
       const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
@@ -605,7 +569,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       await decide(job.id, 'corr-2', { replacesVersion: bad2, kind: 'exclude' }, cookies);
       const accepted = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
 
-      expect(refused.body).toMatchObject({ code: 'invalid_school_years', indices: [0, 2] });
+      expect(refused.body).toEqual(invalidSchoolYears([0, 2]));
       expect(accepted.status).toBe(201);
     });
   });

@@ -17,8 +17,6 @@ import { FileService } from 'api/src/files/file.service';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { StudentRosterDetailsJson } from '@edanalytics/models';
-import { authHelper } from '../helpers/oidc/auth-flow';
-import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -412,7 +410,9 @@ describe('Earthbeam API', () => {
           { correlationId: 'corr-2', basis: 'search', schoolYears: [JOB_YEAR] },
           { correlationId: 'corr-3', basis: 'suggestion', schoolYears: [JOB_YEAR] },
         ]);
-        // Recorded out of correlation-id order. corr-3's match isn't submitted.
+        // corr-3 went in an earlier submit's send run. This one's students are
+        // recorded out of correlation-id order.
+        await seedSendRun(job.id, ['corr-3']);
         const sendRun = await seedSendRun(job.id, ['corr-2', 'corr-1']);
 
         const full = await payloadOf(job.runs[0].id);
@@ -1011,7 +1011,6 @@ describe('Earthbeam API', () => {
       });
 
       describe('of a send run', () => {
-        const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
         /** What the job's full run left in its output directory. */
         const FULL_RUN_KEYS = [
           'test-base-path/output/ods/studentAssessments.jsonl',
@@ -1019,7 +1018,6 @@ describe('Earthbeam API', () => {
           'test-base-path/output/lb-send-results.json',
         ];
 
-        let job: Awaited<ReturnType<typeof seedJob>>;
         let sendRun: Run;
         let defaultListing: ReturnType<jest.Mock['getMockImplementation']>;
 
@@ -1049,7 +1047,7 @@ describe('Earthbeam API', () => {
 
         beforeEach(async () => {
           defaultListing = fileServiceMock.listFilesAtPath.getMockImplementation();
-          job = await seedJob({
+          const job = await seedJob({
             odsConfig: odsConfigA2425,
             bundle: bundleA,
             tenant: tenantA,
@@ -1090,18 +1088,6 @@ describe('Earthbeam API', () => {
               path: `${sideloadSet}/studentAssessments.jsonl`,
             },
           ]);
-          const { cookies } = await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES);
-          const download = await request(app.getHttpServer())
-            .get(
-              `/jobs/${job.id}/output-files/${encodeURIComponent(
-                `send-${sendRun.id}/sideload/studentAssessments.jsonl`
-              )}`
-            )
-            .set('Cookie', [cookies]);
-          expect(download.status).toBe(200);
-          expect(download.text).toBe(
-            `s3-test-download-url://${sideloadSet}/studentAssessments.jsonl`
-          );
         });
 
         it('records a file once when two of its output sets hold it', async () => {

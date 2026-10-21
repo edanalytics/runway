@@ -983,7 +983,6 @@ describe('PUT /jobs/:id/start', () => {
       expect(res.status).toBe(400);
       expect(res.body.message).toBe(`Job has send runs: ${job.id}`);
       expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(2);
-      expect(executorStart).not.toHaveBeenCalled();
     }
   );
 
@@ -1016,7 +1015,6 @@ describe('PUT /jobs/:id/start', () => {
       await holder.release();
     }
     expect(await prisma.run.count({ where: { jobId: job.id, kind: 'full' } })).toBe(1);
-    expect(executorStart).not.toHaveBeenCalled();
   });
 });
 

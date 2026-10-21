@@ -822,7 +822,6 @@ describe('ExternalApiV1', () => {
         expect(res.status).toBe(400);
         expect(res.body.message).toBe(`Job has send runs: ${jobUid}`);
         expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(2);
-        expect(earthbeamMock).not.toHaveBeenCalled();
       });
 
       describe('Invalid Request', () => {

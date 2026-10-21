@@ -60,7 +60,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       })
     ).id.toString();
 
-  /** Students with one suggestion each, reported for the job's first run. */
+  /** Students with one suggestion each, reported by the job's full run. */
   const reportStudents = (correlationIds: string[], runId = runA.id) =>
     report(
       runId,
@@ -185,8 +185,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     });
 
     it('orders students by correlation id, results by run and suggestions by ordinal', async () => {
-      // Only a job's first run reports today, but a later one may someday
-      // search again, and its results are kept alongside.
+      // A full re-run searches again, and its results are kept alongside.
       // Everything goes in out of order, so only the query's ordering can
       // put it right: the later run reports first, corr-2 before corr-1.
       const runB = await prisma.run.create({

@@ -59,7 +59,7 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
   let cookies: string;
 
   /**
-   * A job in this mode, with corr-1 and corr-2 reported for its first run.
+   * A job in this mode, with corr-1 and corr-2 reported by its full run.
    * Each suggestion has school years, as IDRS returns them, so a match can be
    * submitted.
    */
@@ -575,11 +575,12 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     };
     let executorStart: jest.SpyInstance;
 
-    const submit = (version: number, { correlationId = 'corr-1', jobId = job.id } = {}) =>
+    /** Submits corr-1's match at this version. */
+    const submit = (version: number) =>
       request(app.getHttpServer())
-        .post(`/jobs/${jobId}/student-match-results/submit`)
+        .post(`/jobs/${job.id}/student-match-results/submit`)
         .set('Cookie', [cookies])
-        .send({ students: [{ correlationId, version }] });
+        .send({ students: [{ correlationId: 'corr-1', version }] });
 
     beforeEach(async () => {
       executorStart = jest
