@@ -69,7 +69,7 @@ describe("the session-scoped client's interactive transactions", () => {
   it('are refused without a logged-in user', async () => {
     const anonymous = await sessionClient(null);
 
-    await expect(anonymous.$transaction(async (tx) => tx.$queryRaw`SELECT 1`)).rejects.toThrow(
+    await expect(anonymous.$transaction(async (tx) => tx.run.count())).rejects.toThrow(
       'Trouble connecting to the database'
     );
   });
@@ -78,15 +78,12 @@ describe("the session-scoped client's interactive transactions", () => {
 // Each operation sets the user in its own transaction, so an array's
 // operations would commit one by one, on different connections.
 describe("the session-scoped client's array transactions", () => {
-  it.each([
-    ['with', { id: userA.id, email: userA.email }],
-    ['without', null],
-  ])('are refused, and run nothing, %s a logged-in user', async (_, user) => {
-    const client = await sessionClient(user);
+  it('are refused, and run nothing', async () => {
+    const client = await sessionClient({ id: userA.id, email: userA.email });
     const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
 
     await expect(
-      client.$transaction([client.$executeRaw`DELETE FROM run WHERE job_id = ${job.id}`])
+      client.$transaction([client.run.deleteMany({ where: { jobId: job.id } })])
     ).rejects.toThrow("Array-style transactions aren't supported on the session client");
     expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(1);
   });

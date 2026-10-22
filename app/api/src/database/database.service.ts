@@ -86,15 +86,6 @@ type TransactionArg =
   | ((tx: Prisma.TransactionClient) => Promise<unknown>);
 type TransactionOptions = Parameters<PrismaClient['$transaction']>[1];
 
-// The session client sets the user per operation, in a transaction of its own,
-// so an array's operations would each commit separately.
-const refuseArrayTransaction = () =>
-  Promise.reject(
-    new Error(
-      "Array-style transactions aren't supported on the session client, because each operation sets the user in its own transaction; use the callback form."
-    )
-  );
-
 export const providePrismaWrite = {
   scope: Scope.REQUEST,
   inject: [PRISMA_ANONYMOUS, REQUEST],
@@ -118,8 +109,14 @@ export const providePrismaWrite = {
             // doesn't run, and sets the user once, at its start. Anything
             // added to that extension must be added here too.
             $transaction(arg: TransactionArg, options?: TransactionOptions) {
+              // An array's operations would each set the user, and commit, in
+              // a transaction of their own, so the array form is refused.
               if (typeof arg !== 'function') {
-                return refuseArrayTransaction();
+                return Promise.reject(
+                  new Error(
+                    "Array-style transactions aren't supported on the session client, because each operation sets the user in its own transaction; use the callback form."
+                  )
+                );
               }
               return prisma.$transaction(async (tx) => {
                 await setUser(tx);
@@ -137,27 +134,21 @@ export const providePrismaWrite = {
       });
       extendedClient = prismaAnon.$extends(addUserContextExt) as unknown as PrismaClient;
     } else {
-      const refuse = (): never => {
-        logger.error('DB interaction misconfigured to use authenticated client in public route.');
-        throw new CustomServerErrorException('Trouble connecting to the database');
-      };
       const disallowAnonymousWritesExt = Prisma.defineExtension((prisma) =>
         prisma.$extends({
-          client: {
-            async $transaction(arg: TransactionArg) {
-              return typeof arg === 'function' ? refuse() : refuseArrayTransaction();
-            },
-          },
           query: {
             $allModels: {
               $allOperations() {
-                return refuse();
+                logger.error(
+                  'DB interaction misconfigured to use authenticated client in public route.'
+                );
+                throw new CustomServerErrorException('Trouble connecting to the database');
               },
             },
           },
         })
       );
-      extendedClient = prismaAnon.$extends(disallowAnonymousWritesExt) as unknown as PrismaClient;
+      extendedClient = prismaAnon.$extends(disallowAnonymousWritesExt) as PrismaClient;
     }
     return extendedClient;
   },
