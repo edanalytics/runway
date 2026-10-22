@@ -223,7 +223,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     });
 
     // The send run and its decisions are committed before the launch, and the
-    // students are already reprocessing.
+    // students are already submitted.
     it('still returns the send run when it fails to start, recording the failure', async () => {
       executorStart.mockRejectedValue(new Error('ECS is unavailable'));
       const v1 = await matchSuggestion(job.id, 'corr-1', cookies);

@@ -133,7 +133,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 2, toReview: 2, ready: 0, excluded: 0, reprocessing: 0 },
+        counts: { total: 2, toReview: 2, ready: 0, excluded: 0, submitted: 0 },
         students: [
           {
             correlationId: 'corr-1',
@@ -232,7 +232,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 0, toReview: 0, ready: 0, excluded: 0, reprocessing: 0 },
+        counts: { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
         students: [],
       });
     });
@@ -296,13 +296,13 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           toReview: 1,
           ready: 1,
           excluded: 1,
-          reprocessing: 0,
+          submitted: 0,
         });
       });
 
-      // A submitted match stays reprocessing whatever its send run's status.
+      // A match stays submitted whatever its send run's status.
       it.each(['running', 'success', 'error'] as const)(
-        'returns a submitted match as reprocessing, with its decision, when its send run is %s',
+        'returns a match in a send run as submitted, with its decision, when the run is %s',
         async (sendRunStatus) => {
           await reportStudents(['corr-1', 'corr-2']);
           for (const correlationId of ['corr-1', 'corr-2']) {
@@ -326,7 +326,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
               })
             )
           ).toEqual([
-            { correlationId: 'corr-1', status: 'reprocessing', version: 1 },
+            { correlationId: 'corr-1', status: 'submitted', version: 1 },
             { correlationId: 'corr-2', status: 'ready', version: 1 },
           ]);
           expect(res.body.counts).toEqual({
@@ -334,7 +334,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             toReview: 0,
             ready: 1,
             excluded: 0,
-            reprocessing: 1,
+            submitted: 1,
           });
         }
       );
@@ -372,7 +372,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           toReview: 1,
           ready: 1,
           excluded: 0,
-          reprocessing: 0,
+          submitted: 0,
         });
       });
 
@@ -437,7 +437,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
-          counts: { total: 3, toReview: 2, ready: 0, excluded: 1, reprocessing: 0 },
+          counts: { total: 3, toReview: 2, ready: 0, excluded: 1, submitted: 0 },
           students: null,
         });
       });
@@ -567,7 +567,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       await seedSendRun(jobA.id, ['corr-submitted'], 'running');
 
       expect(await countsOf(jobA.id)).toEqual(
-        Array(2).fill({ total: 5, toReview: 2, ready: 1, excluded: 1, reprocessing: 1 })
+        Array(2).fill({ total: 5, toReview: 2, ready: 1, excluded: 1, submitted: 1 })
       );
     });
 
@@ -670,9 +670,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       };
 
       expect([countsIn(jobA.id), countsIn(jobB.id), countsIn(jobC.id)]).toEqual([
-        { total: 2, toReview: 0, ready: 1, excluded: 1, reprocessing: 0 },
-        { total: 2, toReview: 1, ready: 0, excluded: 0, reprocessing: 1 },
-        { total: 0, toReview: 0, ready: 0, excluded: 0, reprocessing: 0 },
+        { total: 2, toReview: 0, ready: 1, excluded: 1, submitted: 0 },
+        { total: 2, toReview: 1, ready: 0, excluded: 0, submitted: 1 },
+        { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
       ]);
     });
 

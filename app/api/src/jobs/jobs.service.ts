@@ -131,7 +131,7 @@ export const noStudentsToMatch: GetStudentMatchCountsDto = {
   toReview: 0,
   ready: 0,
   excluded: 0,
-  reprocessing: 0,
+  submitted: 0,
 };
 
 @Injectable()
@@ -186,7 +186,7 @@ export class JobsService {
         to_review: bigint;
         ready: bigint;
         excluded: bigint;
-        reprocessing: bigint;
+        submitted: bigint;
       }[]
     >`
       SELECT i.job_id,
@@ -194,7 +194,7 @@ export class JobsService {
              count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
              count(*) FILTER (WHERE d.kind = 'match' AND NOT d.submitted) AS ready,
              count(*) FILTER (WHERE d.kind = 'exclude') AS excluded,
-             count(*) FILTER (WHERE d.kind = 'match' AND d.submitted) AS reprocessing
+             count(*) FILTER (WHERE d.kind = 'match' AND d.submitted) AS submitted
       FROM public.student_input_details i
       LEFT JOIN LATERAL (
         SELECT kind, EXISTS (
@@ -218,7 +218,7 @@ export class JobsService {
           toReview: Number(row.to_review),
           ready: Number(row.ready),
           excluded: Number(row.excluded),
-          reprocessing: Number(row.reprocessing),
+          submitted: Number(row.submitted),
         },
       ])
     );

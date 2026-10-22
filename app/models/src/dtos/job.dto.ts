@@ -174,8 +174,8 @@ export class GetJobDto
    * where the ID-based run has already delivered them.
    */
   get hasFuzzyStudentsToMatch() {
-    const { toReview, ready, reprocessing } = this.studentMatchCounts;
-    return this.idMatchingMode === 'fuzzy' && toReview + ready + reprocessing > 0;
+    const { toReview, ready, submitted } = this.studentMatchCounts;
+    return this.idMatchingMode === 'fuzzy' && toReview + ready + submitted > 0;
   }
 
   /**

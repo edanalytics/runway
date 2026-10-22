@@ -335,7 +335,7 @@ export const toPostStudentMatchDecisionResponseDto = makeSerializerCustomType<
  * A student's place in review, derived from their latest decision and whether
  * that decision is in a send run.
  */
-export type StudentMatchStatus = 'to-review' | 'ready' | 'excluded' | 'reprocessing';
+export type StudentMatchStatus = 'to-review' | 'ready' | 'excluded' | 'submitted';
 
 export const studentMatchStatus = (
   latestDecision: StudentMatchDecisionKind | undefined,
@@ -343,9 +343,9 @@ export const studentMatchStatus = (
 ): StudentMatchStatus => {
   switch (latestDecision) {
     case 'match':
-      // Only a match is ever submitted, and it's reprocessing whatever its send
-      // run's outcome.
-      return submitted ? 'reprocessing' : 'ready';
+      // Only a match is ever submitted, and it stays submitted whatever its
+      // send run's outcome.
+      return submitted ? 'submitted' : 'ready';
     case 'exclude':
       return 'excluded';
     case 'clear':
@@ -412,7 +412,7 @@ export class GetStudentMatchCountsDto {
 
   /** Matches in a send run, whatever its status. */
   @Expose()
-  reprocessing: number;
+  submitted: number;
 }
 
 /**
