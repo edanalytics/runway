@@ -317,8 +317,8 @@ A submit is all or nothing: one transaction on the session client, so the send r
 | 201 | `{ runId, launched }`: the send run's id, also when its launch failed, and whether it launched |
 | 400 | The body doesn't match the DTO |
 | 401 / 403 | Not logged in, another tenant, no privilege, or not a `fuzzy` job |
-| 404 `not_found` | The job has no student with one of the correlation ids |
 | 409 `full_run_not_done` | The job's full run hasn't succeeded. Its results are what was reviewed, and its files are what the send run delivers from |
+| 404 `not_found` | The job has no student with one of the correlation ids |
 | 409 `decision_changed` | A `version` isn't the student's current decision's, including for an undecided student |
 | 409 `already_submitted` | One of a student's decision rows is already in a send run, as when two reviewers submit the same student |
 | 409 `not_a_match` | A current decision isn't a match |

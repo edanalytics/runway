@@ -470,17 +470,17 @@ export class JobsController {
       // page is out of date, and it refetches.
       const { code } = result;
       switch (code) {
-        case 'not_found':
-          throw new NotFoundException({
-            statusCode: 404,
-            code,
-            message: 'A student isn’t in the job.',
-          });
         case 'full_run_not_done':
           throw new ConflictException({
             statusCode: 409,
             code,
             message: 'The job’s full run hasn’t succeeded.',
+          });
+        case 'not_found':
+          throw new NotFoundException({
+            statusCode: 404,
+            code,
+            message: 'A student isn’t in the job.',
           });
         case 'decision_changed':
           throw new ConflictException({

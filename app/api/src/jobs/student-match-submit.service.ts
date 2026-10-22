@@ -1,21 +1,9 @@
-import { PostStudentMatchSubmitStudentDto, StudentRosterDetailsJson } from '@edanalytics/models';
+import { PostStudentMatchSubmitStudentDto } from '@edanalytics/models';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { Job, PrismaClient, StudentMatchDecisionKind } from '@prisma/client';
+import type { Job, PrismaClient } from '@prisma/client';
 import { lockJobRow } from './job-row-lock';
 import { hasSchoolYears, JobsService } from './jobs.service';
-
-/** A requested student, as submitting finds them. */
-type SubmittingStudent = {
-  correlation_id: string;
-  /** The current decision's seq and kind, or null for an undecided student. */
-  seq: number | null;
-  kind: StudentMatchDecisionKind | null;
-  /** Whether any of the student's decision rows is in a send run. */
-  submitted: boolean;
-  /** The current decision's basis's roster details, for a match. */
-  roster_details: StudentRosterDetailsJson | null;
-};
 
 @Injectable()
 export class StudentMatchSubmitService {
@@ -29,7 +17,7 @@ export class StudentMatchSubmitService {
     | { status: 'SUCCESS'; data: { runId: number; launched: boolean } }
     | {
         status: 'ERROR';
-        code: 'not_found' | 'full_run_not_done' | 'decision_changed';
+        code: 'full_run_not_done' | 'not_found' | 'decision_changed';
       }
     | {
         status: 'ERROR';
@@ -44,40 +32,6 @@ export class StudentMatchSubmitService {
       async (tx) => {
         await lockJobRow(tx, jobId, 'FOR NO KEY UPDATE');
 
-        const rows = await tx.$queryRaw<SubmittingStudent[]>`
-          SELECT i.correlation_id, d.seq, d.kind,
-                 EXISTS (
-                   SELECT 1 FROM public.send_run_decision s
-                   WHERE s.job_id = i.job_id AND s.correlation_id = i.correlation_id
-                 ) AS submitted,
-                 -- A match has exactly one basis (037's check), so one of these.
-                 COALESCE(sg.roster_details, d.roster_details) AS roster_details
-          FROM public.student_input_details i
-          LEFT JOIN LATERAL (
-            SELECT d.seq, d.kind, d.result_id, d.ordinal, d.roster_details
-            FROM public.student_match_decision d
-            WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
-            ORDER BY d.seq DESC
-            LIMIT 1
-          ) d ON true
-          LEFT JOIN public.student_match_suggestion sg
-            ON sg.result_id = d.result_id AND sg.ordinal = d.ordinal
-          WHERE i.job_id = ${jobId}::int AND i.correlation_id = ANY(${correlationIds}::text[])
-        `;
-        const byId = new Map(rows.map((row) => [row.correlation_id, row]));
-        const requested = students.map(({ correlationId, version }) => ({
-          version,
-          student: byId.get(correlationId),
-        }));
-        if (
-          !requested.every(
-            (entry): entry is { version: number; student: SubmittingStudent } =>
-              entry.student !== undefined
-          )
-        ) {
-          return { status: 'ERROR', code: 'not_found' } as const;
-        }
-
         // Students are reviewed from the full run's results, and the send run
         // delivers them from its files. A job has one, since it's started once.
         const fullRun = await tx.run.findFirst({
@@ -88,27 +42,70 @@ export class StudentMatchSubmitService {
           return { status: 'ERROR', code: 'full_run_not_done' } as const;
         }
 
-        if (requested.some(({ version, student }) => student.seq !== version)) {
+        const found = await tx.studentInputDetails.findMany({
+          where: { jobId, correlationId: { in: correlationIds } },
+          select: {
+            correlationId: true,
+            studentMatchDecision: {
+              orderBy: { seq: 'desc' },
+              take: 1,
+              select: {
+                seq: true,
+                kind: true,
+                rosterDetails: true,
+                studentMatchSuggestion: { select: { rosterDetails: true } },
+              },
+            },
+          },
+        });
+        // A requested student with no row is one the job doesn't have.
+        const decisionsById = new Map(
+          found.map(({ correlationId, studentMatchDecision }) => [
+            correlationId,
+            studentMatchDecision,
+          ])
+        );
+        if (!correlationIds.every((correlationId) => decisionsById.has(correlationId))) {
+          return { status: 'ERROR', code: 'not_found' } as const;
+        }
+        const requested = students.map(({ correlationId, version }) => ({
+          correlationId,
+          version,
+          // The current decision, or undefined for an undecided student.
+          decision: decisionsById.get(correlationId)?.[0],
+        }));
+
+        // Any of the student's rows, not only the current one: every send of
+        // a student delivers the same decision row.
+        const submitted = await tx.sendRunDecision.findMany({
+          where: { jobId, correlationId: { in: correlationIds } },
+          select: { correlationId: true },
+        });
+        const submittedIds = new Set(submitted.map(({ correlationId }) => correlationId));
+
+        if (requested.some(({ version, decision }) => decision?.seq !== version)) {
           return { status: 'ERROR', code: 'decision_changed' } as const;
         }
         // Before not_a_match: the page is out of date, and a refetch may
-        // resolve the rest. Any of the student's rows, not only the current
-        // one: every send of a student delivers the same decision row.
-        const alreadySubmitted = requested.flatMap(({ student }, index) =>
-          student.submitted ? [index] : []
+        // resolve the rest.
+        const alreadySubmitted = requested.flatMap(({ correlationId }, index) =>
+          submittedIds.has(correlationId) ? [index] : []
         );
         if (alreadySubmitted.length > 0) {
           return { status: 'ERROR', code: 'already_submitted', indices: alreadySubmitted } as const;
         }
-        const notAMatch = requested.flatMap(({ student }, index) =>
-          student.kind !== 'match' ? [index] : []
+        const notAMatch = requested.flatMap(({ decision }, index) =>
+          decision?.kind !== 'match' ? [index] : []
         );
         if (notAMatch.length > 0) {
           return { status: 'ERROR', code: 'not_a_match', indices: notAMatch } as const;
         }
-        const invalidSchoolYears = requested.flatMap(({ student }, index) =>
-          !hasSchoolYears(student.roster_details) ? [index] : []
-        );
+        const invalidSchoolYears = requested.flatMap(({ decision }, index) => {
+          // A match has exactly one basis (037's check): a suggestion, or a
+          // search, whose roster details the decision holds itself.
+          const basis = decision?.studentMatchSuggestion ?? decision;
+          return !hasSchoolYears(basis?.rosterDetails) ? [index] : [];
+        });
         if (invalidSchoolYears.length > 0) {
           return {
             status: 'ERROR',

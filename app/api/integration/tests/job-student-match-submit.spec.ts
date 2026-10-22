@@ -558,20 +558,25 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
 
   // Each request has two faults, and gets the earlier check's refusal.
   describe('the order of the checks', () => {
-    it('reports an unknown student before a full run that hasn’t succeeded', async () => {
+    it('reports a full run that hasn’t succeeded before an unknown student', async () => {
       const other = await seedReportedJob({ fullRunStatus: 'running' });
 
       const res = await submit(other.id, [{ correlationId: 'corr-unknown', version: 1 }], cookies);
 
-      expect(res.body.code).toBe('not_found');
+      expect(res.body.code).toBe('full_run_not_done');
     });
 
-    it('reports a full run that hasn’t succeeded before a stale version', async () => {
-      const other = await seedReportedJob({ fullRunStatus: 'running' });
+    it('reports an unknown student before a stale version', async () => {
+      const res = await submit(
+        job.id,
+        [
+          { correlationId: 'corr-1', version: 1 },
+          { correlationId: 'corr-unknown', version: 1 },
+        ],
+        cookies
+      );
 
-      const res = await submit(other.id, [{ correlationId: 'corr-1', version: 1 }], cookies);
-
-      expect(res.body.code).toBe('full_run_not_done');
+      expect(res.body.code).toBe('not_found');
     });
 
     it('reports a stale version before a student already submitted', async () => {
