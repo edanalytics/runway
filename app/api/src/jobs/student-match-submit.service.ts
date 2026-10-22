@@ -78,22 +78,8 @@ export class StudentMatchSubmitService {
           return { status: 'ERROR', code: 'decision_changed' } as const;
         }
 
-        // Any of the student's rows, not only the current one: every send of
-        // a student delivers the same decision row.
-        const submitted = await tx.sendRunDecision.findMany({
-          where: { jobId, correlationId: { in: correlationIds } },
-          select: { correlationId: true },
-        });
-        const submittedIds = new Set(submitted.map(({ correlationId }) => correlationId));
-        // Before not_a_match: the page is out of date, and a refetch may
-        // resolve the rest. The indices are positions in the request's
-        // students, so they come from requested rather than the query's rows.
-        const alreadySubmitted = requested.flatMap(({ correlationId }, index) =>
-          submittedIds.has(correlationId) ? [index] : []
-        );
-        if (alreadySubmitted.length > 0) {
-          return { status: 'ERROR', code: 'already_submitted', indices: alreadySubmitted } as const;
-        }
+        // The indices are positions in the request's students, so they come
+        // from requested rather than the queries' rows.
         const notAMatch = requested.flatMap(({ decision }, index) =>
           decision?.kind !== 'match' ? [index] : []
         );
@@ -112,6 +98,20 @@ export class StudentMatchSubmitService {
             code: 'invalid_school_years',
             indices: invalidSchoolYears,
           } as const;
+        }
+
+        // Any of the student's rows, not only the current one: every send of
+        // a student delivers the same decision row.
+        const submitted = await tx.sendRunDecision.findMany({
+          where: { jobId, correlationId: { in: correlationIds } },
+          select: { correlationId: true },
+        });
+        const submittedIds = new Set(submitted.map(({ correlationId }) => correlationId));
+        const alreadySubmitted = requested.flatMap(({ correlationId }, index) =>
+          submittedIds.has(correlationId) ? [index] : []
+        );
+        if (alreadySubmitted.length > 0) {
+          return { status: 'ERROR', code: 'already_submitted', indices: alreadySubmitted } as const;
         }
 
         const run = await tx.run.create({
