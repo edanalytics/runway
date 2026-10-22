@@ -1010,6 +1010,8 @@ describe('PUT /jobs/:id/start', () => {
         .set('Cookie', [cookieA])
         .then((res) => res);
       await waitUntilBlockedBy(holder.pid);
+      // The request is now queued at startJob's lock (this throws if it
+      // isn't), so it can only see the run below once the holder commits.
       await holder.client.query(
         "INSERT INTO public.run (job_id, kind, status) VALUES ($1, 'full', 'new')",
         [job.id]
