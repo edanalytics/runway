@@ -3,7 +3,6 @@ import {
   GetJobTemplateDto,
   JobInputParamDto,
   getResourceErrors,
-  schoolYearsOf,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
@@ -14,6 +13,7 @@ import {
 } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database';
 import { EncryptionService } from 'api/src/encryption/encryption.service';
+import { schoolYearsOf } from '../../jobs/jobs.service';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,

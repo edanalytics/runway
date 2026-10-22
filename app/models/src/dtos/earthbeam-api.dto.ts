@@ -180,21 +180,6 @@ export type StudentRosterDetailsJson = {
   school_years?: JsonValue;
 };
 
-/**
- * A student's school years, by end year (2025 for 2024–25), or null when there
- * are no roster details or they don't hold them as an array of integers.
- * Without them, a send can't tell whether a match is in the job's year, so
- * submitting refuses such a match.
- */
-export const schoolYearsOf = (
-  rosterDetails: StudentRosterDetailsJson | null | undefined
-): number[] | null => {
-  const schoolYears = rosterDetails?.school_years;
-  return Array.isArray(schoolYears) && schoolYears.every(Number.isInteger)
-    ? (schoolYears as number[])
-    : null;
-};
-
 /*
  * Request body of the student-match-results callback: an array of
  * EarthbeamApiStudentMatchResultDto, one per group of input details. The DTOs

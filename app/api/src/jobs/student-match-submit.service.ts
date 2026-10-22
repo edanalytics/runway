@@ -1,13 +1,9 @@
-import {
-  PostStudentMatchSubmitStudentDto,
-  schoolYearsOf,
-  StudentRosterDetailsJson,
-} from '@edanalytics/models';
+import { PostStudentMatchSubmitStudentDto, StudentRosterDetailsJson } from '@edanalytics/models';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Job, PrismaClient, StudentMatchDecisionKind } from '@prisma/client';
 import { lockJobRow } from './job-row-lock';
-import { JobsService } from './jobs.service';
+import { JobsService, schoolYearsOf } from './jobs.service';
 
 /** A requested student, as submitting finds them. */
 type SubmittingStudent = {

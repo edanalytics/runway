@@ -9,7 +9,6 @@ import {
   PostStudentMatchDecisionDto,
   restsOnSearch,
   restsOnSuggestion,
-  schoolYearsOf,
   StudentMatchDecisionWithUser,
   StudentRosterDetailsJson,
   StudentSearchDetailsDto,
@@ -40,6 +39,21 @@ import {
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 import { IdrsSearchService } from '../idrs/idrs-search.service';
 import { lockJobRow } from './job-row-lock';
+
+/**
+ * A student's school years, by end year (2025 for 2024–25), or null when there
+ * are no roster details or they don't hold them as an array of integers.
+ * Without them, a send can't tell whether a match is in the job's year, so
+ * submitting refuses such a match.
+ */
+export const schoolYearsOf = (
+  rosterDetails: StudentRosterDetailsJson | null | undefined
+): number[] | null => {
+  const schoolYears = rosterDetails?.school_years;
+  return Array.isArray(schoolYears) && schoolYears.every(Number.isInteger)
+    ? (schoolYears as number[])
+    : null;
+};
 
 /**
  * Whether a job could load a student IDRS found. With cross-year matching on,
