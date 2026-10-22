@@ -24,13 +24,11 @@ import { FileService } from 'api/src/files/file.service';
 import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
-import { IdMatchingMode, Job, JobNote, PrismaClient, RunKind, RunStatus } from '@prisma/client';
+import { IdMatchingMode, Job, JobNote, RunKind, RunStatus } from '@prisma/client';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
-import { JobsService } from 'api/src/jobs/jobs.service';
-import { PRISMA_ANONYMOUS } from 'api/src/database';
 import { holdJobRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
@@ -996,34 +994,36 @@ describe('PUT /jobs/:id/start', () => {
     }
   );
 
-  // Called on the service, since both start routes update the job row before
-  // startJob, so a request would queue there instead of at startJob's lock.
   it('refuses a start that waited at the lock for another start, leaving one run', async () => {
-    const jobsService = app.get(JobsService);
-    const prismaAnon = app.get<PrismaClient>(PRISMA_ANONYMOUS);
-    const seeded = await seedJob({
+    const job = await seedJob({
       odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
       runStatus: null,
     });
-    const job = await jobsService.updateFileStatusForJob(seeded.id, 'upload_complete', prismaAnon);
     // Holds the job row as the other start does, until it commits its run.
     const holder = await holdJobRow(job.id);
     try {
-      const started = jobsService.startJob(job, prismaAnon);
+      // then() sends the request now, rather than when it's awaited.
+      const pending = request(app.getHttpServer())
+        .put(endpoint(job.id))
+        .set('Cookie', [cookieA])
+        .then((res) => res);
       await waitUntilBlockedBy(holder.pid);
       await holder.client.query(
         "INSERT INTO public.run (job_id, kind, status) VALUES ($1, 'full', 'new')",
         [job.id]
       );
       await holder.client.query('COMMIT');
+      const res = await pending;
 
-      expect(await started).toEqual({ status: 'ERROR', code: 'job_already_started' });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(`Job already started: ${job.id}`);
     } finally {
       await holder.release();
     }
     expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(1);
+    expect(executorStart).not.toHaveBeenCalled();
   });
 });
 
