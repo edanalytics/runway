@@ -74,3 +74,20 @@ describe("the session-scoped client's interactive transactions", () => {
     );
   });
 });
+
+// Each operation sets the user in its own transaction, so an array's
+// operations would commit one by one, on different connections.
+describe("the session-scoped client's array transactions", () => {
+  it.each([
+    ['with', { id: userA.id, email: userA.email }],
+    ['without', null],
+  ])('are refused, and run nothing, %s a logged-in user', async (_, user) => {
+    const client = await sessionClient(user);
+    const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+
+    await expect(
+      client.$transaction([client.$executeRaw`DELETE FROM run WHERE job_id = ${job.id}`])
+    ).rejects.toThrow("Array-style transactions aren't supported on the session client");
+    expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(1);
+  });
+});
