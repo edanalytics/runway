@@ -399,15 +399,30 @@ export class JobsService {
 
     const outcome = await prisma.$transaction(
       async (tx) => {
-        // Waits out a submit in progress, so the insert sees any send run it
-        // committed.
+        // Once a student is submitted, their current decision is the one their
+        // send run delivers. We do not allow decisions to be saved after the
+        // student has been submitted. The insert below handles this by not
+        // inserting when the student has a row in send_run_decision.
+        //
+        // However, that check alone has a gap. An in-progress submit hasn't
+        // committed its send run yet, so a decision could land after the submit
+        // checked the decision version and before it commits, and the run would
+        // deliver a decision that's no longer current. The job-row lock closes
+        // the gap. Submit holds it in FOR NO KEY UPDATE until it commits, and the
+        // FOR SHARE we get here waits for that. This ensures that any in-progress
+        // submit completes before we proceed with the insert below. And if this
+        // decision takes the lock first, the submit waits instead, and then sees
+        // the new version and refuses with `decision_changed`.
+        //
+        // FOR SHARE doesn't block other FOR SHARE holders, so decisions don't
+        // wait for each other. Two racing decisions for one student are settled
+        // by the insert's primary key.
         await lockJobRow(tx, jobId, 'FOR SHARE');
 
         // Writes the row after the student's latest, if the caller saw what's
         // current: that latest row for a version, or no decision (no rows, or a
         // clear) for null. A clear needs a decision to clear. A submitted
-        // student takes no new decision: every send of a student delivers the
-        // same decision row.
+        // student takes no new decision.
         // Two racing writes compute the same seq, so the loser collides with
         // the winner on the primary key and does nothing.
         const rows = await tx.$queryRaw<{ seq: number }[]>`
