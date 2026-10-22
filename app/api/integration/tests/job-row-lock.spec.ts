@@ -6,10 +6,10 @@ import { tenantA } from '../fixtures/context-fixtures/tenant-fixtures';
 import { pool } from '../helpers/db/client';
 
 // Submit, startJob and decisions hold the job row while they check and write.
-// The Executor keeps posting results meanwhile, and must not wait for them.
+// The Executor may post match results meanwhile, and storing them must not wait.
 describe('the job-row lock', () => {
   it.each(['FOR NO KEY UPDATE', 'FOR SHARE'] as const)(
-    'taken %s, lets the Executor ingest the job’s results',
+    'taken %s, doesn’t block storing the match results the Executor posts',
     async (strength) => {
       const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
       const ingestion = await pool().connect();
