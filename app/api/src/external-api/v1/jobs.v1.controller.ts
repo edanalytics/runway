@@ -189,15 +189,16 @@ export class ExternalApiV1JobsController {
     );
 
     const res = await this.jobsService.startJob(updatedJob, this.prismaAnon);
-    if (res.result === 'JOB_STARTED') {
+    if (res.status === 'SUCCESS') {
       return;
-    } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
+    } else if (res.code === 'job_config_incomplete') {
       throw new BadRequestException(`Job not initiated properly: ${jobUid}`);
-    } else if (res.result === 'JOB_ALREADY_STARTED') {
+    } else if (res.code === 'job_already_started') {
       throw new BadRequestException(`Job already started: ${jobUid}`);
-    } else if (res.result === 'JOB_START_FAILED') {
+    } else if (res.code === 'failed_to_start_executor') {
       throw new InternalServerErrorException(`Failed to start job ${jobUid}`);
     } else {
+      res.code satisfies never;
       throw new InternalServerErrorException(`Unknown error starting job ${jobUid}`);
     }
   }

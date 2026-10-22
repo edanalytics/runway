@@ -1019,7 +1019,7 @@ describe('PUT /jobs/:id/start', () => {
       );
       await holder.client.query('COMMIT');
 
-      expect((await started).result).toBe('JOB_ALREADY_STARTED');
+      expect(await started).toEqual({ status: 'ERROR', code: 'job_already_started' });
     } finally {
       await holder.release();
     }

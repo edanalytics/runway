@@ -303,21 +303,22 @@ export class JobsController {
     );
 
     const res = await this.jobService.startJob(updatedJob, this.prisma);
-    if (res.result === 'JOB_STARTED') {
+    if (res.status === 'SUCCESS') {
       // The frontend's put helpers require a response DTO, though nothing reads
       // this one, so the counts are placeholders. Returning nothing here, from
       // resolve and from note updates needs those helpers to allow empty
       // responses: a separate cleanup.
       return toGetJobDto({ ...updatedJob, studentMatchCounts: noStudentsToMatch });
-    } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
+    } else if (res.code === 'job_config_incomplete') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
-    } else if (res.result === 'JOB_ALREADY_STARTED') {
+    } else if (res.code === 'job_already_started') {
       throw new BadRequestException(`Job already started: ${jobId}`);
-    } else if (res.result === 'JOB_START_FAILED') {
+    } else if (res.code === 'failed_to_start_executor') {
       throw new InternalServerErrorException(`Failed to start job ${jobId}`);
     } else {
+      const unhandled: never = res.code;
       this.logger.error(`Unknown return value from starting job ${jobId}. 
-        Result: ${res.result}
+        Result: ${unhandled}
         Job: ${JSON.stringify(updatedJob, null, 2)}`);
       throw new InternalServerErrorException(`Unknown error starting job ${jobId}`);
     }

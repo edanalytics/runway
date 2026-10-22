@@ -869,22 +869,31 @@ export class JobsService {
     });
   }
 
-  async startJob(job: Job & { files: JobFile[] }, prisma: PrismaClient) {
+  async startJob(
+    job: Job & { files: JobFile[] },
+    prisma: PrismaClient
+  ): Promise<
+    | { status: 'SUCCESS' }
+    | {
+        status: 'ERROR';
+        code: 'job_config_incomplete' | 'job_already_started' | 'failed_to_start_executor';
+      }
+  > {
     if (
       job.configStatus !== 'input_complete' ||
       job.files.some((file) => file.status !== 'upload_complete')
     ) {
-      return { result: 'JOB_CONFIG_INCOMPLETE', job };
+      return { status: 'ERROR', code: 'job_config_incomplete' };
     }
 
-    const created = await prisma.$transaction(
+    const outcome = await prisma.$transaction(
       async (tx) => {
         // So two starts can't both find the job without a run.
         await lockJobRow(tx, job.id, 'FOR NO KEY UPDATE');
 
         // A job is started once: re-running isn't supported.
         if (await tx.run.findFirst({ where: { jobId: job.id }, select: { id: true } })) {
-          return { refused: 'JOB_ALREADY_STARTED' as const };
+          return { status: 'ERROR', code: 'job_already_started' } as const;
         }
 
         const run = await tx.run.create({
@@ -895,23 +904,17 @@ export class JobsService {
           },
           include: { job: { include: { schoolYear: true, files: true } } },
         });
-        return { run };
+        return { status: 'SUCCESS', run } as const;
       },
       // Each statement sees what committed before it, so reading the runs
       // sees a run committed while this transaction waited at the lock.
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted }
     );
-    if ('refused' in created) {
-      return { result: created.refused, job };
-    }
-    const { run } = created;
-
-    const launch = await this.launchRun(run, prisma);
-    if (launch.status === 'ERROR') {
-      return { result: 'JOB_START_FAILED', job };
+    if (outcome.status === 'ERROR') {
+      return outcome;
     }
 
-    return { result: 'JOB_STARTED', job, run };
+    return this.launchRun(outcome.run, prisma);
   }
 
   /**
