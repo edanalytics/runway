@@ -38,6 +38,7 @@ import {
   PostStudentMatchDecisionDto,
   PostStudentMatchSubmitDto,
   PutJobResolveDto,
+  StudentCorrelationIdDto,
   StudentSearchDetailsDto,
   toGetJobDto,
   toGetOutputFileDto,
@@ -378,7 +379,7 @@ export class JobsController {
   @Authorize('job.match-results.update')
   async decideStudentMatch(
     @Param('jobId', ParseIntPipe) jobId: number,
-    @Param('correlationId') correlationId: string,
+    @Param() { correlationId }: StudentCorrelationIdDto,
     @Body() decision: PostStudentMatchDecisionDto,
     @ReqSession() session: IPassportSession,
     @Req() req: Request
@@ -520,7 +521,7 @@ export class JobsController {
   @Authorize('job.match-results.search')
   async searchStudentMatch(
     @Param('jobId', ParseIntPipe) jobId: number,
-    @Param('correlationId') correlationId: string,
+    @Param() { correlationId }: StudentCorrelationIdDto,
     @Body() details: StudentSearchDetailsDto,
     @ReqSession() session: IPassportSession,
     @Req() req: Request

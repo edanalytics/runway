@@ -8,9 +8,11 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Length,
   Matches,
   Max,
   Min,
+  NotContains,
   Validate,
   ValidateIf,
   ValidateNested,
@@ -35,6 +37,16 @@ import { POSTGRES_INTEGER_MAX } from '../constants';
  * The details and roster JSON are returned as stored, in the Executor's
  * snake_case.
  */
+
+/** One of a job's students to match: a route's parameters, or a submitted student. */
+export class StudentCorrelationIdDto {
+  // PostgreSQL text can't hold a NUL, so no student has one, and a query
+  // would fail on it with a 500.
+  @IsString()
+  @Length(1, 128)
+  @NotContains('\0')
+  correlationId: string;
+}
 
 /** A student record from IDRS, with IDRS's score, as a reviewer may match to them. */
 export class GetIdrsStudentDto {
