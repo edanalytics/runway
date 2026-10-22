@@ -103,14 +103,16 @@ export const providePrismaWrite = {
             set_config('app.current_user_username', ${session.user.email}, true)`;
         return prisma.$extends({
           client: {
-            // Each operation below runs in its own transaction, which can't
-            // join an interactive one. So an interactive transaction runs on
-            // the underlying client, where the operation extension below
-            // doesn't run, and sets the user once, at its start. Anything
-            // added to that extension must be added here too.
+            // The function form opens the transaction on the underlying
+            // anonymous client, so the `tx` it hands over lacks the operation
+            // hook below. Every call on `tx` runs on the transaction's own
+            // connection, so the user is set once, as its first statement.
+            // Were the hook on `tx`, each call would run in a transaction of
+            // its own, outside this one. Anything added to the hook must be
+            // added here too.
             $transaction(arg: TransactionArg, options?: TransactionOptions) {
-              // An array's operations would each set the user, and commit, in
-              // a transaction of their own, so the array form is refused.
+              // The array form's operations are built on the session client,
+              // so each would run the hook, in a transaction of its own.
               if (typeof arg !== 'function') {
                 return Promise.reject(
                   new Error(
@@ -125,6 +127,8 @@ export const providePrismaWrite = {
             },
           },
           query: {
+            // Sees only standalone calls on the session client, such as
+            // `job.update(…)`, never calls on a transaction's `tx`.
             async $allOperations({ args, query }) {
               const [, result] = await prisma.$transaction([setUser(prisma), query(args)]);
               return result;
