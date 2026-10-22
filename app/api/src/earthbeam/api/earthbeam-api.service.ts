@@ -163,7 +163,7 @@ export class EarthbeamApiService {
 
     let send: EarthbeamApiJobResponseDto['send'];
     if (run.kind === 'send') {
-      const students = await this.sendRunStudents(runId, job.schoolYear.endYear);
+      const students = await this.studentsForSendRun(runId, job.schoolYear.endYear);
       if (students === null) {
         return {
           status: 'ERROR',
@@ -239,7 +239,7 @@ export class EarthbeamApiService {
    * school years are missing or malformed. Submit refuses such a match, so
    * null is only a backstop.
    */
-  private async sendRunStudents(
+  private async studentsForSendRun(
     runId: Run['id'],
     endYear: number
   ): Promise<NonNullable<EarthbeamApiJobResponseDto['send']>['students'] | null> {
