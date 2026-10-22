@@ -31,7 +31,11 @@ export class StudentMatchSubmitService {
         status: 'ERROR';
         code: 'not_found' | 'full_run_not_done' | 'decision_changed';
       }
-    | { status: 'ERROR'; code: 'not_ready' | 'invalid_school_years'; indices: number[] }
+    | {
+        status: 'ERROR';
+        code: 'already_submitted' | 'not_a_match' | 'invalid_school_years';
+        indices: number[];
+      }
   > {
     const { jobId, students } = input;
     const correlationIds = students.map(({ correlationId }) => correlationId);
@@ -87,13 +91,20 @@ export class StudentMatchSubmitService {
         if (requested.some(({ version, student }) => student.seq !== version)) {
           return { status: 'ERROR', code: 'decision_changed' } as const;
         }
-        // Any of the student's rows, not only the current one: every send of a
-        // student delivers the same decision row.
-        const notReady = requested.flatMap(({ student }, index) =>
-          student.kind !== 'match' || student.submitted ? [index] : []
+        // Before not_a_match: the page is out of date, and a refetch may
+        // resolve the rest. Any of the student's rows, not only the current
+        // one: every send of a student delivers the same decision row.
+        const alreadySubmitted = requested.flatMap(({ student }, index) =>
+          student.submitted ? [index] : []
         );
-        if (notReady.length > 0) {
-          return { status: 'ERROR', code: 'not_ready', indices: notReady } as const;
+        if (alreadySubmitted.length > 0) {
+          return { status: 'ERROR', code: 'already_submitted', indices: alreadySubmitted } as const;
+        }
+        const notAMatch = requested.flatMap(({ student }, index) =>
+          student.kind !== 'match' ? [index] : []
+        );
+        if (notAMatch.length > 0) {
+          return { status: 'ERROR', code: 'not_a_match', indices: notAMatch } as const;
         }
         const invalidSchoolYears = requested.flatMap(({ student }, index) =>
           !hasSchoolYears(student.roster_details) ? [index] : []

@@ -30,11 +30,18 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     code: 'full_run_not_done',
     message: 'The job’s full run hasn’t succeeded.',
   };
-  /** The refusal for students with no match ready, at these positions in the request. */
-  const notReady = (indices: number[]) => ({
+  /** The refusal for students already in a send run, at these positions in the request. */
+  const alreadySubmitted = (indices: number[]) => ({
     statusCode: 409,
-    code: 'not_ready',
-    message: 'A student has no match ready to submit.',
+    code: 'already_submitted',
+    message: 'A student’s match has already been submitted.',
+    indices,
+  });
+  /** The refusal for students whose decision isn't a match, at these positions in the request. */
+  const notAMatch = (indices: number[]) => ({
+    statusCode: 409,
+    code: 'not_a_match',
+    message: 'A student’s decision isn’t a match.',
     indices,
   });
   /** The refusal for matches without valid school years, at these positions in the request. */
@@ -433,69 +440,26 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     });
   });
 
-  describe('the student’s current decision', () => {
-    it.each<[string, () => Promise<number>]>([
-      [
-        'excluded',
-        () =>
-          decide(
-            job.id,
-            'corr-2',
-            { replacesVersion: null, kind: 'exclude' },
-            cookies
-          ) as Promise<number>,
-      ],
-      [
-        'with a cleared match',
-        async () => {
-          await matchSuggestion(job.id, 'corr-2', cookies);
-          await decide(job.id, 'corr-2', { replacesVersion: 1, kind: 'clear' }, cookies);
-          // A clear is the decision's next version.
-          return 2;
-        },
-      ],
-      [
-        'already submitted',
-        async () => {
-          const version = await matchSuggestion(job.id, 'corr-2', cookies);
-          await submit(job.id, [{ correlationId: 'corr-2', version }], cookies);
-          return version;
-        },
-      ],
-    ])('refuses, submitting nothing, a student %s', async (_, currentVersion) => {
+  describe('a student already submitted', () => {
+    // Two reviewers submitting the same student; the race test below sends
+    // them at once.
+    it('refuses, submitting nothing more, naming every such student’s position', async () => {
       const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-      const version = await currentVersion();
-      const sendRunsBefore = (await sendRunsOf(job.id)).length;
+      const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
+      const v3 = await matchSuggestion(job.id, 'corr-3', cookies);
+      await submit(
+        job.id,
+        [
+          { correlationId: 'corr-1', version: v1 },
+          { correlationId: 'corr-3', version: v3 },
+        ],
+        cookies
+      );
 
       const res = await submit(
         job.id,
         [
           { correlationId: 'corr-1', version: v1 },
-          { correlationId: 'corr-2', version },
-        ],
-        cookies
-      );
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual(notReady([1]));
-      expect(await sendRunsOf(job.id)).toHaveLength(sendRunsBefore);
-    });
-
-    it('names every failing student’s position, whatever the cause', async () => {
-      const excluded = await decide(
-        job.id,
-        'corr-1',
-        { replacesVersion: null, kind: 'exclude' },
-        cookies
-      );
-      const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
-      const v3 = await matchSuggestion(job.id, 'corr-3', cookies);
-      await submit(job.id, [{ correlationId: 'corr-3', version: v3 }], cookies);
-
-      const res = await submit(
-        job.id,
-        [
-          { correlationId: 'corr-1', version: excluded },
           { correlationId: 'corr-2', version: v2 },
           { correlationId: 'corr-3', version: v3 },
         ],
@@ -503,8 +467,39 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       );
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual(notReady([0, 2]));
+      expect(res.body).toEqual(alreadySubmitted([0, 2]));
       expect(await sendRunsOf(job.id)).toHaveLength(1);
+    });
+  });
+
+  describe('a current decision that isn’t a match', () => {
+    // The page sends only matches, so these are hand-made requests.
+    it('refuses, submitting nothing, naming every such student’s position', async () => {
+      const excluded = await decide(
+        job.id,
+        'corr-1',
+        { replacesVersion: null, kind: 'exclude' },
+        cookies
+      );
+      const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
+      await matchSuggestion(job.id, 'corr-3', cookies);
+      await decide(job.id, 'corr-3', { replacesVersion: 1, kind: 'clear' }, cookies);
+      // A clear is the decision's next version.
+      const cleared = 2;
+
+      const res = await submit(
+        job.id,
+        [
+          { correlationId: 'corr-1', version: excluded },
+          { correlationId: 'corr-2', version: v2 },
+          { correlationId: 'corr-3', version: cleared },
+        ],
+        cookies
+      );
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(notAMatch([0, 2]));
+      expect(await sendRunsOf(job.id)).toEqual([]);
     });
   });
 
@@ -579,13 +574,14 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect(res.body.code).toBe('full_run_not_done');
     });
 
-    it('reports a stale version before a student without a match', async () => {
-      await decide(job.id, 'corr-1', { replacesVersion: null, kind: 'exclude' }, cookies);
+    it('reports a stale version before a student already submitted', async () => {
+      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
+      await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
 
       const res = await submit(
         job.id,
         [
-          { correlationId: 'corr-1', version: 1 },
+          { correlationId: 'corr-1', version: v1 },
           { correlationId: 'corr-2', version: 1 },
         ],
         cookies
@@ -594,7 +590,29 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect(res.body.code).toBe('decision_changed');
     });
 
-    it('reports a student without a match before invalid school years', async () => {
+    it('reports a student already submitted before a decision that isn’t a match', async () => {
+      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
+      await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+      const excluded = await decide(
+        job.id,
+        'corr-2',
+        { replacesVersion: null, kind: 'exclude' },
+        cookies
+      );
+
+      const res = await submit(
+        job.id,
+        [
+          { correlationId: 'corr-1', version: v1 },
+          { correlationId: 'corr-2', version: excluded },
+        ],
+        cookies
+      );
+
+      expect(res.body.code).toBe('already_submitted');
+    });
+
+    it('reports a decision that isn’t a match before invalid school years', async () => {
       await decide(job.id, 'corr-1', { replacesVersion: null, kind: 'exclude' }, cookies);
       const bad = await matchSearch(job.id, 'corr-2', {}, cookies);
 
@@ -608,7 +626,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       );
 
       // corr-2's invalid school years aren't among the indices.
-      expect(res.body).toEqual(notReady([0]));
+      expect(res.body).toEqual(notAMatch([0]));
     });
   });
 
@@ -627,7 +645,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       const responses = await Promise.all(pending);
 
       expect(responses.map((res) => res.status).sort()).toEqual([201, 409]);
-      expect(responses.find((res) => res.status === 409)?.body).toEqual(notReady([0]));
+      expect(responses.find((res) => res.status === 409)?.body).toEqual(alreadySubmitted([0]));
       expect((await sendRunsOf(job.id)).map((run) => run.sendRunDecision.length)).toEqual([1]);
     } finally {
       await holder.release();

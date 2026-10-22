@@ -488,13 +488,21 @@ export class JobsController {
             code,
             message: 'A student’s decision has changed since the page loaded.',
           });
-        // These two add the failing students' positions in the request, so
-        // the page can offer to exclude them.
-        case 'not_ready':
+        // These three add the failing students' positions in the request, so
+        // the page can leave those students out and submit the rest. It can
+        // also exclude them, except when already submitted.
+        case 'already_submitted':
           throw new ConflictException({
             statusCode: 409,
             code,
-            message: 'A student has no match ready to submit.',
+            message: 'A student’s match has already been submitted.',
+            indices: result.indices,
+          });
+        case 'not_a_match':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student’s decision isn’t a match.',
             indices: result.indices,
           });
         case 'invalid_school_years':
