@@ -174,8 +174,10 @@ export class GetJobDto
    * run. Never in fuzzy background mode, where the ID-based run has delivered.
    */
   get hasFuzzyStudentsToMatch() {
-    const { toReview, ready } = this.studentMatchCounts;
-    return this.idMatchingMode === 'fuzzy' && toReview + ready > 0;
+    return (
+      this.idMatchingMode === 'fuzzy' &&
+      this.studentMatchCounts.toReview + this.studentMatchCounts.ready > 0
+    );
   }
 
   /**
