@@ -24,10 +24,10 @@ describe("the session-scoped client's interactive transactions", () => {
     job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
   });
 
-  it('keeps their writes from other connections until they commit', async () => {
+  it('keep their writes from other connections until they commit', async () => {
     let seenOutside: number | undefined;
     await client.$transaction(async (tx) => {
-      await tx.run.create({ data: { jobId: job.id, kind: 'full', status: 'new' } });
+      await tx.run.create({ data: { jobId: job.id, status: 'new' } });
       seenOutside = await prisma.run.count({ where: { jobId: job.id } });
     });
 
@@ -50,7 +50,7 @@ describe("the session-scoped client's interactive transactions", () => {
     const failure = new Error('fails after the insert');
     await expect(
       client.$transaction(async (tx) => {
-        await tx.run.create({ data: { jobId: job.id, kind: 'full', status: 'new' } });
+        await tx.run.create({ data: { jobId: job.id, status: 'new' } });
         throw failure;
       })
     ).rejects.toBe(failure);
@@ -60,7 +60,7 @@ describe("the session-scoped client's interactive transactions", () => {
 
   it('attribute their writes to the session user', async () => {
     const run = await client.$transaction(async (tx) =>
-      tx.run.create({ data: { jobId: job.id, kind: 'full', status: 'new' } })
+      tx.run.create({ data: { jobId: job.id, status: 'new' } })
     );
 
     expect(run.createdById).toBe(userA.id);
