@@ -79,6 +79,13 @@ export const providePrismaReadonly = {
   },
 };
 
+// $transaction's two forms: an array of operations, or a function given an
+// interactive transaction.
+type TransactionArg =
+  | Prisma.PrismaPromise<unknown>[]
+  | ((tx: Prisma.TransactionClient) => Promise<unknown>);
+type TransactionOptions = Parameters<PrismaClient['$transaction']>[1];
+
 export const providePrismaWrite = {
   scope: Scope.REQUEST,
   inject: [PRISMA_ANONYMOUS, REQUEST],
@@ -88,23 +95,48 @@ export const providePrismaWrite = {
 
     if ('user' in request && request.user) {
       const session = request.user;
-      const addUserContextExt = Prisma.defineExtension((prisma) =>
-        prisma.$extends({
+      const addUserContextExt = Prisma.defineExtension((prisma) => {
+        // Local to the transaction it runs in.
+        const setUser = (client: Pick<PrismaClient, '$executeRaw'>) => client.$executeRaw`
+          SELECT
+            set_config('app.current_user_id', ${String(session.user.id)}, true),
+            set_config('app.current_user_username', ${session.user.email}, true)`;
+        return prisma.$extends({
+          client: {
+            // The function form opens the transaction on the underlying
+            // anonymous client, so the `tx` it hands over lacks the operation
+            // hook below. Every call on `tx` runs on the transaction's own
+            // connection, so the user is set once, as its first statement.
+            // Were the hook on `tx`, each call would run in a transaction of
+            // its own, outside this one. Anything added to the hook must be
+            // added here too.
+            $transaction(arg: TransactionArg, options?: TransactionOptions) {
+              // The array form's operations are built on the session client,
+              // so each would run the hook, in a transaction of its own.
+              if (typeof arg !== 'function') {
+                return Promise.reject(
+                  new Error(
+                    "Array-style transactions aren't supported on the session client, because each operation sets the user in its own transaction; use the callback form."
+                  )
+                );
+              }
+              return prisma.$transaction(async (tx) => {
+                await setUser(tx);
+                return arg(tx as Prisma.TransactionClient);
+              }, options);
+            },
+          },
           query: {
+            // Sees only standalone calls on the session client, such as
+            // `job.update(…)`, never calls on a transaction's `tx`.
             async $allOperations({ args, query }) {
-              const [, result] = await prisma.$transaction([
-                prisma.$executeRaw`
-                  SELECT
-                    set_config('app.current_user_id', ${String(session.user.id)}, true),
-                    set_config('app.current_user_username', ${session.user.email}, true)`,
-                query(args),
-              ]);
+              const [, result] = await prisma.$transaction([setUser(prisma), query(args)]);
               return result;
             },
           },
-        })
-      );
-      extendedClient = prismaAnon.$extends(addUserContextExt) as PrismaClient;
+        });
+      });
+      extendedClient = prismaAnon.$extends(addUserContextExt) as unknown as PrismaClient;
     } else {
       const disallowAnonymousWritesExt = Prisma.defineExtension((prisma) =>
         prisma.$extends({
