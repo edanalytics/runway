@@ -74,6 +74,9 @@ export class StudentMatchSubmitService {
           // The current decision, or undefined for an undecided student.
           decision: decisionsById.get(correlationId)?.[0],
         }));
+        if (requested.some(({ version, decision }) => decision?.seq !== version)) {
+          return { status: 'ERROR', code: 'decision_changed' } as const;
+        }
 
         // Any of the student's rows, not only the current one: every send of
         // a student delivers the same decision row.
@@ -82,12 +85,9 @@ export class StudentMatchSubmitService {
           select: { correlationId: true },
         });
         const submittedIds = new Set(submitted.map(({ correlationId }) => correlationId));
-
-        if (requested.some(({ version, decision }) => decision?.seq !== version)) {
-          return { status: 'ERROR', code: 'decision_changed' } as const;
-        }
         // Before not_a_match: the page is out of date, and a refetch may
-        // resolve the rest.
+        // resolve the rest. The indices are positions in the request's
+        // students, so they come from requested rather than the query's rows.
         const alreadySubmitted = requested.flatMap(({ correlationId }, index) =>
           submittedIds.has(correlationId) ? [index] : []
         );
