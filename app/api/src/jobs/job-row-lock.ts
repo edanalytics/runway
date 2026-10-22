@@ -12,6 +12,10 @@ import type { Job } from '@prisma/client';
  *
  * Never FOR UPDATE, which would also block inserts that reference the job,
  * such as ingestion's.
+ *
+ * No lock timeout: the transaction's own (Prisma's, 5 s by default) bounds the
+ * wait and rolls back when it runs out. Holders keep the lock for only a few
+ * queries, since runs launch after commit, so that is ample.
  */
 export const lockJobRow = (
   tx: Prisma.TransactionClient,
