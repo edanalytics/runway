@@ -200,7 +200,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
 
       expect(res.status).toBe(201);
       const [sendRun] = await sendRunsOf(job.id);
-      expect(res.body).toEqual({ runId: sendRun.id });
+      expect(res.body).toEqual({ runId: sendRun.id, launched: true });
       expect(sendRun).toMatchObject({
         status: 'new',
         createdById: userA.id,
@@ -239,7 +239,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
 
       expect(res.status).toBe(201);
       const [sendRun] = await sendRunsOf(job.id);
-      expect(res.body).toEqual({ runId: sendRun.id });
+      expect(res.body).toEqual({ runId: sendRun.id, launched: false });
       expect(sendRun.status).toBe('error');
       expect(sendRun.sendRunDecision.map(({ correlationId }) => correlationId)).toEqual(['corr-1']);
       expect(await prisma.runError.findMany({ where: { runId: sendRun.id } })).toEqual([

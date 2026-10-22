@@ -37,6 +37,10 @@ export class PostStudentMatchSubmitResponseDto {
   /** The send run that delivers the submitted students. */
   @Expose()
   runId: number;
+
+  /** Whether the send run's Executor started. When it didn't, the run is in `error` and the submit still stands. */
+  @Expose()
+  launched: boolean;
 }
 
 export const toPostStudentMatchSubmitResponseDto = makeSerializer(

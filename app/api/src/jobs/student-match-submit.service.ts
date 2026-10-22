@@ -26,7 +26,7 @@ export class StudentMatchSubmitService {
     input: { jobId: Job['id']; students: PostStudentMatchSubmitStudentDto[] },
     prisma: PrismaClient
   ): Promise<
-    | { status: 'SUCCESS'; data: { runId: number } }
+    | { status: 'SUCCESS'; data: { runId: number; launched: boolean } }
     | {
         status: 'ERROR';
         code: 'not_found' | 'full_run_not_done' | 'decision_changed';
@@ -140,8 +140,15 @@ export class StudentMatchSubmitService {
     }
 
     // After commit, so the Executor finds the run and its decisions. A failed
-    // launch is recorded on the run, and the submit stands.
-    await this.jobsService.launchRun(outcome.run, prisma);
-    return { status: 'SUCCESS', data: { runId: outcome.run.id } };
+    // launch marks the run `error` and is reported in `launched`, but the
+    // submit stands: the ECS call can fail after AWS has accepted the task, so
+    // the Executor may still run. Undoing the submit would let those students
+    // take new decisions, so one could be sent under two identities. Sending
+    // the same decisions again, a later feature, is what will unblock them.
+    const launch = await this.jobsService.launchRun(outcome.run, prisma);
+    return {
+      status: 'SUCCESS',
+      data: { runId: outcome.run.id, launched: launch.status === 'SUCCESS' },
+    };
   }
 }
