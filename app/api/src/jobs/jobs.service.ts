@@ -40,29 +40,36 @@ import { ApiTokenClient } from '../external-api/external-api-token-client.decora
 import { IdrsSearchService } from '../idrs/idrs-search.service';
 import { lockJobRow } from './job-row-lock';
 
-/**
- * A student's school years, by end year (2025 for 2024–25), or null when there
- * are no roster details or they don't hold them as an array of integers.
- * Without them, a send can't tell whether a match is in the job's year, so
- * submitting refuses such a match.
- */
-export const schoolYearsOf = (
-  rosterDetails: StudentRosterDetailsJson | null | undefined
-): number[] | null => {
-  const schoolYears = rosterDetails?.school_years;
-  return Array.isArray(schoolYears) && schoolYears.every(Number.isInteger)
-    ? (schoolYears as number[])
-    : null;
+/** Roster details whose school years `hasSchoolYears` has checked. */
+export type StudentRosterDetailsWithSchoolYears = StudentRosterDetailsJson & {
+  school_years: number[];
 };
 
 /**
- * Whether a job could load a student IDRS found. With cross-year matching on,
- * it can load any of them: one outside the job's school year is a cross-year
- * match, which is sideloaded rather than sent to the ODS. With it off, it can
- * load only students whose `school_years` include the job's year, read as
- * submitting reads them, so malformed ones include no year. Both
- * `school_years` and `endYear` name a school year by its end year (2025 for
- * 2024–25).
+ * IDRS guarantees a student's school years, but roster details reach a match from IDRS through
+ * the Executor, from a reviewer's search or from a client, and are stored as sent. Submit checks
+ * them with this before anything relies on them.
+ */
+export const hasSchoolYears = (
+  rosterDetails: StudentRosterDetailsJson | null | undefined
+): rosterDetails is StudentRosterDetailsWithSchoolYears => {
+  const schoolYears = rosterDetails?.school_years;
+  return Array.isArray(schoolYears) && schoolYears.every(Number.isInteger);
+};
+
+/**
+ * Whether the student is in the job's school year, by end year (2025 for 2024–25). A match
+ * outside it is a cross-year match, which is delivered outside the ODS.
+ */
+export const isInJobYear = (
+  rosterDetails: StudentRosterDetailsWithSchoolYears,
+  endYear: number
+): boolean => rosterDetails.school_years.includes(endYear);
+
+/**
+ * Whether a job could load a student IDRS found. With cross-year matching on, it can load any of
+ * them, since one outside the job's school year is a cross-year match. With it off, it can load
+ * only students in the job's year, so none whose school years are malformed.
  *
  * The Executor's suggestion filter must apply the same rule. A match an ODS job
  * keeps only through cross-year matching must never be sent to the ODS.
@@ -71,7 +78,7 @@ export const isLoadableStudent = (
   student: StudentRosterDetailsJson,
   endYear: number,
   crossYearMatchingEnabled: boolean
-) => crossYearMatchingEnabled || (schoolYearsOf(student)?.includes(endYear) ?? false);
+) => crossYearMatchingEnabled || (hasSchoolYears(student) && isInJobYear(student, endYear));
 
 /**
  * A decision row as the API shows it: none for a clear, and a search basis's

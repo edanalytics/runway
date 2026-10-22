@@ -13,7 +13,7 @@ import {
 } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database';
 import { EncryptionService } from 'api/src/encryption/encryption.service';
-import { schoolYearsOf } from '../../jobs/jobs.service';
+import { hasSchoolYears, isInJobYear } from '../../jobs/jobs.service';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
@@ -261,17 +261,16 @@ export class EarthbeamApiService {
     for (const { correlationId, studentMatchDecision: decision } of sendRunDecisions) {
       // A match has exactly one basis (037's check): a suggestion, or a
       // search with its own roster details.
-      const schoolYears = schoolYearsOf(
-        decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails
-      );
-      if (schoolYears === null) {
+      const rosterDetails =
+        decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails;
+      if (!hasSchoolYears(rosterDetails)) {
         return null;
       }
       students.push({
         correlationId,
         // Submit records only matches, and every match has an answer (037's check).
         studentUniqueId: decision.studentUniqueId!,
-        isCrossYear: !schoolYears.includes(endYear),
+        isCrossYear: !isInJobYear(rosterDetails, endYear),
       });
     }
     return students;

@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Job, PrismaClient, StudentMatchDecisionKind } from '@prisma/client';
 import { lockJobRow } from './job-row-lock';
-import { JobsService, schoolYearsOf } from './jobs.service';
+import { hasSchoolYears, JobsService } from './jobs.service';
 
 /** A requested student, as submitting finds them. */
 type SubmittingStudent = {
@@ -96,7 +96,7 @@ export class StudentMatchSubmitService {
           return { status: 'ERROR', code: 'not_ready', indices: notReady } as const;
         }
         const invalidSchoolYears = requested.flatMap(({ student }, index) =>
-          schoolYearsOf(student.roster_details) === null ? [index] : []
+          !hasSchoolYears(student.roster_details) ? [index] : []
         );
         if (invalidSchoolYears.length > 0) {
           return {
