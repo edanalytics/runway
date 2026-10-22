@@ -86,6 +86,15 @@ type TransactionArg =
   | ((tx: Prisma.TransactionClient) => Promise<unknown>);
 type TransactionOptions = Parameters<PrismaClient['$transaction']>[1];
 
+// The session client sets the user per operation, in a transaction of its own,
+// so an array's operations would each commit separately.
+const refuseArrayTransaction = () =>
+  Promise.reject(
+    new Error(
+      "Array-style transactions aren't supported on the session client, because each operation sets the user in its own transaction; use the callback form."
+    )
+  );
+
 export const providePrismaWrite = {
   scope: Scope.REQUEST,
   inject: [PRISMA_ANONYMOUS, REQUEST],
@@ -110,7 +119,7 @@ export const providePrismaWrite = {
             // added to that extension must be added here too.
             $transaction(arg: TransactionArg, options?: TransactionOptions) {
               if (typeof arg !== 'function') {
-                return prisma.$transaction(arg, options);
+                return refuseArrayTransaction();
               }
               return prisma.$transaction(async (tx) => {
                 await setUser(tx);
@@ -135,11 +144,8 @@ export const providePrismaWrite = {
       const disallowAnonymousWritesExt = Prisma.defineExtension((prisma) =>
         prisma.$extends({
           client: {
-            async $transaction(arg: TransactionArg, options?: TransactionOptions) {
-              if (typeof arg === 'function') {
-                return refuse();
-              }
-              return prisma.$transaction(arg, options);
+            async $transaction(arg: TransactionArg) {
+              return typeof arg === 'function' ? refuse() : refuseArrayTransaction();
             },
           },
           query: {
