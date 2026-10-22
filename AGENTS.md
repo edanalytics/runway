@@ -333,7 +333,7 @@ Job reads (`GET /api/jobs`, `GET /api/jobs/:jobId`) carry `idMatchingMode` and `
 The mode decides who reads the results and whether they affect the status:
 
 - **`id_based_fuzzy_background`**: only `PartnerAdmin` and `SupportUser`, through `job.match-results.background.read`. The mode exists for them to check suggestions before a partner switches to fuzzy. The ID-based run has already delivered, so nothing can be decided and the counts leave the status alone.
-- **`fuzzy`** (and `id_based`): any user with `job.match-results.read`. In fuzzy mode, a successful last run with any outstanding students makes the job `complete with errors`, which can be marked resolved, as with unmatched student IDs. The outstanding students are `toReview + ready + submitted`: a saved match delivers nothing on its own, and a submitted one stays outstanding whatever its send run's outcome. Excluded students aren't outstanding.
+- **`fuzzy`** (and `id_based`): any user with `job.match-results.read`. In fuzzy mode, a successful last run with any outstanding students makes the job `complete with errors`, which can be marked resolved, as with unmatched student IDs. The outstanding students are `toReview + ready`: a saved match delivers nothing on its own. Excluded and submitted students aren't outstanding; a send run's own status and resource errors surface its outcome, since it is the job's last run.
 
 ### S3 Path Structure
 

@@ -168,14 +168,14 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: students who aren't done. Excluded students are done; a saved
-   * match isn't, since it delivers nothing on its own, and nor is a submitted
-   * one, whatever its send run's outcome. Never in fuzzy background mode,
-   * where the ID-based run has already delivered them.
+   * Fuzzy mode: students who aren't done. Excluded and submitted students are
+   * done; a saved match isn't, since it delivers nothing on its own. A send
+   * run's own status and resource errors show its outcome, as the job's last
+   * run. Never in fuzzy background mode, where the ID-based run has delivered.
    */
   get hasFuzzyStudentsToMatch() {
-    const { toReview, ready, submitted } = this.studentMatchCounts;
-    return this.idMatchingMode === 'fuzzy' && toReview + ready + submitted > 0;
+    const { toReview, ready } = this.studentMatchCounts;
+    return this.idMatchingMode === 'fuzzy' && toReview + ready > 0;
   }
 
   /**
