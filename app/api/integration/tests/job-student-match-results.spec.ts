@@ -51,6 +51,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         seq,
       })),
     });
+    return run;
   };
 
   const resultIdOf = async (correlationId: string, runId = runA.id, jobId = jobA.id) =>
@@ -603,20 +604,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           });
         },
       ],
-      // Its send run is the job's latest run, so it decides the job's status.
-      [
-        'with only a submitted match, whose send run succeeded',
-        async () => {
-          const resultId = await resultIdOf('corr-1');
-          await decide(cookies, 'corr-1', {
-            replacesVersion: null,
-            kind: 'match',
-            resultId,
-            ordinal: 0,
-          });
-          await seedSendRun(jobA.id, ['corr-1'], 'success');
-        },
-      ],
     ])('shows a fuzzy job with a student %s as complete with errors', async (_, act) => {
       await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
       await reportStudents(['corr-1', 'corr-2']);
@@ -628,6 +615,34 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(onJob.status).toBe('complete with errors');
       expect(inList.status).toBe('complete with errors');
     });
+
+    // A submitted student counts as done: the send run, as the job's last
+    // run, shows how its delivery went.
+    it.each(['success', 'error'] as const)(
+      'shows a fuzzy job whose students are all excluded or submitted as its send run’s status, %s',
+      async (sendRunStatus) => {
+        await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+        await reportStudents(['corr-1', 'corr-2']);
+        await decide(cookies, 'corr-2', { replacesVersion: null, kind: 'exclude' });
+        await decide(cookies, 'corr-1', {
+          replacesVersion: null,
+          kind: 'match',
+          resultId: await resultIdOf('corr-1'),
+          ordinal: 0,
+        });
+        const sendRun = await seedSendRun(jobA.id, ['corr-1'], sendRunStatus);
+
+        const jobs = await readJob(jobA.id);
+
+        expect(
+          jobs.map(({ lastRun, studentMatchCounts, status }) => ({
+            lastRunId: lastRun?.id,
+            submitted: studentMatchCounts.submitted,
+            status,
+          }))
+        ).toEqual(Array(2).fill({ lastRunId: sendRun.id, submitted: 1, status: sendRunStatus }));
+      }
+    );
 
     it('counts each listed job’s own students', async () => {
       const seedFuzzyJob = () =>
