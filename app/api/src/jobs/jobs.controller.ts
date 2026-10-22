@@ -71,8 +71,8 @@ const failureCause = (err: unknown) => {
 
 /**
  * The request's job if it's in fuzzy mode, or a 403. Only a fuzzy job's
- * students can be decided, searched or submitted: in background mode the
- * ID-based run has already delivered, so its suggestions are read-only.
+ * students are decided, searched for or submitted: in background mode the
+ * ID-based run has already delivered, so there is nothing left to act on.
  */
 const fuzzyJobOrThrow = (req: Request) => {
   if (!req.job) {
