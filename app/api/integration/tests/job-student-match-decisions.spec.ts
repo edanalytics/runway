@@ -191,12 +191,11 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
     });
   });
 
-  it.each([
-    ['a student the job doesn’t have', 'corr-unknown'],
-    // PostgreSQL text can't hold one, so it must not reach a query.
-    ['a correlation id with a NUL', 'corr%00'],
-  ])('returns 404 for %s', async (_, correlationId) => {
-    const res = await decide({ replacesVersion: null, kind: 'exclude' }, { correlationId });
+  it('returns 404 for a student the job doesn’t have', async () => {
+    const res = await decide(
+      { replacesVersion: null, kind: 'exclude' },
+      { correlationId: 'corr-unknown' }
+    );
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({
@@ -204,6 +203,19 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       code: 'not_found',
       message: 'This student isn’t in the job.',
     });
+  });
+
+  it.each([
+    // PostgreSQL text can't hold one, so it must not reach a query.
+    ['a NUL', 'corr%00'],
+    ['129 characters', 'c'.repeat(129)],
+  ])('refuses a correlation id with %s as a 400', async (_, correlationId) => {
+    const res = await decide({ replacesVersion: null, kind: 'exclude' }, { correlationId });
+
+    expect(res.status).toBe(400);
+    // Nest's validation body, so it was the DTO that refused it.
+    expect(res.body.message).toContainEqual(expect.stringMatching(/^correlationId /));
+    expect(await prisma.studentMatchDecision.count({ where: { jobId: job.id } })).toBe(0);
   });
 
   describe('a bad request', () => {

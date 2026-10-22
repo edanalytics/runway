@@ -220,14 +220,10 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
     });
   });
 
-  it.each([
-    ['a student the job doesn’t have', 'corr-unknown'],
-    // PostgreSQL text can't hold one, so it must not reach a query.
-    ['a correlation id with a NUL', 'corr%00'],
-  ])('returns 404 for %s, without searching', async (_, correlationId) => {
+  it('returns 404 for a student the job doesn’t have, without searching', async () => {
     const fetchSpy = stubIdrs(found([]));
 
-    const res = await search(DETAILS, { correlationId });
+    const res = await search(DETAILS, { correlationId: 'corr-unknown' });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({
@@ -235,6 +231,21 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/search', () => 
       code: 'not_found',
       message: 'This student isn’t in the job.',
     });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    // PostgreSQL text can't hold one, so it must not reach a query.
+    ['a NUL', 'corr%00'],
+    ['129 characters', 'c'.repeat(129)],
+  ])('refuses a correlation id with %s as a 400, without searching', async (_, correlationId) => {
+    const fetchSpy = stubIdrs(found([]));
+
+    const res = await search(DETAILS, { correlationId });
+
+    expect(res.status).toBe(400);
+    // Nest's validation body, so it was the DTO that refused it.
+    expect(res.body.message).toContainEqual(expect.stringMatching(/^correlationId /));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
