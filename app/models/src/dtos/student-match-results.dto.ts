@@ -32,6 +32,7 @@ import {
 import { makeSerializer, makeSerializerCustomType } from '../utils/make-serializer';
 import { StudentInputDetailsJson, StudentRosterDetailsJson } from './earthbeam-api.dto';
 import { GetUserDto } from './user.dto';
+import { GetRunDto } from './run.dto';
 import { POSTGRES_INTEGER_MAX } from '../constants';
 
 /*
@@ -407,6 +408,13 @@ export class GetStudentInputDetailsDto {
   @Expose()
   status: StudentMatchStatus;
 
+  /**
+   * The latest send run that delivers the current decision, which decides the
+   * status. Null when none does.
+   */
+  @Expose()
+  sendRunId: number | null;
+
   /** Null when nothing is decided, including after a clear. */
   @Expose()
   @Type(() => GetStudentMatchDecisionDto)
@@ -457,6 +465,18 @@ export class GetStudentMatchCountsDto {
   /** Matches whose send run ended in error. */
   @Expose()
   runFailed: number;
+}
+
+/** One of the job's send runs, as the review read lists them. */
+export class GetSendRunDto extends GetRunDto {
+  /** The submitter. Null once their user is deleted. */
+  @Expose()
+  @Transform(({ value }) => plainToInstance(GetUserDto, value, { excludeExtraneousValues: true }))
+  createdBy: GetUserDto | null;
+
+  /** How many students it delivers. */
+  @Expose()
+  studentCount: number;
 }
 
 /**

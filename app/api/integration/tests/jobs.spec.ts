@@ -236,23 +236,30 @@ describe('GET /jobs/:id', () => {
       expect(resA.body.id).toEqual(jobA.id);
     });
 
-    // The frontend picks the full run by its kind, to compute the job's status.
-    it('returns each run’s kind', async () => {
+    // The frontend picks the full run by its kind, to compute the job's status,
+    // and shows each run's summary.
+    it('returns each run’s kind and summary', async () => {
+      const summary = {
+        studentAssessments: { records_processed: 4, records_skipped: 0, records_failed: 1 },
+      };
       const sendRun = await prisma.run.create({
-        data: { jobId: jobA.id, kind: 'send', status: 'new' },
+        data: { jobId: jobA.id, kind: 'send', status: 'error', summary },
       });
 
       const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
 
-      const runs = res.body.runs.map(({ id, kind }: { id: number; kind: RunKind }) => ({
-        id,
-        kind,
-      }));
+      const runs = res.body.runs.map(
+        ({ id, kind, summary }: { id: number; kind: RunKind; summary: unknown }) => ({
+          id,
+          kind,
+          summary,
+        })
+      );
       expect(runs).toHaveLength(2);
       expect(runs).toEqual(
         expect.arrayContaining([
-          { id: expect.any(Number), kind: 'full' },
-          { id: sendRun.id, kind: 'send' },
+          { id: expect.any(Number), kind: 'full', summary: null },
+          { id: sendRun.id, kind: 'send', summary },
         ])
       );
     });

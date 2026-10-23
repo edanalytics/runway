@@ -7,7 +7,7 @@ import { tenantA, tenantB, tenantDGlobal } from '../fixtures/context-fixtures/te
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
-import { GetJobDto, GetStudentInputDetailsDto } from '@edanalytics/models';
+import { GetJobDto, GetSendRunDto, GetStudentInputDetailsDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { StudentMatchReviewService } from 'api/src/jobs/student-match-review.service';
 import { reportMatchResults as report } from '../helpers/report-match-results';
@@ -162,6 +162,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             createdOn: expect.any(String),
             inputDetails: { first_name: 'Ada', last_name: 'Lovelace' },
             status: 'to-review',
+            sendRunId: null,
             decision: null,
             results: [
               {
@@ -191,6 +192,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             createdOn: expect.any(String),
             inputDetails: { first_name: 'Grace' },
             status: 'to-review',
+            sendRunId: null,
             decision: null,
             results: [
               {
@@ -202,6 +204,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             ],
           },
         ],
+        sendRuns: [],
       });
     });
 
@@ -264,6 +267,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           runFailed: 0,
         },
         students: [],
+        sendRuns: [],
       });
     });
 
@@ -392,6 +396,75 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         });
       });
 
+      it('lists the job’s send runs, newest first, each with its submitter, summary and student count', async () => {
+        await reportStudents(['corr-1', 'corr-2']);
+        await matchAll(cookies, ['corr-1', 'corr-2']);
+        const failed = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'error');
+        const resent = await seedSendRun(jobA.id, ['corr-1'], 'running');
+        const summary = {
+          studentAssessments: { records_processed: 4, records_skipped: 0, records_failed: 1 },
+        };
+        await prisma.run.update({ where: { id: failed.id }, data: { summary } });
+        // The submitter, as a submit records them: the audit trigger sets it on
+        // insert from the session, which the test client doesn't have.
+        await prisma.run.updateMany({
+          where: { id: { in: [failed.id, resent.id] } },
+          data: { createdById: userA.id },
+        });
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(
+          res.body.sendRuns.map(
+            ({ id, kind, status, summary, createdBy, studentCount }: GetSendRunDto) => ({
+              id,
+              kind,
+              status,
+              summary,
+              submitterId: createdBy?.id,
+              studentCount,
+            })
+          )
+        ).toEqual([
+          {
+            id: resent.id,
+            kind: 'send',
+            status: 'running',
+            summary: null,
+            submitterId: userA.id,
+            studentCount: 1,
+          },
+          {
+            id: failed.id,
+            kind: 'send',
+            status: 'error',
+            summary,
+            submitterId: userA.id,
+            studentCount: 2,
+          },
+        ]);
+      });
+
+      it('gives each student their latest send run, or none before they’re submitted', async () => {
+        await reportStudents(['corr-1', 'corr-2', 'corr-3']);
+        await matchAll(cookies, ['corr-1', 'corr-2', 'corr-3']);
+        const failed = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'error');
+        const resent = await seedSendRun(jobA.id, ['corr-1'], 'running');
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(
+          res.body.students.map(({ correlationId, sendRunId }: GetStudentInputDetailsDto) => ({
+            correlationId,
+            sendRunId,
+          }))
+        ).toEqual([
+          { correlationId: 'corr-1', sendRunId: resent.id },
+          { correlationId: 'corr-2', sendRunId: failed.id },
+          { correlationId: 'corr-3', sendRunId: null },
+        ]);
+      });
+
       // A suggestion pick's search is null: see the test above.
       it('returns a match to a student found by searching, with the search and roster details, as ready', async () => {
         await reportStudents(['corr-1', 'corr-2']);
@@ -488,9 +561,11 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
       afterEach(() => limit.restore());
 
-      it('returns the counts without the students', async () => {
+      it('returns the counts and send runs without the students', async () => {
         await reportStudents(['corr-1', 'corr-2', 'corr-3']);
         await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
+        await matchAll(cookies, ['corr-2']);
+        const sendRun = await seedSendRun(jobA.id, ['corr-2'], 'success');
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
@@ -498,14 +573,15 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         expect(res.body).toEqual({
           counts: {
             total: 3,
-            toReview: 2,
+            toReview: 1,
             ready: 0,
             excluded: 1,
             reprocessing: 0,
-            reprocessed: 0,
+            reprocessed: 1,
             runFailed: 0,
           },
           students: null,
+          sendRuns: [expect.objectContaining({ id: sendRun.id, studentCount: 1 })],
         });
       });
 
