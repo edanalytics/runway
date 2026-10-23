@@ -109,13 +109,19 @@ export class StudentMatchSubmitService {
         // delivered: decisions refuse a student once any of their rows is in a
         // send run, so every send of a student delivers the same decision row.
         //
-        // No run leaves `error`, except in one theoretical gap: a failed
-        // launch that AWS accepted anyway, whose task called `initRun` before
-        // `RunsService.launch` recorded the failure. That run would go on
-        // under `error`, and a resend could deliver the same row twice.
-        // Identity holds and reprocessing is safe to repeat, but both runs'
-        // output sets would be listed. ECS start-up takes tens of seconds, so
-        // this isn't guarded.
+        // Resending relies on `error` being final, which nothing enforces:
+        // `completeRun` writes whatever status a run's `done` reports. It holds
+        // because the Executor posts one `done` per run, and `initRun` refuses
+        // a run that isn't `new`, so a run marked `error` at launch never
+        // starts. If either broke, a run in `error` could later report
+        // success, and a resend would deliver the same row twice: a late
+        // `done/success` after `done/failure`, or a failed launch that AWS
+        // accepted anyway, whose task called `initRun` before
+        // `RunsService.launch` recorded the failure. Identity holds and
+        // reprocessing is safe to repeat, but both runs would count as
+        // delivered, in the resource total and the output sets. Neither has
+        // been seen, and ECS start-up takes tens of seconds, so this isn't
+        // guarded.
         const submitted = await tx.sendRunDecision.findMany({
           where: {
             jobId,

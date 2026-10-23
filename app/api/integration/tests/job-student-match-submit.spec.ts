@@ -41,7 +41,7 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
   const alreadySubmitted = (indices: number[]) => ({
     statusCode: 409,
     code: 'already_submitted',
-    message: 'A student’s match has already been submitted.',
+    message: 'A student’s match is being or has been sent.',
     indices,
   });
   /** The refusal for students whose decision isn't a match, at these positions in the request. */
