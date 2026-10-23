@@ -1099,9 +1099,9 @@ describe('Earthbeam API', () => {
         ).toEqual([['done', 'success']]);
       });
 
-      // A run reports `done` once, so its `success` or `error` is final. A late
-      // `done` that contradicts it would let a run counted as failed, and so
-      // resent, count as delivered too.
+      // A run's `success` or `error` is final. A late `done` that contradicts
+      // it would let a run counted as failed, and so resent, count as
+      // delivered too.
       it.each([
         ['failure', 'error', 'success'],
         ['success', 'success', 'failure'],

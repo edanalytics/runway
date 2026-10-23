@@ -82,7 +82,7 @@ export class EarthbeamApiAuthService {
       }
 
       if (count === 0) {
-        // cannot use a token twice, so if run is not new, the token has already been used
+        // Not `new`: the token has been used, or the run failed to launch.
         return { status: 'ERROR', reason: 'invalid token' };
       }
 

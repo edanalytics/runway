@@ -238,7 +238,7 @@ describe('GET /jobs/:id', () => {
     });
 
     // The frontend picks the full run by its kind, to compute the job's status,
-    // and shows each run's summary.
+    // and reads each run's summary.
     it('returns each run’s kind and summary', async () => {
       const summary = {
         studentAssessments: { records_processed: 4, records_skipped: 0, records_failed: 1 },

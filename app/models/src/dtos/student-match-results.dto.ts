@@ -457,15 +457,15 @@ export class GetStudentMatchCountsDto {
   @Expose()
   excluded: number;
 
-  /** Matches whose send run is new or running. */
+  /** Matches whose latest send run is new or running. */
   @Expose()
   reprocessing: number;
 
-  /** Matches whose send run succeeded. */
+  /** Matches whose latest send run succeeded. */
   @Expose()
   reprocessed: number;
 
-  /** Matches whose send run ended in error. */
+  /** Matches whose latest send run ended in error. */
   @Expose()
   runFailed: number;
 }

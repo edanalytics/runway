@@ -279,10 +279,9 @@ export class EarthbeamApiService {
   ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; code: 'run_already_complete' }> {
     // TODO: probably belongs in earthbeam-run.service.ts ?
     const completed = await prisma.$transaction(async (tx) => {
-      // A run reports `done` once, so `success` and `error` are final.
-      // Resending a failed send run's students relies on it. The conditional
-      // update refuses a later `done`, and of two racing ones only the first
-      // passes.
+      // `success` and `error` are final, and resending a failed send run's
+      // students relies on it. The conditional update refuses a later `done`,
+      // and of two racing ones only the first passes.
       const { count } = await tx.run.updateMany({
         where: { id: runId, status: { in: ['new', 'running'] } },
         data: { status: reportedStatus === 'success' ? 'success' : 'error' },

@@ -154,7 +154,7 @@ export class StudentMatchSubmitService {
     // After commit, so the Executor finds the run and its decisions. A failed
     // launch marks the run `error` and is reported in `launched`, but the
     // submit stands: undoing it would let those students take new decisions,
-    // and no decision may follow a send, even a failed one, for now.
+    // and no decision may follow a send, even a failed one.
     // Submitting the same decisions again is what unblocks them.
     const launch = await this.runService.launch(outcome.run, prisma);
     return {
