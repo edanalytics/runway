@@ -1112,10 +1112,14 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
     await prisma.runUpdate.create({
       data: { runId: rerunJob.runs[0].id, action: 'earthmover_run', status: 'failure' },
     });
+    await prisma.runError.create({ data: { runId: rerunJob.runs[0].id, code: 'earthmover_run' } });
     const rerun = await prisma.run.create({
-      data: { jobId: rerunJob.id, kind: 'full', status: 'success' },
+      data: { jobId: rerunJob.id, kind: 'full', status: 'error' },
     });
-    await prisma.runUpdate.create({ data: { runId: rerun.id, action: 'done', status: 'success' } });
+    await prisma.runUpdate.create({
+      data: { runId: rerun.id, action: 'lightbeam_send', status: 'failure' },
+    });
+    await prisma.runError.create({ data: { runId: rerun.id, code: 'lightbeam_send' } });
 
     const read = await request(app.getHttpServer())
       .get(`/jobs/${rerunJob.id}`)
@@ -1123,9 +1127,17 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
     const updates = await request(app.getHttpServer())
       .get(`/jobs/${rerunJob.id}/status-updates`)
       .set('Cookie', [cookie]);
+    const errors = await request(app.getHttpServer())
+      .get(`/jobs/${rerunJob.id}/errors`)
+      .set('Cookie', [cookie]);
 
-    expect(plainToInstance(GetJobDto, read.body).status).toBe('success');
-    expect(updates.body.map(({ action }: { action: string }) => action)).toEqual(['done']);
+    expect(plainToInstance(GetJobDto, read.body).fullRun?.id).toBe(rerun.id);
+    expect(updates.body.map(({ action }: { action: string }) => action)).toEqual([
+      'lightbeam_send',
+    ]);
+    expect(errors.body.map(({ error }: { error: { code: string } }) => error.code)).toEqual([
+      'lightbeam_send',
+    ]);
   });
 });
 
