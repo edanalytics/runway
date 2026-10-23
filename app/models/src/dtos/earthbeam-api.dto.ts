@@ -22,6 +22,28 @@ export class EarthbeamApiInitResponseDto {
 }
 export const toEarthbeamApiInitResponseDto = makeSerializer(EarthbeamApiInitResponseDto);
 
+// Named classes rather than an inline type: the Swagger plugin reports an
+// array of object literals inside an object literal as a circular dependency.
+export class EarthbeamApiSendStudentDto {
+  @Expose()
+  correlationId: string;
+
+  @Expose()
+  studentUniqueId: string;
+
+  @Expose()
+  isCrossYear: boolean;
+}
+
+export class EarthbeamApiSendDto {
+  @Expose()
+  runId: number;
+
+  @Expose()
+  @Type(() => EarthbeamApiSendStudentDto)
+  students: EarthbeamApiSendStudentDto[];
+}
+
 export class EarthbeamApiJobResponseDto {
   /** Which steps the run does: a full run does them all, a send run only delivers `send`. */
   @Expose()
@@ -85,10 +107,8 @@ export class EarthbeamApiJobResponseDto {
    * partner's cross-year setting; the Executor doesn't send those to the ODS.
    */
   @Expose()
-  send?: {
-    runId: number;
-    students: Array<{ correlationId: string; studentUniqueId: string; isCrossYear: boolean }>;
-  };
+  @Type(() => EarthbeamApiSendDto)
+  send?: EarthbeamApiSendDto;
 
   @Expose()
   rosterFilePath?: string;
