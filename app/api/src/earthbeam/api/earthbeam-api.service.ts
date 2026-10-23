@@ -271,20 +271,32 @@ export class EarthbeamApiService {
     return students;
   }
 
+  /** Completes a run on its `done`, with the status the Executor reported. */
   async completeRun(
     runId: Run['id'],
-    status: 'success' | 'error',
+    reportedStatus: string,
     prisma: PrismaClient
   ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; code: 'run_already_complete' }> {
     // TODO: probably belongs in earthbeam-run.service.ts ?
-    // A run reports `done` once, so `success` and `error` are final. Resending
-    // a failed send run's students relies on it. The conditional update
-    // refuses a later `done`, and of two racing ones only the first passes.
-    const { count } = await prisma.run.updateMany({
-      where: { id: runId, status: { in: ['new', 'running'] } },
-      data: { status },
+    const completed = await prisma.$transaction(async (tx) => {
+      // A run reports `done` once, so `success` and `error` are final.
+      // Resending a failed send run's students relies on it. The conditional
+      // update refuses a later `done`, and of two racing ones only the first
+      // passes.
+      const { count } = await tx.run.updateMany({
+        where: { id: runId, status: { in: ['new', 'running'] } },
+        data: { status: reportedStatus === 'success' ? 'success' : 'error' },
+      });
+      if (count === 0) {
+        return false;
+      }
+      // With the status, before anything below can fail: the job page polls
+      // until it sees the run's `done` update, and a retried `done` would be
+      // refused.
+      await tx.runUpdate.create({ data: { runId, action: 'done', status: reportedStatus } });
+      return true;
     });
-    if (count === 0) {
+    if (!completed) {
       return { status: 'ERROR', code: 'run_already_complete' };
     }
     const run = await prisma.run.findUniqueOrThrow({

@@ -224,16 +224,13 @@ export class EarthbeamApiController {
     @Body() body: EarthbeamApiStatusPayloadDto
   ) {
     if (body.action === 'done') {
-      const result = await this.earthbeamApiService.completeRun(
-        runId,
-        body.status === 'success' ? 'success' : 'error',
-        this.prisma
-      );
-      // Checked before the update is recorded, so a refused `done` doesn't
-      // show in the job page's status updates.
+      // Records the update itself, and only for a `done` it accepts, so a
+      // refused one doesn't show in the job page's status updates.
+      const result = await this.earthbeamApiService.completeRun(runId, body.status, this.prisma);
       if (result.status === 'ERROR') {
         throw new ConflictException(`Run already complete: ${runId}`);
       }
+      return;
     }
 
     await this.prisma.runUpdate.create({
