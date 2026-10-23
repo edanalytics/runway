@@ -485,6 +485,20 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect(res.body).toEqual(alreadySubmitted([0, 2]));
       expect(await sendRunsOf(job.id)).toHaveLength(1);
     });
+
+    // A page showing a match that another reviewer has since changed and
+    // submitted is refused for what it showed, not for a decision it never saw.
+    it('reports a stale version first', async () => {
+      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
+      const v2 = await matchSuggestion(job.id, 'corr-1', cookies, v1);
+      await submit(job.id, [{ correlationId: 'corr-1', version: v2 }], cookies);
+
+      const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(decisionChanged([0]));
+      expect(await sendRunsOf(job.id)).toHaveLength(1);
+    });
   });
 
   describe('a current decision that isn’t a match', () => {

@@ -466,8 +466,7 @@ export class JobsController {
     }
 
     if (result.status === 'ERROR') {
-      // No student data in these bodies, as for decisions. A 409 means the
-      // page is out of date, and it refetches.
+      // No student data in these bodies, as for decisions.
       const { code } = result;
       switch (code) {
         case 'full_run_not_done':

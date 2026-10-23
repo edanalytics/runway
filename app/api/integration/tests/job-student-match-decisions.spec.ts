@@ -663,7 +663,12 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
 
         expect(decided.status).toBe(201);
         expect(submitted.status).toBe(409);
-        expect(submitted.body.code).toBe('decision_changed');
+        expect(submitted.body).toEqual({
+          statusCode: 409,
+          code: 'decision_changed',
+          message: 'A student’s decision has changed since the page loaded.',
+          indices: [0],
+        });
         expect(await prisma.sendRunDecision.count({ where: { jobId: job.id } })).toBe(0);
       });
     });
