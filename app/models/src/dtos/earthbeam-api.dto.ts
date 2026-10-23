@@ -23,6 +23,10 @@ export class EarthbeamApiInitResponseDto {
 export const toEarthbeamApiInitResponseDto = makeSerializer(EarthbeamApiInitResponseDto);
 
 export class EarthbeamApiJobResponseDto {
+  /** Which steps the run does: a full run does them all, a send run only delivers `send`. */
+  @Expose()
+  runType: $Enums.RunKind;
+
   @Expose()
   appDataBasePath: string;
 
@@ -73,6 +77,18 @@ export class EarthbeamApiJobResponseDto {
 
   @Expose()
   idMatchingMode: $Enums.IdMatchingMode;
+
+  /**
+   * Present only on a send run: the run's id, and the answers of the
+   * decisions it delivers, sorted by correlation id. `isCrossYear` is
+   * whether the answer's school years exclude the job's, whatever the
+   * partner's cross-year setting; the Executor doesn't send those to the ODS.
+   */
+  @Expose()
+  send?: {
+    runId: number;
+    students: Array<{ correlationId: string; studentUniqueId: string; isCrossYear: boolean }>;
+  };
 
   @Expose()
   rosterFilePath?: string;

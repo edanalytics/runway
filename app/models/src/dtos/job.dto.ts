@@ -168,11 +168,10 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: students who aren't done. Excluded students are done; a saved
-   * match isn't, since it delivers nothing on its own. Once submission is
-   * built, a student is also done when a run with their submitted match has
-   * been attempted. Never in fuzzy background mode, where the ID-based run has
-   * already delivered them.
+   * Fuzzy mode: students who aren't done. Excluded and submitted students are
+   * done; a saved match isn't, since it delivers nothing on its own. A send
+   * run's own status and resource errors show its outcome, as the job's last
+   * run. Never in fuzzy background mode, where the ID-based run has delivered.
    */
   get hasFuzzyStudentsToMatch() {
     return (

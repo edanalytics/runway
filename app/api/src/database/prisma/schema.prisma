@@ -269,6 +269,7 @@ model Job {
   files               JobFile[]             @relation("fileToJob")
   notes               JobNote[]             @relation("noteToJob")
   runs                Run[]                 @relation("jobRun")
+  sendRunDecision     SendRunDecision[]
   studentInputDetails StudentInputDetails[]
 
   @@map("job")
@@ -289,6 +290,7 @@ model Run {
   unmatchedStudentsInfo     Json?                 @map("unmatched_students_info")
   ecsTaskArn                String?               @map("ecs_task_arn")
   taskSize                  String?               @map("task_size")
+  kind                      RunKind
   userRunCreatedByIdTouser  User?                 @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   job                       Job                   @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   userRunModifiedByIdTouser User?                 @relation("run_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
@@ -296,6 +298,7 @@ model Run {
   runOutputFile             RunOutputFile[]
   runOutputFileSet          RunOutputFileSet[]
   runUpdate                 RunUpdate[]
+  sendRunDecision           SendRunDecision[]
   studentInputDetails       StudentInputDetails[]
   studentMatchResult        StudentMatchResult[]
 
@@ -530,6 +533,7 @@ model StudentMatchDecision {
   searchDetails          Json?                    @map("search_details")
   /// [StudentRosterDetailsJson]
   rosterDetails          Json?                    @map("roster_details")
+  sendRunDecision        SendRunDecision[]
   user                   User?                    @relation(fields: [decidedById], references: [id], onUpdate: NoAction)
   studentInputDetails    StudentInputDetails      @relation(fields: [jobId, correlationId], references: [jobId, correlationId], onDelete: Cascade, onUpdate: NoAction)
   studentMatchResult     StudentMatchResult?      @relation(fields: [resultId, jobId, correlationId], references: [id, jobId, correlationId], onDelete: NoAction, onUpdate: NoAction)
@@ -537,6 +541,20 @@ model StudentMatchDecision {
 
   @@id([jobId, correlationId, seq])
   @@map("student_match_decision")
+}
+
+model SendRunDecision {
+  runId                Int                  @map("run_id")
+  jobId                Int                  @map("job_id")
+  correlationId        String               @map("correlation_id")
+  seq                  Int
+  studentMatchDecision StudentMatchDecision @relation(fields: [jobId, correlationId, seq], references: [jobId, correlationId, seq], onDelete: NoAction, onUpdate: NoAction)
+  job                  Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  run                  Run                  @relation(fields: [runId, jobId], references: [id, jobId], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([runId, jobId, correlationId])
+  @@index([jobId, correlationId, seq, runId], map: "send_run_decision_decision_idx")
+  @@map("send_run_decision")
 }
 
 enum OdsAuthResponse {
@@ -600,4 +618,11 @@ enum StudentMatchDecisionKind {
   clear
 
   @@map("student_match_decision_kind")
+}
+
+enum RunKind {
+  full
+  send
+
+  @@map("run_kind")
 }

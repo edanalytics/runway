@@ -13,7 +13,9 @@ export type PrivilegeKey =
   | 'job.metatenant.match-results.read'
   | 'job.metatenant.match-results.update'
   | 'job.metatenant.match-results.search'
+  | 'job.metatenant.match-results.submit'
   | 'job.match-results.read'
   | 'job.match-results.background.read'
   | 'job.match-results.update'
-  | 'job.match-results.search';
+  | 'job.match-results.search'
+  | 'job.match-results.submit';

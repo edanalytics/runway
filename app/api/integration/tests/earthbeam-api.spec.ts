@@ -4,6 +4,7 @@ import { EduSnowflakePoolService } from 'api/src/earthbeam/api/edu-snowflake-poo
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { Readable } from 'node:stream';
 import request from 'supertest';
+import { omit } from 'lodash';
 import { seedJob } from '../factories/job-factory';
 import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods-fixture';
@@ -14,6 +15,8 @@ import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emi
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
+import { reportMatchResults } from '../helpers/report-match-results';
+import { StudentRosterDetailsJson } from '@edanalytics/models';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -258,6 +261,223 @@ describe('Earthbeam API', () => {
         expect(res.status).toBe(200);
         expect(res.body.rosterFilePath).toBeUndefined();
         expect(res.body.appUrls.roster).toBeUndefined();
+      });
+    });
+
+    describe('run kinds', () => {
+      /** The job's school year, 2024–25, by its end year. */
+      const JOB_YEAR = 2025;
+
+      type SavedMatch = {
+        correlationId: string;
+        basis: 'suggestion' | 'search';
+        /** The basis's roster details' school_years, as IDRS returned them. */
+        schoolYears: StudentRosterDetailsJson['school_years'];
+      };
+
+      const payloadOf = async (runId: number) => {
+        const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
+        return request(app.getHttpServer())
+          .get(`/earthbeam/jobs/${runId}`)
+          .set('Authorization', `Bearer ${token}`);
+      };
+
+      const callbackBaseOf = (runId: number) =>
+        `${app.get(AppConfigService).executorCallbackBaseUrl()}/api/earthbeam/jobs/${runId}`;
+
+      /** The callbacks every run gets. */
+      const callbackUrlsOf = (runId: number) => {
+        const base = callbackBaseOf(runId);
+        return {
+          status: `${base}/status`,
+          error: `${base}/error`,
+          summary: `${base}/summary`,
+          unmatchedIds: `${base}/unmatched-ids`,
+          outputFiles: `${base}/output-files`,
+        };
+      };
+
+      /**
+       * A fuzzy job whose full run succeeded, with a saved match for each
+       * student: to the one suggestion the full run reported for them, or,
+       * where it reported none, to a student the reviewer found by searching.
+       */
+      const seedMatchedJob = async (matches: SavedMatch[]) => {
+        const job = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          idMatchingMode: 'fuzzy',
+          runStatus: 'success',
+        });
+        const fullRun = job.runs[0];
+        await reportMatchResults(
+          fullRun.id,
+          matches.map(({ correlationId, basis, schoolYears }) => ({
+            correlation_id: correlationId,
+            candidate: { first_name: 'Ada' },
+            matches:
+              basis === 'suggestion'
+                ? [
+                    {
+                      student_unique_id: `SUID-${correlationId}`,
+                      score: 0.9,
+                      school_years: schoolYears,
+                    },
+                  ]
+                : [],
+          }))
+        );
+        for (const { correlationId, basis, schoolYears } of matches) {
+          const decision = { jobId: job.id, correlationId, seq: 1, kind: 'match' } as const;
+          if (basis === 'suggestion') {
+            const { id: resultId } = await prisma.studentMatchResult.findUniqueOrThrow({
+              where: {
+                jobId_correlationId_runId: { jobId: job.id, correlationId, runId: fullRun.id },
+              },
+            });
+            await prisma.studentMatchDecision.create({
+              data: { ...decision, resultId, ordinal: 0, studentUniqueId: `SUID-${correlationId}` },
+            });
+          } else {
+            await prisma.studentMatchDecision.create({
+              data: {
+                ...decision,
+                studentUniqueId: `SUID-FOUND-${correlationId}`,
+                searchDetails: { first_name: 'Ada' },
+                rosterDetails: { school_years: schoolYears },
+              },
+            });
+          }
+        }
+        return job;
+      };
+
+      /** A send run of these students' saved matches, recorded in the order given. */
+      const seedSendRun = async (jobId: number, correlationIds: string[]) => {
+        const run = await prisma.run.create({ data: { jobId, kind: 'send', status: 'new' } });
+        for (const correlationId of correlationIds) {
+          await prisma.sendRunDecision.create({
+            data: { runId: run.id, jobId, correlationId, seq: 1 },
+          });
+        }
+        return run;
+      };
+
+      it('gives a full run every step’s inputs, marked as a full run', async () => {
+        const job = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          idMatchingMode: 'fuzzy',
+        });
+        const fullRun = job.runs[0];
+
+        const res = await payloadOf(fullRun.id);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+          runType: 'full',
+          appDataBasePath: 's3://test-bucket/test-base-path',
+          inputFiles: { INPUT_FILE: job.files[0].nameInternal },
+          inputParams: {
+            API_YEAR: String(JOB_YEAR),
+            DESCRIPTOR_NAMESPACE: partnerA.descriptorNamespace,
+            FORMAT: 'Standard',
+          },
+          customDescriptorMappings: null,
+          bundle: { path: bundleA.path, branch: 'main' },
+          appUrls: {
+            ...callbackUrlsOf(fullRun.id),
+            identityService: `${callbackBaseOf(fullRun.id)}/identity-service`,
+            studentMatchResults: `${callbackBaseOf(fullRun.id)}/student-match-results`,
+          },
+          crossYearMatchAvailable: false,
+          idMatchingMode: 'fuzzy',
+          sendToOds: true,
+          assessmentDatastore: {
+            apiYear: String(JOB_YEAR),
+            url: '',
+            clientId: 'test',
+            clientSecret: expect.any(String),
+          },
+        });
+      });
+
+      it('gives a send run its job’s inputs, its run id and its decisions’ answers, and no matching callbacks', async () => {
+        const job = await seedMatchedJob([
+          { correlationId: 'corr-1', basis: 'suggestion', schoolYears: [JOB_YEAR] },
+          { correlationId: 'corr-2', basis: 'search', schoolYears: [JOB_YEAR] },
+          { correlationId: 'corr-3', basis: 'suggestion', schoolYears: [JOB_YEAR] },
+        ]);
+        // corr-3 went in an earlier submit's send run. This one's students are
+        // recorded out of correlation-id order.
+        await seedSendRun(job.id, ['corr-3']);
+        const sendRun = await seedSendRun(job.id, ['corr-2', 'corr-1']);
+
+        const full = await payloadOf(job.runs[0].id);
+        const res = await payloadOf(sendRun.id);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+          ...omit(full.body, 'runType', 'appUrls'),
+          runType: 'send',
+          appUrls: callbackUrlsOf(sendRun.id),
+          send: {
+            runId: sendRun.id,
+            students: [
+              { correlationId: 'corr-1', studentUniqueId: 'SUID-corr-1', isCrossYear: false },
+              { correlationId: 'corr-2', studentUniqueId: 'SUID-FOUND-corr-2', isCrossYear: false },
+            ],
+          },
+        });
+      });
+
+      it.each([true, false])(
+        'tells a send run which answers are outside the job’s year, from the basis’s school years, with crossYearMatchingEnabled %s',
+        async (crossYearMatchingEnabled) => {
+          await prisma.partner.update({
+            where: { id: partnerA.id },
+            data: { crossYearMatchingEnabled },
+          });
+          const job = await seedMatchedJob([
+            { correlationId: 'corr-1', basis: 'suggestion', schoolYears: [JOB_YEAR - 1, JOB_YEAR] },
+            { correlationId: 'corr-2', basis: 'suggestion', schoolYears: [JOB_YEAR - 1] },
+            { correlationId: 'corr-3', basis: 'search', schoolYears: [JOB_YEAR] },
+            { correlationId: 'corr-4', basis: 'search', schoolYears: [JOB_YEAR + 1] },
+          ]);
+          const sendRun = await seedSendRun(job.id, ['corr-1', 'corr-2', 'corr-3', 'corr-4']);
+
+          const res = await payloadOf(sendRun.id);
+
+          expect(
+            res.body.send.students.map(
+              ({ correlationId, isCrossYear }: Record<string, unknown>) => [
+                correlationId,
+                isCrossYear,
+              ]
+            )
+          ).toEqual([
+            ['corr-1', false],
+            ['corr-2', true],
+            ['corr-3', false],
+            ['corr-4', true],
+          ]);
+        }
+      );
+
+      // Submit refuses such a match, so the test seeds one directly to pin the
+      // backstop.
+      it('fails a send run’s payload when a match’s school years are missing', async () => {
+        const job = await seedMatchedJob([
+          { correlationId: 'corr-1', basis: 'suggestion', schoolYears: undefined },
+        ]);
+        const sendRun = await seedSendRun(job.id, ['corr-1']);
+
+        const res = await payloadOf(sendRun.id);
+
+        expect(res.status).toBe(500);
+        expect(res.body).toEqual({ statusCode: 500, message: 'Internal server error' });
       });
     });
 
@@ -787,6 +1007,35 @@ describe('Earthbeam API', () => {
           name: 'summary.csv',
           path: 'partner/tenant/2025/1/output/summary.csv',
         });
+      });
+
+      it('records the files in output/ for a full run, and none for a send run', async () => {
+        const sendRun = await prisma.run.create({
+          data: { jobId: runA.jobId, kind: 'send', status: 'running' },
+        });
+        const sendToken = await app
+          .get(EarthbeamApiAuthService)
+          .createAccessToken({ runId: sendRun.id });
+        fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+          { key: 'test-base-path/output/results.jsonl', name: 'results.jsonl' },
+        ]);
+
+        // The send run completes first, so if it listed output/ it would take these files.
+        const sendRes = await request(app.getHttpServer())
+          .post(`/earthbeam/jobs/${sendRun.id}/status`)
+          .set('Authorization', `Bearer ${sendToken}`)
+          .send({ action: 'done', status: 'success' });
+        expect(sendRes.status).toBe(201);
+        const fullRes = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ action: 'done', status: 'success' });
+        expect(fullRes.status).toBe(201);
+
+        expect(await prisma.runOutputFile.findMany({ where: { runId: runA.id } })).toMatchObject([
+          { name: 'results.jsonl', path: 'test-base-path/output/results.jsonl' },
+        ]);
+        expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
       });
 
       describe('Slack Notifiction', () => {
