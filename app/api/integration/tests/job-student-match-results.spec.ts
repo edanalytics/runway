@@ -700,19 +700,12 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       await decide(cookies, 'corr-cleared', { replacesVersion: null, kind: 'exclude' });
       await decide(cookies, 'corr-cleared', { replacesVersion: 1, kind: 'clear' });
       await decide(cookies, 'corr-excluded', { replacesVersion: null, kind: 'exclude' });
-      for (const correlationId of [
+      await matchAll(cookies, [
         'corr-matched',
         'corr-reprocessing',
         'corr-reprocessed',
         'corr-run-failed',
-      ]) {
-        await decide(cookies, correlationId, {
-          replacesVersion: null,
-          kind: 'match',
-          resultId: await resultIdOf(correlationId),
-          ordinal: 0,
-        });
-      }
+      ]);
       await seedSendRun(jobA.id, ['corr-reprocessing'], 'running');
       await seedSendRun(jobA.id, ['corr-reprocessed'], 'success');
       await seedSendRun(jobA.id, ['corr-run-failed'], 'error');
