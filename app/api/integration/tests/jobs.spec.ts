@@ -25,6 +25,7 @@ import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.serv
 import { noStudentsToMatch } from 'api/src/jobs/student-match-review.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
+import { sortBy } from 'lodash';
 import { IdMatchingMode, Job, JobNote, RunKind, RunStatus } from '@prisma/client';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
@@ -255,13 +256,10 @@ describe('GET /jobs/:id', () => {
           summary,
         })
       );
-      expect(runs).toHaveLength(2);
-      expect(runs).toEqual(
-        expect.arrayContaining([
-          { id: jobA.runs[0].id, kind: 'full', summary: null },
-          { id: sendRun.id, kind: 'send', summary },
-        ])
-      );
+      expect(sortBy(runs, 'id')).toEqual([
+        { id: jobA.runs[0].id, kind: 'full', summary: null },
+        { id: sendRun.id, kind: 'send', summary },
+      ]);
     });
 
     it('shows failed resources the bundle reports on as complete with errors', async () => {
@@ -1059,12 +1057,29 @@ describe('PUT /jobs/:id/start', () => {
 });
 
 describe('GET /jobs/:id/status-updates and /errors', () => {
-  let job: SeededJob;
   let cookie: string;
 
   beforeEach(async () => {
+    cookie = (await authHelper.login(idpA, userA, tenantA)).cookies;
+  });
+
+  /** The job's status updates' actions and its errors' codes. */
+  const updatesAndErrorsOf = async (jobId: number, userCookie: string) => {
+    const updates = await request(app.getHttpServer())
+      .get(`/jobs/${jobId}/status-updates`)
+      .set('Cookie', [userCookie]);
+    const errors = await request(app.getHttpServer())
+      .get(`/jobs/${jobId}/errors`)
+      .set('Cookie', [userCookie]);
+    return {
+      updates: updates.body.map(({ action }: { action: string }) => action),
+      errors: errors.body.map(({ error }: { error: { code: string } }) => error.code),
+    };
+  };
+
+  it('returns the full run’s, not a later send run’s', async () => {
     // A send run follows only a successful full run.
-    job = await seedJob({
+    const job = await seedJob({
       odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
@@ -1074,7 +1089,6 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
     await prisma.runUpdate.create({
       data: { runId: job.runs[0].id, action: 'done', status: 'success' },
     });
-    // A later send run, with its own update and error.
     const sendRun = await prisma.run.create({
       data: { jobId: job.id, kind: 'send', status: 'error' },
     });
@@ -1082,27 +1096,11 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
       data: { runId: sendRun.id, action: 'lightbeam_send', status: 'failure' },
     });
     await prisma.runError.create({ data: { runId: sendRun.id, code: 'lightbeam_send' } });
-    cookie = (await authHelper.login(idpA, userA, tenantA)).cookies;
+
+    expect(await updatesAndErrorsOf(job.id, cookie)).toEqual({ updates: ['done'], errors: [] });
   });
 
-  it('returns the full run’s status updates, not a later send run’s', async () => {
-    const res = await request(app.getHttpServer())
-      .get(`/jobs/${job.id}/status-updates`)
-      .set('Cookie', [cookie]);
-
-    expect(res.body.map(({ action }: { action: string }) => action)).toEqual(['done']);
-  });
-
-  it('returns the full run’s errors, none, not a later send run’s', async () => {
-    const res = await request(app.getHttpServer())
-      .get(`/jobs/${job.id}/errors`)
-      .set('Cookie', [cookie]);
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
-  });
-
-  it('reads a job re-run before jobs were started only once by its latest full run', async () => {
+  it('reads a job with several full runs, from before jobs were started only once, by its latest', async () => {
     const rerunJob = await seedJob({
       odsConfig: odsConfigA2425,
       bundle: bundleA,
@@ -1124,20 +1122,12 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
     const read = await request(app.getHttpServer())
       .get(`/jobs/${rerunJob.id}`)
       .set('Cookie', [cookie]);
-    const updates = await request(app.getHttpServer())
-      .get(`/jobs/${rerunJob.id}/status-updates`)
-      .set('Cookie', [cookie]);
-    const errors = await request(app.getHttpServer())
-      .get(`/jobs/${rerunJob.id}/errors`)
-      .set('Cookie', [cookie]);
 
     expect(plainToInstance(GetJobDto, read.body).fullRun?.id).toBe(rerun.id);
-    expect(updates.body.map(({ action }: { action: string }) => action)).toEqual([
-      'lightbeam_send',
-    ]);
-    expect(errors.body.map(({ error }: { error: { code: string } }) => error.code)).toEqual([
-      'lightbeam_send',
-    ]);
+    expect(await updatesAndErrorsOf(rerunJob.id, cookie)).toEqual({
+      updates: ['lightbeam_send'],
+      errors: ['lightbeam_send'],
+    });
   });
 });
 

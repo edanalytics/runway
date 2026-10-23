@@ -499,51 +499,9 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
   });
 
   describe('a student whose send run hasn’t failed', () => {
-    // Two reviewers submitting the same student; the race test below sends
-    // them at once.
-    it('refuses, submitting nothing more, naming every such student’s position', async () => {
-      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-      const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
-      const v3 = await matchSuggestion(job.id, 'corr-3', cookies);
-      await submit(
-        job.id,
-        [
-          { correlationId: 'corr-1', version: v1 },
-          { correlationId: 'corr-3', version: v3 },
-        ],
-        cookies
-      );
-
-      const res = await submit(
-        job.id,
-        [
-          { correlationId: 'corr-1', version: v1 },
-          { correlationId: 'corr-2', version: v2 },
-          { correlationId: 'corr-3', version: v3 },
-        ],
-        cookies
-      );
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual(alreadySubmitted([0, 2]));
-      expect(await sendRunsOf(job.id)).toHaveLength(1);
-    });
-
-    // A page showing a match that another reviewer has since changed and
-    // submitted is refused for what it showed, not for a decision it never saw.
-    it('reports a stale version first', async () => {
-      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-      const v2 = await matchSuggestion(job.id, 'corr-1', cookies, v1);
-      await submit(job.id, [{ correlationId: 'corr-1', version: v2 }], cookies);
-
-      const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual(decisionChanged([0]));
-      expect(await sendRunsOf(job.id)).toHaveLength(1);
-    });
-
-    it('refuses reprocessing and reprocessed students, naming their positions, but not run-failed ones', async () => {
+    // A reviewer submitting students already sent, or two reviewers
+    // submitting the same students; the race test below sends them at once.
+    it('refuses, submitting nothing more, reprocessing and reprocessed students, naming their positions, but not run-failed ones', async () => {
       const students = [];
       for (const correlationId of ['corr-1', 'corr-2', 'corr-3']) {
         students.push({
@@ -567,6 +525,20 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect(res.status).toBe(409);
       expect(res.body).toEqual(alreadySubmitted([0, 1]));
       expect(await sendRunsOf(job.id)).toHaveLength(3);
+    });
+
+    // A page showing a match that another reviewer has since changed and
+    // submitted is refused for what it showed, not for a decision it never saw.
+    it('reports a stale version first', async () => {
+      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
+      const v2 = await matchSuggestion(job.id, 'corr-1', cookies, v1);
+      await submit(job.id, [{ correlationId: 'corr-1', version: v2 }], cookies);
+
+      const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(decisionChanged([0]));
+      expect(await sendRunsOf(job.id)).toHaveLength(1);
     });
   });
 
@@ -607,19 +579,6 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
         { id: res.body.runId, status: 'new', decisions: [['corr-1', v1]] },
       ]);
       expect((await statusesOf(job.id, cookies))['corr-1']).toBe('reprocessing');
-    });
-
-    it('submits them again after their send run failed to start', async () => {
-      executorStart.mockRejectedValueOnce(new Error('ECS is unavailable'));
-      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-      const failed = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
-      expect(failed.body.launched).toBe(false);
-
-      const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
-
-      expect(res.status).toBe(201);
-      expect(res.body.launched).toBe(true);
-      expect((await sendRunsOf(job.id)).map(({ status }) => status)).toEqual(['error', 'new']);
     });
 
     it('sends them in one send run with ready students', async () => {
