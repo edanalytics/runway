@@ -185,7 +185,7 @@ describe('GET /jobs', () => {
 describe('GET /jobs/:id', () => {
   let endpointA: string;
   let endpointB: string;
-  let jobA: Job;
+  let jobA: SeededJob;
   let jobB: Job;
   let jobDGlobal: Job;
   let jobEGlobal: Job;
@@ -258,7 +258,7 @@ describe('GET /jobs/:id', () => {
       expect(runs).toHaveLength(2);
       expect(runs).toEqual(
         expect.arrayContaining([
-          { id: expect.any(Number), kind: 'full', summary: null },
+          { id: jobA.runs[0].id, kind: 'full', summary: null },
           { id: sendRun.id, kind: 'send', summary },
         ])
       );
@@ -1063,17 +1063,17 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
   let cookie: string;
 
   beforeEach(async () => {
+    // A send run follows only a successful full run.
     job = await seedJob({
       odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
       idMatchingMode: 'fuzzy',
-      runStatus: 'error',
+      runStatus: 'success',
     });
     await prisma.runUpdate.create({
-      data: { runId: job.runs[0].id, action: 'earthmover_run', status: 'failure' },
+      data: { runId: job.runs[0].id, action: 'done', status: 'success' },
     });
-    await prisma.runError.create({ data: { runId: job.runs[0].id, code: 'earthmover_run' } });
     // A later send run, with its own update and error.
     const sendRun = await prisma.run.create({
       data: { jobId: job.id, kind: 'send', status: 'error' },
@@ -1090,17 +1090,42 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
       .get(`/jobs/${job.id}/status-updates`)
       .set('Cookie', [cookie]);
 
-    expect(res.body.map(({ action }: { action: string }) => action)).toEqual(['earthmover_run']);
+    expect(res.body.map(({ action }: { action: string }) => action)).toEqual(['done']);
   });
 
-  it('returns the full run’s errors, not a later send run’s', async () => {
+  it('returns the full run’s errors, none, not a later send run’s', async () => {
     const res = await request(app.getHttpServer())
       .get(`/jobs/${job.id}/errors`)
       .set('Cookie', [cookie]);
 
-    expect(res.body.map(({ error }: { error: { code: string } }) => error.code)).toEqual([
-      'earthmover_run',
-    ]);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('reads a job re-run before jobs were started only once by its latest full run', async () => {
+    const rerunJob = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      runStatus: 'error',
+    });
+    await prisma.runUpdate.create({
+      data: { runId: rerunJob.runs[0].id, action: 'earthmover_run', status: 'failure' },
+    });
+    const rerun = await prisma.run.create({
+      data: { jobId: rerunJob.id, kind: 'full', status: 'success' },
+    });
+    await prisma.runUpdate.create({ data: { runId: rerun.id, action: 'done', status: 'success' } });
+
+    const read = await request(app.getHttpServer())
+      .get(`/jobs/${rerunJob.id}`)
+      .set('Cookie', [cookie]);
+    const updates = await request(app.getHttpServer())
+      .get(`/jobs/${rerunJob.id}/status-updates`)
+      .set('Cookie', [cookie]);
+
+    expect(plainToInstance(GetJobDto, read.body).status).toBe('success');
+    expect(updates.body.map(({ action }: { action: string }) => action)).toEqual(['done']);
   });
 });
 

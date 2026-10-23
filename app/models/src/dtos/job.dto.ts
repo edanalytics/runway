@@ -129,9 +129,15 @@ export class GetJobDto
   @Transform(({ obj }) => !!obj.apiClientId || !!obj.isApiInitiated)
   isApiInitiated: boolean;
 
-  /** The job's one full run. Its send runs count through its students and resource total. */
+  /**
+   * The job's full run: the latest, for a job re-run before jobs could be
+   * started only once. Its send runs count through its students and resource
+   * total.
+   */
   get fullRun(): GetRunDto | undefined {
-    return this.runs?.find((run) => run.kind === 'full');
+    return this.runs
+      ?.filter((run) => run.kind === 'full')
+      .sort((a, b) => b.createdOn.getTime() - a.createdOn.getTime())[0];
   }
 
   get displayName() {
