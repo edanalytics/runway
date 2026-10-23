@@ -328,22 +328,6 @@ export const ReviewSessionProvider = ({
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
 };
 
-/** The suggestions a reviewer can pick from: the latest result's, best first. */
-export const suggestedCandidates = (group: GetStudentInputDetailsDto): Candidate[] => {
-  const latest = group.results[group.results.length - 1];
-  return (latest?.suggestions ?? [])
-    .slice()
-    .sort((a, b) => b.score - a.score)
-    .map((suggestion) => ({
-      studentUniqueId: suggestion.studentUniqueId,
-      rosterDetails: suggestion.rosterDetails,
-      score: suggestion.score,
-      source: 'suggestion' as const,
-      resultId: latest.id,
-      ordinal: suggestion.ordinal,
-    }));
-};
-
 /** Every resource's counts added up, e.g. across all of a job's batches. */
 export const totalOf = (summary: Record<string, ResourceSummary> | undefined) =>
   Object.values(summary ?? {}).reduce(

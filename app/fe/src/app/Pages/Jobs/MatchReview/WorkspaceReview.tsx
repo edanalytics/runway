@@ -207,8 +207,9 @@ const sortBy =
 const latestResult = (group: GetStudentInputDetailsDto) =>
   [...group.results].sort((a, b) => +new Date(b.createdOn) - +new Date(a.createdOn))[0];
 
-const suggestionsOf = (group: GetStudentInputDetailsDto): Candidate[] =>
-  (latestResult(group)?.suggestions ?? [])
+const suggestionsOf = (group: GetStudentInputDetailsDto): Candidate[] => {
+  const latest = latestResult(group);
+  return (latest?.suggestions ?? [])
     .slice()
     .sort((a, b) => a.ordinal - b.ordinal)
     .map((s) => ({
@@ -216,7 +217,11 @@ const suggestionsOf = (group: GetStudentInputDetailsDto): Candidate[] =>
       rosterDetails: s.rosterDetails,
       score: s.score,
       source: 'suggestion' as const,
+      // A match to a suggestion names it by its result and position.
+      resultId: latest.id,
+      ordinal: s.ordinal,
     }));
+};
 
 const valueText = (value: JsonValue | undefined): string | null => {
   if (value === null || value === undefined || value === '') return null;
