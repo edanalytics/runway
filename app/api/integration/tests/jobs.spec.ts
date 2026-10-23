@@ -240,14 +240,24 @@ describe('GET /jobs/:id', () => {
     // The frontend picks the full run by its kind, to compute the job's status,
     // and reads each run's summary.
     it('returns each run’s kind and summary', async () => {
+      // Only a fuzzy job has send runs, and only after a successful full run.
+      const job = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        idMatchingMode: 'fuzzy',
+        runStatus: 'success',
+      });
       const summary = {
         studentAssessments: { records_processed: 4, records_skipped: 0, records_failed: 1 },
       };
       const sendRun = await prisma.run.create({
-        data: { jobId: jobA.id, kind: 'send', status: 'error', summary },
+        data: { jobId: job.id, kind: 'send', status: 'error', summary },
       });
 
-      const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
+      const res = await request(app.getHttpServer())
+        .get(`/jobs/${job.id}`)
+        .set('Cookie', [cookieA]);
 
       const runs = res.body.runs.map(
         ({ id, kind, summary }: { id: number; kind: RunKind; summary: unknown }) => ({
@@ -257,7 +267,7 @@ describe('GET /jobs/:id', () => {
         })
       );
       expect(sortBy(runs, 'id')).toEqual([
-        { id: jobA.runs[0].id, kind: 'full', summary: null },
+        { id: job.runs[0].id, kind: 'full', summary: null },
         { id: sendRun.id, kind: 'send', summary },
       ]);
     });
