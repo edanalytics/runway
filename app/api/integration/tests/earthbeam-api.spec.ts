@@ -17,6 +17,8 @@ import { FileService } from 'api/src/files/file.service';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { StudentRosterDetailsJson } from '@edanalytics/models';
+import { holdRunRow } from '../helpers/db/hold-job-row';
+import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -646,6 +648,22 @@ describe('Earthbeam API', () => {
         expect(run.status).toBe(runStatus);
       }
     );
+
+    // An init token is single-use: of two racing inits, only the first starts the run.
+    it('starts a run once when two inits race', async () => {
+      const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+      const holder = await holdRunRow(job.runs[0].id);
+      try {
+        const pending = [1, 2].map(() => init(job.runs[0].id));
+        await waitUntilBlockedBy(holder.pid, 2);
+        await holder.client.query('ROLLBACK');
+        const responses = await Promise.all(pending);
+
+        expect(responses.map(({ status }) => status).sort()).toEqual([200, 401]);
+      } finally {
+        await holder.release();
+      }
+    });
   });
 
   describe('GET /:runId/roster', () => {
@@ -1136,6 +1154,41 @@ describe('Earthbeam API', () => {
           ).toEqual([['done', first]]);
         }
       );
+
+      // Of two racing dones, only the first completes the run, and the second
+      // is refused as if it came later.
+      it('completes a run once when two dones race', async () => {
+        // As the Executor reports a failure before its done, so either done's
+        // event can be built.
+        await prisma.runError.create({ data: { runId: runA.id, code: 'lightbeam_send' } });
+        const holder = await holdRunRow(runA.id);
+        try {
+          // then() sends each request now, rather than when it's awaited.
+          const pending = ['success', 'failure'].map((status) =>
+            request(app.getHttpServer())
+              .post(endpointA)
+              .set('Authorization', `Bearer ${tokenA}`)
+              .send({ action: 'done', status })
+              .then((res) => res)
+          );
+          await waitUntilBlockedBy(holder.pid, 2);
+          await holder.client.query('ROLLBACK');
+          const responses = await Promise.all(pending);
+
+          expect(responses.map(({ status }) => status).sort()).toEqual([201, 409]);
+          const updates = await prisma.runUpdate.findMany({ where: { runId: runA.id } });
+          expect(updates.map(({ action }) => action)).toEqual(['done']);
+          // The run took the outcome of the done that was recorded.
+          expect((await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).status).toBe(
+            updates[0].status === 'success' ? 'success' : 'error'
+          );
+          expect(
+            eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete')
+          ).toHaveLength(1);
+        } finally {
+          await holder.release();
+        }
+      });
 
       describe('Slack Notifiction', () => {
         it('should send a slack notification when the run is complete', async () => {
