@@ -76,6 +76,9 @@ class JobExecutor:
         shutil.rmtree(".lightbeam", ignore_errors=True)
         shutil.rmtree(config.OUTPUT_DIR_FIRST_RUN, ignore_errors=True)
         shutil.rmtree(config.ROSTER_DOWNLOAD_DIR, ignore_errors=True)
+        shutil.rmtree(config.ORIGINAL_DIR, ignore_errors=True)
+        shutil.rmtree(config.UNMATCHED_DIR, ignore_errors=True)
+        shutil.rmtree(config.CROSS_YEAR_OUTPUT_DIR, ignore_errors=True)
 
         self.output_dir = os.path.abspath(config.OUTPUT_DIR)
         self.cross_year_dir = os.path.abspath(config.CROSS_YEAR_OUTPUT_DIR)
@@ -775,7 +778,7 @@ class JobExecutor:
         """Substitution method for our send runs. Download our unmatched students from the initial run, and perform our substitutions"""
 
         self.set_action(action.SEND_RUN)
-        verified_matches = {s['correlationId']: {'student_unique_id': s['studentUniqueId'], 'cross_year_flag': s['crossYearFlag']} for s in matches}
+        verified_matches = {s['correlationId']: {'student_unique_id': s['studentUniqueId'], 'cross_year_flag': s['isCrossYear']} for s in matches}
         for k, v in artifacts_to_substitute.items():
             output_path = os.path.join(self.output_dir, f"{k}.jsonl")
             try:
