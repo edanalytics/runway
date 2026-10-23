@@ -1209,6 +1209,21 @@ describe('Earthbeam API', () => {
           );
         });
 
+        // A run can fail without reporting an error, such as when the Executor
+        // dies before it can.
+        it('sends a notification for a failed run with no errors reported', async () => {
+          const res = await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'failure' });
+
+          expect(res.status).toBe(201);
+          expect(eventEmitterMock).toHaveBeenCalledWith(
+            'run_complete',
+            expect.objectContaining({ runId: runA.id, status: 'error' })
+          );
+        });
+
         it('marks a full run’s event with its kind, leaving its summary as it was', async () => {
           const job = await prisma.job.findUniqueOrThrow({ where: { id: runA.jobId } });
 
