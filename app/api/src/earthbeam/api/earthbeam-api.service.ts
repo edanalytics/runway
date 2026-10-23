@@ -339,7 +339,10 @@ export class EarthbeamApiService {
       const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
 
-      const summaryString = `${assessmentType} (${assessmentFiles.join(
+      // A send run delivers only some of the job's students, so its summary
+      // says what kind of run it is.
+      const runPrefix = run.kind === 'send' ? 'send run: ' : '';
+      const summaryString = `${runPrefix}${assessmentType} (${assessmentFiles.join(
         ', '
       )}) ${errorString} ${resourceErrorString} ${unmatchedStudentsMessage} (${partnerId}/${tenantCode}) jobId ${
         run.job.id
@@ -348,6 +351,7 @@ export class EarthbeamApiService {
       await this.eventEmitter.emit('run_complete', {
         summary: summaryString,
         runId: run.id,
+        runType: run.kind,
         jobId: run.job.id,
         status: run.status,
         completedWithErrors:
