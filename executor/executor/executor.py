@@ -736,18 +736,24 @@ class JobExecutor:
 
     def build_output_sets(self) -> None:
         '''container for OutputSets '''
+        # A send run writes under its own prefix, so it never overwrites the
+        # full run's output or another send run's. It runs no Earthmover, so
+        # its sideloaded sets are counted from their files.
+        is_send = self.run_type == 'send'
+        prefix = f"send-run-{self.send['runId']}/" if is_send else ""
+        em_results_path = None if is_send else artifact.CANDIDATES_EM_RESULTS.path
         self.output_sets = [OutputSet(
                     local_dir=self.output_dir,
-                    s3_subdir="ods" if self.send_to_ods else "non-ods",
+                    s3_subdir=prefix + ("ods" if self.send_to_ods else "non-ods"),
                     sent_to_ods=self.send_to_ods,
-                    em_results_path=artifact.CANDIDATES_EM_RESULTS.path,
+                    em_results_path=em_results_path,
                     lb_send_results_path=artifact.LB_SEND_RESULTS.path if self.send_to_ods else None,
                 )]
         cross_year_dir = os.path.abspath(config.CROSS_YEAR_OUTPUT_DIR)
         if self.send_to_ods and os.path.isdir(cross_year_dir):
             self.output_sets.append(OutputSet(
-                local_dir=cross_year_dir, s3_subdir="non-ods", sent_to_ods=False,
-                em_results_path=artifact.CANDIDATES_EM_RESULTS.path,
+                local_dir=cross_year_dir, s3_subdir=prefix + "non-ods", sent_to_ods=False,
+                em_results_path=em_results_path,
             ))
 
     def auto_run(self, artifacts_to_substitute: dict[str, tuple[artifact.JobArtifact, artifact.JobArtifact, str]], matches: dict[str, dict]) -> None:
@@ -1025,7 +1031,11 @@ class JobExecutor:
         with open(artifact.LB_SEND_RESULTS.path) as f:
             send_results = json.load(f)["resources"]
 
-        all_failed = all(
+        # A send run whose students all go to sideloading sends nothing,
+        # which isn't a failure.
+        all_failed = any(
+            counts.get("records_processed", 0) > 0 for counts in send_results.values()
+        ) and all(
             counts.get("records_processed", 0) == counts.get("records_failed", 0)
             for counts in send_results.values()
         )

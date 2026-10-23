@@ -32,6 +32,15 @@ class OutputSet:
             with open(self.lb_send_results_path) as f:
                 return json.load(f)["resources"]
 
+        if self.em_results_path is None:
+            # No Earthmover run produced this set (a send run): count its lines.
+            resources = {}
+            for fname in os.listdir(self.local_dir):
+                if fname.endswith(".jsonl"):
+                    with open(os.path.join(self.local_dir, fname)) as f:
+                        resources[fname[:-len(".jsonl")]] = {"records_processed": sum(1 for _ in f)}
+            return resources
+
         with open(self.em_results_path) as f:
             em_results = json.load(f)
         dest_prefix = "$destinations."
