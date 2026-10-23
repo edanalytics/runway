@@ -9,7 +9,7 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { GetJobDto, GetStudentInputDetailsDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
-import { JobsService } from 'api/src/jobs/jobs.service';
+import { StudentMatchReviewService } from 'api/src/jobs/student-match-review.service';
 import { reportMatchResults as report } from '../helpers/report-match-results';
 import { withoutPrivilege } from '../helpers/without-privilege';
 
@@ -427,7 +427,11 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     describe('past the review limit', () => {
       let limit: jest.ReplaceProperty<number>;
       beforeEach(() => {
-        limit = jest.replaceProperty(app.get(JobsService), 'studentMatchReviewLimit', 2);
+        limit = jest.replaceProperty(
+          app.get(StudentMatchReviewService),
+          'studentMatchReviewLimit',
+          2
+        );
       });
       afterEach(() => limit.restore());
 

@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { JobsService } from './jobs.service';
+import { StudentMatchReviewService } from './student-match-review.service';
 import { StudentMatchSubmitService } from './student-match-submit.service';
 import { JobsController } from './jobs.controller';
 import { EarthbeamModule } from '../earthbeam/earthbeam.module';
@@ -9,7 +10,7 @@ import { IdrsModule } from '../idrs/idrs.module';
 
 @Module({
   imports: [EarthbeamModule, FileModule, IdrsModule],
-  providers: [JobsService, StudentMatchSubmitService],
+  providers: [JobsService, StudentMatchReviewService, StudentMatchSubmitService],
   exports: [JobsService],
   controllers: [JobsController],
 })
