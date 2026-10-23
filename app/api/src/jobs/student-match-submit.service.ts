@@ -109,17 +109,10 @@ export class StudentMatchSubmitService {
         // delivered: decisions refuse a student once any of their rows is in a
         // send run, so every send of a student delivers the same decision row.
         //
-        // Resending relies on `error` being final. `completeRun` refuses a
-        // `done` once a run is `success` or `error`, and `initRun` refuses a
-        // run that isn't `new`, so a run marked `error` at launch never starts.
-        // One theoretical gap is left: a failed launch that AWS accepted
-        // anyway, whose task called `initRun` before `RunsService.launch`
-        // recorded the failure. The launch overwrites `running` with `error`,
-        // and the run's own `done` is then refused, so it stays `error` even
-        // if it delivered, and a resend would deliver the same row twice.
-        // Identity holds and reprocessing is safe to repeat, but both runs'
-        // output sets would be listed. ECS start-up takes tens of seconds, so
-        // this isn't guarded.
+        // Resending relies on `error` meaning the run delivers nothing more. A
+        // run's status only moves forward: init, a failed launch and `done`
+        // each change it only from `new` (or `running`, for `done`), so a run
+        // in `error` never starts, and never reports success later.
         const submitted = await tx.sendRunDecision.findMany({
           where: {
             jobId,
@@ -160,10 +153,9 @@ export class StudentMatchSubmitService {
 
     // After commit, so the Executor finds the run and its decisions. A failed
     // launch marks the run `error` and is reported in `launched`, but the
-    // submit stands: the ECS call can fail after AWS has accepted the task, so
-    // the Executor may still run. Undoing the submit would let those students
-    // take new decisions, so one could be sent under two identities. Submitting
-    // the same decisions again is what unblocks them.
+    // submit stands: undoing it would let those students take new decisions,
+    // and no decision may follow a send, even a failed one, for now.
+    // Submitting the same decisions again is what unblocks them.
     const launch = await this.runService.launch(outcome.run, prisma);
     return {
       status: 'SUCCESS',

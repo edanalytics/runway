@@ -70,20 +70,21 @@ export class EarthbeamApiAuthService {
   > {
     // TODO: probably should move to job/run service so we can track the run states all in one place
     return await this.prisma.$transaction(async (tx) => {
-      let run = await tx.run.findUnique({ where: { id: runId } });
+      // Only from `new`, in one statement, so a run's status is never
+      // overwritten, and of two racing inits only the first passes.
+      const { count } = await tx.run.updateMany({
+        where: { id: runId, status: 'new' },
+        data: { status: 'running' },
+      });
+      const run = await tx.run.findUnique({ where: { id: runId } });
       if (!run) {
         return { status: 'ERROR', reason: 'not found' };
       }
 
-      if (run.status !== 'new') {
+      if (count === 0) {
         // cannot use a token twice, so if run is not new, the token has already been used
         return { status: 'ERROR', reason: 'invalid token' };
       }
-
-      run = await tx.run.update({
-        where: { id: runId },
-        data: { status: 'running' },
-      });
 
       return { status: 'SUCCESS', run };
     });
