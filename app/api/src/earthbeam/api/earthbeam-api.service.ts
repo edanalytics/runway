@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database';
 import { EncryptionService } from 'api/src/encryption/encryption.service';
+import { hasSchoolYears, isInJobYear } from '../../jobs/jobs.service';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
@@ -155,10 +156,19 @@ export class EarthbeamApiService {
     // Pure fuzzy does no roster matching at all, so neither roster source is
     // handed over. id_based_fuzzy_background still needs them.
     const usesIdBasedMatching = idMatchingMode !== 'fuzzy';
-    // Share identity service only if the executor needs it
-    const needsIdentityService = idMatchingMode !== 'id_based';
+    // Share identity service only if the executor needs it. A send run
+    // matches no one: it delivers the answers of exactly its recorded
+    // decisions.
+    const needsIdentityService = run.kind === 'full' && idMatchingMode !== 'id_based';
+
+    let send: EarthbeamApiJobResponseDto['send'];
+    if (run.kind === 'send') {
+      const students = await this.studentsForSendRun(runId, job.schoolYear.endYear);
+      send = { runId, students };
+    }
 
     const payload: EarthbeamApiJobResponseDto = {
+      runType: run.kind,
       appDataBasePath: `${job.fileProtocol}://${job.fileBucketOrHost}/${job.fileBasePath}`,
       inputFiles: filesForEarthbeam,
       inputParams: paramsForEarthbeam,
@@ -190,6 +200,7 @@ export class EarthbeamApiService {
       },
       crossYearMatchAvailable,
       idMatchingMode,
+      send,
       sendToOds: job.sendToOds,
       // When cross-year matching is available, the executor pulls the roster
       // from EDU via appUrls.roster, so the S3 file path would be a dangling
@@ -216,6 +227,50 @@ export class EarthbeamApiService {
     };
   }
 
+  /**
+   * A send run's students, in correlation-id order. Throws if any decision's
+   * school years are missing or malformed: submit refuses such a match, so
+   * that is a broken invariant.
+   */
+  private async studentsForSendRun(
+    runId: Run['id'],
+    endYear: number
+  ): Promise<NonNullable<EarthbeamApiJobResponseDto['send']>['students']> {
+    const sendRunDecisions = await this.prisma.sendRunDecision.findMany({
+      where: { runId },
+      orderBy: { correlationId: 'asc' },
+      select: {
+        correlationId: true,
+        studentMatchDecision: {
+          select: {
+            studentUniqueId: true,
+            rosterDetails: true,
+            studentMatchSuggestion: { select: { rosterDetails: true } },
+          },
+        },
+      },
+    });
+    const students = [];
+    for (const { correlationId, studentMatchDecision: decision } of sendRunDecisions) {
+      // A match has exactly one basis (037's check): a suggestion, or a
+      // search with its own roster details.
+      const rosterDetails =
+        decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails;
+      // Narrows rosterDetails for isInJobYear. Submit has already refused any
+      // match without valid school years.
+      if (!hasSchoolYears(rosterDetails)) {
+        throw new Error(`Send run ${runId} has a decision with missing or malformed school_years`);
+      }
+      students.push({
+        correlationId,
+        // Submit records only matches, and every match has an answer (037's check).
+        studentUniqueId: decision.studentUniqueId!,
+        isCrossYear: !isInJobYear(rosterDetails, endYear),
+      });
+    }
+    return students;
+  }
+
   async completeRun(runId: Run['id'], status: 'success' | 'error', prisma: PrismaClient) {
     // TODO: probably belongs in earthbeam-run.service.ts ?
     const run = await prisma.run.update({
@@ -228,9 +283,12 @@ export class EarthbeamApiService {
       },
     });
 
-    // Save output files
-    const basePath = `${run.job.fileBasePath}/output/`;
-    const outputFiles = await this.fileService.listFilesAtPath(basePath);
+    // A full run records the job's output directory. A send run records none,
+    // since its output sets are already recorded by their own callback.
+    const outputFiles =
+      run.kind === 'full'
+        ? await this.fileService.listFilesAtPath(`${run.job.fileBasePath}/output/`)
+        : [];
     if (outputFiles.length > 0) {
       await prisma.runOutputFile.createMany({
         data: outputFiles.map((file) => ({

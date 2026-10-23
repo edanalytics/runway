@@ -8,9 +8,11 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Length,
   Matches,
   Max,
   Min,
+  NotContains,
   Validate,
   ValidateIf,
   ValidateNested,
@@ -29,11 +31,22 @@ import {
 import { makeSerializer, makeSerializerCustomType } from '../utils/make-serializer';
 import { StudentInputDetailsJson, StudentRosterDetailsJson } from './earthbeam-api.dto';
 import { GetUserDto } from './user.dto';
+import { POSTGRES_INTEGER_MAX } from '../constants';
 
 /*
  * The details and roster JSON are returned as stored, in the Executor's
  * snake_case.
  */
+
+/** One of a job's students to match: a route's parameters, or a submitted student. */
+export class StudentCorrelationIdDto {
+  // PostgreSQL text can't hold a NUL, so no student has one, and a query
+  // would fail on it with a 500.
+  @IsString()
+  @Length(1, 128)
+  @NotContains('\0')
+  correlationId: string;
+}
 
 /** A student record from IDRS, with IDRS's score, as a reviewer may match to them. */
 export class GetIdrsStudentDto {
@@ -156,9 +169,6 @@ export class GetStudentMatchSearchDto {
 }
 
 const STUDENT_MATCH_DECISION_KINDS: StudentMatchDecisionKind[] = ['match', 'exclude', 'clear'];
-
-/** The largest PostgreSQL INTEGER (int4). Past it, a cast to int fails with a 500. */
-const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
 /**
  * Whether a decision is a match resting on the reviewer's search, rather than
@@ -333,15 +343,21 @@ export const toPostStudentMatchDecisionResponseDto = makeSerializerCustomType<
   { decision: StudentMatchDecisionWithUser | null }
 >(PostStudentMatchDecisionResponseDto);
 
-/** A student's place in review, derived from their latest decision. */
-export type StudentMatchStatus = 'to-review' | 'ready' | 'excluded';
+/**
+ * A student's place in review, derived from their latest decision and whether
+ * that decision is in a send run.
+ */
+export type StudentMatchStatus = 'to-review' | 'ready' | 'excluded' | 'submitted';
 
 export const studentMatchStatus = (
-  latestDecision: StudentMatchDecisionKind | undefined
+  latestDecision: StudentMatchDecisionKind | undefined,
+  submitted: boolean
 ): StudentMatchStatus => {
   switch (latestDecision) {
     case 'match':
-      return 'ready';
+      // Only a match is ever submitted, and it stays submitted whatever its
+      // send run's outcome.
+      return submitted ? 'submitted' : 'ready';
     case 'exclude':
       return 'excluded';
     case 'clear':
@@ -399,11 +415,16 @@ export class GetStudentMatchCountsDto {
   @Expose()
   toReview: number;
 
+  /** Matches not yet in any send run. */
   @Expose()
   ready: number;
 
   @Expose()
   excluded: number;
+
+  /** Matches in a send run, whatever its status. */
+  @Expose()
+  submitted: number;
 }
 
 /**

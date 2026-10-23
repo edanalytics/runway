@@ -4,11 +4,13 @@ import {
   GetIdrsStudentDto,
   JobInputParamDto,
   JsonArray,
+  MATCH_REVIEW_STUDENT_LIMIT,
   pickStudentSearchDetails,
   PostStudentMatchDecisionDto,
   restsOnSearch,
   restsOnSuggestion,
   StudentMatchDecisionWithUser,
+  StudentRosterDetailsJson,
   StudentSearchDetailsDto,
   studentMatchStatus,
   toGetJobTemplateDto,
@@ -36,32 +38,47 @@ import {
 } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 import { IdrsSearchService } from '../idrs/idrs-search.service';
+import { lockJobRow } from './job-row-lock';
+
+/** Roster details whose school years `hasSchoolYears` has checked. */
+export type StudentRosterDetailsWithSchoolYears = StudentRosterDetailsJson & {
+  school_years: number[];
+};
 
 /**
- * Far more than a reviewer will work through (typically under 10, at most a
- * few hundred). Past it, the file itself needs fixing. At the limit, with ten
- * suggestions each, the response is about 3.5 MB.
+ * IDRS guarantees a student's school years, but roster details reach a match from IDRS through
+ * the Executor, from a reviewer's search or from a client, and are stored as sent. Submit checks
+ * them with this before anything relies on them.
  */
-export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
+export const hasSchoolYears = (
+  rosterDetails: StudentRosterDetailsJson | null | undefined
+): rosterDetails is StudentRosterDetailsWithSchoolYears => {
+  const schoolYears = rosterDetails?.school_years;
+  return Array.isArray(schoolYears) && schoolYears.every(Number.isInteger);
+};
 
 /**
- * Whether a job could load a student IDRS found. With cross-year matching on,
- * it can load any of them: one outside the job's school year is a cross-year
- * match, which is sideloaded rather than sent to the ODS. With it off, it can
- * load only students whose `school_years` include the job's year. Both
- * `school_years` and `endYear` name a school year by its end year (2025 for
- * 2024–25).
+ * Whether the student is in the job's school year, by end year (2025 for 2024–25). A match
+ * outside it is a cross-year match, which is delivered outside the ODS.
+ */
+export const isInJobYear = (
+  rosterDetails: StudentRosterDetailsWithSchoolYears,
+  endYear: number
+): boolean => rosterDetails.school_years.includes(endYear);
+
+/**
+ * Whether a job could load a student IDRS found. With cross-year matching on, it can load any of
+ * them, since one outside the job's school year is a cross-year match. With it off, it can load
+ * only students in the job's year, so none whose school years are malformed.
  *
  * The Executor's suggestion filter must apply the same rule. A match an ODS job
  * keeps only through cross-year matching must never be sent to the ODS.
  */
 export const isLoadableStudent = (
-  student: { school_years?: unknown },
+  student: StudentRosterDetailsJson,
   endYear: number,
   crossYearMatchingEnabled: boolean
-) =>
-  crossYearMatchingEnabled ||
-  (Array.isArray(student.school_years) && student.school_years.includes(endYear));
+) => crossYearMatchingEnabled || (hasSchoolYears(student) && isInJobYear(student, endYear));
 
 /**
  * A decision row as the API shows it: none for a clear, and a search basis's
@@ -130,11 +147,12 @@ const noAnswerOrBasis: NoAnswerColumns = {
   rosterDetails: null,
 };
 
-const noStudentsToMatch: GetStudentMatchCountsDto = {
+export const noStudentsToMatch: GetStudentMatchCountsDto = {
   total: 0,
   toReview: 0,
   ready: 0,
   excluded: 0,
+  submitted: 0,
 };
 
 @Injectable()
@@ -183,16 +201,29 @@ export class JobsService {
   ): Promise<Map<Job['id'], GetStudentMatchCountsDto>> {
     // Keep the statuses in step with studentMatchStatus.
     const rows = await prisma.$queryRaw<
-      { job_id: number; total: bigint; to_review: bigint; ready: bigint; excluded: bigint }[]
+      {
+        job_id: number;
+        total: bigint;
+        to_review: bigint;
+        ready: bigint;
+        excluded: bigint;
+        submitted: bigint;
+      }[]
     >`
       SELECT i.job_id,
              count(*) AS total,
              count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
-             count(*) FILTER (WHERE d.kind = 'match') AS ready,
-             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded
+             count(*) FILTER (WHERE d.kind = 'match' AND NOT d.submitted) AS ready,
+             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.submitted) AS submitted
       FROM public.student_input_details i
       LEFT JOIN LATERAL (
-        SELECT kind FROM public.student_match_decision d
+        SELECT kind, EXISTS (
+                 SELECT 1 FROM public.send_run_decision s
+                 WHERE s.job_id = d.job_id AND s.correlation_id = d.correlation_id
+                   AND s.seq = d.seq
+               ) AS submitted
+        FROM public.student_match_decision d
         WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
         ORDER BY d.seq DESC
         LIMIT 1
@@ -208,6 +239,7 @@ export class JobsService {
           toReview: Number(row.to_review),
           ready: Number(row.ready),
           excluded: Number(row.excluded),
+          submitted: Number(row.submitted),
         },
       ])
     );
@@ -243,7 +275,11 @@ export class JobsService {
           // means nothing to a reviewer.
           orderBy: { correlationId: 'asc' },
           include: {
-            studentMatchDecision: { orderBy: { seq: 'desc' }, take: 1, include: { user: true } },
+            studentMatchDecision: {
+              orderBy: { seq: 'desc' },
+              take: 1,
+              include: { user: true, _count: { select: { sendRunDecision: true } } },
+            },
             studentMatchResult: {
               orderBy: { runId: 'asc' },
               include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
@@ -256,9 +292,10 @@ export class JobsService {
           // results and suggestions.
           students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
             const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
+            const submitted = (latest?._count.sendRunDecision ?? 0) > 0;
             return {
               ...input,
-              status: studentMatchStatus(latest?.kind),
+              status: studentMatchStatus(latest?.kind, submitted),
               decision: latest ? toStudentMatchDecision(latest) : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
@@ -288,18 +325,16 @@ export class JobsService {
       }
     | {
         status: 'ERROR';
-        code: 'not_found' | 'decision_changed' | 'results_changed' | 'invalid_target';
+        code:
+          | 'not_found'
+          | 'decision_changed'
+          | 'already_submitted'
+          | 'results_changed'
+          | 'invalid_target';
       }
   > {
     const { jobId, correlationId, userId, decision } = input;
     const { replacesVersion, kind } = decision;
-
-    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
-    // would fail on it with a 500. An app-wide check on route parameters
-    // should replace this ad hoc one.
-    if (correlationId.includes('\0')) {
-      return { status: 'ERROR', code: 'not_found' };
-    }
 
     const student = await prisma.studentInputDetails.findUnique({
       where: { jobId_correlationId: { jobId, correlationId } },
@@ -362,41 +397,84 @@ export class JobsService {
       columns = noAnswerOrBasis;
     }
 
-    // Writes the row after the student's latest, if the caller saw what's
-    // current: that latest row for a version, or no decision (no rows, or a
-    // clear) for null. A clear needs a decision to clear.
-    // Two racing writes compute the same seq, so the loser collides with
-    // the winner on the primary key and does nothing.
-    const inserted = await prisma.$queryRaw<{ seq: number }[]>`
-      INSERT INTO public.student_match_decision
-        (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
-         search_details, roster_details, decided_by_id)
-      SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
-             ${kind}::public.student_match_decision_kind, ${columns.studentUniqueId},
-             ${columns.resultId}::bigint, ${columns.ordinal}::int,
-             ${columns.searchDetails}::jsonb, ${columns.rosterDetails}::jsonb,
-             ${userId}::int
-      FROM (SELECT 1) AS one
-      LEFT JOIN LATERAL (
-        SELECT seq, kind FROM public.student_match_decision
-        WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
-        ORDER BY seq DESC
-        LIMIT 1
-      ) latest ON true
-      WHERE CASE
-        WHEN ${replacesVersion}::int IS NULL
-          THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
-        ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
-      END
-      ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
-      RETURNING seq
-    `;
-    if (inserted.length === 0) {
-      return { status: 'ERROR', code: 'decision_changed' };
+    const outcome = await prisma.$transaction(
+      async (tx) => {
+        // Once a student is submitted, their current decision is the one their
+        // send run delivers. We do not allow decisions to be saved after the
+        // student has been submitted. The insert below handles this by not
+        // inserting when the student has a row in send_run_decision.
+        //
+        // However, that check alone has a gap. An in-progress submit hasn't
+        // committed its send run yet, so a decision could land after the submit
+        // checked the decision version and before it commits, and the run would
+        // deliver a decision that's no longer current. The job-row lock closes
+        // the gap. Submit holds it in FOR NO KEY UPDATE until it commits, and the
+        // FOR SHARE we get here waits for that. This ensures that any in-progress
+        // submit completes before we proceed with the insert below. And if this
+        // decision takes the lock first, the submit waits instead, and then sees
+        // the new version and refuses with `decision_changed`.
+        //
+        // FOR SHARE doesn't block other FOR SHARE holders, so decisions don't
+        // wait for each other. Two racing decisions for one student are settled
+        // by the insert's primary key.
+        await lockJobRow(tx, jobId, 'FOR SHARE');
+
+        // Writes the row after the student's latest, if the caller saw what's
+        // current: that latest row for a version, or no decision (no rows, or a
+        // clear) for null. A clear needs a decision to clear. A submitted
+        // student takes no new decision.
+        // Two racing writes compute the same seq, so the loser collides with
+        // the winner on the primary key and does nothing.
+        const rows = await tx.$queryRaw<{ seq: number }[]>`
+        INSERT INTO public.student_match_decision
+          (job_id, correlation_id, seq, kind, student_unique_id, result_id, ordinal,
+           search_details, roster_details, decided_by_id)
+        SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
+               ${kind}::public.student_match_decision_kind, ${columns.studentUniqueId},
+               ${columns.resultId}::bigint, ${columns.ordinal}::int,
+               ${columns.searchDetails}::jsonb, ${columns.rosterDetails}::jsonb,
+               ${userId}::int
+        FROM (SELECT 1) AS one
+        LEFT JOIN LATERAL (
+          SELECT seq, kind FROM public.student_match_decision
+          WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
+          ORDER BY seq DESC
+          LIMIT 1
+        ) latest ON true
+        WHERE CASE
+          WHEN ${replacesVersion}::int IS NULL
+            THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
+          ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
+        END
+        AND NOT EXISTS (
+          SELECT 1 FROM public.send_run_decision s
+          WHERE s.job_id = ${jobId}::int AND s.correlation_id = ${correlationId}
+        )
+        ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
+        RETURNING seq
+      `;
+        if (rows.length > 0) {
+          return { status: 'SUCCESS', seq: rows[0].seq } as const;
+        }
+        const submitted = await tx.sendRunDecision.findFirst({
+          where: { jobId, correlationId },
+          select: { runId: true },
+        });
+        return {
+          status: 'ERROR',
+          code: submitted ? 'already_submitted' : 'decision_changed',
+        } as const;
+      },
+      // Each statement sees what committed before it, so the insert sees a
+      // send run committed while this transaction waited at the lock.
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted }
+    );
+    if (outcome.status === 'ERROR') {
+      return outcome;
     }
 
     const row = await prisma.studentMatchDecision.findUniqueOrThrow({
-      where: { jobId_correlationId_seq: { jobId, correlationId, seq: inserted[0].seq } },
+      where: { jobId_correlationId_seq: { jobId, correlationId, seq: outcome.seq } },
       include: { user: true },
     });
     return { status: 'SUCCESS', data: { decision: toStudentMatchDecision(row) } };
@@ -423,13 +501,6 @@ export class JobsService {
     | { status: 'ERROR'; code: 'identity_service_unavailable'; cause: string }
   > {
     const { job, correlationId } = input;
-
-    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
-    // would fail on it with a 500. An app-wide check on route parameters
-    // should replace this ad hoc one.
-    if (correlationId.includes('\0')) {
-      return { status: 'ERROR', code: 'not_found' };
-    }
 
     // The partner's setting is read live, as the Executor's payload reads it,
     // not snapshotted onto the job.
@@ -813,27 +884,63 @@ export class JobsService {
     });
   }
 
-  async startJob(job: Job & { files: JobFile[] }, prisma: PrismaClient) {
+  async startJob(
+    job: Job & { files: JobFile[] },
+    prisma: PrismaClient
+  ): Promise<
+    | { status: 'SUCCESS' }
+    | {
+        status: 'ERROR';
+        code: 'job_config_incomplete' | 'job_already_started' | 'failed_to_start_executor';
+      }
+  > {
     if (
       job.configStatus !== 'input_complete' ||
       job.files.some((file) => file.status !== 'upload_complete')
     ) {
-      return { result: 'JOB_CONFIG_INCOMPLETE', job };
+      return { status: 'ERROR', code: 'job_config_incomplete' };
     }
 
-    const runs = await prisma.run.findMany({ where: { jobId: job.id } });
-    if (runs.some((run) => run.status === 'running' || run.status === 'new')) {
-      return { result: 'JOB_IN_PROGRESS', job };
-    }
+    const outcome = await prisma.$transaction(
+      async (tx) => {
+        // So two starts can't both find the job without a run.
+        await lockJobRow(tx, job.id, 'FOR NO KEY UPDATE');
 
-    const run = await prisma.run.create({
-      data: {
-        jobId: job.id,
-        status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
+        // A job is started once: re-running isn't supported.
+        if (await tx.run.findFirst({ where: { jobId: job.id }, select: { id: true } })) {
+          return { status: 'ERROR', code: 'job_already_started' } as const;
+        }
+
+        const run = await tx.run.create({
+          data: {
+            jobId: job.id,
+            kind: 'full',
+            status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
+          },
+          include: { job: { include: { schoolYear: true, files: true } } },
+        });
+        return { status: 'SUCCESS', run } as const;
       },
-      include: { job: { include: { schoolYear: true, files: true } } },
-    });
+      // Each statement sees what committed before it, so reading the runs
+      // sees a run committed while this transaction waited at the lock.
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted }
+    );
+    if (outcome.status === 'ERROR') {
+      return outcome;
+    }
 
+    return this.launchRun(outcome.run, prisma);
+  }
+
+  /**
+   * Starts the Executor on a run that's already committed, since the Executor
+   * reads the run back from another connection. A failure to start leaves the
+   * run done, in error.
+   */
+  async launchRun(
+    run: Parameters<ExecutorService['start']>[0],
+    prisma: PrismaClient
+  ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; code: 'failed_to_start_executor' }> {
     let startResult: ExecutorStartResult;
     try {
       startResult = await this.executor.start(run);
@@ -859,7 +966,7 @@ export class JobsService {
         },
       });
 
-      return { result: 'JOB_START_FAILED', job, error: e };
+      return { status: 'ERROR', code: 'failed_to_start_executor' };
     }
 
     if (startResult.ecsTaskArn || startResult.taskSize) {
@@ -873,6 +980,6 @@ export class JobsService {
       }
     }
 
-    return { result: 'JOB_STARTED', job, run };
+    return { status: 'SUCCESS' };
   }
 }
