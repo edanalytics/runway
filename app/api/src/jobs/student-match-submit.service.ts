@@ -34,9 +34,11 @@ export class StudentMatchSubmitService {
         await lockJobRow(tx, jobId, 'FOR NO KEY UPDATE');
 
         // Students are reviewed from the full run's results, and the send run
-        // delivers them from its files. A job has one, since it's started once.
+        // delivers them from its files. A fuzzy job has one, since it's started
+        // once. Take the latest, as the job's other reads of its full run do.
         const fullRun = await tx.run.findFirst({
           where: { jobId, kind: 'full' },
+          orderBy: { createdOn: 'desc' },
           select: { status: true },
         });
         if (fullRun?.status !== 'success') {
