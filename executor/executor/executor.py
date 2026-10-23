@@ -686,7 +686,7 @@ class JobExecutor:
         self.logger.info('idrs_matches.json uploaded!')
 
     def create_match_results(self) -> IDRSMatchResultSet:
-        """TODO: PLACEHOLDER"""
+        """Creates and returns an IDRSMatchResultSet object"""
 
         # Create our IDRS Match Results
         result_set = IDRSMatchResultSet.construct_match_result_set(artifact.CANDIDATES.path, artifact.IDRS_MATCHES.path, config.IDRS_AUTO_MATCH_THRESHOLD, self.logger)
@@ -700,7 +700,7 @@ class JobExecutor:
 
     @staticmethod
     def perform_substitution(path: str, lookup: dict[str, dict], student_field: str) -> tuple[list[dict], list[dict], list[dict]]:
-        '''Given a lookup of verified matches, perform substitution against a given input'''        
+        """Given a lookup of verified matches, perform substitution against a given input"""        
         # Loop through a resource at a path and substitute the student_unique_id from the lookup
         ods_substituted = []
         cross_year_substituted = []
@@ -721,11 +721,13 @@ class JobExecutor:
         return ods_substituted, cross_year_substituted, unsubstituted
 
     def route_results(self, output_path: str, ods_substituted: dict, cross_year_substituted: dict, resource_name: str) -> None:
+        """Write output jsonl in the correct directory after substitution is performed."""
+
         if self.send_to_ods:
             output_json_lines(output_path, ods_substituted)
-            if cross_year_substituted:
-                os.makedirs(self.cross_year_dir, exist_ok=True)
-                output_json_lines(os.path.join(self.cross_year_dir, f"{resource_name}.jsonl"), cross_year_substituted)
+        if self.send_to_ods and cross_year_substituted:
+            os.makedirs(self.cross_year_dir, exist_ok=True)
+            output_json_lines(os.path.join(self.cross_year_dir, f"{resource_name}.jsonl"), cross_year_substituted)
         else:
             output_json_lines(output_path, ods_substituted + cross_year_substituted)
 
