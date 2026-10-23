@@ -23,7 +23,8 @@ import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { JobsService, noStudentsToMatch } from './jobs.service';
+import { JobsService } from './jobs.service';
+import { noStudentsToMatch, StudentMatchReviewService } from './student-match-review.service';
 import { StudentMatchSubmitService } from './student-match-submit.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
@@ -95,6 +96,7 @@ export class JobsController {
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
     private jobService: JobsService,
+    private studentMatchReview: StudentMatchReviewService,
     private studentMatchSubmit: StudentMatchSubmitService
   ) {}
 
@@ -110,7 +112,7 @@ export class JobsController {
         createdBy: true,
       },
     });
-    return toGetJobDto(await this.jobService.withStudentMatchCounts(jobs));
+    return toGetJobDto(await this.studentMatchReview.withStudentMatchCounts(jobs));
   }
 
   @Get(':jobId')
@@ -136,7 +138,7 @@ export class JobsController {
       return new NotFoundException(`Job not found: ${jobId}`);
     }
 
-    const [counted] = await this.jobService.withStudentMatchCounts([job]);
+    const [counted] = await this.studentMatchReview.withStudentMatchCounts([job]);
     return toGetJobDto(counted);
   }
 
@@ -342,7 +344,7 @@ export class JobsController {
         // not founds should be thrown before we get to the handler, but just in case
         throw new NotFoundException(`Job not found: ${jobId}`);
       });
-    const [counted] = await this.jobService.withStudentMatchCounts([found]);
+    const [counted] = await this.studentMatchReview.withStudentMatchCounts([found]);
     const job = toGetJobDto(counted);
 
     if (!job.isStatusChangeable) {
@@ -372,7 +374,7 @@ export class JobsController {
     if (isFuzzyBackground && !session.privileges.has('job.match-results.background.read')) {
       throw new ForbiddenException('Forbidden');
     }
-    return toGetStudentMatchResultsDto(await this.jobService.getStudentMatchResults(jobId));
+    return toGetStudentMatchResultsDto(await this.studentMatchReview.getStudentMatchResults(jobId));
   }
 
   @Post(':jobId/student-match-results/:correlationId/decisions')
@@ -387,9 +389,9 @@ export class JobsController {
   ) {
     fuzzyJobOrThrow(req);
 
-    let result: Awaited<ReturnType<JobsService['decideStudentMatch']>>;
+    let result: Awaited<ReturnType<StudentMatchReviewService['decideStudentMatch']>>;
     try {
-      result = await this.jobService.decideStudentMatch(
+      result = await this.studentMatchReview.decideStudentMatch(
         { jobId, correlationId, userId: session.user.id, decision },
         this.prisma
       );
@@ -540,7 +542,7 @@ export class JobsController {
     const job = fuzzyJobOrThrow(req);
 
     const startedAt = Date.now();
-    const result = await this.jobService.searchStudentMatch({
+    const result = await this.studentMatchReview.searchStudentMatch({
       job,
       correlationId,
       details,

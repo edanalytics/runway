@@ -13,7 +13,7 @@ import {
 } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database';
 import { EncryptionService } from 'api/src/encryption/encryption.service';
-import { hasSchoolYears, isInJobYear } from '../../jobs/jobs.service';
+import { hasSchoolYears, isInJobYear } from '../../jobs/school-years';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,

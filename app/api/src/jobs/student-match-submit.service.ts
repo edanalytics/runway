@@ -3,11 +3,12 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Job, PrismaClient } from '@prisma/client';
 import { lockJobRow } from './job-row-lock';
-import { hasSchoolYears, JobsService } from './jobs.service';
+import { RunsService } from './runs.service';
+import { hasSchoolYears } from './school-years';
 
 @Injectable()
 export class StudentMatchSubmitService {
-  constructor(private jobsService: JobsService) {}
+  constructor(private runService: RunsService) {}
 
   /** Submits saved matches for sending, in a new send run. See AGENTS.md. */
   async submit(
@@ -144,7 +145,7 @@ export class StudentMatchSubmitService {
     // the Executor may still run. Undoing the submit would let those students
     // take new decisions, so one could be sent under two identities. Sending
     // the same decisions again, a later feature, is what will unblock them.
-    const launch = await this.jobsService.launchRun(outcome.run, prisma);
+    const launch = await this.runService.launch(outcome.run, prisma);
     return {
       status: 'SUCCESS',
       data: { runId: outcome.run.id, launched: launch.status === 'SUCCESS' },
