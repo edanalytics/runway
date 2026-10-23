@@ -9,7 +9,7 @@ import { seedJob } from '../factories/job-factory';
 import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods-fixture';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
-import { Run } from '@prisma/client';
+import { Run, RunStatus } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
@@ -627,6 +627,45 @@ describe('Earthbeam API', () => {
       });
     });
 
+  });
+
+  describe('GET auth/:runId/init', () => {
+    /** The Executor's init call, with the run's init token. */
+    const init = async (runId: number) => {
+      const token = await app.get(EarthbeamApiAuthService).createInitToken({ runId });
+      return request(app.getHttpServer())
+        .get(`/earthbeam/auth/${runId}/init`)
+        .set('Authorization', `Bearer ${token}`);
+    };
+
+    it('starts a new run', async () => {
+      const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+
+      const res = await init(job.runs[0].id);
+
+      expect(res.status).toBe(200);
+      const run = await prisma.run.findUniqueOrThrow({ where: { id: job.runs[0].id } });
+      expect(run.status).toBe('running');
+    });
+
+    // Its init token has been used, or the run failed to launch.
+    it.each<RunStatus>(['running', 'error'])(
+      'refuses a run that is %s, leaving it as it was',
+      async (runStatus) => {
+        const job = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          runStatus,
+        });
+
+        const res = await init(job.runs[0].id);
+
+        expect(res.status).toBe(401);
+        const run = await prisma.run.findUniqueOrThrow({ where: { id: job.runs[0].id } });
+        expect(run.status).toBe(runStatus);
+      }
+    );
   });
 
   describe('GET /:runId/roster', () => {

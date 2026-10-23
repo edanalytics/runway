@@ -271,6 +271,26 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       ]);
       expect((await statusesOf(job.id, cookies))['corr-1']).toBe('run-failed');
     });
+
+    // ECS can report a failure after accepting the task, and the task can
+    // initialize before the failure comes back. The run is then executing,
+    // and will report its own done.
+    it('reports a send run whose task started before its launch failed as launched, leaving it running', async () => {
+      executorStart.mockImplementationOnce(async ({ id }: { id: number }) => {
+        await prisma.run.update({ where: { id }, data: { status: 'running' } });
+        throw new Error('ECS timed out');
+      });
+      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
+
+      const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+
+      expect(res.status).toBe(201);
+      const [sendRun] = await sendRunsOf(job.id);
+      expect(res.body).toEqual({ runId: sendRun.id, launched: true });
+      expect(sendRun.status).toBe('running');
+      expect(await prisma.runError.findMany({ where: { runId: sendRun.id } })).toEqual([]);
+      expect(await prisma.runUpdate.findMany({ where: { runId: sendRun.id } })).toEqual([]);
+    });
   });
 
   describe('authorization', () => {
