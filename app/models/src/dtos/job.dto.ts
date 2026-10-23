@@ -211,14 +211,19 @@ export class GetJobDto
   }
 
   /**
-   * What the job's successful runs report delivering: the full run and each
-   * successful send run, which deliver disjoint students. A failed send run's
-   * partial loads are left out; its students are run-failed until resent.
+   * What the job's successful runs report delivering: the full run, when it
+   * succeeded, and each successful send run, which deliver disjoint students.
+   * A failed send run's partial loads are left out; its students are
+   * run-failed until resent. So is an earlier full run of a job re-run before
+   * jobs could be started only once: the latest replaced its delivery.
    */
   get resourceTotal() {
-    return sumRunSummaries(
-      (this.runs ?? []).filter(({ status }) => status === 'success').map(({ summary }) => summary)
-    );
+    const fullRun = this.fullRun;
+    const delivered = [
+      ...(fullRun?.status === 'success' ? [fullRun] : []),
+      ...(this.runs ?? []).filter(({ kind, status }) => kind === 'send' && status === 'success'),
+    ];
+    return sumRunSummaries(delivered.map(({ summary }) => summary));
   }
 
   get displayStartedOn() {
