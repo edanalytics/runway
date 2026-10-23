@@ -466,7 +466,8 @@ describe('Earthbeam API', () => {
         }
       );
 
-      // Submit refuses such a match, so only a hand-seeded one gets here.
+      // Submit refuses such a match, so the test seeds one directly to pin the
+      // backstop.
       it('fails a send run’s payload when a match’s school years are missing', async () => {
         const job = await seedMatchedJob([
           { correlationId: 'corr-1', basis: 'suggestion', schoolYears: undefined },
@@ -476,11 +477,7 @@ describe('Earthbeam API', () => {
         const res = await payloadOf(sendRun.id);
 
         expect(res.status).toBe(500);
-        expect(res.body).toEqual({
-          statusCode: 500,
-          message: 'A send run’s decision has missing or malformed school_years',
-          error: 'Internal Server Error',
-        });
+        expect(res.body).toEqual({ statusCode: 500, message: 'Internal server error' });
       });
     });
 

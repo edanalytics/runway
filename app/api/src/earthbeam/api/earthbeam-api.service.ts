@@ -164,13 +164,6 @@ export class EarthbeamApiService {
     let send: EarthbeamApiJobResponseDto['send'];
     if (run.kind === 'send') {
       const students = await this.studentsForSendRun(runId, job.schoolYear.endYear);
-      if (students === null) {
-        return {
-          status: 'ERROR',
-          type: 'server_error',
-          message: 'A send run’s decision has missing or malformed school_years',
-        };
-      }
       send = { runId, students };
     }
 
@@ -235,14 +228,14 @@ export class EarthbeamApiService {
   }
 
   /**
-   * A send run's students, in correlation-id order, or null if any decision's
-   * school years are missing or malformed. Submit refuses such a match, so
-   * null is only a backstop.
+   * A send run's students, in correlation-id order. Throws if any decision's
+   * school years are missing or malformed: submit refuses such a match, so
+   * that is a broken invariant.
    */
   private async studentsForSendRun(
     runId: Run['id'],
     endYear: number
-  ): Promise<NonNullable<EarthbeamApiJobResponseDto['send']>['students'] | null> {
+  ): Promise<NonNullable<EarthbeamApiJobResponseDto['send']>['students']> {
     const sendRunDecisions = await this.prisma.sendRunDecision.findMany({
       where: { runId },
       orderBy: { correlationId: 'asc' },
@@ -266,7 +259,7 @@ export class EarthbeamApiService {
       // Narrows rosterDetails for isInJobYear. Submit has already refused any
       // match without valid school years.
       if (!hasSchoolYears(rosterDetails)) {
-        return null;
+        throw new Error(`Send run ${runId} has a decision with missing or malformed school_years`);
       }
       students.push({
         correlationId,
