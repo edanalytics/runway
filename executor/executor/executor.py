@@ -261,6 +261,9 @@ class JobExecutor:
             err_message = "job.inputFiles must include an INPUT_FILE item"
             self.error = error.InvalidJobError(err_message)
             raise ValueError(err_message)
+        # A send run's students are student data: log how many, not who
+        if job.get("send"):
+            job = {**job, "send": {**job["send"], "students": f"<{len(job['send']['students'])} students>"}}
         pprint(job)
 
     def refresh_bundle_code(self):
