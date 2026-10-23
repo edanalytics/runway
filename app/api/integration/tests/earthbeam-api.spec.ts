@@ -1077,6 +1077,37 @@ describe('Earthbeam API', () => {
           );
         });
 
+        it('marks a full run’s event with its kind, leaving its summary as it was', async () => {
+          const job = await prisma.job.findUniqueOrThrow({ where: { id: runA.jobId } });
+
+          await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload.runType).toBe('full');
+          expect(payload.summary.startsWith(`${job.name} (`)).toBe(true);
+        });
+
+        it('marks a send run’s event with its kind, and says so in its summary', async () => {
+          const sendRun = await prisma.run.create({
+            data: { jobId: runA.jobId, kind: 'send', status: 'running' },
+          });
+          const sendToken = await app
+            .get(EarthbeamApiAuthService)
+            .createAccessToken({ runId: sendRun.id });
+
+          await request(app.getHttpServer())
+            .post(`/earthbeam/jobs/${sendRun.id}/status`)
+            .set('Authorization', `Bearer ${sendToken}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload).toMatchObject({ runId: sendRun.id, runType: 'send' });
+          expect(payload.summary).toMatch(/^send run: /);
+        });
+
         it('should report reportable resource errors and the input params', async () => {
           // bundleA reports studentAssessments only, so students' failures don't count.
           await prisma.run.update({
