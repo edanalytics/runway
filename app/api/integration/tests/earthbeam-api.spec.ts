@@ -1058,6 +1058,28 @@ describe('Earthbeam API', () => {
         expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
       });
 
+      // The job page polls until the run's `done` update appears, and a retried
+      // `done` is refused once the run is final, so the update must be
+      // recorded with the status, before anything that can fail.
+      it('records a done with its status even when listing the output files fails', async () => {
+        fileServiceMock.listFilesAtPath.mockRejectedValueOnce(new Error('S3 is unavailable'));
+
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ action: 'done', status: 'success' });
+
+        expect(res.status).toBe(500);
+        expect(await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).toMatchObject({
+          status: 'success',
+        });
+        expect(
+          (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
+            ({ action, status }) => [action, status]
+          )
+        ).toEqual([['done', 'success']]);
+      });
+
       // A run reports `done` once, so its `success` or `error` is final. A late
       // `done` that contradicts it would let a run counted as failed, and so
       // resent, count as delivered too.
