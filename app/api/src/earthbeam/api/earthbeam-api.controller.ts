@@ -223,6 +223,19 @@ export class EarthbeamApiController {
     @Param('runId', ParseIntPipe) runId: number,
     @Body() body: EarthbeamApiStatusPayloadDto
   ) {
+    if (body.action === 'done') {
+      const result = await this.earthbeamApiService.completeRun(
+        runId,
+        body.status === 'success' ? 'success' : 'error',
+        this.prisma
+      );
+      // Checked before the update is recorded, so a refused `done` doesn't
+      // show in the job page's status updates.
+      if (result.status === 'ERROR') {
+        throw new ConflictException(`Run already complete: ${runId}`);
+      }
+    }
+
     await this.prisma.runUpdate.create({
       data: {
         runId,
@@ -231,14 +244,6 @@ export class EarthbeamApiController {
         receivedAt: new Date(),
       },
     });
-
-    if (body.action === 'done') {
-      await this.earthbeamApiService.completeRun(
-        runId,
-        body.status === 'success' ? 'success' : 'error',
-        this.prisma
-      );
-    }
   }
 
   @Post(':runId/error')

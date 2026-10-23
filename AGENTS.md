@@ -175,7 +175,7 @@ sequenceDiagram
 8. **Load**: `lightbeam send` to Ed-Fi ODS
 9. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
 10. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
-11. **Done**: POST status `{action: DONE, status: success|failure}`
+11. **Done**: POST status `{action: DONE, status: success|failure}`. A run's `success` or `error` is final: `completeRun` refuses a `done` for a run that is already either, with a 409 that records nothing, changes nothing and emits no event. The Executor ignores the response
 
 In the fuzzy matching modes the executor also calls `appUrls.identityService` immediately before using IDRS, exchanging its run-scoped bearer token for `{ token, url }`. See ID matching modes below. (Executor-side IDRS use is EDFIAL-481.)
 

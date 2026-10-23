@@ -271,11 +271,24 @@ export class EarthbeamApiService {
     return students;
   }
 
-  async completeRun(runId: Run['id'], status: 'success' | 'error', prisma: PrismaClient) {
+  async completeRun(
+    runId: Run['id'],
+    status: 'success' | 'error',
+    prisma: PrismaClient
+  ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; code: 'run_already_complete' }> {
     // TODO: probably belongs in earthbeam-run.service.ts ?
-    const run = await prisma.run.update({
-      where: { id: runId },
+    // A run reports `done` once, so `success` and `error` are final. Resending
+    // a failed send run's students relies on it. The conditional update
+    // refuses a later `done`, and of two racing ones only the first passes.
+    const { count } = await prisma.run.updateMany({
+      where: { id: runId, status: { in: ['new', 'running'] } },
       data: { status },
+    });
+    if (count === 0) {
+      return { status: 'ERROR', code: 'run_already_complete' };
+    }
+    const run = await prisma.run.findUniqueOrThrow({
+      where: { id: runId },
       include: {
         job: { include: { files: true, odsConfig: { include: { activeConnection: true } } } },
         runError: true,
@@ -397,6 +410,7 @@ export class EarthbeamApiService {
     } catch (error) {
       this.logger.error(`Error emitting event: ${error} for run ${run.id}`);
     }
+    return { status: 'SUCCESS' };
   }
 }
 
