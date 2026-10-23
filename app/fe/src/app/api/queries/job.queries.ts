@@ -8,6 +8,7 @@ import {
   JobErrorWrapperDto,
   PutJobResolveDto,
   GetOutputFileDto,
+  GetStudentMatchResultsDto,
 } from '@edanalytics/models';
 import { EntityQueryBuilder } from './builder';
 import { apiClient, methods } from '../methods';
@@ -73,6 +74,11 @@ export const getOutputFileDownloadUrl = async ({
   }
   return url;
 };
+
+export const getJobStudentMatchResults = (jobId: string) => ({
+  queryKey: ['jobs', jobId, 'student-match-results'],
+  queryFn: () => methods.getOne(`/jobs/${jobId}/student-match-results`, GetStudentMatchResultsDto),
+});
 
 export const getJobOutputFiles = (jobId: string) => ({
   queryKey: ['jobs', jobId, 'output-files'],
