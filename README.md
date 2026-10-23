@@ -6,10 +6,10 @@ Runway is a friendly UI over our open source tools [Earthmover](https://github.c
 
 The system consists of several components:
 
-1. the Application frontent and backend (see `app/`), with which users interact to set up Ed-Fi connections and run integration jobs
+1. the Application frontend and backend (see `app/`), with which users interact to set up Ed-Fi connections and run integration jobs
 1. the Executor (see `executor/`), which executes Jobs, transforming input data and sending it to an Ed-Fi API
 
-The Executor uses [earthmover](https://github.com/edanalytics/earthmover) to transform input data and [lightbeam](https://github.com/edanalytics/lightbeam)to send it to an Ed-Fi API.
+The Executor uses [earthmover](https://github.com/edanalytics/earthmover) to transform input data and [lightbeam](https://github.com/edanalytics/lightbeam) to send it to an Ed-Fi API.
 
 ## Usage
 
