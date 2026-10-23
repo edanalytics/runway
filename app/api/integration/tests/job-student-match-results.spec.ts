@@ -839,6 +839,27 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         );
       });
 
+      // A send run's own failed records are how a partly failed send shows on the job.
+      it('shows a successful send run’s failed records as complete with errors, with no student outstanding', async () => {
+        await prisma.run.update({
+          where: { id: runA.id },
+          data: { summary: withoutFailedRecords },
+        });
+        const sendRun = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'success');
+        await prisma.run.update({ where: { id: sendRun.id }, data: { summary: withFailedRecords } });
+
+        const jobs = await readJob(jobA.id);
+
+        expect(
+          jobs.map(({ status, resourceErrors }) => ({
+            status,
+            failedResources: resourceErrors.map(({ resource }) => resource),
+          }))
+        ).toEqual(
+          Array(2).fill({ status: 'complete with errors', failedResources: ['studentAssessments'] })
+        );
+      });
+
       it('sums the resource summaries of the full run and each successful send run, leaving out failed ones', async () => {
         await prisma.run.update({
           where: { id: runA.id },
