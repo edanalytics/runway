@@ -1058,6 +1058,44 @@ describe('Earthbeam API', () => {
         expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
       });
 
+      // A run reports `done` once, so its `success` or `error` is final. A late
+      // `done` that contradicts it would let a run counted as failed, and so
+      // resent, count as delivered too.
+      it.each([
+        ['failure', 'error', 'success'],
+        ['success', 'success', 'failure'],
+      ])(
+        'refuses a done after done/%s, leaving the run %s, with no event, listing or update',
+        async (first, runStatus, second) => {
+          const done = (status: string) =>
+            request(app.getHttpServer())
+              .post(endpointA)
+              .set('Authorization', `Bearer ${tokenA}`)
+              .send({ action: 'done', status });
+
+          /** What completing a run produces: its event and its output-file listing. */
+          const effects = () => ({
+            events: eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete').length,
+            listings: fileServiceMock.listFilesAtPath.mock.calls.length,
+          });
+
+          expect((await done(first)).status).toBe(201);
+          const afterFirst = effects();
+          const res = await done(second);
+
+          expect(res.status).toBe(409);
+          expect(await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).toMatchObject({
+            status: runStatus,
+          });
+          expect(effects()).toEqual(afterFirst);
+          expect(
+            (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
+              ({ action, status }) => [action, status]
+            )
+          ).toEqual([['done', first]]);
+        }
+      );
+
       describe('Slack Notifiction', () => {
         it('should send a slack notification when the run is complete', async () => {
           const res = await request(app.getHttpServer())
