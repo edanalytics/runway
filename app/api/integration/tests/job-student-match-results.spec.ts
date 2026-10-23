@@ -416,11 +416,12 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         expect(
           res.body.sendRuns.map(
-            ({ id, kind, status, summary, createdBy, studentCount }: GetSendRunDto) => ({
+            ({ id, kind, status, summary, createdOn, createdBy, studentCount }: GetSendRunDto) => ({
               id,
               kind,
               status,
               summary,
+              createdOn,
               submitterId: createdBy?.id,
               studentCount,
             })
@@ -429,6 +430,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           {
             id: resent.id,
             kind: 'send',
+            createdOn: resent.createdOn.toISOString(),
             status: 'running',
             summary: null,
             submitterId: userA.id,
@@ -437,6 +439,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           {
             id: failed.id,
             kind: 'send',
+            createdOn: failed.createdOn.toISOString(),
             status: 'error',
             summary,
             submitterId: userA.id,

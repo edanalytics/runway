@@ -411,7 +411,8 @@ export class GetStudentInputDetailsDto {
 
   /**
    * The latest send run that delivers the current decision, which decides the
-   * status. Null when none does.
+   * status. Null when none does. Once a failed send run's student is resent,
+   * this is the resend, not the failed run.
    */
   @Expose()
   sendRunId: number | null;
@@ -476,7 +477,11 @@ export class GetSendRunDto extends GetRunDto {
   @Transform(({ value }) => plainToInstance(GetUserDto, value, { excludeExtraneousValues: true }))
   createdBy: GetUserDto | null;
 
-  /** How many students it delivers. */
+  /**
+   * How many students it delivers, from its own rows. Students it delivered
+   * and that were later resent still count here, though their `sendRunId` is
+   * the resend's.
+   */
   @Expose()
   studentCount: number;
 }
