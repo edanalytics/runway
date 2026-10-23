@@ -263,6 +263,8 @@ export class EarthbeamApiService {
       // search with its own roster details.
       const rosterDetails =
         decision.studentMatchSuggestion?.rosterDetails ?? decision.rosterDetails;
+      // Narrows rosterDetails for isInJobYear. Submit has already refused any
+      // match without valid school years.
       if (!hasSchoolYears(rosterDetails)) {
         return null;
       }
