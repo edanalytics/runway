@@ -134,7 +134,15 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 2, toReview: 2, ready: 0, excluded: 0, submitted: 0 },
+        counts: {
+          total: 2,
+          toReview: 2,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
         students: [
           {
             correlationId: 'corr-1',
@@ -234,7 +242,15 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
+        counts: {
+          total: 0,
+          toReview: 0,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
         students: [],
       });
     });
@@ -298,37 +314,48 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           toReview: 1,
           ready: 1,
           excluded: 1,
-          submitted: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
         });
       });
 
-      // A match stays submitted whatever its send run's status.
-      it.each(['running', 'success', 'error'] as const)(
-        'returns a match in a send run as submitted, with its decision, when the run is %s',
-        async (sendRunStatus) => {
+      /** Matches each student to their suggestion, as a reviewer does. */
+      const matchAll = async (cookies: string, correlationIds: string[]) => {
+        for (const correlationId of correlationIds) {
+          await decide(cookies, correlationId, {
+            replacesVersion: null,
+            kind: 'match',
+            resultId: await resultIdOf(correlationId),
+            ordinal: 0,
+          });
+        }
+      };
+
+      /** Each student's status and the version of their decision. */
+      const statusesOf = (students: GetStudentInputDetailsDto[]) =>
+        students.map(({ correlationId, status, decision }) => ({
+          correlationId,
+          status,
+          version: decision?.version,
+        }));
+
+      it.each([
+        ['new', 'reprocessing', { reprocessing: 1, reprocessed: 0, runFailed: 0 }],
+        ['running', 'reprocessing', { reprocessing: 1, reprocessed: 0, runFailed: 0 }],
+        ['success', 'reprocessed', { reprocessing: 0, reprocessed: 1, runFailed: 0 }],
+        ['error', 'run-failed', { reprocessing: 0, reprocessed: 0, runFailed: 1 }],
+      ] as const)(
+        'returns a match whose send run is %s as %s, with its decision',
+        async (sendRunStatus, status, sendRunCounts) => {
           await reportStudents(['corr-1', 'corr-2']);
-          for (const correlationId of ['corr-1', 'corr-2']) {
-            await decide(cookies, correlationId, {
-              replacesVersion: null,
-              kind: 'match',
-              resultId: await resultIdOf(correlationId),
-              ordinal: 0,
-            });
-          }
+          await matchAll(cookies, ['corr-1', 'corr-2']);
           await seedSendRun(jobA.id, ['corr-1'], sendRunStatus);
 
           const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
-          expect(
-            res.body.students.map(
-              ({ correlationId, status, decision }: GetStudentInputDetailsDto) => ({
-                correlationId,
-                status,
-                version: decision?.version,
-              })
-            )
-          ).toEqual([
-            { correlationId: 'corr-1', status: 'submitted', version: 1 },
+          expect(statusesOf(res.body.students)).toEqual([
+            { correlationId: 'corr-1', status, version: 1 },
             { correlationId: 'corr-2', status: 'ready', version: 1 },
           ]);
           expect(res.body.counts).toEqual({
@@ -336,10 +363,34 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             toReview: 0,
             ready: 1,
             excluded: 0,
-            submitted: 1,
+            ...sendRunCounts,
           });
         }
       );
+
+      // The same decision row in both send runs, as resubmitting after a
+      // failed send run delivers it.
+      it('returns a match sent again after its send run failed by its latest send run', async () => {
+        await reportStudents(['corr-1']);
+        await matchAll(cookies, ['corr-1']);
+        await seedSendRun(jobA.id, ['corr-1'], 'error');
+        await seedSendRun(jobA.id, ['corr-1'], 'new');
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(statusesOf(res.body.students)).toEqual([
+          { correlationId: 'corr-1', status: 'reprocessing', version: 1 },
+        ]);
+        expect(res.body.counts).toEqual({
+          total: 1,
+          toReview: 0,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 1,
+          reprocessed: 0,
+          runFailed: 0,
+        });
+      });
 
       // A suggestion pick's search is null: see the test above.
       it('returns a match to a student found by searching, with the search and roster details, as ready', async () => {
@@ -374,7 +425,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           toReview: 1,
           ready: 1,
           excluded: 0,
-          submitted: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
         });
       });
 
@@ -443,7 +496,15 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
-          counts: { total: 3, toReview: 2, ready: 0, excluded: 1, submitted: 0 },
+          counts: {
+            total: 3,
+            toReview: 2,
+            ready: 0,
+            excluded: 1,
+            reprocessing: 0,
+            reprocessed: 0,
+            runFailed: 0,
+          },
           students: null,
         });
       });
@@ -553,27 +614,40 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         'corr-cleared',
         'corr-matched',
         'corr-excluded',
-        'corr-submitted',
+        'corr-reprocessing',
+        'corr-reprocessed',
+        'corr-run-failed',
       ]);
       await decide(cookies, 'corr-cleared', { replacesVersion: null, kind: 'exclude' });
       await decide(cookies, 'corr-cleared', { replacesVersion: 1, kind: 'clear' });
-      await decide(cookies, 'corr-matched', {
-        replacesVersion: null,
-        kind: 'match',
-        resultId: await resultIdOf('corr-matched'),
-        ordinal: 0,
-      });
       await decide(cookies, 'corr-excluded', { replacesVersion: null, kind: 'exclude' });
-      await decide(cookies, 'corr-submitted', {
-        replacesVersion: null,
-        kind: 'match',
-        resultId: await resultIdOf('corr-submitted'),
-        ordinal: 0,
-      });
-      await seedSendRun(jobA.id, ['corr-submitted'], 'running');
+      for (const correlationId of [
+        'corr-matched',
+        'corr-reprocessing',
+        'corr-reprocessed',
+        'corr-run-failed',
+      ]) {
+        await decide(cookies, correlationId, {
+          replacesVersion: null,
+          kind: 'match',
+          resultId: await resultIdOf(correlationId),
+          ordinal: 0,
+        });
+      }
+      await seedSendRun(jobA.id, ['corr-reprocessing'], 'running');
+      await seedSendRun(jobA.id, ['corr-reprocessed'], 'success');
+      await seedSendRun(jobA.id, ['corr-run-failed'], 'error');
 
       expect(await countsOf(jobA.id)).toEqual(
-        Array(2).fill({ total: 5, toReview: 2, ready: 1, excluded: 1, submitted: 1 })
+        Array(2).fill({
+          total: 7,
+          toReview: 2,
+          ready: 1,
+          excluded: 1,
+          reprocessing: 1,
+          reprocessed: 1,
+          runFailed: 1,
+        })
       );
     });
 
@@ -621,7 +695,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(inList.status).toBe('complete with errors');
     });
 
-    // A submitted student counts as done: the send run, as the job's last
+    // A student in a send run counts as done: the send run, as the job's last
     // run, shows how its delivery went.
     it.each(['success', 'error'] as const)(
       'shows a fuzzy job whose students are all excluded or submitted as its send run’s status, %s',
@@ -639,13 +713,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         const jobs = await readJob(jobA.id);
 
-        expect(
-          jobs.map(({ lastRun, studentMatchCounts, status }) => ({
-            lastRunId: lastRun?.id,
-            submitted: studentMatchCounts.submitted,
-            status,
-          }))
-        ).toEqual(Array(2).fill({ lastRunId: sendRun.id, submitted: 1, status: sendRunStatus }));
+        expect(jobs.map(({ lastRun, status }) => ({ lastRunId: lastRun?.id, status }))).toEqual(
+          Array(2).fill({ lastRunId: sendRun.id, status: sendRunStatus })
+        );
       }
     );
 
@@ -662,7 +732,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       await reportStudents(['corr-1', 'corr-2']);
       await reportStudents(['corr-1', 'corr-2'], runB.id);
       // The same correlation ids in each job: jobA's corr-1 is matched and
-      // corr-2 excluded, and only jobB's corr-1 is submitted.
+      // corr-2 excluded, and only jobB's corr-1 is in a send run.
       await decide(cookies, 'corr-1', {
         replacesVersion: null,
         kind: 'match',
@@ -690,9 +760,33 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       };
 
       expect([countsIn(jobA.id), countsIn(jobB.id), countsIn(jobC.id)]).toEqual([
-        { total: 2, toReview: 0, ready: 1, excluded: 1, submitted: 0 },
-        { total: 2, toReview: 1, ready: 0, excluded: 0, submitted: 1 },
-        { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
+        {
+          total: 2,
+          toReview: 0,
+          ready: 1,
+          excluded: 1,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
+        {
+          total: 2,
+          toReview: 1,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 1,
+          reprocessed: 0,
+          runFailed: 0,
+        },
+        {
+          total: 0,
+          toReview: 0,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
       ]);
     });
 

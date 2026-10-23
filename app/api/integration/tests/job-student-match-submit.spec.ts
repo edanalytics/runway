@@ -231,9 +231,9 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect(await sendRunsOf(job.id)).toHaveLength(1);
     });
 
-    // The send run and its decisions are committed before the launch, so the
-    // students are `submitted` though the run never started.
-    it('still returns the send run when it fails to start, recording the failure', async () => {
+    // The send run and its decisions are committed before the launch, so its
+    // students are in it though it never started.
+    it('still returns the send run when it fails to start, recording the failure, and its students read as run-failed', async () => {
       executorStart.mockRejectedValue(new Error('ECS is unavailable'));
       const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
 
@@ -247,6 +247,14 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect(await prisma.runError.findMany({ where: { runId: sendRun.id } })).toEqual([
         expect.objectContaining({ code: 'failed_to_start_executor' }),
       ]);
+      const review = await request(app.getHttpServer())
+        .get(`/jobs/${job.id}/student-match-results`)
+        .set('Cookie', [cookies]);
+      expect(
+        review.body.students.find(
+          ({ correlationId }: { correlationId: string }) => correlationId === 'corr-1'
+        ).status
+      ).toBe('run-failed');
     });
   });
 

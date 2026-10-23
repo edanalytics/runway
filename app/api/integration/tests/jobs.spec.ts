@@ -22,6 +22,7 @@ import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.ser
 import { GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
 import { FileService } from 'api/src/files/file.service';
 import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
+import { noStudentsToMatch } from 'api/src/jobs/student-match-review.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
 import { IdMatchingMode, Job, JobNote, RunKind, RunStatus } from '@prisma/client';
@@ -1150,7 +1151,7 @@ describe('PUT /jobs/:id/resolve', () => {
           where: { id: jobA.id },
           include: { runs: true, files: true },
         })),
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
+        studentMatchCounts: noStudentsToMatch,
       }).status;
       if (!statusBefore) {
         // sanity check
@@ -1178,7 +1179,7 @@ describe('PUT /jobs/:id/resolve', () => {
 
       const statusAfter = toGetJobDto({
         ...revertedJob,
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
+        studentMatchCounts: noStudentsToMatch,
       }).status;
       expect(statusAfter).toBe(statusBefore);
     });
