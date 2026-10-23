@@ -1009,61 +1009,33 @@ describe('Earthbeam API', () => {
         });
       });
 
-      describe('of a send run', () => {
-        /** What the job's full run left in its output directory. */
-        const FULL_RUN_KEYS = [
-          'test-base-path/output/ods/studentAssessments.jsonl',
-          'test-base-path/output/unmatched_studentAssessments.jsonl',
-          'test-base-path/output/lb-send-results.json',
-        ];
-
-        let sendRun: Run;
-        let defaultListing: ReturnType<jest.Mock['getMockImplementation']>;
-
-        /** Lists these keys as S3 does: everything under the prefix, named relative to it. */
-        const listBucket = (keys: string[]) =>
-          fileServiceMock.listFilesAtPath.mockImplementation(async (prefix: string) =>
-            keys
-              .filter((key) => key.startsWith(prefix))
-              .map((key) => ({ key, name: key.slice(prefix.length) }))
-          );
-
-        const postAsExecutor = async (runId: number, route: string, body: object) => {
-          const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
-          const res = await request(app.getHttpServer())
-            .post(`/earthbeam/jobs/${runId}/${route}`)
-            .set('Authorization', `Bearer ${token}`)
-            .send(body);
-          expect(res.status).toBe(201);
-        };
-
-        beforeEach(async () => {
-          defaultListing = fileServiceMock.listFilesAtPath.getMockImplementation();
-          const job = await seedJob({
-            odsConfig: odsConfigA2425,
-            bundle: bundleA,
-            tenant: tenantA,
-            idMatchingMode: 'fuzzy',
-            runStatus: 'success',
-          });
-          sendRun = await prisma.run.create({
-            data: { jobId: job.id, kind: 'send', status: 'running' },
-          });
+      it('records the files in output/ for a full run, and none for a send run', async () => {
+        const sendRun = await prisma.run.create({
+          data: { jobId: runA.jobId, kind: 'send', status: 'running' },
         });
+        const sendToken = await app
+          .get(EarthbeamApiAuthService)
+          .createAccessToken({ runId: sendRun.id });
+        fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+          { key: 'test-base-path/output/results.jsonl', name: 'results.jsonl' },
+        ]);
 
-        afterEach(() => {
-          fileServiceMock.listFilesAtPath.mockImplementation(defaultListing);
-        });
+        // The send run completes first, so if it listed output/ it would take these files.
+        const sendRes = await request(app.getHttpServer())
+          .post(`/earthbeam/jobs/${sendRun.id}/status`)
+          .set('Authorization', `Bearer ${sendToken}`)
+          .send({ action: 'done', status: 'success' });
+        expect(sendRes.status).toBe(201);
+        const fullRes = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ action: 'done', status: 'success' });
+        expect(fullRes.status).toBe(201);
 
-        it('records no output files, even with an output set and the full run’s files in output/', async () => {
-          const odsSet = `test-base-path/output/send-${sendRun.id}/ods`;
-          listBucket([...FULL_RUN_KEYS, `${odsSet}/studentAssessments.jsonl`]);
-          await postAsExecutor(sendRun.id, 'output-files', { path: odsSet, sentToOds: true });
-
-          await postAsExecutor(sendRun.id, 'status', { action: 'done', status: 'success' });
-
-          expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
-        });
+        expect(await prisma.runOutputFile.findMany({ where: { runId: runA.id } })).toMatchObject([
+          { name: 'results.jsonl', path: 'test-base-path/output/results.jsonl' },
+        ]);
+        expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
       });
 
       describe('Slack Notifiction', () => {
