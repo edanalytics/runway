@@ -21,6 +21,7 @@ import {
   ValidatorConstraintInterface,
 } from 'class-validator';
 import {
+  Run,
   RunStatus,
   StudentInputDetails,
   StudentMatchDecision,
@@ -431,6 +432,7 @@ export class GetStudentInputDetailsDto {
 
 type StudentInputDetailsWithResults = StudentInputDetails & {
   status: StudentMatchStatus;
+  sendRunId: number | null;
   decision: StudentMatchDecisionWithUser | null;
   results: (StudentMatchResult & { suggestions: StudentMatchSuggestion[] })[];
 };
@@ -480,8 +482,8 @@ export class GetSendRunDto extends GetRunDto {
 }
 
 /**
- * A job's students to match. Past the review limit, `students` is null, but
- * `counts` is still there.
+ * A job's students to match, and its send runs. Past the review limit,
+ * `students` is null, but `counts` and `sendRuns` are still there.
  */
 export class GetStudentMatchResultsDto {
   @Expose()
@@ -491,6 +493,11 @@ export class GetStudentMatchResultsDto {
   @Expose()
   @Type(() => GetStudentInputDetailsDto)
   students: GetStudentInputDetailsDto[] | null;
+
+  /** Newest first. */
+  @Expose()
+  @Type(() => GetSendRunDto)
+  sendRuns: GetSendRunDto[];
 }
 
 export const toGetStudentMatchResultsDto = makeSerializerCustomType<
@@ -498,5 +505,6 @@ export const toGetStudentMatchResultsDto = makeSerializerCustomType<
   {
     counts: GetStudentMatchCountsDto;
     students: StudentInputDetailsWithResults[] | null;
+    sendRuns: (Run & { createdBy: User | null; studentCount: number })[];
   }
 >(GetStudentMatchResultsDto);

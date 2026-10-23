@@ -184,18 +184,33 @@ export class StudentMatchReviewService {
 
   /**
    * The job's students to match, each with their current decision and every
-   * run's result for it, and each result's suggestions in order.
+   * run's result for it, and each result's suggestions in order. And the job's
+   * send runs, newest first.
    */
   async getStudentMatchResults(jobId: Job['id']) {
-    // One snapshot, so the counts and the students agree with each other even
-    // while students are reported or decided.
+    // One snapshot, so the counts, the students and the send runs agree with
+    // each other even while students are reported, decided or sent.
     return this.prisma.$transaction(
       async (tx) => {
         const counts =
           (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ??
           noStudentsToMatch;
+        const sendRuns = (
+          await tx.run.findMany({
+            where: { jobId, kind: 'send' },
+            orderBy: { id: 'desc' },
+            include: {
+              userRunCreatedByIdTouser: true,
+              _count: { select: { sendRunDecision: true } },
+            },
+          })
+        ).map(({ userRunCreatedByIdTouser, _count, ...run }) => ({
+          ...run,
+          createdBy: userRunCreatedByIdTouser,
+          studentCount: _count.sendRunDecision,
+        }));
         if (counts.total > this.studentMatchReviewLimit) {
-          return { counts, students: null };
+          return { counts, students: null, sendRuns };
         }
 
         const inputs = await tx.studentInputDetails.findMany({
@@ -225,13 +240,16 @@ export class StudentMatchReviewService {
         });
         return {
           counts,
+          sendRuns,
           // Prisma names each relation after its table; the API calls them
           // results and suggestions.
           students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
             const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
+            const sendRunDecision = latest?.sendRunDecision[0];
             return {
               ...input,
-              status: studentMatchStatus(latest?.kind, latest?.sendRunDecision[0]?.run.status),
+              status: studentMatchStatus(latest?.kind, sendRunDecision?.run.status),
+              sendRunId: sendRunDecision?.runId ?? null,
               decision: latest ? toStudentMatchDecision(latest) : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
