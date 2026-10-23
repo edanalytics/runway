@@ -174,7 +174,16 @@ export class StudentMatchReviewService {
     );
   }
 
-  /** Adds the counts every job read that shows a status needs. */
+  /**
+   * Adds the counts every job read that shows a status needs.
+   *
+   * The caller's runs and these counts are separate queries, so a send run
+   * that finishes between them can make one response disagree with itself:
+   * runs read while it was running and counts read after it succeeded show
+   * `success`, hiding the send's resource errors. The job page stops polling
+   * after the full run's `done`, so that can stay on screen until a reload.
+   * Accepted: the window is tiny, and nothing stored is affected.
+   */
   async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
     const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
     return jobs.map((job) => {
