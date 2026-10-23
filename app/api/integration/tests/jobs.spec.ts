@@ -236,6 +236,27 @@ describe('GET /jobs/:id', () => {
       expect(resA.body.id).toEqual(jobA.id);
     });
 
+    // The frontend picks the full run by its kind, to compute the job's status.
+    it('returns each run’s kind', async () => {
+      const sendRun = await prisma.run.create({
+        data: { jobId: jobA.id, kind: 'send', status: 'new' },
+      });
+
+      const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
+
+      const runs = res.body.runs.map(({ id, kind }: { id: number; kind: RunKind }) => ({
+        id,
+        kind,
+      }));
+      expect(runs).toHaveLength(2);
+      expect(runs).toEqual(
+        expect.arrayContaining([
+          { id: expect.any(Number), kind: 'full' },
+          { id: sendRun.id, kind: 'send' },
+        ])
+      );
+    });
+
     it('shows failed resources the bundle reports on as complete with errors', async () => {
       // bundleA reports studentAssessments only, so students' failures don't count.
       await prisma.run.updateMany({
@@ -256,7 +277,7 @@ describe('GET /jobs/:id', () => {
       expect(job.status).toBe('complete with errors');
     });
 
-    it('has no resource summaries when the last run has no summary', async () => {
+    it('has no resource summaries when its run has no summary', async () => {
       const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       const job = plainToInstance(GetJobDto, res.body);
 
@@ -1027,6 +1048,52 @@ describe('PUT /jobs/:id/start', () => {
     }
     expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(1);
     expect(executorStart).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /jobs/:id/status-updates and /errors', () => {
+  let job: SeededJob;
+  let cookie: string;
+
+  beforeEach(async () => {
+    job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+      runStatus: 'error',
+    });
+    await prisma.runUpdate.create({
+      data: { runId: job.runs[0].id, action: 'earthmover_run', status: 'failure' },
+    });
+    await prisma.runError.create({ data: { runId: job.runs[0].id, code: 'earthmover_run' } });
+    // A later send run, with its own update and error.
+    const sendRun = await prisma.run.create({
+      data: { jobId: job.id, kind: 'send', status: 'error' },
+    });
+    await prisma.runUpdate.create({
+      data: { runId: sendRun.id, action: 'lightbeam_send', status: 'failure' },
+    });
+    await prisma.runError.create({ data: { runId: sendRun.id, code: 'lightbeam_send' } });
+    cookie = (await authHelper.login(idpA, userA, tenantA)).cookies;
+  });
+
+  it('returns the full run’s status updates, not a later send run’s', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/jobs/${job.id}/status-updates`)
+      .set('Cookie', [cookie]);
+
+    expect(res.body.map(({ action }: { action: string }) => action)).toEqual(['earthmover_run']);
+  });
+
+  it('returns the full run’s errors, not a later send run’s', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/jobs/${job.id}/errors`)
+      .set('Cookie', [cookie]);
+
+    expect(res.body.map(({ error }: { error: { code: string } }) => error.code)).toEqual([
+      'earthmover_run',
+    ]);
   });
 });
 

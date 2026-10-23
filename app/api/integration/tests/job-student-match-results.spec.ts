@@ -61,6 +61,18 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       })
     ).id.toString();
 
+  /** Matches each student to their suggestion, as a reviewer does. */
+  const matchAll = async (cookies: string, correlationIds: string[]) => {
+    for (const correlationId of correlationIds) {
+      await decide(cookies, correlationId, {
+        replacesVersion: null,
+        kind: 'match',
+        resultId: await resultIdOf(correlationId),
+        ordinal: 0,
+      });
+    }
+  };
+
   /** Students with one suggestion each, reported by the job's full run. */
   const reportStudents = (correlationIds: string[], runId = runA.id) =>
     report(
@@ -319,18 +331,6 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           runFailed: 0,
         });
       });
-
-      /** Matches each student to their suggestion, as a reviewer does. */
-      const matchAll = async (cookies: string, correlationIds: string[]) => {
-        for (const correlationId of correlationIds) {
-          await decide(cookies, correlationId, {
-            replacesVersion: null,
-            kind: 'match',
-            resultId: await resultIdOf(correlationId),
-            ordinal: 0,
-          });
-        }
-      };
 
       /** Each student's status and the version of their decision. */
       const statusesOf = (students: GetStudentInputDetailsDto[]) =>
@@ -695,29 +695,127 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(inList.status).toBe('complete with errors');
     });
 
-    // A student in a send run counts as done: the send run, as the job's last
-    // run, shows how its delivery went.
-    it.each(['success', 'error'] as const)(
-      'shows a fuzzy job whose students are all excluded or submitted as its send run’s status, %s',
-      async (sendRunStatus) => {
+    describe('with send runs', () => {
+      // bundleA reports on studentAssessments.
+      const withFailedRecords = {
+        studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 2 },
+      };
+      const withoutFailedRecords = {
+        studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 0 },
+      };
+
+      beforeEach(async () => {
         await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
         await reportStudents(['corr-1', 'corr-2']);
-        await decide(cookies, 'corr-2', { replacesVersion: null, kind: 'exclude' });
-        await decide(cookies, 'corr-1', {
-          replacesVersion: null,
-          kind: 'match',
-          resultId: await resultIdOf('corr-1'),
-          ordinal: 0,
-        });
-        const sendRun = await seedSendRun(jobA.id, ['corr-1'], sendRunStatus);
+        await matchAll(cookies, ['corr-1', 'corr-2']);
+      });
+
+      // Reprocessing and run-failed students are outstanding; reprocessed ones are done.
+      it.each([
+        ['running', 'complete with errors'],
+        ['error', 'complete with errors'],
+        ['success', 'success'],
+      ] as const)(
+        'shows a fuzzy job whose students are all in a send run that is %s as %s',
+        async (sendRunStatus, jobStatus) => {
+          await seedSendRun(jobA.id, ['corr-1', 'corr-2'], sendRunStatus);
+
+          const jobs = await readJob(jobA.id);
+
+          expect(jobs.map(({ status }) => status)).toEqual(Array(2).fill(jobStatus));
+        }
+      );
+
+      it('shows a failed send run as complete with errors after a later send run of other students succeeds', async () => {
+        await seedSendRun(jobA.id, ['corr-1'], 'error');
+        await seedSendRun(jobA.id, ['corr-2'], 'success');
 
         const jobs = await readJob(jobA.id);
 
-        expect(jobs.map(({ lastRun, status }) => ({ lastRunId: lastRun?.id, status }))).toEqual(
-          Array(2).fill({ lastRunId: sendRun.id, status: sendRunStatus })
+        expect(jobs.map(({ status }) => status)).toEqual(Array(2).fill('complete with errors'));
+      });
+
+      it('shows success once a failed send run’s students are sent again successfully', async () => {
+        await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'error');
+        await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'success');
+
+        const jobs = await readJob(jobA.id);
+
+        expect(jobs.map(({ status }) => status)).toEqual(Array(2).fill('success'));
+      });
+
+      it('keeps the full run’s failed records as complete with errors after a successful send run', async () => {
+        await prisma.run.update({ where: { id: runA.id }, data: { summary: withFailedRecords } });
+        const sendRun = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'success');
+        await prisma.run.update({
+          where: { id: sendRun.id },
+          data: { summary: withoutFailedRecords },
+        });
+
+        const jobs = await readJob(jobA.id);
+
+        expect(
+          jobs.map(({ status, resourceErrors }) => ({
+            status,
+            failedResources: resourceErrors.map(({ resource }) => resource),
+          }))
+        ).toEqual(
+          Array(2).fill({ status: 'complete with errors', failedResources: ['studentAssessments'] })
         );
-      }
-    );
+      });
+
+      it('sums the resource summaries of the full run and each successful send run, leaving out failed ones', async () => {
+        await prisma.run.update({
+          where: { id: runA.id },
+          data: { summary: withoutFailedRecords },
+        });
+        const sent = await seedSendRun(jobA.id, ['corr-1'], 'success');
+        const failed = await seedSendRun(jobA.id, ['corr-2'], 'error');
+        // A resend of the failed run's student, which reported no summary.
+        await seedSendRun(jobA.id, ['corr-2'], 'success');
+        await prisma.run.update({
+          where: { id: sent.id },
+          data: {
+            summary: {
+              studentAssessments: { records_processed: 3, records_skipped: 1, records_failed: 0 },
+              students: { records_processed: 2, records_skipped: 0, records_failed: 0 },
+            },
+          },
+        });
+        await prisma.run.update({
+          where: { id: failed.id },
+          data: {
+            summary: {
+              studentAssessments: {
+                records_processed: 100,
+                records_skipped: 0,
+                records_failed: 50,
+              },
+            },
+          },
+        });
+
+        const jobs = await readJob(jobA.id);
+
+        expect(jobs.map(({ resourceSummaries }) => resourceSummaries)).toEqual(
+          Array(2).fill({
+            studentAssessments: { success: 12, skipped: 1, failed: 0 },
+            students: { success: 2, skipped: 0, failed: 0 },
+          })
+        );
+      });
+
+      it('lets a fuzzy job whose send run failed be resolved, as complete with errors', async () => {
+        await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'error');
+
+        const resolved = await request(app.getHttpServer())
+          .put(`/jobs/${jobA.id}/resolve`)
+          .set('Cookie', [cookies])
+          .send({ isResolved: true });
+
+        expect(resolved.status).toBe(200);
+      });
+    });
 
     it('counts each listed job’s own students', async () => {
       const seedFuzzyJob = () =>
