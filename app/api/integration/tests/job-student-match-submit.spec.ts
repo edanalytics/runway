@@ -20,11 +20,13 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
   const ECS_TASK_ARN = 'arn:aws:ecs:us-east-1:123456789012:task/cluster/abc123';
   /** The job's school year, 2024–25, by its end year. */
   const JOB_YEAR = 2025;
-  const DECISION_CHANGED = {
+  /** The refusal for stale versions, at these positions in the request. */
+  const decisionChanged = (indices: number[]) => ({
     statusCode: 409,
     code: 'decision_changed',
     message: 'A student’s decision has changed since the page loaded.',
-  };
+    indices,
+  });
   const FULL_RUN_NOT_DONE = {
     statusCode: 409,
     code: 'full_run_not_done',
@@ -427,16 +429,29 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       );
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual(DECISION_CHANGED);
+      expect(res.body).toEqual(decisionChanged([1]));
       expect(await sendRunsOf(job.id)).toEqual([]);
     });
 
     // An undecided student has no version, so any version is stale.
-    it('refuses a student with no decision', async () => {
-      const res = await submit(job.id, [{ correlationId: 'corr-1', version: 1 }], cookies);
+    it('names every stale position, including an undecided student’s', async () => {
+      await matchSuggestion(job.id, 'corr-1', cookies);
+      await matchSuggestion(job.id, 'corr-1', cookies, 1);
+      const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
+
+      const res = await submit(
+        job.id,
+        [
+          { correlationId: 'corr-1', version: 1 },
+          { correlationId: 'corr-2', version: v2 },
+          { correlationId: 'corr-3', version: 1 },
+        ],
+        cookies
+      );
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual(DECISION_CHANGED);
+      expect(res.body).toEqual(decisionChanged([0, 2]));
+      expect(await sendRunsOf(job.id)).toEqual([]);
     });
   });
 

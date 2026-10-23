@@ -482,15 +482,18 @@ export class JobsController {
             code,
             message: 'A student isn’t in the job.',
           });
+        // These four add the failing students' positions in the request, so
+        // the page can leave those students out and submit the rest. For
+        // decision_changed, it shows the reviewer those students again, as
+        // refetched. For not_a_match and invalid_school_years, it can also
+        // exclude them.
         case 'decision_changed':
           throw new ConflictException({
             statusCode: 409,
             code,
             message: 'A student’s decision has changed since the page loaded.',
+            indices: result.indices,
           });
-        // These three add the failing students' positions in the request, so
-        // the page can leave those students out and submit the rest. It can
-        // also exclude them, except when already submitted.
         case 'already_submitted':
           throw new ConflictException({
             statusCode: 409,

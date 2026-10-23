@@ -17,11 +17,11 @@ export class StudentMatchSubmitService {
     | { status: 'SUCCESS'; data: { runId: number; launched: boolean } }
     | {
         status: 'ERROR';
-        code: 'full_run_not_done' | 'not_found' | 'decision_changed';
+        code: 'full_run_not_done' | 'not_found';
       }
     | {
         status: 'ERROR';
-        code: 'already_submitted' | 'not_a_match' | 'invalid_school_years';
+        code: 'decision_changed' | 'already_submitted' | 'not_a_match' | 'invalid_school_years';
         indices: number[];
       }
   > {
@@ -74,12 +74,14 @@ export class StudentMatchSubmitService {
           // The current decision, or undefined for an undecided student.
           decision: decisionsById.get(correlationId)?.[0],
         }));
-        if (requested.some(({ version, decision }) => decision?.seq !== version)) {
-          return { status: 'ERROR', code: 'decision_changed' } as const;
-        }
-
         // The indices are positions in the request's students, so they come
         // from requested rather than the queries' rows.
+        const decisionChanged = requested.flatMap(({ version, decision }, index) =>
+          decision?.seq !== version ? [index] : []
+        );
+        if (decisionChanged.length > 0) {
+          return { status: 'ERROR', code: 'decision_changed', indices: decisionChanged } as const;
+        }
         const notAMatch = requested.flatMap(({ decision }, index) =>
           decision?.kind !== 'match' ? [index] : []
         );
