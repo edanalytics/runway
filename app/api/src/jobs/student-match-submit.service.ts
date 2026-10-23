@@ -111,10 +111,8 @@ export class StudentMatchSubmitService {
         // delivered: decisions refuse a student once any of their rows is in a
         // send run, so every send of a student delivers the same decision row.
         //
-        // Resending relies on `error` meaning the run delivers nothing more. A
-        // run's status only moves forward: init, a failed launch and `done`
-        // each change it only from `new` (or `running`, for `done`), so a run
-        // in `error` never starts, and never reports success later.
+        // Resending relies on `error` being final, which init, launch and
+        // `completeRun` enforce.
         const submitted = await tx.sendRunDecision.findMany({
           where: {
             jobId,
