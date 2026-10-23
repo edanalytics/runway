@@ -411,6 +411,28 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           where: { id: { in: [failed.id, resent.id] } },
           data: { createdById: userA.id },
         });
+        // Another tenant's job, whose send run isn't listed.
+        const otherTenantJob = await seedJob({
+          odsConfig: odsConfigB2526,
+          bundle: bundleA,
+          tenant: tenantB,
+          idMatchingMode: 'fuzzy',
+        });
+        const otherTenantRun = otherTenantJob.runs[0];
+        await reportStudents(['corr-1'], otherTenantRun.id);
+        const { cookies: tenantBCookies } = await authHelper.login(idpA, userB, tenantB);
+        await decide(
+          tenantBCookies,
+          'corr-1',
+          {
+            replacesVersion: null,
+            kind: 'match',
+            resultId: await resultIdOf('corr-1', otherTenantRun.id, otherTenantJob.id),
+            ordinal: 0,
+          },
+          otherTenantJob.id
+        );
+        await seedSendRun(otherTenantJob.id, ['corr-1'], 'running');
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
