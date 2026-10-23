@@ -90,7 +90,9 @@ export const noStudentsToMatch: GetStudentMatchCountsDto = {
   toReview: 0,
   ready: 0,
   excluded: 0,
-  submitted: 0,
+  reprocessing: 0,
+  reprocessed: 0,
+  runFailed: 0,
 };
 
 @Injectable()
@@ -122,22 +124,32 @@ export class StudentMatchReviewService {
         to_review: bigint;
         ready: bigint;
         excluded: bigint;
-        submitted: bigint;
+        reprocessing: bigint;
+        reprocessed: bigint;
+        run_failed: bigint;
       }[]
     >`
       SELECT i.job_id,
              count(*) AS total,
              count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
-             count(*) FILTER (WHERE d.kind = 'match' AND NOT d.submitted) AS ready,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.send_run_status IS NULL) AS ready,
              count(*) FILTER (WHERE d.kind = 'exclude') AS excluded,
-             count(*) FILTER (WHERE d.kind = 'match' AND d.submitted) AS submitted
+             count(*) FILTER (
+               WHERE d.kind = 'match' AND d.send_run_status IN ('new', 'running')
+             ) AS reprocessing,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.send_run_status = 'success') AS reprocessed,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.send_run_status = 'error') AS run_failed
       FROM public.student_input_details i
       LEFT JOIN LATERAL (
-        SELECT kind, EXISTS (
-                 SELECT 1 FROM public.send_run_decision s
+        SELECT kind, (
+                 SELECT r.status
+                 FROM public.send_run_decision s
+                 JOIN public.run r ON r.id = s.run_id
                  WHERE s.job_id = d.job_id AND s.correlation_id = d.correlation_id
                    AND s.seq = d.seq
-               ) AS submitted
+                 ORDER BY s.run_id DESC
+                 LIMIT 1
+               ) AS send_run_status
         FROM public.student_match_decision d
         WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
         ORDER BY d.seq DESC
@@ -154,7 +166,9 @@ export class StudentMatchReviewService {
           toReview: Number(row.to_review),
           ready: Number(row.ready),
           excluded: Number(row.excluded),
-          submitted: Number(row.submitted),
+          reprocessing: Number(row.reprocessing),
+          reprocessed: Number(row.reprocessed),
+          runFailed: Number(row.run_failed),
         },
       ])
     );
@@ -193,7 +207,15 @@ export class StudentMatchReviewService {
             studentMatchDecision: {
               orderBy: { seq: 'desc' },
               take: 1,
-              include: { user: true, _count: { select: { sendRunDecision: true } } },
+              include: {
+                user: true,
+                // The latest send run that delivers the decision.
+                sendRunDecision: {
+                  orderBy: { runId: 'desc' },
+                  take: 1,
+                  include: { run: { select: { status: true } } },
+                },
+              },
             },
             studentMatchResult: {
               orderBy: { runId: 'asc' },
@@ -207,10 +229,9 @@ export class StudentMatchReviewService {
           // results and suggestions.
           students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
             const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
-            const submitted = (latest?._count.sendRunDecision ?? 0) > 0;
             return {
               ...input,
-              status: studentMatchStatus(latest?.kind, submitted),
+              status: studentMatchStatus(latest?.kind, latest?.sendRunDecision[0]?.run.status),
               decision: latest ? toStudentMatchDecision(latest) : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,

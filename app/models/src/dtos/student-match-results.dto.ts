@@ -21,6 +21,7 @@ import {
   ValidatorConstraintInterface,
 } from 'class-validator';
 import {
+  RunStatus,
   StudentInputDetails,
   StudentMatchDecision,
   StudentMatchDecisionKind,
@@ -344,25 +345,48 @@ export const toPostStudentMatchDecisionResponseDto = makeSerializerCustomType<
 >(PostStudentMatchDecisionResponseDto);
 
 /**
- * A student's place in review, derived from their latest decision and whether
- * that decision is in a send run.
+ * A student's place in review, derived from their latest decision and, for a
+ * match in a send run, that send run's status.
  */
-export type StudentMatchStatus = 'to-review' | 'ready' | 'excluded' | 'submitted';
+export type StudentMatchStatus =
+  | 'to-review'
+  | 'ready'
+  | 'excluded'
+  | 'reprocessing'
+  | 'reprocessed'
+  | 'run-failed';
 
+/**
+ * `sendRunStatus` is the status of the latest send run that delivers the
+ * latest decision, if any does. No decision can follow a send, so the latest
+ * decision is the only one in any send run, and this agrees with the guards,
+ * which refuse a student any of whose decision rows is in one.
+ */
 export const studentMatchStatus = (
   latestDecision: StudentMatchDecisionKind | undefined,
-  submitted: boolean
+  sendRunStatus: RunStatus | undefined
 ): StudentMatchStatus => {
   switch (latestDecision) {
-    case 'match':
-      // Only a match is ever submitted, and it stays submitted whatever its
-      // send run's outcome.
-      return submitted ? 'submitted' : 'ready';
     case 'exclude':
       return 'excluded';
     case 'clear':
     case undefined:
       return 'to-review';
+    case 'match':
+      // Only a match is ever submitted.
+      switch (sendRunStatus) {
+        case undefined:
+          return 'ready';
+        case 'new':
+        case 'running':
+          return 'reprocessing';
+        // Whatever its resource errors: the run was attempted.
+        case 'success':
+          return 'reprocessed';
+        // Including a send run that failed to start.
+        case 'error':
+          return 'run-failed';
+      }
   }
 };
 
@@ -422,9 +446,17 @@ export class GetStudentMatchCountsDto {
   @Expose()
   excluded: number;
 
-  /** Matches in a send run, whatever its status. */
+  /** Matches whose send run is new or running. */
   @Expose()
-  submitted: number;
+  reprocessing: number;
+
+  /** Matches whose send run succeeded. */
+  @Expose()
+  reprocessed: number;
+
+  /** Matches whose send run ended in error. */
+  @Expose()
+  runFailed: number;
 }
 
 /**
