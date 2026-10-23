@@ -1,14 +1,11 @@
 import {
   Box,
   Button,
-  Checkbox,
   FormControl,
   FormLabel,
   HStack,
   Input,
   Progress,
-  SimpleGrid,
-  Spinner,
   Table,
   Tbody,
   Td,
@@ -19,21 +16,19 @@ import {
 } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto, StudentInputDetailsJson } from '@edanalytics/models';
 import { ReactNode, useEffect, useState } from 'react';
-import { Agreement, compare, Comparison } from './compare';
-import { SearchHit, searchRoster, SearchTerms, termsFrom } from './mockIdrs';
+import { Agreement, Comparison } from './compare';
 import {
   Batch,
   Candidate,
   isFinished,
   loadedOf,
   StudentStatus,
-  suggestedCandidates,
   totalOf,
   useReviewSession,
 } from './reviewSession';
 
 /*
- * PROTOTYPE ONLY. Pieces shared by the review designs.
+ * Pieces of the match review.
  */
 
 // Shape as well as color tells the marks apart: identical is filled, not
@@ -252,98 +247,6 @@ export const SearchField = ({
 );
 
 /**
- * Search the roster yourself, starting from the file's details. Results are
- * judged against the file, not the search terms: the file record is what
- * will be loaded, whatever it took to find the student.
- */
-export const SearchPanel = ({
-  group,
-  onPick,
-  heading = 'Search the roster',
-}: {
-  group: GetStudentInputDetailsDto;
-  onPick: (candidate: Candidate) => void;
-  heading?: ReactNode;
-}) => {
-  const { roster } = useReviewSession();
-  const [terms, setTerms] = useState<SearchTerms>(() => termsFrom(group.inputDetails));
-  const [hits, setHits] = useState<SearchHit[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const run = async () => {
-    setSearching(true);
-    setHits(await searchRoster(roster, terms));
-    setSearching(false);
-  };
-  const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
-    <SearchField
-      id={`search-${key}-${group.correlationId}`}
-      label={label}
-      value={terms[key]}
-      placeholder={placeholder}
-      onChange={(value) => setTerms({ ...terms, [key]: value })}
-      onEnter={run}
-    />
-  );
-
-  return (
-    <VStack alignItems="flex-start" width="100%" gap="300">
-      {heading && <Box textStyle="h6">{heading}</Box>}
-      <SimpleGrid columns={{ base: 2, md: 4 }} gap="200" width="100%">
-        {field('first_name', 'First name')}
-        {field('last_name', 'Last name')}
-        {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
-        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
-      </SimpleGrid>
-      <HStack gap="300">
-        <SecondaryButton onClick={run} isLoading={searching}>
-          Search
-        </SecondaryButton>
-        <Box fontSize="0.8rem" opacity="0.7">
-          Prototype: searches a pretend roster.
-        </Box>
-      </HStack>
-      {searching && <Spinner size="sm" color="blue.50" />}
-      {hits && !searching && (
-        <VStack alignItems="flex-start" width="100%" gap="300">
-          {hits.length === 0 && <Box>No one in the roster matches those details.</Box>}
-          {hits.map((hit) => {
-            const comparison = compare(group.inputDetails, hit.rosterDetails);
-            return (
-              <Box
-                key={hit.studentUniqueId}
-                width="100%"
-                padding="300"
-                borderRadius="6px"
-                bg="blue.600"
-              >
-                <HStack justifyContent="space-between" alignItems="flex-start" gap="300">
-                  <VStack alignItems="flex-start" gap="100" flex="1">
-                    <Evidence comparison={comparison} score={hit.score} />
-                    <ComparisonTable comparison={comparison} rosterHeading={hit.studentUniqueId} />
-                  </VStack>
-                  <PrimaryButton
-                    onClick={() =>
-                      onPick({
-                        studentUniqueId: hit.studentUniqueId,
-                        rosterDetails: hit.rosterDetails,
-                        score: null,
-                        source: 'search',
-                      })
-                    }
-                  >
-                    Use this student
-                  </PrimaryButton>
-                </HStack>
-              </Box>
-            );
-          })}
-        </VStack>
-      )}
-    </VStack>
-  );
-};
-
-/**
  * When no suggestion fits, or there were none: two ways forward, set apart
  * so searching and excluding never read as the same kind of step.
  */
@@ -358,8 +261,7 @@ export const NoSuggestionFits = ({
 }: {
   group: GetStudentInputDetailsDto;
   suggestionCount: number;
-  /** A tab's own search, in place of the default one. */
-  search?: ReactNode;
+  search: ReactNode;
   /** Back to the suggestions, when the reviewer came from them. */
   onBack?: () => void;
   onUse: (candidate: Candidate) => void;
@@ -387,7 +289,7 @@ export const NoSuggestionFits = ({
       title="Search the roster"
       detail="Look them up with corrected details, and any IDs you have for them. Using a result matches them and moves on."
     >
-      {search ?? <SearchPanel group={group} onPick={onUse} heading={null} />}
+      {search}
     </OptionBox>
     <HStack gap="300" opacity="0.7" fontSize="0.85rem">
       <Box flex="1" borderTopWidth="1px" borderColor="blue.50-40" />
@@ -567,40 +469,37 @@ export const ReviewProgress = () => {
   const failed = batches.filter((b) => b.status === 'complete with errors').length;
   const isDone = groups.length > 0 && excluded + reprocessed === groups.length;
   return (
-    <>
-      <SubmitConflictNotice />
-      <HStack
-        width="100%"
-        gap="300"
-        padding="300"
-        borderRadius="6px"
-        borderWidth="1px"
-        borderColor={isDone ? (failed ? 'pink.100' : 'green.100') : 'blue.50-40'}
-        flexWrap="wrap"
-        fontSize="0.9rem"
-      >
-        <Box fontWeight="600">
-          {isDone
-            ? failed
-              ? 'Review done, with delivery errors'
-              : 'Review done'
-            : `${groups.length - excluded - reprocessed} of ${
-                groups.length
-              } students still to finish`}
+    <HStack
+      width="100%"
+      gap="300"
+      padding="300"
+      borderRadius="6px"
+      borderWidth="1px"
+      borderColor={isDone ? (failed ? 'pink.100' : 'green.100') : 'blue.50-40'}
+      flexWrap="wrap"
+      fontSize="0.9rem"
+    >
+      <Box fontWeight="600">
+        {isDone
+          ? failed
+            ? 'Review done, with delivery errors'
+            : 'Review done'
+          : `${groups.length - excluded - reprocessed} of ${
+              groups.length
+            } students still to finish`}
+      </Box>
+      <Box opacity="0.85">
+        {reprocessed} reprocessed · {excluded} excluded
+        {count('reprocessing') > 0 && ` · ${count('reprocessing')} reprocessing`}
+        {count('ready') > 0 && ` · ${count('ready')} ready to submit`}
+        {count('to-review') > 0 && ` · ${count('to-review')} to review`}
+      </Box>
+      {failed > 0 && (
+        <Box color="pink.100">
+          {failed} {failed === 1 ? 'batch' : 'batches'} reported delivery errors
         </Box>
-        <Box opacity="0.85">
-          {reprocessed} reprocessed · {excluded} excluded
-          {count('reprocessing') > 0 && ` · ${count('reprocessing')} reprocessing`}
-          {count('ready') > 0 && ` · ${count('ready')} ready to submit`}
-          {count('to-review') > 0 && ` · ${count('to-review')} to review`}
-        </Box>
-        {failed > 0 && (
-          <Box color="pink.100">
-            {failed} {failed === 1 ? 'batch' : 'batches'} reported delivery errors
-          </Box>
-        )}
-      </HStack>
-    </>
+      )}
+    </HStack>
   );
 };
 
@@ -658,149 +557,3 @@ export const useStartState = prototypeSetting<'start-screen' | 'selected'>(
   ['start-screen', 'selected'],
   'start-screen'
 );
-
-/**
- * Simulations for how processing can go: a run that fails outright, a
- * submission that meets a conflicting change, and another reviewer's match.
- */
-export const PrototypeControls = () => {
-  const {
-    groups,
-    statusOf,
-    decide,
-    failNextRun,
-    setFailNextRun,
-    conflictNextSubmit,
-    setConflictNextSubmit,
-    simulateLarge,
-    setSimulateLarge,
-  } = useReviewSession();
-  // Someone else saving the top suggestion for a student still needing review.
-  const other = groups.find(
-    (g) => statusOf(g.correlationId) === 'to-review' && suggestedCandidates(g).length > 0
-  );
-  // Folded by default, so they don't sit between a view and its controls.
-  const [open, setOpen] = useState(false);
-  const [orientation, setOrientation] = useOrientation();
-  const [startState, setStartState] = useStartState();
-  return (
-    <VStack alignItems="flex-start" fontSize="0.8rem" opacity="0.75" gap="100">
-      <HStack
-        as="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        gap="100"
-        _hover={{ opacity: 1 }}
-      >
-        <Box width="0.8rem">{open ? '▾' : '▸'}</Box>
-        <Box>Prototype controls</Box>
-      </HStack>
-      {open && (
-        <>
-          <HStack gap="300" flexWrap="wrap">
-            <Checkbox
-              size="sm"
-              isChecked={failNextRun}
-              onChange={(e) => setFailNextRun(e.target.checked)}
-            >
-              Next batch's run fails outright
-            </Checkbox>
-            <Checkbox
-              size="sm"
-              isChecked={conflictNextSubmit}
-              onChange={(e) => setConflictNextSubmit(e.target.checked)}
-            >
-              Next submission finds a conflicting change
-            </Checkbox>
-            <Checkbox
-              size="sm"
-              isChecked={simulateLarge}
-              onChange={(e) => setSimulateLarge(e.target.checked)}
-            >
-              Simulate a large file (240 more students)
-            </Checkbox>
-            <Checkbox
-              size="sm"
-              isChecked={orientation === 'rows'}
-              onChange={(e) => setOrientation(e.target.checked ? 'rows' : 'columns')}
-            >
-              Show suggestions as rows (workspace views)
-            </Checkbox>
-            <Checkbox
-              size="sm"
-              isChecked={startState === 'start-screen'}
-              onChange={(e) => setStartState(e.target.checked ? 'start-screen' : 'selected')}
-            >
-              Open on a start screen, with no student selected
-            </Checkbox>
-            <QuietButton
-              size="xs"
-              isDisabled={!other}
-              onClick={() =>
-                other &&
-                decide(
-                  other.correlationId,
-                  { kind: 'match', candidate: suggestedCandidates(other)[0] },
-                  'another reviewer'
-                )
-              }
-            >
-              Another reviewer saves a match
-            </QuietButton>
-          </HStack>
-          <Box>Decisions persist in this browser; reload to try leaving and coming back.</Box>
-          <ResetPrototype />
-        </>
-      )}
-    </VStack>
-  );
-};
-
-/** A submission was refused because matches changed since the page loaded them. */
-export const SubmitConflictNotice = () => {
-  const { submitConflict } = useReviewSession();
-  if (!submitConflict) return null;
-  return (
-    <HStack
-      width="100%"
-      gap="300"
-      padding="300"
-      borderRadius="6px"
-      borderWidth="1px"
-      borderColor="pink.100"
-      flexWrap="wrap"
-      role="alert"
-    >
-      <Box flex="1">
-        Nothing was submitted. Some of these matches changed since this page loaded them, perhaps by
-        another reviewer. Refresh to see the latest, then submit again.
-      </Box>
-      <SecondaryButton onClick={() => window.location.reload()}>Refresh</SecondaryButton>
-    </HStack>
-  );
-};
-
-/** Notes when matches about to be submitted were saved by someone else. Not a stop. */
-export const OthersMatchesNote = ({ ready }: { ready: GetStudentInputDetailsDto[] }) => {
-  const { decisions } = useReviewSession();
-  const count = ready.filter((g) => {
-    const by = decisions.get(g.correlationId)?.decidedBy;
-    return by && by !== 'you';
-  }).length;
-  if (!count) return null;
-  return (
-    <Box fontSize="0.85rem" color="purple.200">
-      {count} of these {count === 1 ? 'match was' : 'matches were'} saved by another reviewer.
-      Submitting sends them as they are.
-    </Box>
-  );
-};
-
-export const ResetPrototype = () => {
-  const { reset } = useReviewSession();
-  return (
-    <QuietButton onClick={reset} fontSize="0.8rem" opacity="0.7">
-      Reset prototype
-    </QuietButton>
-  );
-};

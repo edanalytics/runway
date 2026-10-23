@@ -2,10 +2,6 @@ import {
   Box,
   Collapse,
   HStack,
-  Menu,
-  MenuButton,
-  MenuItem,
-  MenuList,
   Spinner,
   StackDivider,
   Tab,
@@ -36,36 +32,14 @@ import { UnmatchedStudents } from './JobViewComponents/UnmatchedStudents';
 import { JobConfiguration } from './JobViewComponents/JobConfiguration';
 import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
-import { StudentMatchResults } from './JobViewComponents/StudentMatchResults';
-import { StudentMatchResultsStacked } from './JobViewComponents/StudentMatchResultsStacked';
 import { useMe } from '../../api/queries/me.queries';
 import { ReviewSessionProvider } from './MatchReview/reviewSession';
-import { FocusReview } from './MatchReview/FocusReview';
-import { TriageReview } from './MatchReview/TriageReview';
-import { QuestionReview } from './MatchReview/QuestionReview';
-import { HybridReview } from './MatchReview/HybridReview';
 import { WorkspaceReview } from './MatchReview/WorkspaceReview';
 import { ReviewNotice } from './MatchReview/ReviewNotice';
 
 // Chakra's default selected tab uses blue.600, which this theme makes a
 // background color.
 const selectedTab = { color: 'blue.50', borderColor: 'blue.50' };
-
-// PROTOTYPE: review designs in panel order. Tucked designs stay reachable
-// from the tab bar's menu without competing with the promising ones.
-const reviewTabs: { label: string; tucked: boolean }[] = [
-  { label: 'Unmatched Students (side by side)', tucked: true },
-  { label: 'Unmatched Students (stacked)', tucked: true },
-  { label: 'Unmatched Students (focus)', tucked: true },
-  { label: 'Unmatched Students (triage)', tucked: true },
-  { label: 'Unmatched Students (yes / no)', tucked: true },
-  { label: 'Unmatched Students (grouped)', tucked: true },
-  { label: 'Unmatched Students (Sidebar)', tucked: false },
-  { label: 'Unmatched Students (Tracker)', tucked: true },
-  { label: 'Unmatched Students (condensing table)', tucked: true },
-  { label: 'Unmatched Students (Rows)', tucked: false },
-  { label: 'Unmatched Students (Table)', tucked: false },
-];
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
 const getStageFromUpdates = (updates: GetRunUpdateDto[] | undefined): JobStages => {
@@ -94,6 +68,7 @@ export const JobViewPage = () => {
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
   const [tabIndex, setTabIndex] = useState(0);
+  const hasStudentsToMatch = !!job.studentMatchCounts?.total;
 
   /**
    * The job progress through a series of stages. We determine which stage
@@ -184,7 +159,6 @@ export const JobViewPage = () => {
       <Box width="100%" marginTop="-2rem">
         <JobNotes job={job} />
       </Box>
-      {/* PROTOTYPE: the review tabs share one in-memory session. */}
       <ReviewSessionProvider job={job}>
         <Tabs
           isLazy
@@ -195,48 +169,7 @@ export const JobViewPage = () => {
         >
           <TabList borderColor="blue.50-40">
             <Tab _selected={selectedTab}>Overview</Tab>
-            {reviewTabs.map(({ label, tucked }, i) => (
-              // A tucked tab shows in the bar only while it's the one open.
-              <Tab
-                key={label}
-                _selected={selectedTab}
-                display={tucked && tabIndex !== i + 1 ? 'none' : undefined}
-              >
-                {label}
-              </Tab>
-            ))}
-            <Menu placement="bottom-end">
-              <MenuButton
-                as={Box}
-                role="button"
-                aria-label="More prototypes"
-                title="More prototypes"
-                marginLeft="auto"
-                paddingX="300"
-                alignSelf="center"
-                fontSize="1.2rem"
-                lineHeight="1"
-                opacity="0.8"
-                _hover={{ opacity: 1 }}
-              >
-                ⋯
-              </MenuButton>
-              <MenuList bg="blue.700" borderColor="blue.50-40" color="blue.50">
-                {reviewTabs.map(({ label, tucked }, i) =>
-                  tucked ? (
-                    <MenuItem
-                      key={label}
-                      bg="blue.700"
-                      _hover={{ bg: 'blue.600' }}
-                      _focus={{ bg: 'blue.600' }}
-                      onClick={() => setTabIndex(i + 1)}
-                    >
-                      {label}
-                    </MenuItem>
-                  ) : null
-                )}
-              </MenuList>
-            </Menu>
+            {hasStudentsToMatch && <Tab _selected={selectedTab}>Unmatched Students</Tab>}
           </TabList>
           <TabPanels>
             <TabPanel paddingX="0" paddingY="400">
@@ -269,15 +202,7 @@ export const JobViewPage = () => {
                       <JobError key={error.id} err={error} />
                     ))}
                     {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
-                    {/* PROTOTYPE: review starts on the workspace tab. */}
-                    <ReviewNotice
-                      onReview={() =>
-                        setTabIndex(
-                          1 +
-                            reviewTabs.findIndex((t) => t.label === 'Unmatched Students (Sidebar)')
-                        )
-                      }
-                    />
+                    {hasStudentsToMatch && <ReviewNotice onReview={() => setTabIndex(1)} />}
                   </JobViewSection>
                   {!!job.resourceSummaries && (
                     <JobViewSection title="Summary">
@@ -295,39 +220,11 @@ export const JobViewPage = () => {
                 </VStack>
               </VStack>
             </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <StudentMatchResults job={job} />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <StudentMatchResultsStacked job={job} />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <FocusReview />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <TriageReview />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <QuestionReview />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <HybridReview />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <WorkspaceReview />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <WorkspaceReview layout="topbar" />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <WorkspaceReview layout="table" />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <WorkspaceReview layout="inline" />
-            </TabPanel>
-            <TabPanel paddingX="0" paddingY="400">
-              <WorkspaceReview layout="stacked" />
-            </TabPanel>
+            {hasStudentsToMatch && (
+              <TabPanel paddingX="0" paddingY="400">
+                <WorkspaceReview />
+              </TabPanel>
+            )}
           </TabPanels>
         </Tabs>
       </ReviewSessionProvider>

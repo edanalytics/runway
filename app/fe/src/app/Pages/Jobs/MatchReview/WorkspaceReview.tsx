@@ -50,15 +50,13 @@ import {
   PrimaryButton,
   NoSuggestionFits,
   useOrientation,
-  PrototypeControls,
   SearchField,
   useStartState,
   QuietButton,
   SecondaryButton,
   studentName,
 } from './components';
-import { searchRoster, termsFrom, SearchTerms } from './mockIdrs';
-import { SpreadsheetControls } from './spreadsheet';
+import { termsFrom, SearchTerms } from './search';
 import {
   Batch,
   Candidate,
@@ -683,10 +681,6 @@ export const WorkspaceReview = ({
     </Box>
   );
 
-  // PROTOTYPE: work through the students in a spreadsheet instead, from the
-  // foot of the list.
-  const spreadsheet = <SpreadsheetControls />;
-
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
       {layout === 'split' ? (
@@ -779,7 +773,6 @@ export const WorkspaceReview = ({
               );
             }}
           />
-          {spreadsheet}
         </VStack>
       ) : stacked ? (
         <>
@@ -801,7 +794,6 @@ export const WorkspaceReview = ({
               selectedId={shownId}
               maxRows={10}
             />
-            {spreadsheet}
           </VStack>
           {pane}
         </>
@@ -821,7 +813,6 @@ export const WorkspaceReview = ({
             onOpen={open}
             lastOpened={selectedId}
           />
-          {spreadsheet}
         </VStack>
       ) : (
         <HStack
@@ -987,13 +978,10 @@ export const WorkspaceReview = ({
                 }
               )}
             </VStack>
-            {spreadsheet}
           </VStack>
           {pane}
         </HStack>
       )}
-
-      <PrototypeControls />
 
       {layout === 'inline' && (
         // As in triage, progress and the submit button stay in reach at the
@@ -2514,7 +2502,7 @@ const Search = ({
   saved: string | null;
   onUse: (candidate: Candidate) => void;
 }) => {
-  const { roster, searchOf, setSearch } = useReviewSession();
+  const { search, searchOf, setSearch } = useReviewSession();
   const remembered = searchOf(group.correlationId);
   const [terms, setTerms] = useState<SearchTerms>(
     remembered?.terms ?? termsFrom(group.inputDetails)
@@ -2522,10 +2510,16 @@ const Search = ({
   const [searching, setSearching] = useState(false);
   const hits = remembered?.hits ?? null;
 
+  const [error, setError] = useState<string | null>(null);
   const run = async () => {
     setSearching(true);
-    const found = await searchRoster(roster, terms);
-    setSearch(group.correlationId, { terms, hits: found });
+    setError(null);
+    try {
+      const found = await search(group.correlationId, terms);
+      setSearch(group.correlationId, { terms, hits: found });
+    } catch (err) {
+      setError((err as { message?: string })?.message ?? 'The search failed.');
+    }
     setSearching(false);
   };
   const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
@@ -2534,7 +2528,7 @@ const Search = ({
       label={label}
       value={terms[key]}
       placeholder={placeholder}
-      onChange={(value) => setTerms({ ...terms, [key]: value })}
+      onChange={(value) => setTerms({ ...terms, [key as string]: value })}
       onEnter={run}
     />
   );
@@ -2552,10 +2546,10 @@ const Search = ({
           Search
         </SecondaryButton>
         <Box fontSize="0.8rem" opacity="0.7">
-          Results are compared with your file, not with these search terms. Prototype: a pretend
-          roster.
+          Results are compared with your file, not with these search terms.
         </Box>
       </HStack>
+      {error && !searching && <Box color="pink.100">Couldn't search: {error}</Box>}
       {hits && !searching && hits.length === 0 && (
         <Box>No one in the roster matches those details.</Box>
       )}
@@ -2568,6 +2562,7 @@ const Search = ({
               rosterDetails: hit.rosterDetails,
               score: hit.score,
               source: 'search' as const,
+              searchDetails: hit.searchDetails,
             }))}
             saved={saved}
             onUse={onUse}
@@ -2640,11 +2635,11 @@ const SubmitReview = ({
 }) => {
   const { decisions, submit, groups, statusOf } = useReviewSession();
   const [sent, setSent] = useState(false);
-  const [conflict, setConflict] = useState(false);
+  const [conflict, setConflict] = useState<string | null>(null);
   useEffect(() => {
     if (isOpen) {
       setSent(false);
-      setConflict(false);
+      setConflict(null);
     }
   }, [isOpen]);
   const excluded = groups.filter((g) => statusOf(g.correlationId) === 'excluded');
@@ -2673,10 +2668,9 @@ const SubmitReview = ({
               borderColor="pink.100"
             >
               <Box>
-                Nothing was submitted. Some of these matches changed since this page loaded them,
-                perhaps by another reviewer. Refresh to see the latest, then submit again.
+                Nothing was submitted: {conflict} The list has been refreshed; check it, then submit
+                again.
               </Box>
-              <SecondaryButton onClick={() => window.location.reload()}>Refresh</SecondaryButton>
             </VStack>
           )}
           {byOthers.length > 0 && (
@@ -2758,11 +2752,13 @@ const SubmitReview = ({
           <QuietButton onClick={onClose}>Keep reviewing</QuietButton>
           <PrimaryButton
             isDisabled={sent || !ready.length}
-            onClick={() => {
+            isLoading={sent}
+            onClick={async () => {
               setSent(true);
-              const result = submit(ready.map((g) => g.correlationId));
+              const result = await submit(ready.map((g) => g.correlationId));
+              setSent(false);
               if (result.ok) onClose();
-              else setConflict(true);
+              else setConflict(result.message);
             }}
           >
             Submit batch

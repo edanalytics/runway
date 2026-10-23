@@ -1,34 +1,31 @@
-import { useQuery } from '@tanstack/react-query';
-import {
-  createContext,
-  ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { plainToInstance } from 'class-transformer';
+import { useToast } from '@chakra-ui/react';
+import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from 'react';
 import {
   GetJobDto,
   GetStudentInputDetailsDto,
+  GetStudentMatchDecisionDto,
+  GetStudentMatchResultsDto,
   StudentRosterDetailsJson,
+  StudentSearchDetailsDto,
 } from '@edanalytics/models';
-import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
-import { pretendRoster, RosterStudent, SearchHit, SearchTerms } from './mockIdrs';
-import { syntheticStudents } from './syntheticStudents';
+import { apiClient } from '../../../api/methods';
+import {
+  getJobStudentMatchResults,
+  useInvalidateJobQueries,
+} from '../../../api/queries/job.queries';
+import { useMe } from '../../../api/queries/me.queries';
+import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
 
 /*
- * PROTOTYPE ONLY. One review session per job page, shared by every review
- * design so a decision made on one tab shows on the others. Decisions,
- * searches and reprocessing batches are simulated. They're kept in this
- * browser's storage so leaving and coming back can be tried out, and a
- * batch's progress is worked out from the clock, so it survives a reload.
+ * One review session per job page, backed by the match-review API: the
+ * students and their decisions come from the job's match results, and every
+ * decision, search and submission goes to the server. A decision carries its
+ * version, which the next write for that student names as `replacesVersion`.
  *
- * A run reports only a summary: per resource, how many records it processed,
- * skipped and failed. It can't say which students those records belong to,
- * so a batch's outcome belongs to the batch, never to a student. A delivery
- * failure doesn't undo a match decision either; like a job that completes
- * with errors today, it's resolved out of band.
+ * Send runs ("batches") have no read endpoint yet (brief PR 5), so a submitted
+ * student shows as submitted, without its send run's status.
  */
 
 export type Candidate = {
@@ -37,11 +34,16 @@ export type Candidate = {
   /** IDRS's score, when the candidate came from IDRS. */
   score: number | null;
   source: 'suggestion' | 'search';
+  /** A suggestion's place, which a match to it names. */
+  resultId?: string;
+  ordinal?: number;
+  /** A search hit's search, which a match to it stores. */
+  searchDetails?: StudentSearchDetailsDto;
 };
 
 export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: 'not-in-roster' };
 
-export type Decision = DecisionChoice & { decidedAt: number; decidedBy: string };
+export type Decision = DecisionChoice & { version: number; decidedAt: number; decidedBy: string };
 
 export type MatchDecision = Extract<Decision, { kind: 'match' }>;
 
@@ -52,25 +54,12 @@ export type BatchItem = { correlationId: string; decision: MatchDecision };
 
 export type BatchStatus = 'queued' | 'processing' | 'complete' | 'complete with errors' | 'failed';
 
-/** A batch as stored: what it was sent with and how its pretend run will go. */
-type StoredBatch = {
+export type Batch = {
   id: number;
   submittedAt: number;
-  startsAt: number;
-  finishesAt: number;
   items: BatchItem[];
-  /** The batch this one retries, if any. */
   retryOf?: number;
-  /** A run that fails outright produces no summary. */
-  plan: {
-    outcome: 'complete' | 'complete with errors' | 'failed';
-    summary?: Record<string, ResourceSummary>;
-  };
-};
-
-export type Batch = Omit<StoredBatch, 'plan'> & {
   status: BatchStatus;
-  /** The run's summary, once it finishes. */
   summary?: Record<string, ResourceSummary>;
 };
 
@@ -78,10 +67,8 @@ export const isFinished = (batch: Batch) =>
   batch.status !== 'queued' && batch.status !== 'processing';
 
 /**
- * Where each student stands. Excluding a student takes effect at once: they
- * never go to the Executor. `reprocessed` means a run was attempted with the
- * student's match; whether their records loaded isn't knowable. `run-failed`
- * means the batch's run failed outright, so nothing was attempted.
+ * Where each student stands. The API's `submitted` shows as `reprocessed`
+ * until send runs can be read (`reprocessing` and `run-failed` are unused).
  */
 export type StudentStatus =
   | 'to-review'
@@ -93,6 +80,10 @@ export type StudentStatus =
 
 export type SearchState = { terms: SearchTerms; hits: SearchHit[] | null };
 
+export type SubmitResult =
+  | { ok: true }
+  | { ok: false; reason: 'conflict' | 'error'; message: string };
+
 type Session = {
   job: GetJobDto;
   groups: GetStudentInputDetailsDto[];
@@ -100,37 +91,21 @@ type Session = {
   overLimit: number | null;
   isLoading: boolean;
   isError: boolean;
-  roster: RosterStudent[];
   decisions: Map<string, Decision>;
   batches: Batch[];
-  /** Saves a decision; `decidedBy` is the reviewer, "you" unless simulating someone else. */
-  decide: (correlationId: string, decision: DecisionChoice, decidedBy?: string) => void;
-  undo: (correlationId: string) => void;
+  decide: (correlationId: string, decision: DecisionChoice) => Promise<void>;
+  undo: (correlationId: string) => Promise<void>;
   statusOf: (correlationId: string) => StudentStatus;
   /** The latest batch this student was submitted in, if any. */
   batchOf: (correlationId: string) => Batch | undefined;
-  /**
-   * Submits the match decisions among these students as one batch. Refused
-   * when a decision changed on the server since this page loaded it.
-   */
-  submit: (correlationIds: string[]) => SubmitResult;
-  /** Sends a failed batch's choices again, as a new batch. */
+  /** Submits the match decisions among these students as one send run. */
+  submit: (correlationIds: string[]) => Promise<SubmitResult>;
   retry: (batchId: number) => void;
+  /** Searches IDRS for a student with the reviewer's terms. */
+  search: (correlationId: string, terms: SearchTerms) => Promise<SearchHit[]>;
   /** The reviewer's last search for a student, kept for when they come back. */
   searchOf: (correlationId: string) => SearchState | undefined;
   setSearch: (correlationId: string, search: SearchState) => void;
-  /** Prototype control: make the next batch's run fail outright. */
-  /** Prototype control: add a large job's worth of made-up students. */
-  simulateLarge: boolean;
-  setSimulateLarge: (large: boolean) => void;
-  failNextRun: boolean;
-  setFailNextRun: (fail: boolean) => void;
-  /** Prototype control: make the next submission find a conflicting change. */
-  conflictNextSubmit: boolean;
-  setConflictNextSubmit: (conflict: boolean) => void;
-  /** Set when a submission was refused over a conflicting change. */
-  submitConflict: boolean;
-  reset: () => void;
 };
 
 const SessionContext = createContext<Session | null>(null);
@@ -141,38 +116,54 @@ export const useReviewSession = () => {
   return session;
 };
 
-export type SubmitResult = { ok: true } | { ok: false; reason: 'conflict' };
-
-type Stored = {
-  decisions: [string, Decision][];
-  batches: StoredBatch[];
-  searches: [string, SearchState][];
+/** An API error body: Nest's, or a coded one from the match-review routes. */
+type ApiError = { statusCode?: number; code?: string; message?: string | string[] };
+const messageOf = (err: unknown) => {
+  const { message } = (err ?? {}) as ApiError;
+  return Array.isArray(message) ? message.join('; ') : message ?? 'Something went wrong.';
 };
 
-const storageKey = (jobId: number) => `runway.match-review-prototype.${jobId}`;
+const statusFromApi = (status: GetStudentInputDetailsDto['status']): StudentStatus =>
+  status === 'submitted' ? 'reprocessed' : status;
 
-const load = (jobId: number): Stored | null => {
-  try {
-    const raw = window.localStorage.getItem(storageKey(jobId));
-    if (!raw) return null;
-    const stored = JSON.parse(raw) as Stored;
-    // Drop decision kinds this prototype no longer has.
-    stored.decisions = stored.decisions.filter(
-      ([, d]) => d.kind === 'match' || d.kind === 'not-in-roster'
-    );
-    return stored;
-  } catch {
-    return null;
+/** The candidate a stored decision rests on: its suggestion, or its search. */
+const candidateOf = (
+  group: GetStudentInputDetailsDto,
+  decision: GetStudentMatchDecisionDto
+): Candidate => {
+  if (decision.search) {
+    return {
+      studentUniqueId: decision.studentUniqueId ?? '',
+      rosterDetails: decision.search.rosterDetails,
+      score: null,
+      source: 'search',
+      searchDetails: decision.search.searchDetails as StudentSearchDetailsDto,
+    };
   }
+  const suggestion = group.results
+    .find((r) => r.id === decision.resultId)
+    ?.suggestions.find((s) => s.ordinal === decision.ordinal);
+  return {
+    studentUniqueId: decision.studentUniqueId ?? '',
+    rosterDetails: suggestion?.rosterDetails ?? {},
+    score: suggestion?.score ?? null,
+    source: 'suggestion',
+    resultId: decision.resultId ?? undefined,
+    ordinal: decision.ordinal ?? undefined,
+  };
 };
 
-const save = (jobId: number, stored: Stored | null) => {
-  try {
-    if (stored) window.localStorage.setItem(storageKey(jobId), JSON.stringify(stored));
-    else window.localStorage.removeItem(storageKey(jobId));
-  } catch {
-    // Storage is a convenience here; the session still works without it.
-  }
+const toDecision = (
+  group: GetStudentInputDetailsDto,
+  decision: GetStudentMatchDecisionDto,
+  meId: number | undefined
+): Decision => {
+  const decidedBy =
+    decision.decidedBy?.id === meId ? 'you' : decision.decidedBy?.displayName ?? 'someone';
+  const common = { version: decision.version, decidedAt: +decision.decidedOn, decidedBy };
+  return decision.kind === 'match'
+    ? { kind: 'match', candidate: candidateOf(group, decision), ...common }
+    : { kind: 'not-in-roster', ...common };
 };
 
 export const ReviewSessionProvider = ({
@@ -182,248 +173,176 @@ export const ReviewSessionProvider = ({
   job: GetJobDto;
   children: ReactNode;
 }) => {
-  const { data, isLoading, isError } = useQuery(getJobStudentMatchResults(String(job.id)));
-  const [simulateLarge, setSimulateLargeState] = useState(() => {
-    try {
-      return window.localStorage.getItem(`${storageKey(job.id)}.large`) === 'on';
-    } catch {
-      return false;
-    }
-  });
-  const setSimulateLarge = (large: boolean) => {
-    setSimulateLargeState(large);
-    try {
-      window.localStorage.setItem(`${storageKey(job.id)}.large`, large ? 'on' : 'off');
-    } catch {
-      // A convenience; the control still works for this visit.
-    }
-  };
-  const groups = useMemo(
-    () => [
-      ...(data?.students ?? []),
-      ...(simulateLarge ? syntheticStudents(240, job.lastRun?.id ?? 0) : []),
-    ],
-    [data, simulateLarge, job.lastRun?.id]
-  );
-  const roster = useMemo(() => pretendRoster(groups), [groups]);
-  const [initial] = useState(() => load(job.id));
-  const [decisions, setDecisions] = useState<Map<string, Decision>>(
-    () => new Map(initial?.decisions ?? [])
-  );
-  const [stored, setStored] = useState<StoredBatch[]>(() => initial?.batches ?? []);
-  const [searches, setSearches] = useState<Map<string, SearchState>>(
-    () => new Map(initial?.searches ?? [])
-  );
-  const [failNextRun, setFailNextRun] = useState(false);
-  const [conflictNextSubmit, setConflictNextSubmit] = useState(false);
-  const [submitConflict, setSubmitConflict] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const jobId = String(job.id);
+  const resultsQuery = getJobStudentMatchResults(jobId);
+  const { data, isLoading, isError, refetch } = useQuery(resultsQuery);
+  const queryClient = useQueryClient();
+  const invalidateJob = useInvalidateJobQueries(jobId);
+  const toast = useToast();
+  const { data: me } = useMe();
+  const meId = me?.user?.id;
+  const [searches, setSearches] = useState<Map<string, SearchState>>(() => new Map());
 
-  useEffect(() => {
-    save(job.id, {
-      decisions: [...decisions],
-      batches: stored,
-      searches: [...searches],
-    });
-  }, [job.id, decisions, stored, searches]);
-
-  // Tick while any run is unfinished, so batches move along.
-  const running = stored.some((batch) => batch.finishesAt > now);
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, [running]);
-
-  const batches = useMemo<Batch[]>(
+  const groups = useMemo(() => data?.students ?? [], [data]);
+  const decisions = useMemo(
     () =>
-      stored.map(({ plan, ...batch }) => {
-        if (now < batch.startsAt) return { ...batch, status: 'queued' };
-        if (now < batch.finishesAt) return { ...batch, status: 'processing' };
-        return { ...batch, status: plan.outcome, summary: plan.summary };
-      }),
-    [stored, now]
-  );
-
-  /**
-   * What the pretend run's summary reports for a batch: every record loads.
-   * Suggestions IDRS returns are already limited to students the job's year
-   * can load, so a run fails only when the prototype control says so.
-   */
-  const summarize = useCallback(
-    (items: BatchItem[]): Record<string, ResourceSummary> => ({
-      studentAssessments: {
-        processed: items.reduce((sum, { correlationId }) => sum + recordsFor(correlationId), 0),
-        skipped: 0,
-        failed: 0,
-      },
-    }),
-    []
-  );
-
-  const batchOf = useCallback(
-    (correlationId: string) =>
-      [...batches].reverse().find((b) => b.items.some((it) => it.correlationId === correlationId)),
-    [batches]
+      new Map(
+        groups.flatMap((g) =>
+          g.decision ? [[g.correlationId, toDecision(g, g.decision, meId)] as const] : []
+        )
+      ),
+    [groups, meId]
   );
 
   const statusOf = useCallback(
     (correlationId: string): StudentStatus => {
-      const decision = decisions.get(correlationId);
-      const batch = batchOf(correlationId);
-      // A decision made since the last submission is the one that counts.
-      if (decision && (!batch || decision.decidedAt > batch.submittedAt)) {
-        return decision.kind === 'match' ? 'ready' : 'excluded';
-      }
-      if (batch) {
-        if (!isFinished(batch)) return 'reprocessing';
-        return batch.status === 'failed' ? 'run-failed' : 'reprocessed';
-      }
-      return 'to-review';
+      const group = groups.find((g) => g.correlationId === correlationId);
+      return group ? statusFromApi(group.status) : 'to-review';
     },
-    [batchOf, decisions]
+    [groups]
+  );
+
+  const failed = useCallback(
+    (err: unknown) => {
+      toast({ status: 'error', title: "Couldn't save that", description: messageOf(err) });
+      // A 409 means the page is behind: catch up.
+      refetch();
+    },
+    [refetch, toast]
+  );
+
+  /** Writes a decision, then puts the server's answer straight into the cache. */
+  const write = useCallback(
+    async (correlationId: string, body: object) => {
+      const replacesVersion = decisions.get(correlationId)?.version ?? null;
+      try {
+        const res = (await apiClient.post(
+          `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}/decisions`,
+          { replacesVersion, ...body }
+        )) as unknown as { decision: GetStudentMatchDecisionDto | null };
+        const decision = res.decision && plainToInstance(GetStudentMatchDecisionDto, res.decision);
+        const status = !decision ? 'to-review' : decision.kind === 'match' ? 'ready' : 'excluded';
+        queryClient.setQueryData<GetStudentMatchResultsDto>(resultsQuery.queryKey, (current) =>
+          current?.students
+            ? {
+                ...current,
+                students: current.students.map((g) =>
+                  g.correlationId === correlationId ? { ...g, decision, status } : g
+                ),
+              }
+            : current
+        );
+        invalidateJob();
+      } catch (err) {
+        failed(err);
+      }
+    },
+    [decisions, failed, invalidateJob, jobId, queryClient, resultsQuery.queryKey]
   );
 
   const decide = useCallback(
-    (correlationId: string, decision: DecisionChoice, decidedBy = 'you') => {
-      setDecisions((current) =>
-        new Map(current).set(correlationId, { ...decision, decidedAt: Date.now(), decidedBy })
+    (correlationId: string, choice: DecisionChoice) => {
+      if (choice.kind === 'not-in-roster') return write(correlationId, { kind: 'exclude' });
+      const { candidate } = choice;
+      return write(
+        correlationId,
+        candidate.source === 'search'
+          ? {
+              kind: 'match',
+              studentUniqueId: candidate.studentUniqueId,
+              search: {
+                searchDetails: candidate.searchDetails ?? {},
+                rosterDetails: candidate.rosterDetails,
+              },
+            }
+          : { kind: 'match', resultId: candidate.resultId, ordinal: candidate.ordinal }
       );
     },
-    []
+    [write]
   );
 
-  const undo = useCallback((correlationId: string) => {
-    setDecisions((current) => {
-      const next = new Map(current);
-      next.delete(correlationId);
-      return next;
-    });
-  }, []);
-
-  const send = useCallback(
-    (items: BatchItem[], retryOf?: number) => {
-      if (!items.length) return;
-      const at = Date.now();
-      const summary = summarize(items);
-      const plan: StoredBatch['plan'] = failNextRun
-        ? { outcome: 'failed' }
-        : {
-            outcome: Object.values(summary).some((r) => r.failed > 0)
-              ? 'complete with errors'
-              : 'complete',
-            summary,
-          };
-      setFailNextRun(false);
-      setStored((current) => [
-        ...current,
-        {
-          id: at,
-          submittedAt: at,
-          startsAt: at + 1500,
-          finishesAt: at + 3500 + items.length * 500,
-          items,
-          retryOf,
-          plan,
-        },
-      ]);
-      setNow(at);
-    },
-    [failNextRun, summarize]
+  const undo = useCallback(
+    (correlationId: string) => write(correlationId, { kind: 'clear' }),
+    [write]
   );
 
   const submit = useCallback(
-    (correlationIds: string[]): SubmitResult => {
-      // Stands in for the server checking each decision is still the one
-      // this page loaded, before it accepts the batch.
-      if (conflictNextSubmit) {
-        setConflictNextSubmit(false);
-        setSubmitConflict(true);
-        return { ok: false, reason: 'conflict' };
+    async (correlationIds: string[]): Promise<SubmitResult> => {
+      const students = correlationIds.flatMap((correlationId) => {
+        const decision = decisions.get(correlationId);
+        return decision?.kind === 'match' ? [{ correlationId, version: decision.version }] : [];
+      });
+      if (!students.length) return { ok: true };
+      try {
+        await apiClient.post(`/jobs/${jobId}/student-match-results/submit`, { students });
+        invalidateJob();
+        return { ok: true };
+      } catch (err) {
+        refetch();
+        const code = (err as ApiError)?.code;
+        return {
+          ok: false,
+          reason: code === 'decision_changed' ? 'conflict' : 'error',
+          message: messageOf(err),
+        };
       }
-      setSubmitConflict(false);
-      send(
-        correlationIds.flatMap((correlationId) => {
-          const decision = decisions.get(correlationId);
-          return decision?.kind === 'match' ? [{ correlationId, decision }] : [];
-        })
-      );
-      return { ok: true };
     },
-    [conflictNextSubmit, decisions, send]
+    [decisions, invalidateJob, jobId, refetch]
   );
 
-  const retry = useCallback(
-    (batchId: number) => {
-      const batch = batches.find((b) => b.id === batchId);
-      // Only students this batch still speaks for: not ones decided again since.
-      if (batch)
-        send(
-          batch.items.filter((it) => batchOf(it.correlationId)?.id === batchId),
-          batchId
-        );
+  const search = useCallback(
+    async (correlationId: string, terms: SearchTerms): Promise<SearchHit[]> => {
+      const searchDetails = searchDetailsFrom(terms);
+      const found = (await apiClient.post(
+        `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}/search`,
+        searchDetails
+      )) as unknown as Omit<SearchHit, 'searchDetails'>[];
+      return found.map((hit) => ({ ...hit, searchDetails }));
     },
-    [batches, batchOf, send]
+    [jobId]
   );
 
   const searchOf = useCallback((correlationId: string) => searches.get(correlationId), [searches]);
-  const setSearch = useCallback((correlationId: string, search: SearchState) => {
-    setSearches((current) => new Map(current).set(correlationId, search));
+  const setSearch = useCallback((correlationId: string, state: SearchState) => {
+    setSearches((current) => new Map(current).set(correlationId, state));
   }, []);
-
-  const reset = useCallback(() => {
-    setDecisions(new Map());
-    setStored([]);
-    setSearches(new Map());
-    setFailNextRun(false);
-    setConflictNextSubmit(false);
-    setSubmitConflict(false);
-    save(job.id, null);
-  }, [job.id]);
 
   const session: Session = {
     job,
     groups,
-    overLimit: data && !data.students ? data.count : null,
+    overLimit: data && !data.students ? data.counts.total : null,
     isLoading,
     isError,
-    roster,
     decisions,
-    batches,
+    batches: [],
     decide,
     undo,
     statusOf,
-    batchOf,
+    batchOf: () => undefined,
     submit,
-    retry,
+    retry: () => undefined,
+    search,
     searchOf,
     setSearch,
-    simulateLarge,
-    setSimulateLarge,
-    failNextRun,
-    setFailNextRun,
-    conflictNextSubmit,
-    setConflictNextSubmit,
-    submitConflict,
-    reset,
   };
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
 };
 
-/** Every candidate IDRS suggested for a student, best first. */
-export const suggestedCandidates = (group: GetStudentInputDetailsDto): Candidate[] =>
-  group.results
-    .flatMap((result) => result.suggestions)
+/** The suggestions a reviewer can pick from: the latest result's, best first. */
+export const suggestedCandidates = (group: GetStudentInputDetailsDto): Candidate[] => {
+  const latest = group.results[group.results.length - 1];
+  return (latest?.suggestions ?? [])
+    .slice()
     .sort((a, b) => b.score - a.score)
     .map((suggestion) => ({
       studentUniqueId: suggestion.studentUniqueId,
       rosterDetails: suggestion.rosterDetails,
       score: suggestion.score,
       source: 'suggestion' as const,
+      resultId: latest.id,
+      ordinal: suggestion.ordinal,
     }));
-
-/** How many records a student has in the file: one or two, in this prototype. */
-const recordsFor = (correlationId: string) => 1 + (parseInt(correlationId.slice(-1), 16) % 2);
+};
 
 /** Every resource's counts added up, e.g. across all of a job's batches. */
 export const totalOf = (summary: Record<string, ResourceSummary> | undefined) =>
