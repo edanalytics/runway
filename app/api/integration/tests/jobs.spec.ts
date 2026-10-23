@@ -1139,6 +1139,47 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
       errors: ['lightbeam_send'],
     });
   });
+
+  // The re-run replaced the earlier run's delivery, so the earlier run's
+  // failed records neither count nor make the job complete with errors.
+  it('takes a job with several successful full runs’ resource total from its latest', async () => {
+    const rerunJob = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      runStatus: 'success',
+    });
+    await prisma.run.update({
+      where: { id: rerunJob.runs[0].id },
+      data: {
+        // Earlier than the re-run, whatever the clock's resolution.
+        createdOn: new Date(Date.now() - 60_000),
+        summary: {
+          studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 2 },
+        },
+      },
+    });
+    await prisma.run.create({
+      data: {
+        jobId: rerunJob.id,
+        kind: 'full',
+        status: 'success',
+        summary: {
+          studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 0 },
+        },
+      },
+    });
+
+    const read = await request(app.getHttpServer())
+      .get(`/jobs/${rerunJob.id}`)
+      .set('Cookie', [cookie]);
+    const job = plainToInstance(GetJobDto, read.body);
+
+    expect({ status: job.status, resourceSummaries: job.resourceSummaries }).toEqual({
+      status: 'success',
+      resourceSummaries: { studentAssessments: { success: 10, skipped: 0, failed: 0 } },
+    });
+  });
 });
 
 describe('PUT /jobs/:id/resolve', () => {
