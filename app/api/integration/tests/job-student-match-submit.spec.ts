@@ -581,6 +581,19 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect((await statusesOf(job.id, cookies))['corr-1']).toBe('reprocessing');
     });
 
+    it('submits them again after their send run failed to start', async () => {
+      executorStart.mockRejectedValueOnce(new Error('ECS is unavailable'));
+      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
+      const failed = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+      expect(failed.body.launched).toBe(false);
+
+      const res = await submit(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+
+      expect(res.status).toBe(201);
+      expect(res.body.launched).toBe(true);
+      expect((await sendRunsOf(job.id)).map(({ status }) => status)).toEqual(['error', 'new']);
+    });
+
     it('sends them in one send run with ready students', async () => {
       const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
       const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
