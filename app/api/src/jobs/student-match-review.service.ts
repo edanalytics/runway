@@ -355,8 +355,10 @@ export class StudentMatchReviewService {
       async (tx) => {
         // Once a student is submitted, their current decision is the one their
         // send run delivers. We do not allow decisions to be saved after the
-        // student has been submitted. The insert below handles this by not
-        // inserting when the student has a row in send_run_decision.
+        // student has been submitted, even if their send run fails: they can
+        // only be submitted again, with the same decision. The insert below
+        // handles this by not inserting when the student has a row in
+        // send_run_decision.
         //
         // However, that check alone has a gap. An in-progress submit hasn't
         // committed its send run yet, so a decision could land after the submit
