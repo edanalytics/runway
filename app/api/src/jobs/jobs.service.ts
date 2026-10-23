@@ -26,22 +26,22 @@ export class JobsService {
     private runService: RunsService
   ) {}
 
+  /** The full run's. A send run's surface through its students. */
   async getStatusUpdates(jobId: Job['id']) {
-    const lastRun = await this.prisma.run.findFirst({
-      where: { jobId },
-      orderBy: { createdOn: 'desc' },
+    const fullRun = await this.prisma.run.findFirst({
+      where: { jobId, kind: 'full' },
       include: { runUpdate: true },
     });
-    return lastRun?.runUpdate;
+    return fullRun?.runUpdate;
   }
 
+  /** The full run's. A send run's surface through its students. */
   async getErrors(jobId: Job['id']) {
-    const lastRun = await this.prisma.run.findFirst({
-      where: { jobId },
-      orderBy: { createdOn: 'desc' },
+    const fullRun = await this.prisma.run.findFirst({
+      where: { jobId, kind: 'full' },
       include: { runError: true },
     });
-    return lastRun?.runError;
+    return fullRun?.runError;
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<

@@ -129,8 +129,9 @@ export class GetJobDto
   @Transform(({ obj }) => !!obj.apiClientId || !!obj.isApiInitiated)
   isApiInitiated: boolean;
 
-  get lastRun(): GetRunDto | undefined {
-    return this.runs?.slice().sort((a, b) => b.createdOn.getTime() - a.createdOn.getTime())[0];
+  /** The job's one full run. Its send runs count through its students and resource total. */
+  get fullRun(): GetRunDto | undefined {
+    return this.runs?.find((run) => run.kind === 'full');
   }
 
   get displayName() {
@@ -139,8 +140,8 @@ export class GetJobDto
 
   /**
    * "status" on a job is a composite of a number of different properties:
-   * - the status of the last run
-   * - whether the last run had unmatched students or resource errors
+   * - the status of the full run
+   * - whether the job has outstanding students or resource errors
    * - whether a user marked the job as resolved
    * ... and possible others in the future.
    */
@@ -148,7 +149,7 @@ export class GetJobDto
     return this.isResolved ? 'resolved' : this.originalStatus;
   }
   get originalStatus(): TJobDisplayStatus | null {
-    const status = this.lastRun?.status;
+    const status = this.fullRun?.status;
     if (!status) {
       return null;
     }
@@ -168,28 +169,26 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: students who aren't done. Excluded students and students in a
-   * send run are done; a saved match isn't, since it delivers nothing on its
-   * own. A send run's own status and resource errors show its outcome, as the
-   * job's last run. Never in fuzzy background mode, where the ID-based run has
-   * delivered.
+   * Fuzzy mode: outstanding students, those who aren't done: to review, ready,
+   * reprocessing and run-failed. A saved match delivers nothing on its own,
+   * and a send run's students aren't done until it succeeds. Excluded and
+   * reprocessed students are done. Never in fuzzy background mode, where the
+   * ID-based run has delivered.
    */
   get hasFuzzyStudentsToMatch() {
-    return (
-      this.idMatchingMode === 'fuzzy' &&
-      this.studentMatchCounts.toReview + this.studentMatchCounts.ready > 0
-    );
+    const { toReview, ready, reprocessing, runFailed } = this.studentMatchCounts;
+    return this.idMatchingMode === 'fuzzy' && toReview + ready + reprocessing + runFailed > 0;
   }
 
   /**
    * ID-based matching (`id_based`, and the ID-based run of fuzzy background
-   * mode): students whose IDs the last run couldn't find. The user fixes the
+   * mode): students whose IDs the full run couldn't find. The user fixes the
    * IDs in the file and reprocesses it.
    */
   get hasIdBasedUnmatchedStudents() {
     return (
-      this.lastRun?.unmatchedStudentsInfo?.count !== undefined &&
-      this.lastRun?.unmatchedStudentsInfo?.count > 0
+      this.fullRun?.unmatchedStudentsInfo?.count !== undefined &&
+      this.fullRun?.unmatchedStudentsInfo?.count > 0
     );
   }
 
@@ -197,16 +196,27 @@ export class GetJobDto
     return this.resourceErrors.length > 0;
   }
   get resourceErrors() {
-    return getResourceErrors(this.lastRun?.summary, this.template.reportResources);
+    return getResourceErrors(this.resourceTotal, this.template.reportResources);
   }
 
   get resourceSummaries() {
-    const summary = this.lastRun?.summary;
-    return summary ? getResourceSummaries(summary) : undefined;
+    const total = this.resourceTotal;
+    return total ? getResourceSummaries(total) : undefined;
+  }
+
+  /**
+   * What the job's successful runs report delivering: the full run and each
+   * successful send run, which deliver disjoint students. A failed send run's
+   * partial loads are left out; its students are run-failed until resent.
+   */
+  get resourceTotal() {
+    return sumRunSummaries(
+      (this.runs ?? []).filter(({ status }) => status === 'success').map(({ summary }) => summary)
+    );
   }
 
   get displayStartedOn() {
-    const createdOn = this.lastRun?.createdOn;
+    const createdOn = this.fullRun?.createdOn;
     return createdOn
       ? `${createdOn.toLocaleDateString()} ${createdOn.toLocaleTimeString('en-US', {
           hour: '2-digit',
@@ -216,7 +226,7 @@ export class GetJobDto
   }
 
   get isComplete() {
-    return this.lastRun?.status === 'success' || this.lastRun?.status === 'error';
+    return this.fullRun?.status === 'success' || this.fullRun?.status === 'error';
   }
 
   // Intentionally not exposing
@@ -244,6 +254,36 @@ export const getResourceSummaries = (
       return [resource, { skipped, failed, success }];
     })
   );
+
+/**
+ * Runs' summaries, summed per resource, in a run summary's shape. A resource
+ * missing from a run counts nothing there. Null when no run has a summary.
+ */
+const sumRunSummaries = (summaries: GetRunDto['summary'][]) => {
+  const reported = summaries.filter(
+    (summary): summary is NonNullable<GetRunDto['summary']> => summary !== null
+  );
+  if (reported.length === 0) {
+    return null;
+  }
+  const total: Record<
+    string,
+    { records_processed: number; records_skipped: number; records_failed: number }
+  > = {};
+  for (const summary of reported) {
+    for (const [resource, counts] of Object.entries(summary)) {
+      const sum = (total[resource] ??= {
+        records_processed: 0,
+        records_skipped: 0,
+        records_failed: 0,
+      });
+      sum.records_processed += counts['records_processed'] ?? 0;
+      sum.records_skipped += counts['records_skipped'] ?? 0;
+      sum.records_failed += counts['records_failed'] ?? 0;
+    }
+  }
+  return total;
+};
 
 /** The resources with failed records in a run's summary that the bundle reports on. */
 export const getResourceErrors = (
