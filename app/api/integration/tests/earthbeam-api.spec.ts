@@ -466,6 +466,26 @@ describe('Earthbeam API', () => {
         }
       );
 
+      it('gives a resend of a failed send run the same students, answers and cross-year flags', async () => {
+        const job = await seedMatchedJob([
+          { correlationId: 'corr-1', basis: 'suggestion', schoolYears: [JOB_YEAR] },
+          { correlationId: 'corr-2', basis: 'search', schoolYears: [JOB_YEAR - 1] },
+        ]);
+        const failed = await seedSendRun(job.id, ['corr-1', 'corr-2']);
+        await prisma.run.update({ where: { id: failed.id }, data: { status: 'error' } });
+        const resent = await seedSendRun(job.id, ['corr-1', 'corr-2']);
+
+        const res = await payloadOf(resent.id);
+
+        expect(res.body.send).toEqual({
+          runId: resent.id,
+          students: [
+            { correlationId: 'corr-1', studentUniqueId: 'SUID-corr-1', isCrossYear: false },
+            { correlationId: 'corr-2', studentUniqueId: 'SUID-FOUND-corr-2', isCrossYear: true },
+          ],
+        });
+      });
+
       // Submit refuses such a match, so the test seeds one directly to pin the
       // backstop.
       it('fails a send run’s payload when a match’s school years are missing', async () => {
