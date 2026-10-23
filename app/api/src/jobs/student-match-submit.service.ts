@@ -1,15 +1,14 @@
 import { PostStudentMatchSubmitStudentDto } from '@edanalytics/models';
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Job, PrismaClient } from '@prisma/client';
-import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
 import { lockJobRow } from './job-row-lock';
-import { launchRun } from './launch-run';
+import { RunsService } from './runs.service';
 import { hasSchoolYears } from './school-years';
 
 @Injectable()
 export class StudentMatchSubmitService {
-  constructor(@Inject(EXECUTOR_SERVICE) private executor: ExecutorService) {}
+  constructor(private runService: RunsService) {}
 
   /** Submits saved matches for sending, in a new send run. See AGENTS.md. */
   async submit(
@@ -146,7 +145,7 @@ export class StudentMatchSubmitService {
     // the Executor may still run. Undoing the submit would let those students
     // take new decisions, so one could be sent under two identities. Sending
     // the same decisions again, a later feature, is what will unblock them.
-    const launch = await launchRun(this.executor, outcome.run, prisma);
+    const launch = await this.runService.launch(outcome.run, prisma);
     return {
       status: 'SUCCESS',
       data: { runId: outcome.run.id, launched: launch.status === 'SUCCESS' },

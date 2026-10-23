@@ -310,7 +310,7 @@ The 404 and 502 have the coded body, as for decisions. Each search logs one line
 
 **Submitting.** `POST /api/jobs/:jobId/student-match-results/submit` submits saved matches for sending: it creates a send run (see **Run kinds**) that delivers exactly the given decisions, recorded in `send_run_decision`, which is never changed and deleted only with the job. The body is `{ students: [{ correlationId, version }] }`: 1 to `MATCH_REVIEW_STUDENT_LIMIT` students with distinct correlation ids (1–128 characters, no NUL), each with the `version` of the match the page showed. It needs `job.match-results.submit`, which every role has, and across tenants also `job.metatenant.match-results.submit`, which only support users have. Like decisions, it works only on `fuzzy` jobs, and the body is validated first.
 
-A submit is all or nothing: one transaction on the session client, so the send run's `created_by_id` is the submitter. Any refusal writes nothing, and a stale `version` is reported before anything about the student's decision. After commit, `launchRun` launches the send run as `startJob` launches a full run. A failed launch marks the run `error` with `failed_to_start_executor` and returns `launched: false`, and the submit still stands.
+A submit is all or nothing: one transaction on the session client, so the send run's `created_by_id` is the submitter. Any refusal writes nothing, and a stale `version` is reported before anything about the student's decision. After commit, `RunsService.launch` launches the send run as `startJob` launches a full run. A failed launch marks the run `error` with `failed_to_start_executor` and returns `launched: false`, and the submit still stands.
 
 | Status | Meaning |
 |---|---|

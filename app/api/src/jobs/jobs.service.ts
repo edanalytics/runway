@@ -12,19 +12,18 @@ import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
-import { ExecutorService, EXECUTOR_SERVICE } from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
 import { lockJobRow } from './job-row-lock';
-import { launchRun } from './launch-run';
+import { RunsService } from './runs.service';
 
 @Injectable()
 export class JobsService {
   constructor(
     @Inject(PRISMA_READ_ONLY) private prisma: PrismaClient,
     private fileService: FileService,
-    @Inject(EXECUTOR_SERVICE) private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
-    private appConfig: AppConfigService
+    private appConfig: AppConfigService,
+    private runService: RunsService
   ) {}
 
   async getStatusUpdates(jobId: Job['id']) {
@@ -433,6 +432,6 @@ export class JobsService {
       return outcome;
     }
 
-    return launchRun(this.executor, outcome.run, prisma);
+    return this.runService.launch(outcome.run, prisma);
   }
 }
