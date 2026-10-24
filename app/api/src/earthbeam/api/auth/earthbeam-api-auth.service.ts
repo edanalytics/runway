@@ -4,7 +4,7 @@ import { AppConfigService } from 'api/src/config/app-config.service';
 import { IEarthbeamTokenPayload } from './eathbeam-api-token.interface';
 import { earthbeamInitEndpoint, earthbeamJobInfoEndpoint } from '../earthbeam-api.endpoints';
 import { PRISMA_ANONYMOUS } from 'api/src/database';
-import { PrismaClient, Run } from '@prisma/client';
+import { Prisma, PrismaClient, Run } from '@prisma/client';
 
 @Injectable()
 export class EarthbeamApiAuthService {
@@ -71,22 +71,25 @@ export class EarthbeamApiAuthService {
     // TODO: probably should move to job/run service so we can track the run states all in one place
     return await this.prisma.$transaction(async (tx) => {
       // Only from `new`, in one statement, so a run's status is never
-      // overwritten, and of two racing inits only the first passes.
-      const { count } = await tx.run.updateMany({
-        where: { id: runId, status: 'new' },
-        data: { status: 'running' },
-      });
+      // overwritten, and of two racing inits only the first passes. `update`,
+      // not `updateMany`, so an undefined id throws rather than widening it.
+      try {
+        const run = await tx.run.update({
+          where: { id: runId, status: 'new' },
+          data: { status: 'running' },
+        });
+        return { status: 'SUCCESS', run };
+      } catch (e) {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025')) {
+          throw e;
+        }
+      }
       const run = await tx.run.findUnique({ where: { id: runId } });
       if (!run) {
         return { status: 'ERROR', reason: 'not found' };
       }
-
-      if (count === 0) {
-        // Not `new`: the token has been used, or the run failed to launch.
-        return { status: 'ERROR', reason: 'invalid token' };
-      }
-
-      return { status: 'SUCCESS', run };
+      // Not `new`: the token has been used, or the run failed to launch.
+      return { status: 'ERROR', reason: 'invalid token' };
     });
   }
 

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import {
   ExecutorService,
   ExecutorStartResult,
@@ -30,13 +30,18 @@ export class RunsService {
       const failed = await prisma.$transaction(async (tx) => {
         // Only from `new`: ECS can report a failure after accepting the task,
         // and if the task has initialized, the run is executing and will
-        // report its own `done`. A run's status is never overwritten.
-        const { count } = await tx.run.updateMany({
-          where: { id: run.id, status: 'new' },
-          data: { status: 'error' },
-        });
-        if (count === 0) {
-          return false;
+        // report its own `done`. A run's status is never overwritten. `update`,
+        // not `updateMany`, so an undefined id throws rather than widening it.
+        try {
+          await tx.run.update({
+            where: { id: run.id, status: 'new' },
+            data: { status: 'error' },
+          });
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+            return false;
+          }
+          throw e;
         }
         await tx.runError.create({
           data: {

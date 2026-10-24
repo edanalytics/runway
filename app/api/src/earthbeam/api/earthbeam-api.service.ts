@@ -7,6 +7,7 @@ import {
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   CustomDescriptorMapping,
+  Prisma,
   PrismaClient,
   Run,
   BundleDescriptorMapping,
@@ -281,13 +282,18 @@ export class EarthbeamApiService {
     const completed = await prisma.$transaction(async (tx) => {
       // `success` and `error` are final, and resending a failed send run's
       // students relies on it. The conditional update refuses a later `done`,
-      // and of two racing ones only the first passes.
-      const { count } = await tx.run.updateMany({
-        where: { id: runId, status: { in: ['new', 'running'] } },
-        data: { status: reportedStatus === 'success' ? 'success' : 'error' },
-      });
-      if (count === 0) {
-        return false;
+      // and of two racing ones only the first passes. `update`, not
+      // `updateMany`, so an undefined id throws rather than widening it.
+      try {
+        await tx.run.update({
+          where: { id: runId, status: { in: ['new', 'running'] } },
+          data: { status: reportedStatus === 'success' ? 'success' : 'error' },
+        });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+          return false;
+        }
+        throw e;
       }
       // With the status, before anything below can fail: the job page polls
       // until it sees the run's `done` update, and a retried `done` would be
