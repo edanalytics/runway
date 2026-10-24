@@ -499,7 +499,7 @@ export class JobsController {
           throw new ConflictException({
             statusCode: 409,
             code,
-            message: 'A student’s match has already been submitted.',
+            message: 'A student’s match is being or has been sent.',
             indices: result.indices,
           });
         case 'not_a_match':

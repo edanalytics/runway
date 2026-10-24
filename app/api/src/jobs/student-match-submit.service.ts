@@ -34,9 +34,11 @@ export class StudentMatchSubmitService {
         await lockJobRow(tx, jobId, 'FOR NO KEY UPDATE');
 
         // Students are reviewed from the full run's results, and the send run
-        // delivers them from its files. A job has one, since it's started once.
+        // delivers them from its files. A fuzzy job has one, since it's started
+        // once. Take the latest, as the job's other reads of its full run do.
         const fullRun = await tx.run.findFirst({
           where: { jobId, kind: 'full' },
+          orderBy: { createdOn: 'desc' },
           select: { status: true },
         });
         if (fullRun?.status !== 'success') {
@@ -103,10 +105,20 @@ export class StudentMatchSubmitService {
           } as const;
         }
 
-        // Any of the student's rows, not only the current one: every send of
-        // a student delivers the same decision row.
+        // A student whose send runs have all ended in `error` may be sent
+        // again. The version check above has matched the row a resend delivers
+        // to the current decision, and it is the row every earlier send
+        // delivered: decisions refuse a student once any of their rows is in a
+        // send run, so every send of a student delivers the same decision row.
+        //
+        // Resending relies on `error` being final, which init, launch and
+        // `completeRun` enforce.
         const submitted = await tx.sendRunDecision.findMany({
-          where: { jobId, correlationId: { in: correlationIds } },
+          where: {
+            jobId,
+            correlationId: { in: correlationIds },
+            run: { status: { not: 'error' } },
+          },
           select: { correlationId: true },
         });
         const submittedIds = new Set(submitted.map(({ correlationId }) => correlationId));
@@ -141,10 +153,9 @@ export class StudentMatchSubmitService {
 
     // After commit, so the Executor finds the run and its decisions. A failed
     // launch marks the run `error` and is reported in `launched`, but the
-    // submit stands: the ECS call can fail after AWS has accepted the task, so
-    // the Executor may still run. Undoing the submit would let those students
-    // take new decisions, so one could be sent under two identities. Sending
-    // the same decisions again, a later feature, is what will unblock them.
+    // submit stands: undoing it would let those students take new decisions,
+    // and no decision may follow a send, even a failed one.
+    // Submitting the same decisions again is what unblocks them.
     const launch = await this.runService.launch(outcome.run, prisma);
     return {
       status: 'SUCCESS',

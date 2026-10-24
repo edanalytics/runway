@@ -621,6 +621,18 @@ describe('POST /jobs/:jobId/student-match-results/:correlationId/decisions', () 
       expect((await rowsOf()).map(({ seq, kind }) => [seq, kind])).toEqual([[1, 'match']]);
     });
 
+    // Their match can only be submitted again, with the same decision row.
+    it('refuses a new decision after their send run fails, writing nothing', async () => {
+      executorStart.mockRejectedValueOnce(new Error('ECS is unavailable'));
+      expect((await submit(1)).body.launched).toBe(false);
+
+      const res = await decide({ replacesVersion: 1, kind: 'exclude' });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual(ALREADY_SUBMITTED);
+      expect((await rowsOf()).map(({ seq, kind }) => [seq, kind])).toEqual([[1, 'match']]);
+    });
+
     // A reviewer decides a student while another submits them. The job row is
     // held from another connection until both requests are queued behind it,
     // in a chosen order, so each order happens every time. Whichever goes

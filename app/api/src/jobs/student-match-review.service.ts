@@ -90,7 +90,9 @@ export const noStudentsToMatch: GetStudentMatchCountsDto = {
   toReview: 0,
   ready: 0,
   excluded: 0,
-  submitted: 0,
+  reprocessing: 0,
+  reprocessed: 0,
+  runFailed: 0,
 };
 
 @Injectable()
@@ -122,22 +124,32 @@ export class StudentMatchReviewService {
         to_review: bigint;
         ready: bigint;
         excluded: bigint;
-        submitted: bigint;
+        reprocessing: bigint;
+        reprocessed: bigint;
+        run_failed: bigint;
       }[]
     >`
       SELECT i.job_id,
              count(*) AS total,
              count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
-             count(*) FILTER (WHERE d.kind = 'match' AND NOT d.submitted) AS ready,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.send_run_status IS NULL) AS ready,
              count(*) FILTER (WHERE d.kind = 'exclude') AS excluded,
-             count(*) FILTER (WHERE d.kind = 'match' AND d.submitted) AS submitted
+             count(*) FILTER (
+               WHERE d.kind = 'match' AND d.send_run_status IN ('new', 'running')
+             ) AS reprocessing,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.send_run_status = 'success') AS reprocessed,
+             count(*) FILTER (WHERE d.kind = 'match' AND d.send_run_status = 'error') AS run_failed
       FROM public.student_input_details i
       LEFT JOIN LATERAL (
-        SELECT kind, EXISTS (
-                 SELECT 1 FROM public.send_run_decision s
+        SELECT kind, (
+                 SELECT r.status
+                 FROM public.send_run_decision s
+                 JOIN public.run r ON r.id = s.run_id
                  WHERE s.job_id = d.job_id AND s.correlation_id = d.correlation_id
                    AND s.seq = d.seq
-               ) AS submitted
+                 ORDER BY s.run_id DESC
+                 LIMIT 1
+               ) AS send_run_status
         FROM public.student_match_decision d
         WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
         ORDER BY d.seq DESC
@@ -154,13 +166,24 @@ export class StudentMatchReviewService {
           toReview: Number(row.to_review),
           ready: Number(row.ready),
           excluded: Number(row.excluded),
-          submitted: Number(row.submitted),
+          reprocessing: Number(row.reprocessing),
+          reprocessed: Number(row.reprocessed),
+          runFailed: Number(row.run_failed),
         },
       ])
     );
   }
 
-  /** Adds the counts every job read that shows a status needs. */
+  /**
+   * Adds the counts every job read that shows a status needs.
+   *
+   * The caller's runs and these counts are separate queries, so a send run
+   * that finishes between them can make one response disagree with itself:
+   * runs read while it was running and counts read after it succeeded show
+   * `success`, hiding the send's resource errors. The job page stops polling
+   * after the full run's `done`, so that can stay on screen until a reload.
+   * Accepted: the window is tiny, and nothing stored is affected.
+   */
   async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
     const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
     return jobs.map((job) => {
@@ -170,18 +193,33 @@ export class StudentMatchReviewService {
 
   /**
    * The job's students to match, each with their current decision and every
-   * run's result for it, and each result's suggestions in order.
+   * run's result for it, and each result's suggestions in order. And the job's
+   * send runs, newest first.
    */
   async getStudentMatchResults(jobId: Job['id']) {
-    // One snapshot, so the counts and the students agree with each other even
-    // while students are reported or decided.
+    // One snapshot, so the counts, the students and the send runs agree with
+    // each other even while students are reported, decided or sent.
     return this.prisma.$transaction(
       async (tx) => {
         const counts =
           (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ??
           noStudentsToMatch;
+        const sendRuns = (
+          await tx.run.findMany({
+            where: { jobId, kind: 'send' },
+            orderBy: { id: 'desc' },
+            include: {
+              userRunCreatedByIdTouser: true,
+              _count: { select: { sendRunDecision: true } },
+            },
+          })
+        ).map(({ userRunCreatedByIdTouser, _count, ...run }) => ({
+          ...run,
+          createdBy: userRunCreatedByIdTouser,
+          studentCount: _count.sendRunDecision,
+        }));
         if (counts.total > this.studentMatchReviewLimit) {
-          return { counts, students: null };
+          return { counts, students: null, sendRuns };
         }
 
         const inputs = await tx.studentInputDetails.findMany({
@@ -193,7 +231,15 @@ export class StudentMatchReviewService {
             studentMatchDecision: {
               orderBy: { seq: 'desc' },
               take: 1,
-              include: { user: true, _count: { select: { sendRunDecision: true } } },
+              include: {
+                user: true,
+                // The latest send run that delivers the decision.
+                sendRunDecision: {
+                  orderBy: { runId: 'desc' },
+                  take: 1,
+                  include: { run: { select: { status: true } } },
+                },
+              },
             },
             studentMatchResult: {
               orderBy: { runId: 'asc' },
@@ -203,14 +249,16 @@ export class StudentMatchReviewService {
         });
         return {
           counts,
+          sendRuns,
           // Prisma names each relation after its table; the API calls them
           // results and suggestions.
           students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
             const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
-            const submitted = (latest?._count.sendRunDecision ?? 0) > 0;
+            const sendRunDecision = latest?.sendRunDecision[0];
             return {
               ...input,
-              status: studentMatchStatus(latest?.kind, submitted),
+              status: studentMatchStatus(latest?.kind, sendRunDecision?.run.status),
+              sendRunId: sendRunDecision?.runId ?? null,
               decision: latest ? toStudentMatchDecision(latest) : null,
               results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
                 ...result,
@@ -316,8 +364,10 @@ export class StudentMatchReviewService {
       async (tx) => {
         // Once a student is submitted, their current decision is the one their
         // send run delivers. We do not allow decisions to be saved after the
-        // student has been submitted. The insert below handles this by not
-        // inserting when the student has a row in send_run_decision.
+        // student has been submitted, even if their send run fails: they can
+        // only be submitted again, with the same decision. The insert below
+        // handles this by not inserting when the student has a row in
+        // send_run_decision.
         //
         // However, that check alone has a gap. An in-progress submit hasn't
         // committed its send run yet, so a decision could land after the submit

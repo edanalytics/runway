@@ -7,6 +7,7 @@ import {
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   CustomDescriptorMapping,
+  Prisma,
   PrismaClient,
   Run,
   BundleDescriptorMapping,
@@ -271,11 +272,40 @@ export class EarthbeamApiService {
     return students;
   }
 
-  async completeRun(runId: Run['id'], status: 'success' | 'error', prisma: PrismaClient) {
+  /** Completes a run on its `done`, with the status the Executor reported. */
+  async completeRun(
+    runId: Run['id'],
+    reportedStatus: string,
+    prisma: PrismaClient
+  ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; code: 'run_already_complete' }> {
     // TODO: probably belongs in earthbeam-run.service.ts ?
-    const run = await prisma.run.update({
+    const completed = await prisma.$transaction(async (tx) => {
+      // `success` and `error` are final, and resending a failed send run's
+      // students relies on it. The conditional update refuses a later `done`,
+      // and of two racing ones only the first passes. `update`, not
+      // `updateMany`, so an undefined id throws rather than widening it.
+      try {
+        await tx.run.update({
+          where: { id: runId, status: { in: ['new', 'running'] } },
+          data: { status: reportedStatus === 'success' ? 'success' : 'error' },
+        });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+          return false;
+        }
+        throw e;
+      }
+      // With the status, before anything below can fail: the job page polls
+      // until it sees the run's `done` update, and a retried `done` would be
+      // refused.
+      await tx.runUpdate.create({ data: { runId, action: 'done', status: reportedStatus } });
+      return true;
+    });
+    if (!completed) {
+      return { status: 'ERROR', code: 'run_already_complete' };
+    }
+    const run = await prisma.run.findUniqueOrThrow({
       where: { id: runId },
-      data: { status },
       include: {
         job: { include: { files: true, odsConfig: { include: { activeConnection: true } } } },
         runError: true,
@@ -285,6 +315,11 @@ export class EarthbeamApiService {
 
     // A full run records the job's output directory. A send run records none,
     // since its output sets are already recorded by their own callback.
+    // This runs after the commit above, so if the listing or the insert fails,
+    // the run's output files stay unrecorded for good: a retried `done` is
+    // refused. That's accepted: committing first is what lets the job page stop
+    // polling, the status was committed before the listing before too, and the
+    // Executor never retries `done`.
     const outputFiles =
       run.kind === 'full'
         ? await this.fileService.listFilesAtPath(`${run.job.fileBasePath}/output/`)
@@ -336,10 +371,13 @@ export class EarthbeamApiService {
       const unmatchedStudentCount = unmatchedStudentsInfo?.count ?? 0;
       const unmatchedStudentsMessage =
         unmatchedStudentCount === 0 ? '' : `${unmatchedStudentCount} unmatched`;
-      const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
+      const errorCode = run.status !== 'success' ? run.runError?.[0]?.code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
 
-      const summaryString = `${assessmentType} (${assessmentFiles.join(
+      // A send run delivers only some of the job's students, so its summary
+      // says what kind of run it is.
+      const runPrefix = run.kind === 'send' ? 'send run: ' : '';
+      const summaryString = `${runPrefix}${assessmentType} (${assessmentFiles.join(
         ', '
       )}) ${errorString} ${resourceErrorString} ${unmatchedStudentsMessage} (${partnerId}/${tenantCode}) jobId ${
         run.job.id
@@ -348,6 +386,7 @@ export class EarthbeamApiService {
       await this.eventEmitter.emit('run_complete', {
         summary: summaryString,
         runId: run.id,
+        runType: run.kind,
         jobId: run.job.id,
         status: run.status,
         completedWithErrors:
@@ -393,6 +432,7 @@ export class EarthbeamApiService {
     } catch (error) {
       this.logger.error(`Error emitting event: ${error} for run ${run.id}`);
     }
+    return { status: 'SUCCESS' };
   }
 }
 
