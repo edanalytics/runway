@@ -1132,21 +1132,22 @@ describe('Earthbeam API', () => {
               .set('Authorization', `Bearer ${tokenA}`)
               .send({ action: 'done', status });
 
-          /** What completing a run produces: its event and its output-file listing. */
-          const effects = () => ({
-            events: eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete').length,
-            listings: fileServiceMock.listFilesAtPath.mock.calls.length,
-          });
+          // The file service mock is shared, so its calls accumulate across tests.
+          const listings = () => fileServiceMock.listFilesAtPath.mock.calls.length;
 
           expect((await done(first)).status).toBe(201);
-          const afterFirst = effects();
+          const listingsAfterFirst = listings();
           const res = await done(second);
 
           expect(res.status).toBe(409);
           expect(await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).toMatchObject({
             status: runStatus,
           });
-          expect(effects()).toEqual(afterFirst);
+          // The first done's event only.
+          expect(
+            eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete')
+          ).toHaveLength(1);
+          expect(listings()).toBe(listingsAfterFirst);
           expect(
             (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
               ({ action, status }) => [action, status]
@@ -1158,9 +1159,6 @@ describe('Earthbeam API', () => {
       // Of two racing dones, only the first completes the run, and the second
       // is refused as if it came later.
       it('completes a run once when two dones race', async () => {
-        // As the Executor reports a failure before its done, so either done's
-        // event can be built.
-        await prisma.runError.create({ data: { runId: runA.id, code: 'lightbeam_send' } });
         const holder = await holdRunRow(runA.id);
         try {
           // then() sends each request now, rather than when it's awaited.

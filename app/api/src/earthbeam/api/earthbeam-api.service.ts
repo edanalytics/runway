@@ -365,7 +365,7 @@ export class EarthbeamApiService {
       const unmatchedStudentCount = unmatchedStudentsInfo?.count ?? 0;
       const unmatchedStudentsMessage =
         unmatchedStudentCount === 0 ? '' : `${unmatchedStudentCount} unmatched`;
-      const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
+      const errorCode = run.status !== 'success' ? run.runError?.[0]?.code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
 
       // A send run delivers only some of the job's students, so its summary
