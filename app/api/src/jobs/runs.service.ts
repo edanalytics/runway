@@ -28,7 +28,7 @@ export class RunsService {
     } catch (e) {
       this.logger.error(`Failed to start run ${run.id}: ${e}`);
 
-      const failed = await prisma.$transaction(async (tx) => {
+      return await prisma.$transaction(async (tx) => {
         // Only from `new`, so a run's status is never overwritten. That also
         // guards an unlikely case: a task takes tens of seconds to initialize,
         // far longer than RunTask takes to answer, but if ECS reported a
@@ -36,7 +36,10 @@ export class RunsService {
         // will report its own `done`, so it's left running and counted as
         // launched.
         if (!(await advanceRunStatus(tx, run.id, 'new', 'error'))) {
-          return false;
+          this.logger.warn(
+            `Run ${run.id} initialized though its launch failed; treating it as started`
+          );
+          return { status: 'SUCCESS' };
         }
         await tx.runError.create({
           data: {
@@ -46,15 +49,8 @@ export class RunsService {
           },
         });
         await tx.runUpdate.create({ data: { runId: run.id, action: 'done', status: 'failure' } });
-        return true;
+        return { status: 'ERROR', code: 'failed_to_start_executor' };
       });
-      if (!failed) {
-        this.logger.warn(
-          `Run ${run.id} initialized though its launch failed; treating it as started`
-        );
-        return { status: 'SUCCESS' };
-      }
-      return { status: 'ERROR', code: 'failed_to_start_executor' };
     }
 
     if (startResult.ecsTaskArn || startResult.taskSize) {
