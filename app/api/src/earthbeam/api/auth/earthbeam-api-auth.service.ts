@@ -1,11 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { IEarthbeamTokenPayload } from './eathbeam-api-token.interface';
 import { earthbeamInitEndpoint, earthbeamJobInfoEndpoint } from '../earthbeam-api.endpoints';
-import { PRISMA_ANONYMOUS } from 'api/src/database';
-import { PrismaClient, Run } from '@prisma/client';
-import { advanceRunStatus } from '../../../jobs/run-status';
+import { Run } from '@prisma/client';
 
 @Injectable()
 export class EarthbeamApiAuthService {
@@ -13,8 +11,6 @@ export class EarthbeamApiAuthService {
   private readonly accessTokenExpirationSec = 24 * 60 * 60;
 
   constructor(
-    @Inject(PRISMA_ANONYMOUS)
-    private readonly prisma: PrismaClient, // API writes are not tied to a user
     private readonly jwtService: JwtService,
     private readonly appConfigService: AppConfigService
   ) {}
@@ -62,23 +58,6 @@ export class EarthbeamApiAuthService {
     }
 
     return { runId: decoded.runId, type: decoded.type };
-  }
-
-  async initRun(
-    runId: number
-  ): Promise<{ status: 'SUCCESS'; run: Run } | { status: 'ERROR'; reason: 'not new' }> {
-    // TODO: probably should move to job/run service so we can track the run states all in one place
-    return await this.prisma.$transaction(async (tx) => {
-      // Only from `new`, so a run's status is never overwritten.
-      const run = await advanceRunStatus(tx, runId, 'new', 'running');
-      if (!run) {
-        // The token has been used, or the run failed to launch (or, which shouldn't
-        // happen, no longer exists).
-        return { status: 'ERROR', reason: 'not new' };
-      }
-
-      return { status: 'SUCCESS', run };
-    });
   }
 
   async initResponse({ runId }: { runId: Run['id'] }) {
