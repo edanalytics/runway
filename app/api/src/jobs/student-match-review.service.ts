@@ -175,14 +175,17 @@ export class StudentMatchReviewService {
   }
 
   /**
-   * Adds the counts every job read that shows a status needs.
+   * Adds each job's student match counts, which a job read needs to compute
+   * the job's status.
    *
-   * The caller's runs and these counts are separate queries, so a send run
-   * that finishes between them can make one response disagree with itself:
-   * runs read while it was running and counts read after it succeeded show
-   * `success`, hiding the send's resource errors. The job page stops polling
-   * after the full run's `done`, so that can stay on screen until a reload.
-   * Accepted: the window is tiny, and nothing stored is affected.
+   * The counts come from a separate query from the job's runs, which the caller
+   * has already read, so a send run that finishes between the two queries can
+   * make one response inconsistent. If the runs are read while the send run is
+   * still running, and the counts just after it succeeds, its students no
+   * longer count as outstanding, but its failed records aren't in the job's
+   * combined summary yet. The job then reads `success` rather than
+   * `complete with errors` until it's read again. Accepted: the window is
+   * tiny, and nothing stored is affected.
    */
   async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
     const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
