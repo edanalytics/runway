@@ -1,10 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { Prisma, type PrismaClient } from '@prisma/client';
+import { type PrismaClient } from '@prisma/client';
 import {
   ExecutorService,
   ExecutorStartResult,
   EXECUTOR_SERVICE,
 } from '../earthbeam/executor/executor.service';
+import { advanceRunStatus } from './run-status';
 
 /** Launches runs on the Executor this environment uses. */
 @Injectable()
@@ -33,18 +34,9 @@ export class RunsService {
         // far longer than RunTask takes to answer, but if ECS reported a
         // failure after its task had initialized, the run is executing and
         // will report its own `done`, so it's left running and counted as
-        // launched. `update`, not `updateMany`, so an undefined id throws
-        // rather than widening it.
-        try {
-          await tx.run.update({
-            where: { id: run.id, status: 'new' },
-            data: { status: 'error' },
-          });
-        } catch (e) {
-          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-            return false;
-          }
-          throw e;
+        // launched.
+        if (!(await advanceRunStatus(tx, run.id, 'new', 'error'))) {
+          return false;
         }
         await tx.runError.create({
           data: {

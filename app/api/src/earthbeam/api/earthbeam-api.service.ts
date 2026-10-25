@@ -7,7 +7,6 @@ import {
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   CustomDescriptorMapping,
-  Prisma,
   PrismaClient,
   Run,
   BundleDescriptorMapping,
@@ -15,6 +14,7 @@ import {
 import { PRISMA_READ_ONLY } from 'api/src/database';
 import { EncryptionService } from 'api/src/encryption/encryption.service';
 import { hasSchoolYears, isInJobYear } from '../../jobs/school-years';
+import { advanceRunStatus } from '../../jobs/run-status';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
@@ -281,19 +281,15 @@ export class EarthbeamApiService {
     // TODO: probably belongs in earthbeam-run.service.ts ?
     const completed = await prisma.$transaction(async (tx) => {
       // `success` and `error` are final, and resending a failed send run's
-      // students relies on it. The conditional update refuses a later `done`,
-      // and of two racing ones only the first passes. `update`, not
-      // `updateMany`, so an undefined id throws rather than widening it.
-      try {
-        await tx.run.update({
-          where: { id: runId, status: { in: ['new', 'running'] } },
-          data: { status: reportedStatus === 'success' ? 'success' : 'error' },
-        });
-      } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-          return false;
-        }
-        throw e;
+      // students relies on it, so a later `done` is refused.
+      const advanced = await advanceRunStatus(
+        tx,
+        runId,
+        ['new', 'running'],
+        reportedStatus === 'success' ? 'success' : 'error'
+      );
+      if (!advanced) {
+        return false;
       }
       // With the status, before anything below can fail: the job page polls
       // until it sees the run's `done` update, and a retried `done` would be
