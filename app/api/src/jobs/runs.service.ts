@@ -14,8 +14,8 @@ export class RunsService {
 
   /**
    * Starts the Executor on a run that's already committed, since the Executor
-   * reads the run back from another connection. A failure to start leaves the
-   * run done, in error, unless its task has initialized anyway.
+   * reads the run back from another connection. A failure to start marks the
+   * run done, in error.
    */
   async launch(
     run: Parameters<ExecutorService['start']>[0],
@@ -28,10 +28,13 @@ export class RunsService {
       this.logger.error(`Failed to start run ${run.id}: ${e}`);
 
       const failed = await prisma.$transaction(async (tx) => {
-        // Only from `new`: ECS can report a failure after accepting the task,
-        // and if the task has initialized, the run is executing and will
-        // report its own `done`. A run's status is never overwritten. `update`,
-        // not `updateMany`, so an undefined id throws rather than widening it.
+        // Only from `new`, so a run's status is never overwritten. That also
+        // guards an unlikely case: a task takes tens of seconds to initialize,
+        // far longer than RunTask takes to answer, but if ECS reported a
+        // failure after its task had initialized, the run is executing and
+        // will report its own `done`, so it's left running and counted as
+        // launched. `update`, not `updateMany`, so an undefined id throws
+        // rather than widening it.
         try {
           await tx.run.update({
             where: { id: run.id, status: 'new' },

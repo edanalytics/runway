@@ -272,9 +272,9 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       expect((await statusesOf(job.id, cookies))['corr-1']).toBe('run-failed');
     });
 
-    // ECS can report a failure after accepting the task, and the task can
-    // initialize before the failure comes back. The run is then executing,
-    // and will report its own done.
+    // A guard, not an expected path: a task takes far longer to initialize
+    // than RunTask takes to answer, but if ECS reported a failure after the
+    // task had initialized, the run is executing and will report its own done.
     it('reports a send run whose task started before its launch failed as launched, leaving it running', async () => {
       executorStart.mockImplementationOnce(async ({ id }: { id: number }) => {
         await prisma.run.update({ where: { id }, data: { status: 'running' } });
