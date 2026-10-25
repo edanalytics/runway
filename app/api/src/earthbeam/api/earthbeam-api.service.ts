@@ -311,11 +311,6 @@ export class EarthbeamApiService {
 
     // A full run records the job's output directory. A send run records none,
     // since its output sets are already recorded by their own callback.
-    // This runs after the commit above, so if the listing or the insert fails,
-    // the run's output files stay unrecorded for good: a retried `done` is
-    // refused. That's accepted: committing first is what lets the job page stop
-    // polling, the status was committed before the listing before too, and the
-    // Executor never retries `done`.
     const outputFiles =
       run.kind === 'full'
         ? await this.fileService.listFilesAtPath(`${run.job.fileBasePath}/output/`)
