@@ -131,8 +131,8 @@ export class GetJobDto
 
   /**
    * The job's full run: the latest, for a job re-run before jobs could be
-   * started only once. Its send runs count through its students and resource
-   * total.
+   * started only once. Its send runs count through its students and combined
+   * summary.
    */
   get fullRun(): GetRunDto | undefined {
     return this.runs
@@ -202,28 +202,29 @@ export class GetJobDto
     return this.resourceErrors.length > 0;
   }
   get resourceErrors() {
-    return getResourceErrors(this.resourceTotal, this.template.reportResources);
+    return getResourceErrors(this.combinedSummary, this.template.reportResources);
   }
 
   get resourceSummaries() {
-    const total = this.resourceTotal;
-    return total ? getResourceSummaries(total) : undefined;
+    const combined = this.combinedSummary;
+    return combined ? getResourceSummaries(combined) : undefined;
   }
 
   /**
-   * What the job's successful runs report delivering: the full run, when it
-   * succeeded, and each successful send run, which deliver disjoint students.
-   * A failed send run's partial loads are left out; its students are
-   * run-failed until resent. So is an earlier full run of a job re-run before
-   * jobs could be started only once: the latest replaced its delivery.
+   * One summary, in a run summary's shape, of what the job's successful runs
+   * report delivering: the full run, when it succeeded, and each successful
+   * send run, which deliver disjoint students. A failed send run's partial
+   * loads are left out; its students are run-failed until resent. So is an
+   * earlier full run of a job re-run before jobs could be started only once:
+   * the latest replaced its delivery.
    */
-  get resourceTotal() {
+  get combinedSummary() {
     const fullRun = this.fullRun;
     const delivered = [
       ...(fullRun?.status === 'success' ? [fullRun] : []),
       ...(this.runs ?? []).filter(({ kind, status }) => kind === 'send' && status === 'success'),
     ];
-    return sumRunSummaries(delivered.map(({ summary }) => summary));
+    return combineRunSummaries(delivered.map(({ summary }) => summary));
   }
 
   get displayStartedOn() {
@@ -267,23 +268,24 @@ export const getResourceSummaries = (
   );
 
 /**
- * Runs' summaries, summed per resource, in a run summary's shape. A resource
- * missing from a run counts nothing there. Null when no run has a summary.
+ * Runs' summaries combined into one, in a run summary's shape, with each
+ * resource's counts summed. A resource missing from a run counts nothing
+ * there. Null when no run has a summary.
  */
-const sumRunSummaries = (summaries: GetRunDto['summary'][]) => {
+const combineRunSummaries = (summaries: GetRunDto['summary'][]) => {
   const reported = summaries.filter(
     (summary): summary is NonNullable<GetRunDto['summary']> => summary !== null
   );
   if (reported.length === 0) {
     return null;
   }
-  const total: Record<
+  const combined: Record<
     string,
     { records_processed: number; records_skipped: number; records_failed: number }
   > = {};
   for (const summary of reported) {
     for (const [resource, counts] of Object.entries(summary)) {
-      const sum = (total[resource] ??= {
+      const sum = (combined[resource] ??= {
         records_processed: 0,
         records_skipped: 0,
         records_failed: 0,
@@ -293,7 +295,7 @@ const sumRunSummaries = (summaries: GetRunDto['summary'][]) => {
       sum.records_failed += counts['records_failed'] ?? 0;
     }
   }
-  return total;
+  return combined;
 };
 
 /** The resources with failed records in a run's summary that the bundle reports on. */

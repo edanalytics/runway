@@ -1142,7 +1142,7 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
 
   // The re-run replaced the earlier run's delivery, so the earlier run's
   // failed records neither count nor make the job complete with errors.
-  it('takes a job with several successful full runs’ resource total from its latest', async () => {
+  it('takes a job with several successful full runs’ combined summary from its latest', async () => {
     const rerunJob = await seedJob({
       odsConfig: odsConfigA2425,
       bundle: bundleA,
