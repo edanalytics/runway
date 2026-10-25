@@ -631,9 +631,15 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
         await holder.client.query('ROLLBACK');
         const responses = await Promise.all(pending);
 
-        expect(responses.map((res) => res.status).sort()).toEqual([201, 409]);
-        expect(responses.find((res) => res.status === 409)?.body).toEqual(alreadySubmitted([0]));
-        expect((await sendRunsOf(job.id)).map(({ status }) => status)).toEqual(['error', 'new']);
+        // Either request can win, depending on which queued for the lock first.
+        const [winner, loser] = [...responses].sort((a, b) => a.status - b.status);
+        expect([winner.status, loser.status]).toEqual([201, 409]);
+        expect(loser.body).toEqual(alreadySubmitted([0]));
+        // The failed send run, then the winner's: the only new one.
+        expect((await sendRunsOf(job.id)).map(({ id, status }) => ({ id, status }))).toEqual([
+          { id: expect.any(Number), status: 'error' },
+          { id: winner.body.runId, status: 'new' },
+        ]);
       } finally {
         await holder.release();
       }
