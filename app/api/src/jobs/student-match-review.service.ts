@@ -184,8 +184,12 @@ export class StudentMatchReviewService {
    * still running, and the counts just after it succeeds, its students no
    * longer count as outstanding, but its failed records aren't in the job's
    * combined summary yet. The job then reads `success` rather than
-   * `complete with errors` until it's read again. Accepted: the window is
-   * tiny, and nothing stored is affected.
+   * `complete with errors` until it's read again.
+   *
+   * The review read avoids this by reading in one snapshot. Job reads don't,
+   * for cost: `GET /jobs` loads every job with its runs and is already slow,
+   * and the window is tiny, with nothing stored affected. Revisit with
+   * `GET /jobs` pagination.
    */
   async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
     const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
