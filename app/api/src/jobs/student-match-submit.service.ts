@@ -38,7 +38,7 @@ export class StudentMatchSubmitService {
         // once. Take the latest, as the job's other reads of its full run do.
         const fullRun = await tx.run.findFirst({
           where: { jobId, kind: 'full' },
-          orderBy: { createdOn: 'desc' },
+          orderBy: { id: 'desc' },
           select: { status: true },
         });
         if (fullRun?.status !== 'success') {

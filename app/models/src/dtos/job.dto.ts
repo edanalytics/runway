@@ -130,14 +130,14 @@ export class GetJobDto
   isApiInitiated: boolean;
 
   /**
-   * The job's full run: the latest, for a job re-run before jobs could be
+   * The job's full run: the latest by id, for a job re-run before jobs could be
    * started only once. Its send runs count through its students and combined
    * summary.
    */
   get fullRun(): GetRunDto | undefined {
     return this.runs
       ?.filter((run) => run.kind === 'full')
-      .sort((a, b) => b.createdOn.getTime() - a.createdOn.getTime())[0];
+      .sort((a, b) => b.id - a.id)[0];
   }
 
   get displayName() {
