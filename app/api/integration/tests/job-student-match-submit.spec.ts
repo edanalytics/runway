@@ -595,15 +595,15 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
     });
 
     it('sends them in one send run with ready students', async () => {
-      const v1 = await matchSuggestion(job.id, 'corr-1', cookies);
-      const v2 = await matchSuggestion(job.id, 'corr-2', cookies);
-      await submitAndFail(job.id, [{ correlationId: 'corr-1', version: v1 }], cookies);
+      const corr1Version = await matchSuggestion(job.id, 'corr-1', cookies);
+      const corr2Version = await matchSuggestion(job.id, 'corr-2', cookies);
+      await submitAndFail(job.id, [{ correlationId: 'corr-1', version: corr1Version }], cookies);
 
       const res = await submit(
         job.id,
         [
-          { correlationId: 'corr-1', version: v1 },
-          { correlationId: 'corr-2', version: v2 },
+          { correlationId: 'corr-1', version: corr1Version },
+          { correlationId: 'corr-2', version: corr2Version },
         ],
         cookies
       );
@@ -612,8 +612,8 @@ describe('POST /jobs/:jobId/student-match-results/submit', () => {
       const resent = (await sendRunsOf(job.id)).find(({ id }) => id === res.body.runId);
       expect(resent?.sendRunDecision.map(({ correlationId, seq }) => [correlationId, seq])).toEqual(
         [
-          ['corr-1', v1],
-          ['corr-2', v2],
+          ['corr-1', corr1Version],
+          ['corr-2', corr2Version],
         ]
       );
     });
