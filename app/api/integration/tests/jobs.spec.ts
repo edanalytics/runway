@@ -1110,58 +1110,29 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
     expect(await updatesAndErrorsOf(job.id, cookie)).toEqual({ updates: ['done'], errors: [] });
   });
 
-  it('reads a job with several full runs, from before jobs were started only once, by its latest', async () => {
-    const rerunJob = await seedJob({
-      odsConfig: odsConfigA2425,
-      bundle: bundleA,
-      tenant: tenantA,
-      runStatus: 'error',
-    });
-    await prisma.runUpdate.create({
-      data: { runId: rerunJob.runs[0].id, action: 'earthmover_run', status: 'failure' },
-    });
-    await prisma.runError.create({ data: { runId: rerunJob.runs[0].id, code: 'earthmover_run' } });
-    const rerun = await prisma.run.create({
-      data: { jobId: rerunJob.id, kind: 'full', status: 'error' },
-    });
-    await prisma.runUpdate.create({
-      data: { runId: rerun.id, action: 'lightbeam_send', status: 'failure' },
-    });
-    await prisma.runError.create({ data: { runId: rerun.id, code: 'lightbeam_send' } });
-
-    const read = await request(app.getHttpServer())
-      .get(`/jobs/${rerunJob.id}`)
-      .set('Cookie', [cookie]);
-
-    expect(plainToInstance(GetJobDto, read.body).fullRun?.id).toBe(rerun.id);
-    expect(await updatesAndErrorsOf(rerunJob.id, cookie)).toEqual({
-      updates: ['lightbeam_send'],
-      errors: ['lightbeam_send'],
-    });
-  });
-
-  // The re-run replaced the earlier run's delivery, so the earlier run's
-  // failed records neither count nor make the job complete with errors.
-  it('takes a job with several successful full runs’ combined summary from its latest', async () => {
-    const rerunJob = await seedJob({
+  // A job is started once, so this guards a state that shouldn't occur.
+  it('reads the latest full run, should a job ever have several', async () => {
+    const job = await seedJob({
       odsConfig: odsConfigA2425,
       bundle: bundleA,
       tenant: tenantA,
       runStatus: 'success',
     });
     await prisma.run.update({
-      where: { id: rerunJob.runs[0].id },
+      where: { id: job.runs[0].id },
       data: {
-        // Earlier than the re-run, whatever the clock's resolution.
-        createdOn: new Date(Date.now() - 60_000),
         summary: {
           studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 2 },
         },
       },
     });
-    await prisma.run.create({
+    await prisma.runUpdate.create({
+      data: { runId: job.runs[0].id, action: 'earthmover_run', status: 'failure' },
+    });
+    await prisma.runError.create({ data: { runId: job.runs[0].id, code: 'earthmover_run' } });
+    const latest = await prisma.run.create({
       data: {
-        jobId: rerunJob.id,
+        jobId: job.id,
         kind: 'full',
         status: 'success',
         summary: {
@@ -1169,16 +1140,25 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
         },
       },
     });
+    await prisma.runUpdate.create({
+      data: { runId: latest.id, action: 'done', status: 'success' },
+    });
 
     const read = await request(app.getHttpServer())
-      .get(`/jobs/${rerunJob.id}`)
+      .get(`/jobs/${job.id}`)
       .set('Cookie', [cookie]);
-    const job = plainToInstance(GetJobDto, read.body);
+    const readJob = plainToInstance(GetJobDto, read.body);
 
-    expect({ status: job.status, resourceSummaries: job.resourceSummaries }).toEqual({
+    expect({
+      fullRunId: readJob.fullRun?.id,
+      status: readJob.status,
+      resourceSummaries: readJob.resourceSummaries,
+    }).toEqual({
+      fullRunId: latest.id,
       status: 'success',
       resourceSummaries: { studentAssessments: { success: 10, skipped: 0, failed: 0 } },
     });
+    expect(await updatesAndErrorsOf(job.id, cookie)).toEqual({ updates: ['done'], errors: [] });
   });
 });
 

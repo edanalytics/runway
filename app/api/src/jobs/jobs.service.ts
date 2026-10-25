@@ -30,7 +30,7 @@ export class JobsService {
   async getStatusUpdates(jobId: Job['id']) {
     const fullRun = await this.prisma.run.findFirst({
       where: { jobId, kind: 'full' },
-      // The latest, for a job re-run before jobs could be started only once.
+      // A job has one full run; the latest, should it ever have more.
       orderBy: { id: 'desc' },
       include: { runUpdate: true },
     });
@@ -41,7 +41,7 @@ export class JobsService {
   async getErrors(jobId: Job['id']) {
     const fullRun = await this.prisma.run.findFirst({
       where: { jobId, kind: 'full' },
-      // The latest, for a job re-run before jobs could be started only once.
+      // A job has one full run; the latest, should it ever have more.
       orderBy: { id: 'desc' },
       include: { runError: true },
     });

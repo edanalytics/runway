@@ -130,9 +130,9 @@ export class GetJobDto
   isApiInitiated: boolean;
 
   /**
-   * The job's full run: the latest by id, for a job re-run before jobs could be
-   * started only once. Its send runs count through its students and combined
-   * summary.
+   * The job's full run: it has one, since it's started once, and the latest by
+   * id should it ever have more. Its send runs count through its students and
+   * combined summary.
    */
   get fullRun(): GetRunDto | undefined {
     return this.runs
@@ -214,9 +214,7 @@ export class GetJobDto
    * One summary, in a run summary's shape, of what the job's successful runs
    * report delivering: the full run, when it succeeded, and each successful
    * send run, which deliver disjoint students. A failed send run's partial
-   * loads are left out; its students are run-failed until resent. So is an
-   * earlier full run of a job re-run before jobs could be started only once:
-   * the latest replaced its delivery.
+   * loads are left out; its students are run-failed until resent.
    */
   get combinedSummary() {
     const fullRun = this.fullRun;
