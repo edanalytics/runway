@@ -67,7 +67,7 @@ export class EarthbeamApiAuthService {
   async initRun(
     runId: number
   ): Promise<
-    { status: 'SUCCESS'; run: Run } | { status: 'ERROR'; reason: 'not found' | 'invalid token' }
+    { status: 'SUCCESS'; run: Run } | { status: 'ERROR'; reason: 'not found' | 'not new' }
   > {
     // TODO: probably should move to job/run service so we can track the run states all in one place
     return await this.prisma.$transaction(async (tx) => {
@@ -80,8 +80,8 @@ export class EarthbeamApiAuthService {
       if (!run) {
         return { status: 'ERROR', reason: 'not found' };
       }
-      // Not `new`: the token has been used, or the run failed to launch.
-      return { status: 'ERROR', reason: 'invalid token' };
+      // The token has been used, or the run failed to launch.
+      return { status: 'ERROR', reason: 'not new' };
     });
   }
 

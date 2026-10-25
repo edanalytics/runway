@@ -37,7 +37,7 @@ export class EarthbeamApiAuthController {
       this.logger.error(`Failed to initialize run: ${runId}`, result.reason);
       if (result.reason === 'not found') {
         throw new NotFoundException('Run not found');
-      } else if (result.reason === 'invalid token') {
+      } else if (result.reason === 'not new') {
         throw new UnauthorizedException('Invalid token');
       } else {
         throw new BadRequestException('Failed to initialize run');
