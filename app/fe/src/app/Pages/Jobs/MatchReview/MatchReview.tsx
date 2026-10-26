@@ -29,11 +29,10 @@ export const MatchReview = () => {
   // Set once the reviewer picks a student, so the prompt to submit gives way
   // to the student they asked for. Cleared when they save a decision.
   const [lookingBack, setLookingBack] = useState(false);
-  // No student is shown until the reviewer starts, from the start screen or
-  // by picking one.
-  const [started, setStarted] = useState(false);
+  // Show the introduction before starting and when Previous returns to it.
+  const [showIntro, setShowIntro] = useState(true);
   const setSelectedId = (id: string | null) => {
-    setStarted(true);
+    setShowIntro(false);
     setLookingBack(true);
     setSelectedIdState(id);
   };
@@ -64,7 +63,8 @@ export const MatchReview = () => {
     students.find((student) => student.correlationId === selectedId) ?? queue[0] ?? students[0];
   const ready = students.filter((student) => student.status === 'ready');
   const toReview = students.filter((student) => student.status === 'to-review');
-  const atStart = !started && toReview.length > 0;
+  // Completed reviews skip the intro on load, but Previous can still reopen it.
+  const atStart = showIntro && (toReview.length > 0 || selectedId !== null);
   // Every student has a decision, but saved matches haven't been submitted.
   const awaitingSubmit = ready.length > 0 && !toReview.length;
   // Then the pane says so rather than showing a student, until one is picked.
@@ -87,6 +87,10 @@ export const MatchReview = () => {
   const move = (step: number) => {
     if (!queue.length) return;
     const index = queue.findIndex((student) => student.correlationId === selected.correlationId);
+    if (step < 0 && index === 0) {
+      setShowIntro(true);
+      return;
+    }
     setSelectedId(queue[(index + step + queue.length) % queue.length].correlationId);
   };
   const position = queue.findIndex((student) => student.correlationId === selected.correlationId);
@@ -112,7 +116,7 @@ export const MatchReview = () => {
         <StartScreen
           toReview={toReview.length}
           total={students.length}
-          first={queue.find((student) => student.status === 'to-review') ?? toReview[0]}
+          first={queue.find((student) => student.status === 'to-review') ?? toReview[0] ?? selected}
           onStart={(id) => setSelectedId(id)}
         />
       ) : (
@@ -129,7 +133,7 @@ export const MatchReview = () => {
                 {position >= 0 ? `${position + 1} of ${queue.length}` : 'Not in the current list'}
               </Box>
               <HStack gap="100">
-                <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
+                <QuietButton size="xs" isDisabled={!queue.length} onClick={() => move(-1)}>
                   ‹ Previous
                 </QuietButton>
                 <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
@@ -202,8 +206,7 @@ export const MatchReview = () => {
 };
 
 /**
- * Shown in place of a student when the page opens
- * with students to review, so the first thing it says is where to begin.
+ * Shown before reviewing and when Previous returns from the first student.
  */
 const StartScreen = ({
   toReview,
@@ -218,7 +221,9 @@ const StartScreen = ({
 }) => (
   <VStack alignItems="flex-start" gap="300" paddingY="500" paddingX="300" maxWidth="36rem">
     <Box textStyle="h3">
-      {toReview === total
+      {toReview === 0
+        ? 'Review student matches'
+        : toReview === total
         ? `${total} ${total === 1 ? 'student needs' : 'students need'} a match`
         : `${toReview} of ${total} students still need a match`}
     </Box>
@@ -229,7 +234,7 @@ const StartScreen = ({
     </Box>
     <PrimaryButton onClick={() => onStart(first.correlationId)}>Start reviewing</PrimaryButton>
     <Box fontSize="0.85rem" opacity="0.75">
-      This opens the first student under {statusLabel['to-review']}. You can also pick any student
+      This opens the first student under {statusLabel[first.status]}. You can also pick any student
       there.
     </Box>
   </VStack>
