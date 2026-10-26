@@ -5,12 +5,12 @@ import { CheckIcon } from '@chakra-ui/icons';
 import { PrimaryButton, QuietButton, TooManyNote, USUAL_MAXIMUM } from './components';
 import { countOf, statusLabel, useReviewSession } from './reviewSession';
 import { Queue, sections, useQueue } from './queue';
-import { LastAction, LastActionBar, Workspace } from './studentPane';
+import { LastAction, LastActionBar, StudentPane } from './studentPane';
 import { SubmissionList } from './submissions';
 import { SubmitReview } from './submit';
 
 /*
- * The match review: one persistent queue and one focused workspace.
+ * The match review: one persistent queue and one focused student pane.
  * Suggestion count is a filter, not a workflow. Two destinations: save a
  * match, or exclude the record from this job (mostly for junk data);
  * rejecting the suggestions is neither. Submitting is a deliberate
@@ -18,10 +18,11 @@ import { SubmitReview } from './submit';
  */
 
 /**
- * The list beside the workspace, grouped by status: the side list holds the
- * students and the submit button, and the top counts them and shows submissions.
+ * The Unmatched Students tab: the summary on top counts the students and
+ * shows submissions, and the list beside the student pane holds the students
+ * and the submit button.
  */
-export const WorkspaceReview = () => {
+export const MatchReview = () => {
   const { students, counts, overLimit, isLoading, isError, submitBlocked } = useReviewSession();
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
   // Set once the reviewer picks a student, so the prompt to submit gives way
@@ -47,7 +48,7 @@ export const WorkspaceReview = () => {
   if (overLimit) {
     return (
       <VStack alignItems="stretch" width="100%" gap="400">
-        <Overview />
+        <ReviewSummary />
         <Box textStyle="body" layerStyle="contentBox" padding="400">
           {counts.total.toLocaleString()} students couldn't be matched, which is too many to review
           here. That usually means something is off with the file, such as the wrong ID column. Fix
@@ -139,7 +140,7 @@ export const WorkspaceReview = () => {
           {atSubmitPrompt ? (
             submitPrompt
           ) : (
-            <Workspace
+            <StudentPane
               key={selected.correlationId}
               student={selected}
               onSaved={(action) => {
@@ -168,7 +169,7 @@ export const WorkspaceReview = () => {
     <VStack alignItems="stretch" width="100%" gap="400">
       {/* The list holds the students and the one submit button; the summary
           only counts them, and shows submissions. */}
-      <Overview />
+      <ReviewSummary />
 
       <HStack alignItems="flex-start" gap="400" width="100%">
         <Queue
@@ -307,7 +308,7 @@ const SubmitPrompt = ({
 );
 
 /** Progress that says what's left to do, with identity and processing kept apart. */
-const Overview = () => {
+const ReviewSummary = () => {
   const { counts, overLimit, sendRuns } = useReviewSession();
   // Past the review limit, the page says so in place of the list.
   const tooMany = !overLimit && counts.total > USUAL_MAXIMUM;

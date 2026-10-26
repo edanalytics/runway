@@ -97,7 +97,7 @@ export const SubmitReview = ({
   const { submit, submitBlocked, students } = useReviewSession();
   const { data: me } = useMe();
   const meId = me?.user?.id;
-  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
   // The last submit's failure, with the students it submitted.
   const [failure, setFailure] = useState<{
     result: Extract<SubmitResult, { ok: false }>;
@@ -105,7 +105,7 @@ export const SubmitReview = ({
   } | null>(null);
   useEffect(() => {
     if (isOpen) {
-      setSent(false);
+      setSending(false);
       setFailure(null);
     }
   }, [isOpen]);
@@ -123,9 +123,9 @@ export const SubmitReview = ({
     return student ? studentName(student.inputDetails) : 'A student no longer listed';
   };
   const send = async (correlationIds: string[]) => {
-    setSent(true);
+    setSending(true);
     const result = await submit(correlationIds);
-    setSent(false);
+    setSending(false);
     if (result.ok) onClose();
     else setFailure({ result, submitted: correlationIds });
   };
@@ -253,16 +253,16 @@ export const SubmitReview = ({
           <QuietButton onClick={onClose}>Keep reviewing</QuietButton>
           {rest ? (
             <PrimaryButton
-              isDisabled={sent || !rest.length}
-              isLoading={sent}
+              isDisabled={sending || !rest.length}
+              isLoading={sending}
               onClick={() => send(rest)}
             >
               Submit the rest ({rest.length})
             </PrimaryButton>
           ) : (
             <PrimaryButton
-              isDisabled={sent || !ready.length || !!submitBlocked}
-              isLoading={sent}
+              isDisabled={sending || !ready.length || !!submitBlocked}
+              isLoading={sending}
               onClick={() => send(ready.map((student) => student.correlationId))}
             >
               Submit

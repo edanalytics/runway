@@ -116,7 +116,7 @@ export const LastActionBar = ({
   );
 };
 
-export const Workspace = ({
+export const StudentPane = ({
   student,
   onSaved,
 }: {
@@ -141,7 +141,7 @@ export const Workspace = ({
     fromSearch && !suggestions.some((c) => c.studentUniqueId === fromSearch.studentUniqueId)
       ? [...suggestions, fromSearch]
       : suggestions;
-  const saved = matched?.studentUniqueId ?? null;
+  const matchedId = matched?.studentUniqueId ?? null;
   const name = studentName(student.inputDetails);
 
   // Why the last write was refused, shown here on the student.
@@ -256,7 +256,7 @@ export const Workspace = ({
           suggestionCount={suggestions.length}
           onBack={candidates.length ? () => setNoneFit(false) : undefined}
           onExclude={exclude}
-          search={<Search student={student} saved={saved} onUse={use} />}
+          search={<Search student={student} matchedId={matchedId} onUse={use} />}
         >
           {decision && (
             <QuietButton alignSelf="flex-start" onClick={clearDecision}>
@@ -269,7 +269,7 @@ export const Workspace = ({
           <EvidenceTable
             student={student}
             candidates={candidates}
-            saved={saved}
+            matchedId={matchedId}
             onUse={isSubmitted ? undefined : use}
           />
           {!isSubmitted && (
@@ -394,12 +394,12 @@ const rosterDetailsKey = 'runway.match-review.roster-details';
 const EvidenceTable = ({
   student,
   candidates,
-  saved,
+  matchedId,
   onUse,
 }: {
   student: GetStudentInputDetailsDto;
   candidates: Candidate[];
-  saved: string | null;
+  matchedId: string | null;
   onUse?: (candidate: Candidate) => void;
 }) => {
   // Details only the roster has are a click away; remembered across students.
@@ -432,7 +432,7 @@ const EvidenceTable = ({
     bg: 'blue.600',
     borderBottomWidth: '0',
     boxShadow:
-      saved === c.studentUniqueId
+      matchedId === c.studentUniqueId
         ? 'inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
         : undefined,
   });
@@ -521,7 +521,7 @@ const EvidenceTable = ({
                   paddingTop="200"
                   {...band(c)}
                   boxShadow={
-                    saved === c.studentUniqueId
+                    matchedId === c.studentUniqueId
                       ? 'inset 0 2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
                       : undefined
                   }
@@ -573,12 +573,12 @@ const EvidenceTable = ({
                   borderBottomRadius="8px"
                   paddingBottom="300"
                   boxShadow={
-                    saved === c.studentUniqueId
+                    matchedId === c.studentUniqueId
                       ? 'inset 0 -2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
                       : undefined
                   }
                 >
-                  {saved === c.studentUniqueId ? (
+                  {matchedId === c.studentUniqueId ? (
                     <Box fontWeight="600" color="green.100" paddingY="100">
                       ✓ Saved match
                     </Box>
@@ -608,11 +608,11 @@ const Missing = ({ compared }: { compared: boolean }) => (
 /** Search, remembered per student so a trip to the SIS doesn't lose it. */
 const Search = ({
   student,
-  saved,
+  matchedId,
   onUse,
 }: {
   student: GetStudentInputDetailsDto;
-  saved: string | null;
+  matchedId: string | null;
   onUse: (candidate: Candidate) => void;
 }) => {
   const { search, searchOf, setSearch } = useReviewSession();
@@ -664,7 +664,7 @@ const Search = ({
       )}
       {hits && !searching && hits.length > 0 && (
         <Box bg="blue.700" borderRadius="6px" padding="200">
-          <EvidenceTable student={student} candidates={hits} saved={saved} onUse={onUse} />
+          <EvidenceTable student={student} candidates={hits} matchedId={matchedId} onUse={onUse} />
         </Box>
       )}
     </VStack>

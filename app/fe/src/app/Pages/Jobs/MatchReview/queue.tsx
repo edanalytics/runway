@@ -220,7 +220,7 @@ export const Queue = ({
 
   const searchBox = (
     <Input
-      id="workspace-queue-search"
+      id="match-review-queue-search"
       size="sm"
       autoComplete="off"
       placeholder="Search"

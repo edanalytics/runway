@@ -34,7 +34,7 @@ import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
 import { useMe } from '../../api/queries/me.queries';
 import { hasMatchReview, ReviewSessionProvider } from './MatchReview/reviewSession';
-import { WorkspaceReview } from './MatchReview/WorkspaceReview';
+import { MatchReview } from './MatchReview/MatchReview';
 import { ReviewNotice } from './MatchReview/ReviewNotice';
 
 // Chakra's default selected tab uses blue.600, which this theme makes a
@@ -235,7 +235,7 @@ export const JobViewPage = () => {
                 {overview}
               </TabPanel>
               <TabPanel paddingX="0" paddingY="400">
-                <WorkspaceReview />
+                <MatchReview />
               </TabPanel>
             </TabPanels>
           </Tabs>
