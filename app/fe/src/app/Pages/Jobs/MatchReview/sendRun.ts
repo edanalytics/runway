@@ -43,7 +43,7 @@ export const outcomeLabel: Record<SendRunOutcome, string> = {
   running: 'Reprocessing',
   complete: 'Complete',
   'complete with errors': 'Complete with errors',
-  failed: 'Run failed',
+  failed: 'Reprocessing failed',
 };
 
 /** A submission's number: the job's first is 1. Send runs are never deleted, so it's stable. */

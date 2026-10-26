@@ -72,7 +72,7 @@ export const statusLabel: Record<StudentMatchStatus, string> = {
   excluded: 'Excluded',
   reprocessing: 'Reprocessing',
   reprocessed: 'Reprocessed',
-  'run-failed': 'Run failed',
+  'run-failed': 'Reprocessing failed',
 };
 
 /** Where each status's count is in the review read's `counts`. */
