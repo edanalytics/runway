@@ -67,7 +67,7 @@ export const WorkspaceReview = () => {
     setSelectedIdState(id);
   };
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<Sort>({ key: 'file', descending: false });
+  const [sort, setSort] = useState<Sort>({ key: 'name', descending: false });
   const [reviewing, setReviewing] = useState(false);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const [openFinished, setOpenFinished] = useState<Set<string>>(() => new Set());
@@ -159,7 +159,7 @@ export const WorkspaceReview = () => {
   );
   // The side list's sort and filters, folded into one menu. The button counts
   // what's changed from the default, so a narrowed list is never a mystery.
-  const changedOptions = [countFilter !== null, sort.key !== 'file'].filter(Boolean).length;
+  const changedOptions = [countFilter !== null, sort.key !== 'name'].filter(Boolean).length;
   const optionStyle = { bg: 'blue.700', _hover: { bg: 'blue.600' }, _focus: { bg: 'blue.600' } };
   const listOptions = (
     <Menu closeOnSelect={false} placement="bottom-end">

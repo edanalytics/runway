@@ -14,12 +14,15 @@ export const countFilters: { key: CountFilter; label: string; test: (n: number) 
   { key: 'several', label: 'Several', test: (n) => n > 1 },
 ];
 
-export type SortKey = 'file' | 'name' | 'birth' | 'score';
+export type SortKey = 'name' | 'birth' | 'score';
 export type Sort = { key: SortKey; descending: boolean };
 
-/** Each sort's natural first direction: best scores first. */
+/**
+ * Each sort's natural first direction: best scores first. Last name comes
+ * first, as the default: the API's order is by correlation id, a hash, so
+ * the page has no file order to offer.
+ */
 export const sorts: { key: SortKey; label: string; descending: boolean }[] = [
-  { key: 'file', label: 'File order', descending: false },
   { key: 'name', label: 'Last name', descending: false },
   { key: 'birth', label: 'Date of birth', descending: false },
   { key: 'score', label: 'Top match score', descending: true },
@@ -75,9 +78,7 @@ export const sortBy =
         ? lastNameOf(a).localeCompare(lastNameOf(b))
         : key === 'birth'
         ? text(a.inputDetails.birth_date).localeCompare(text(b.inputDetails.birth_date))
-        : key === 'score'
-        ? topScore(a) - topScore(b)
-        : 0;
+        : topScore(a) - topScore(b);
     return descending ? -order : order;
   };
 
