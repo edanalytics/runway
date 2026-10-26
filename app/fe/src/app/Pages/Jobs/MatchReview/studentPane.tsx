@@ -38,8 +38,6 @@ import { termsFrom, SearchTerms } from './search';
 import { Candidate, DecisionChoice, DecisionResult, useReviewSession } from './reviewSession';
 import { outcomeLabel, sendRunOutcome, submissionNumber, submissionReference } from './sendRun';
 
-// Evidence -------------------------------------------------------------------
-
 const realDate = (value: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
@@ -114,8 +112,6 @@ export const LastActionBar = ({
   );
 };
 
-// One student ------------------------------------------------------------------
-
 export const Workspace = ({
   student,
   onSaved,
@@ -125,11 +121,10 @@ export const Workspace = ({
 }) => {
   const { decide, clear } = useReviewSession();
   const toast = useToast();
-  const { correlationId: id, status, decision } = student;
+  const { correlationId: id, decision } = student;
   // Once a student's match is in a send run, failed or not, they take no new
   // decision (Decisions Log #46): a failed one's remedy is its submission's.
-  const isSubmitted =
-    status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed';
+  const isSubmitted = student.sendRunId !== null;
   const suggestions = suggestionsOf(student);
 
   // Saying none fit stays on this student and opens search and exclude.
@@ -309,10 +304,7 @@ const DecisionState = ({ student }: { student: GetStudentInputDetailsDto }) => {
     }. Not submitted yet.`;
   } else if (status === 'excluded') {
     body = `Excluded from this job${by}. Its records won't be reprocessed.`;
-  } else if (
-    sendRun &&
-    (status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed')
-  ) {
+  } else if (sendRun) {
     // No decision can follow a send, so the current one is what was sent.
     const chosen = matched?.studentUniqueId;
     const number = submissionNumber(sendRuns, sendRun);

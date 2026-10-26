@@ -164,7 +164,6 @@ export const ReviewSessionProvider = ({
   const resultsQuery = getJobStudentMatchResults(jobId);
   const { data, isLoading, isError, refetch } = useQuery({
     ...resultsQuery,
-    enabled: hasMatchReview(job),
     // A send run's outcome changes its students' statuses with nothing on
     // the page to prompt a refetch, so poll while one is in flight. React
     // Query stops on unmount, and pauses while the browser tab is hidden.

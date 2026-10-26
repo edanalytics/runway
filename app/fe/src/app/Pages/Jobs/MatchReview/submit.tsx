@@ -37,8 +37,6 @@ import { useMe } from '../../../api/queries/me.queries';
 import { SubmitResult, useReviewSession } from './reviewSession';
 import { submitFailureText } from './submitResult';
 
-// Submitting -------------------------------------------------------------------
-
 /**
  * A record as three lines, name, birth date and IDs, laid out the same for
  * the file and the roster so the two read across. Given the file to compare

@@ -43,8 +43,6 @@ import { SubmitReview } from './submit';
  * checkpoint, and each submission's outcome stays with the submission.
  */
 
-// The workspace ---------------------------------------------------------------
-
 /**
  * The list beside the workspace, grouped by status: the side list holds the
  * students and the submit button, and the top counts them and shows submissions.

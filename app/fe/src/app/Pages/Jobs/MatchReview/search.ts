@@ -1,4 +1,5 @@
 import { StudentInputDetailsJson, StudentSearchDetailsDto } from '@edanalytics/models';
+import { valueText } from './components';
 import { Candidate } from './reviewSession';
 
 /** The search form's fields, as typed. */
@@ -16,13 +17,11 @@ export type SearchHit = Required<Pick<Candidate, 'studentUniqueId' | 'rosterDeta
   searchDetails: StudentSearchDetailsDto;
 };
 
-const text = (value: unknown) => (typeof value === 'string' && value ? value : null);
-
 /** Search terms pre-filled from the file's details. */
 export const termsFrom = (file: StudentInputDetailsJson): SearchTerms => ({
-  first_name: text(file.first_name) ?? '',
-  last_name: text(file.last_name) ?? '',
-  birth_date: text(file.birth_date) ?? '',
+  first_name: valueText(file.first_name) ?? '',
+  last_name: valueText(file.last_name) ?? '',
+  birth_date: valueText(file.birth_date) ?? '',
   student_ids: Array.isArray(file.student_ids) ? file.student_ids.map(String).join(', ') : '',
 });
 

@@ -67,11 +67,8 @@ export const AgreementMark = ({ agreement }: { agreement: Agreement }) => {
   );
 };
 
-const valueOf = (value: unknown) =>
-  typeof value === 'string' && value ? value : Array.isArray(value) ? value.join(', ') : null;
-
 export const studentName = (details: StudentInputDetailsJson) =>
-  [valueOf(details.first_name), valueOf(details.last_name)].filter(Boolean).join(' ') ||
+  [valueText(details.first_name), valueText(details.last_name)].filter(Boolean).join(' ') ||
   'Unnamed student';
 
 export const PrimaryButton = (props: React.ComponentProps<typeof Button>) => (
@@ -235,30 +232,23 @@ const OptionBox = ({
 );
 
 /**
- * The latest search IDRS ran for this student, from the highest run: the one
- * a match to a suggestion must pick from. Earlier ones are history.
+ * The suggestions from the latest search IDRS ran for this student, the last
+ * result, from the highest run: the one a match to a suggestion must pick
+ * from. Earlier ones are history. The read orders results by run, and each
+ * result's suggestions by ordinal.
  */
-const latestResult = (student: GetStudentInputDetailsDto) =>
-  student.results.reduce<(typeof student.results)[number] | undefined>(
-    (latest, result) => (!latest || result.runId > latest.runId ? result : latest),
-    undefined
-  );
-
-export const suggestionsOf = (student: GetStudentInputDetailsDto): Candidate[] => {
-  const latest = latestResult(student);
+export const suggestionsOf = ({ results }: GetStudentInputDetailsDto): Candidate[] => {
+  const latest = results[results.length - 1];
   if (!latest) return [];
-  return latest.suggestions
-    .slice()
-    .sort((a, b) => a.ordinal - b.ordinal)
-    .map((s) => ({
-      studentUniqueId: s.studentUniqueId,
-      rosterDetails: s.rosterDetails,
-      score: s.score,
-      source: 'suggestion' as const,
-      // A match to a suggestion names it by its result and position.
-      resultId: latest.id,
-      ordinal: s.ordinal,
-    }));
+  return latest.suggestions.map((s) => ({
+    studentUniqueId: s.studentUniqueId,
+    rosterDetails: s.rosterDetails,
+    score: s.score,
+    source: 'suggestion' as const,
+    // A match to a suggestion names it by its result and position.
+    resultId: latest.id,
+    ordinal: s.ordinal,
+  }));
 };
 
 /** The candidate a student's match rests on: its suggestion, or its search. Null unless matched. */

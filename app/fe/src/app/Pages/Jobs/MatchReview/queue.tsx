@@ -3,8 +3,6 @@ import { GetStudentInputDetailsDto, JsonValue, StudentMatchStatus } from '@edana
 import { useEffect, useRef } from 'react';
 import { studentName, secondId, valueText, suggestionsOf } from './components';
 
-// Queue ----------------------------------------------------------------------
-
 export type CountFilter = 'none' | 'one' | 'several';
 
 export const countFilters: { key: CountFilter; label: string; test: (n: number) => boolean }[] = [
