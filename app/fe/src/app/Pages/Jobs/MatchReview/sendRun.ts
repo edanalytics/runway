@@ -1,4 +1,10 @@
-import { GetRunDto, getResourceErrors, GetSendRunDto } from '@edanalytics/models';
+import {
+  GetRunDto,
+  getResourceErrors,
+  GetSendRunDto,
+  GetStudentInputDetailsDto,
+  GetStudentMatchDecisionDto,
+} from '@edanalytics/models';
 
 /*
  * A send run, as the reviewer who created it sees it: a submission.
@@ -50,3 +56,21 @@ export const submissionNumber = (sendRuns: GetSendRunDto[], sendRun: GetSendRunD
  */
 export const submissionReference = (jobId: number, number: number, sendRun: GetSendRunDto) =>
   `Job ${jobId} · submission ${number} (run ${sendRun.id})`;
+
+/** A student as sending them again needs them: where they stand, and their decision's version. */
+export type ResendableStudent = Pick<
+  GetStudentInputDetailsDto,
+  'correlationId' | 'status' | 'sendRunId'
+> & { decision: Pick<GetStudentMatchDecisionDto, 'version'> | null };
+
+/**
+ * The students to send again from a failed send run, as submit takes them:
+ * those it failed for, which is those still run-failed with it as their send
+ * run. Any sent again since have a later send run.
+ */
+export const studentsToResend = (
+  students: ResendableStudent[],
+  sendRunId: number
+): { correlationId: string; version: number }[] => {
+  throw new Error('not implemented');
+};
