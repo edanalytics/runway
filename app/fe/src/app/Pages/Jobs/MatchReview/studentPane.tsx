@@ -17,7 +17,7 @@ import {
   StudentRosterDetailsJson,
   StudentMatchStatus,
 } from '@edanalytics/models';
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
@@ -152,6 +152,15 @@ export const Workspace = ({
 
   // Why the last write was refused, shown here on the student.
   const [error, setError] = useState<string | null>(null);
+  // Whether this student is still the one shown: the pane is keyed by
+  // student, so it unmounts when the reviewer moves on.
+  const shown = useRef(true);
+  useEffect(() => {
+    shown.current = true;
+    return () => {
+      shown.current = false;
+    };
+  }, []);
 
   /**
    * Waits for a write: only once it's saved does the page say so, offer an
@@ -170,6 +179,10 @@ export const Workspace = ({
       setError(result.message);
       return false;
     }
+    // A save that lands after the reviewer has moved to another student
+    // still stands, but reporting it would take them back, or replace a
+    // newer action's undo with this older one.
+    if (!shown.current) return true;
     onSaved({
       ...action,
       undo: () => (previous ? decide(id, previous, result.version) : clear(id, result.version)),
