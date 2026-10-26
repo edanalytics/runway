@@ -115,12 +115,12 @@ class JobExecutor:
             self.conn.headers.update({"Authorization": f"Bearer {init_info['token']}"})
             job = self.conn.get(init_info["jobUrl"]).json()
 
-            self.unpack_job(job)
-            self.refresh_bundle_code()
-            self.earthmover_deps(self.student_id_wrapper_earthmover)
+            self.unpack_job(job) # This becomes the Job Object
+            self.refresh_bundle_code() # EarthmoverRunner
+            self.earthmover_deps(self.student_id_wrapper_earthmover) # EarthmoverRunner
 
             if self.send_to_ods and self.local_mode:
-                self.modify_local_lightbeam()
+                self.modify_local_lightbeam() # LightbeamRunner
 
             self.get_student_roster()
             self.get_input_files()
@@ -131,16 +131,16 @@ class JobExecutor:
             # id_based is the default matching mode, set in unpack_job
             if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
                 # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
-                self.orchestrate_earthmover()
+                self.orchestrate_earthmover() # rename to run id_matching or similar
             # if self.id_matching_mode == 'fuzzy':
             #     # when the matching_mode is fuzzy, we run earthmover with a separate wrapper in the match_candidates method
             #     self.run_fuzzy_matching()
             
-            self.lightbeam_send()
+            self.lightbeam_send() # LigthbeamRunner
 
-            self.report_unmatched_students()
-            self.upload_output()
-            self.compile_summary()
+            self.report_unmatched_students() # JobUpdater
+            self.upload_output() # JobUpdater
+            self.compile_summary() #JobUpdater
 
         # NOTE: all specific exceptions are handled in sub-methods
         except:
