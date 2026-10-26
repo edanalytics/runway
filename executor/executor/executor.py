@@ -9,6 +9,7 @@ import subprocess
 import time
 import traceback
 import hashlib
+import copy
 from urllib import parse
 
 import boto3
@@ -259,7 +260,12 @@ class JobExecutor:
             err_message = "job.inputFiles must include an INPUT_FILE item"
             self.error = error.InvalidJobError(err_message)
             raise ValueError(err_message)
-        pprint(job)
+
+        # Log potentially sensitive fields as counts
+        print_safe_job = copy.deepcopy(job)
+        if print_safe_job.get('send'):  
+            print_safe_job['send']['students'] = len(print_safe_job['send'].get('students') or [])
+        pprint(print_safe_job)
 
     def refresh_bundle_code(self):
         """Pull from the bundles repo to ensure the latest code is being used"""
