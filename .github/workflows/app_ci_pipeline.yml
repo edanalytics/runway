@@ -153,6 +153,8 @@ jobs:
         run: npm run prisma:generate-client
       - name: Typecheck FE
         run: npm run fe:typecheck
+      - name: Test FE
+        run: npm run fe:test
 
   test:
     runs-on: ubuntu-latest
