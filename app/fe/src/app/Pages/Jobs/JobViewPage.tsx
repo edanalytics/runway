@@ -196,7 +196,10 @@ export const JobViewPage = () => {
                       </HStack>
                     ) : (
                       <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
-                        <JobProgressTracker statusUpdates={statusUpdates} sendToOds={job.sendToOds} />
+                        <JobProgressTracker
+                          statusUpdates={statusUpdates}
+                          sendToOds={job.sendToOds}
+                        />
                       </Box>
                     )}
                     {errors?.map(({ error }) => (
