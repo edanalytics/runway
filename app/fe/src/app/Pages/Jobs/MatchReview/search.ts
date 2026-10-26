@@ -1,0 +1,41 @@
+import { StudentInputDetailsJson, StudentSearchDetailsDto } from '@edanalytics/models';
+import { Candidate } from './reviewSession';
+
+/** The search form's fields, as typed. */
+export type SearchTerms = {
+  first_name: string;
+  last_name: string;
+  birth_date: string;
+  /** Any IDs the reviewer has, separated by commas or spaces. */
+  student_ids: string;
+};
+
+/** A student the search found, with the search that found them, which a match to them stores. */
+export type SearchHit = Required<Pick<Candidate, 'studentUniqueId' | 'rosterDetails'>> & {
+  score: number;
+  searchDetails: StudentSearchDetailsDto;
+};
+
+const text = (value: unknown) => (typeof value === 'string' && value ? value : null);
+
+/** Search terms pre-filled from the file's details. */
+export const termsFrom = (file: StudentInputDetailsJson): SearchTerms => ({
+  first_name: text(file.first_name) ?? '',
+  last_name: text(file.last_name) ?? '',
+  birth_date: text(file.birth_date) ?? '',
+  student_ids: Array.isArray(file.student_ids) ? file.student_ids.map(String).join(', ') : '',
+});
+
+/** The search route's body: IDRS's input, with blank fields left out. */
+export const searchDetailsFrom = (terms: SearchTerms): StudentSearchDetailsDto => {
+  const ids = terms.student_ids
+    .split(/[\s,]+/)
+    .map((id) => id.trim())
+    .filter(Boolean);
+  return {
+    first_name: terms.first_name.trim() || null,
+    last_name: terms.last_name.trim() || null,
+    birth_date: terms.birth_date.trim() || null,
+    student_ids: ids.length ? ids : null,
+  };
+};

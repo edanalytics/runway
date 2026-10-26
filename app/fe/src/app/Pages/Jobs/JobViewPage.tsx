@@ -1,4 +1,16 @@
-import { Box, Collapse, HStack, Spinner, StackDivider, VStack } from '@chakra-ui/react';
+import {
+  Box,
+  Collapse,
+  HStack,
+  Spinner,
+  StackDivider,
+  Tab,
+  TabList,
+  TabPanel,
+  TabPanels,
+  Tabs,
+  VStack,
+} from '@chakra-ui/react';
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import {
   getJobErrors,
@@ -21,6 +33,13 @@ import { JobConfiguration } from './JobViewComponents/JobConfiguration';
 import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
 import { useMe } from '../../api/queries/me.queries';
+import { ReviewSessionProvider } from './MatchReview/reviewSession';
+import { WorkspaceReview } from './MatchReview/WorkspaceReview';
+import { ReviewNotice } from './MatchReview/ReviewNotice';
+
+// Chakra's default selected tab uses blue.600, which this theme makes a
+// background color.
+const selectedTab = { color: 'blue.50', borderColor: 'blue.50' };
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
 const getStageFromUpdates = (updates: GetRunUpdateDto[] | undefined): JobStages => {
@@ -47,6 +66,9 @@ export const JobViewPage = () => {
   const canViewOutputFiles = me?.privileges?.has('job.output-files.read') ?? false;
   const canViewCrossTenantJobs = me?.privileges?.has('job.metatenant.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
+
+  const [tabIndex, setTabIndex] = useState(0);
+  const hasStudentsToMatch = !!job.studentMatchCounts?.total;
 
   /**
    * The job progress through a series of stages. We determine which stage
@@ -132,47 +154,80 @@ export const JobViewPage = () => {
           </Box>
         )}
       </Box>
-      <JobNotes job={job} />
-      <VStack
-        width="100%"
-        alignItems="flex-start"
-        layerStyle="contentBox"
-        padding="400"
-        gap="400"
-        divider={<StackDivider borderColor="blue.50-40" />}
-      >
-        <JobViewSection title="Progress">
-          {currentStage === 'not started' ? (
-            <HStack gap="300">
-              <Spinner size="md" color="blue.50" speed="0.75s" />
-              <Box textStyle="body">queued for processing...</Box>
-            </HStack>
-          ) : (
-            <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
-              <JobProgressTracker statusUpdates={statusUpdates} sendToOds={job.sendToOds} />
-            </Box>
-          )}
-          {errors?.map(({ error }) => (
-            // In theory, a job could have multiple errors, but in practice, any
-            // error flagged by the executor is fatal and so there will be only one.
-            <JobError key={error.id} err={error} />
-          ))}
-          {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
-        </JobViewSection>
-        {!!job.resourceSummaries && (
-          <JobViewSection title="Summary">
-            <ResourceSummary job={job} />
-          </JobViewSection>
-        )}
-        <JobViewSection title="Configuration">
-          <JobConfiguration job={job} />
-        </JobViewSection>
-        {canViewOutputFiles && (
-          <JobViewSection title="Output Files">
-            <JobOutputFiles job={job} />
-          </JobViewSection>
-        )}
-      </VStack>
+      {/* Notes sit above the tabs, so they're in view whichever tab is open,
+          and close under the job's summary rather than a full gap below it. */}
+      <Box width="100%" marginTop="-2rem">
+        <JobNotes job={job} />
+      </Box>
+      <ReviewSessionProvider job={job}>
+        <Tabs
+          isLazy
+          lazyBehavior="keepMounted"
+          width="100%"
+          index={tabIndex}
+          onChange={setTabIndex}
+        >
+          <TabList borderColor="blue.50-40">
+            <Tab _selected={selectedTab}>Overview</Tab>
+            {hasStudentsToMatch && <Tab _selected={selectedTab}>Unmatched Students</Tab>}
+          </TabList>
+          <TabPanels>
+            <TabPanel paddingX="0" paddingY="400">
+              <VStack width="100%" alignItems="flex-start" gap="500">
+                <VStack
+                  width="100%"
+                  alignItems="flex-start"
+                  layerStyle="contentBox"
+                  padding="400"
+                  gap="400"
+                  divider={<StackDivider borderColor="blue.50-40" />}
+                >
+                  <JobViewSection title="Progress">
+                    {currentStage === 'not started' ? (
+                      <HStack gap="300">
+                        <Spinner size="md" color="blue.50" speed="0.75s" />
+                        <Box textStyle="body">queued for processing...</Box>
+                      </HStack>
+                    ) : (
+                      <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
+                        <JobProgressTracker
+                          statusUpdates={statusUpdates}
+                          sendToOds={job.sendToOds}
+                        />
+                      </Box>
+                    )}
+                    {errors?.map(({ error }) => (
+                      // In theory, a job could have multiple errors, but in practice, any
+                      // error flagged by the executor is fatal and so there will be only one.
+                      <JobError key={error.id} err={error} />
+                    ))}
+                    {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
+                    {hasStudentsToMatch && <ReviewNotice onReview={() => setTabIndex(1)} />}
+                  </JobViewSection>
+                  {!!job.resourceSummaries && (
+                    <JobViewSection title="Summary">
+                      <ResourceSummary job={job} />
+                    </JobViewSection>
+                  )}
+                  <JobViewSection title="Configuration">
+                    <JobConfiguration job={job} />
+                  </JobViewSection>
+                  {canViewOutputFiles && (
+                    <JobViewSection title="Output Files">
+                      <JobOutputFiles job={job} />
+                    </JobViewSection>
+                  )}
+                </VStack>
+              </VStack>
+            </TabPanel>
+            {hasStudentsToMatch && (
+              <TabPanel paddingX="0" paddingY="400">
+                <WorkspaceReview />
+              </TabPanel>
+            )}
+          </TabPanels>
+        </Tabs>
+      </ReviewSessionProvider>
     </VStack>
   );
 };
