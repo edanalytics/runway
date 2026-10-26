@@ -25,14 +25,16 @@ import { Candidate, useReviewSession } from './reviewSession';
  */
 
 // Shape as well as color tells the marks apart: identical is filled, not
-// identical is outlined, nothing to compare is a faint dot.
+// identical is outlined, nothing to compare is a quieter dot. They sit on a
+// candidate's blue.600 band, where ≠ is pink.50 (6.1:1) for a text glyph's
+// 4.5:1, and the dot blue.200 (3.3:1), the 3:1 a graphic needs.
 const agreementStyle: Record<
   Agreement,
   { glyph: string; label: string; color: string; bg?: string; border?: string }
 > = {
   same: { glyph: '=', label: 'identical', color: 'green.600', bg: 'green.100' },
-  different: { glyph: '≠', label: 'not identical', color: 'pink.100', border: 'pink.100' },
-  unknown: { glyph: '·', label: 'nothing to compare', color: 'blue.50-40' },
+  different: { glyph: '≠', label: 'not identical', color: 'pink.50', border: 'pink.50' },
+  unknown: { glyph: '·', label: 'nothing to compare', color: 'blue.200' },
 };
 
 export const AgreementMark = ({ agreement }: { agreement: Agreement }) => {
