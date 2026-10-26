@@ -151,3 +151,14 @@ export const refusalReason = ({ code, refused }: SubmitRefusal<unknown>) => {
 export const needsAttention = (outcome: SendRunOutcome, leftToResend: number | null): boolean =>
   outcome === 'complete with errors' ||
   (outcome === 'failed' && (leftToResend === null || leftToResend > 0));
+
+/**
+ * Whether a failed submit certainly wrote nothing: the API answered with a
+ * client error, which it decides before writing anything. A 5xx can come
+ * after the submit committed, and a failure with no status, such as a lost
+ * response, says nothing either way.
+ */
+export const wroteNothing = (body: unknown): boolean => {
+  const { statusCode } = (body ?? {}) as { statusCode?: unknown };
+  return typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500;
+};

@@ -4,7 +4,7 @@ import { getResourceSummaries, GetSendRunDto } from '@edanalytics/models';
 import { useEffect, useState } from 'react';
 import { ContactSupport } from '../../../components/SupportButton';
 import { reportedSummaries } from '../JobViewComponents/ResourceSummary';
-import { dateTime, QuietButton, studentName } from './components';
+import { asSentence, dateTime, QuietButton, studentName } from './components';
 import { useReviewSession } from './reviewSession';
 import {
   needsAttention,
@@ -133,15 +133,19 @@ const SubmissionSupport = ({
     const result = await resend(sendRun.id);
     setSending(false);
     if (result.ok) return;
-    const { refusal, refreshed } = result;
+    const { refusal, nothingSubmitted, message, refreshed } = result;
     const caughtUp = refreshed
       ? 'The list has been refreshed'
       : "The list couldn't be refreshed: reload the page before going on";
     toast({
       status: 'error',
-      title: refusal ? 'Nothing was sent again' : 'Couldn’t confirm whether they were sent again',
-      description: !refusal
-        ? `${result.message}. They may already be in a submission. ${caughtUp}.`
+      title: nothingSubmitted
+        ? 'Nothing was sent again'
+        : 'Couldn’t confirm whether they were sent again',
+      description: !nothingSubmitted
+        ? `${asSentence(message)} They may already be in a submission. ${caughtUp}.`
+        : !refusal
+        ? `${asSentence(message)} ${caughtUp}.`
         : refusal.action === 'try later'
         ? refusalReason(refusal)
         : `${refusalReason(refusal)} ${caughtUp}, and Send again now sends the rest.`,

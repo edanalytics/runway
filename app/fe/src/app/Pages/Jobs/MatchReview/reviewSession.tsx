@@ -28,7 +28,7 @@ import { apiClient } from '../../../api/methods';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
 import { useMe } from '../../../api/queries/me.queries';
 import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
-import { studentsToResend, SubmitRefusal, submitRefusal } from './sendRun';
+import { studentsToResend, SubmitRefusal, submitRefusal, wroteNothing } from './sendRun';
 
 /*
  * One review session per job page, backed by the match-review API: the
@@ -94,17 +94,19 @@ export type DecisionResult = { ok: true; version: number | null } | { ok: false;
 export type SubmitStudent = { correlationId: string; version: number };
 
 /**
- * A submit's outcome. A refusal says which students it refused and why, and
- * that nothing was submitted. Any other failure, such as a 500 after the
- * submit committed or a lost response, leaves the outcome unknown, so it has
- * no refusal. Either way, `refreshed` says whether the page has caught up
- * since. A submit whose run couldn't start still stands.
+ * A submit's outcome. A refusal says which students it refused and why.
+ * `nothingSubmitted` says whether the failure certainly wrote nothing, as a
+ * refusal or any other client error does; a 5xx after the submit committed,
+ * or a lost response, leaves it unknown. Either way, `refreshed` says
+ * whether the page has caught up since. A submit whose run couldn't start
+ * still stands.
  */
 export type SubmitResult =
   | { ok: true }
   | {
       ok: false;
       refusal: SubmitRefusal<SubmitStudent> | null;
+      nothingSubmitted: boolean;
       message: string;
       refreshed: boolean;
     };
@@ -378,6 +380,7 @@ export const ReviewSessionProvider = ({
         return {
           ok: false,
           refusal: submitRefusal(err, students),
+          nothingSubmitted: wroteNothing(err),
           message: messageOf(err),
           refreshed: !isError,
         };

@@ -24,6 +24,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
+  asSentence,
   CrossYearCue,
   PrimaryButton,
   QuietButton,
@@ -152,6 +153,8 @@ export const SubmitReview = ({
               <Box>
                 {refusal
                   ? `Nothing was submitted. ${refusalReason(refusal)}`
+                  : failure.result.nothingSubmitted
+                  ? `Nothing was submitted: ${asSentence(failure.result.message)}`
                   : `The page couldn't confirm whether these were submitted (${failure.result.message}). They may already be in a submission.`}
               </Box>
               {refusal?.refused.map(({ correlationId }) => (
@@ -170,7 +173,10 @@ export const SubmitReview = ({
                   'Submit the rest without them, or check them first.'}
                 {refusal?.action === 'leave out or exclude' &&
                   'Submit the rest without them, or open each to exclude it from the job.'}
-                {!refusal && 'Check it before submitting again.'}
+                {!refusal &&
+                  (failure.result.nothingSubmitted
+                    ? 'Check it, then submit again.'
+                    : 'Check it before submitting again.')}
               </Box>
             </VStack>
           )}

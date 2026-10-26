@@ -8,6 +8,7 @@ import {
   studentsToResend,
   submissionNumber,
   submitRefusal,
+  wroteNothing,
 } from './sendRun';
 
 // The bundle reports on student assessments only, as every bundle does today.
@@ -231,5 +232,40 @@ describe('submissionNumber', () => {
 
   it("numbers a job's submissions from its first, the last the read lists", () => {
     expect(sendRuns.map((sendRun) => submissionNumber(sendRuns, sendRun))).toEqual([3, 2, 1]);
+  });
+});
+
+describe('wroteNothing', () => {
+  it('is true for a refusal', () => {
+    const body = {
+      statusCode: 409,
+      code: 'already_submitted',
+      message: 'A student’s match is being or has been sent.',
+      indices: [0],
+    };
+    expect(wroteNothing(body)).toBe(true);
+  });
+
+  it('is true for a student missing from the job, which the API checks before writing', () => {
+    const body = { statusCode: 404, code: 'not_found', message: 'A student isn’t in the job.' };
+    expect(wroteNothing(body)).toBe(true);
+  });
+
+  it('is true for a body that fails validation', () => {
+    const body = {
+      statusCode: 400,
+      message: ['students must contain at least 1 elements'],
+      error: 'Bad Request',
+    };
+    expect(wroteNothing(body)).toBe(true);
+  });
+
+  it('is false for a server error, which can come after the submit committed', () => {
+    const body = { statusCode: 500, message: 'Failed to submit the matches' };
+    expect(wroteNothing(body)).toBe(false);
+  });
+
+  it('is false for a failure with no response, such as a dropped connection', () => {
+    expect(wroteNothing({ message: 'Network Error', code: 'ERR_NETWORK' })).toBe(false);
   });
 });
