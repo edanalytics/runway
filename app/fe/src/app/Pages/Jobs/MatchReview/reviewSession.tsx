@@ -5,6 +5,7 @@ import { createContext, ReactNode, useCallback, useContext, useMemo, useState } 
 import {
   GetJobDto,
   GetSendRunDto,
+  PostStudentMatchSubmitResponseDto,
   GetStudentInputDetailsDto,
   GetStudentMatchCountsDto,
   GetStudentMatchDecisionDto,
@@ -20,7 +21,7 @@ import {
 } from '../../../api/queries/job.queries';
 import { useMe } from '../../../api/queries/me.queries';
 import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
-import { studentsToResend } from './sendRun';
+import { studentsToResend, SubmitRefusal, submitRefusal } from './sendRun';
 
 /*
  * One review session per job page, backed by the match-review API: the
@@ -76,9 +77,17 @@ export const hasMatchReview = (job: GetJobDto) =>
 
 export type SearchState = { terms: SearchTerms; hits: SearchHit[] | null };
 
+/** A student as submit takes them: their correlation id and their match's version. */
+export type SubmitStudent = { correlationId: string; version: number };
+
+/**
+ * A submit's outcome. A refused one says which students it refused and why,
+ * when the API did; any other failure has only a message. A submit whose run
+ * couldn't start still stands.
+ */
 export type SubmitResult =
   | { ok: true }
-  | { ok: false; reason: 'conflict' | 'error'; message: string };
+  | { ok: false; refusal: SubmitRefusal<SubmitStudent> | null; message: string };
 
 type Session = {
   job: GetJobDto;
@@ -99,6 +108,12 @@ type Session = {
   sendRunOf: (correlationId: string) => GetSendRunDto | undefined;
   /** Submits the match decisions among these students as one send run. */
   submit: (correlationIds: string[]) => Promise<SubmitResult>;
+  /**
+   * Why nothing can be submitted yet, or null when it can. Submit needs the
+   * job's full run to have succeeded: its results are what's reviewed, and its
+   * files are what a send run delivers from.
+   */
+  submitBlocked: string | null;
   /** Submits a failed send run's students again, as a new send run. */
   resend: (sendRunId: number) => Promise<SubmitResult>;
   /** Searches IDRS for a student with the reviewer's terms. */
@@ -283,23 +298,35 @@ export const ReviewSessionProvider = ({
 
   /** Creates a send run for these students' decisions, at the versions given. */
   const send = useCallback(
-    async (students: { correlationId: string; version: number }[]): Promise<SubmitResult> => {
-      if (!students.length) return { ok: true };
+    async (students: SubmitStudent[]): Promise<SubmitResult> => {
+      if (!students.length) {
+        return { ok: false, refusal: null, message: 'There are no students to send.' };
+      }
       try {
-        await apiClient.post(`/jobs/${jobId}/student-match-results/submit`, { students });
+        const { launched } = (await apiClient.post(`/jobs/${jobId}/student-match-results/submit`, {
+          students,
+        })) as unknown as PostStudentMatchSubmitResponseDto;
         invalidateJob();
+        if (!launched) {
+          // The submit stands, and its students are run-failed: sending again
+          // at once would most likely fail the same way.
+          toast({
+            status: 'warning',
+            title: 'Submitted, but its run couldn’t start',
+            description:
+              'Contact support from the submission, above. You can send it again from there once the cause is fixed.',
+            duration: 15000,
+            isClosable: true,
+          });
+        }
         return { ok: true };
       } catch (err) {
+        // A refusal means the page is behind, and any failure may: catch up.
         refetch();
-        const code = (err as ApiError)?.code;
-        return {
-          ok: false,
-          reason: code === 'decision_changed' ? 'conflict' : 'error',
-          message: messageOf(err),
-        };
+        return { ok: false, refusal: submitRefusal(err, students), message: messageOf(err) };
       }
     },
-    [invalidateJob, jobId, refetch]
+    [invalidateJob, jobId, refetch, toast]
   );
 
   const submit = useCallback(
@@ -350,6 +377,12 @@ export const ReviewSessionProvider = ({
     statusOf,
     sendRunOf,
     submit,
+    submitBlocked:
+      job.fullRun?.status === 'success'
+        ? null
+        : job.fullRun?.status === 'error'
+        ? 'The job’s processing failed, so its matches can’t be submitted.'
+        : 'You can submit once the job finishes processing.',
     resend,
     search,
     searchOf,

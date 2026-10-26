@@ -50,7 +50,7 @@ import { SubmitReview } from './submit';
  * students and the submit button, and the top counts them and shows submissions.
  */
 export const WorkspaceReview = () => {
-  const { students, counts, overLimit, isLoading, isError, statusOf, decisions } =
+  const { students, counts, overLimit, isLoading, isError, statusOf, decisions, submitBlocked } =
     useReviewSession();
   // null means that filter is off.
   const [countFilter, setCountFilter] = useState<CountFilter | null>(null);
@@ -446,12 +446,17 @@ export const WorkspaceReview = () => {
                   )}
                   <PrimaryButton
                     width="100%"
-                    isDisabled={!ready.length}
+                    isDisabled={!ready.length || !!submitBlocked}
                     onClick={() => setReviewing(true)}
                   >
                     Review and submit {ready.length || ''}{' '}
                     {ready.length === 1 ? 'match' : 'matches'}
                   </PrimaryButton>
+                  {submitBlocked && (
+                    <Box fontSize="0.8rem" opacity="0.8" paddingX="200">
+                      {submitBlocked}
+                    </Box>
+                  )}
                 </VStack>
               );
             })}

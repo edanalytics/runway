@@ -89,6 +89,14 @@ export type SubmitRefusalAction =
 
 export type SubmitRefusal<S> = { code: string; action: SubmitRefusalAction; refused: S[] };
 
+/** What each code that names students asks of the reviewer. */
+const refusalActions: Record<string, SubmitRefusalAction | undefined> = {
+  decision_changed: 'leave out',
+  already_submitted: 'leave out',
+  not_a_match: 'leave out or exclude',
+  invalid_school_years: 'leave out or exclude',
+};
+
 /**
  * A submit's 409, read against the students it submitted: which of them it
  * refused, by the body's `indices`, and what that asks of the reviewer. Null
@@ -97,5 +105,39 @@ export type SubmitRefusal<S> = { code: string; action: SubmitRefusalAction; refu
  * doesn't.
  */
 export const submitRefusal = <S>(body: unknown, submitted: S[]): SubmitRefusal<S> | null => {
-  throw new Error('not implemented');
+  const { statusCode, code, indices } = (body ?? {}) as {
+    statusCode?: unknown;
+    code?: unknown;
+    indices?: unknown;
+  };
+  if (statusCode !== 409 || typeof code !== 'string') return null;
+  if (code === 'full_run_not_done') return { code, action: 'try later', refused: [] };
+  const action = refusalActions[code];
+  if (!action || !Array.isArray(indices)) return null;
+  return { code, action, refused: submitted.filter((_, index) => indices.includes(index)) };
+};
+
+/** Why a refused submit refused its students, in a sentence for the reviewer. */
+export const refusalReason = ({ code, refused }: SubmitRefusal<unknown>) => {
+  const n = refused.length;
+  const students = `${n} ${n === 1 ? 'student' : 'students'}`;
+  switch (code) {
+    case 'decision_changed':
+      return `${students} had ${
+        n === 1 ? 'its decision' : 'their decisions'
+      } changed since the page loaded.`;
+    case 'already_submitted':
+      return `${students} ${n === 1 ? 'is' : 'are'} already in another submission.`;
+    case 'not_a_match':
+      return `${students} no longer ${n === 1 ? 'has a match' : 'have matches'}.`;
+    case 'invalid_school_years':
+      return `${students} ${
+        n === 1 ? 'is' : 'are'
+      } matched to a student with no school years on record, so ${
+        n === 1 ? 'it' : 'they'
+      } can't be sent.`;
+    // full_run_not_done, the one refusal that names no students.
+    default:
+      return 'The job is still processing, so nothing can be submitted yet.';
+  }
 };

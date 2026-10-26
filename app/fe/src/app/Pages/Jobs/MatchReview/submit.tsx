@@ -23,7 +23,8 @@ import {
 import { ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare } from './compare';
 import { AgreementMark, PrimaryButton, QuietButton, studentName, valueText } from './components';
-import { useReviewSession } from './reviewSession';
+import { SubmitResult, useReviewSession } from './reviewSession';
+import { refusalReason } from './sendRun';
 
 // Submitting -------------------------------------------------------------------
 
@@ -85,15 +86,37 @@ export const SubmitReview = ({
   onClose: () => void;
   onView: (correlationId: string) => void;
 }) => {
-  const { decisions, submit, students, statusOf } = useReviewSession();
+  const { decisions, submit, submitBlocked, students, statusOf } = useReviewSession();
   const [sent, setSent] = useState(false);
-  const [conflict, setConflict] = useState<string | null>(null);
+  // The last submit's failure, with the students it submitted.
+  const [failure, setFailure] = useState<{
+    result: Extract<SubmitResult, { ok: false }>;
+    submitted: string[];
+  } | null>(null);
   useEffect(() => {
     if (isOpen) {
       setSent(false);
-      setConflict(null);
+      setFailure(null);
     }
   }, [isOpen]);
+  const refusal = failure?.result.refusal;
+  // After a refusal that names students, the same submit without them.
+  const refusedIds = new Set(refusal?.refused.map(({ correlationId }) => correlationId));
+  const rest =
+    refusal && refusal.action !== 'try later'
+      ? failure.submitted.filter((correlationId) => !refusedIds.has(correlationId))
+      : null;
+  const nameOf = (correlationId: string) => {
+    const student = students.find((student) => student.correlationId === correlationId);
+    return student ? studentName(student.inputDetails) : 'A student no longer listed';
+  };
+  const send = async (correlationIds: string[]) => {
+    setSent(true);
+    const result = await submit(correlationIds);
+    setSent(false);
+    if (result.ok) onClose();
+    else setFailure({ result, submitted: correlationIds });
+  };
   const excluded = students.filter((student) => statusOf(student.correlationId) === 'excluded');
   const byOthers = ready.filter((student) => {
     const by = decisions.get(student.correlationId)?.decidedBy;
@@ -109,7 +132,7 @@ export const SubmitReview = ({
           these identities
         </ModalHeader>
         <ModalBody>
-          {conflict && (
+          {failure && (
             <VStack
               alignItems="flex-start"
               gap="200"
@@ -120,9 +143,34 @@ export const SubmitReview = ({
               borderColor="pink.100"
             >
               <Box>
-                Nothing was submitted: {conflict} The list has been refreshed; check it, then submit
-                again.
+                {refusal
+                  ? `Nothing was submitted. ${refusalReason(refusal)}`
+                  : `Nothing was submitted: ${failure.result.message}`}
               </Box>
+              {refusal?.refused.map(({ correlationId }) => (
+                <HStack key={correlationId} gap="200">
+                  <Box fontWeight="600">{nameOf(correlationId)}</Box>
+                  <QuietButton size="xs" onClick={() => onView(correlationId)}>
+                    View
+                  </QuietButton>
+                </HStack>
+              ))}
+              {refusal?.action === 'leave out' && (
+                <Box fontSize="0.9rem">
+                  The list has been refreshed. Submit the rest without them, or check them first.
+                </Box>
+              )}
+              {refusal?.action === 'leave out or exclude' && (
+                <Box fontSize="0.9rem">
+                  The list has been refreshed. Submit the rest without them, or open each to exclude
+                  it from the job.
+                </Box>
+              )}
+              {!refusal && (
+                <Box fontSize="0.9rem">
+                  The list has been refreshed. Check it, then submit again.
+                </Box>
+              )}
             </VStack>
           )}
           {byOthers.length > 0 && (
@@ -202,19 +250,23 @@ export const SubmitReview = ({
         </ModalBody>
         <ModalFooter gap="200">
           <QuietButton onClick={onClose}>Keep reviewing</QuietButton>
-          <PrimaryButton
-            isDisabled={sent || !ready.length}
-            isLoading={sent}
-            onClick={async () => {
-              setSent(true);
-              const result = await submit(ready.map((student) => student.correlationId));
-              setSent(false);
-              if (result.ok) onClose();
-              else setConflict(result.message);
-            }}
-          >
-            Submit
-          </PrimaryButton>
+          {rest ? (
+            <PrimaryButton
+              isDisabled={sent || !rest.length}
+              isLoading={sent}
+              onClick={() => send(rest)}
+            >
+              Submit the rest ({rest.length})
+            </PrimaryButton>
+          ) : (
+            <PrimaryButton
+              isDisabled={sent || !ready.length || !!submitBlocked}
+              isLoading={sent}
+              onClick={() => send(ready.map((student) => student.correlationId))}
+            >
+              Submit
+            </PrimaryButton>
+          )}
         </ModalFooter>
       </ModalContent>
     </Modal>
