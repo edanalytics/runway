@@ -2,6 +2,7 @@ import { Box, HStack, Progress, Spinner, useToast, VStack } from '@chakra-ui/rea
 import { ConfirmAction } from '@edanalytics/common-ui';
 import { getResourceSummaries, GetSendRunDto } from '@edanalytics/models';
 import { useEffect, useState } from 'react';
+import { IconExclamation } from '../../../../assets/icons';
 import { ContactSupport } from '../../../components/SupportButton';
 import { reportedSummaries } from '../JobViewComponents/ResourceSummary';
 import { dateTime, QuietButton, studentName } from './components';
@@ -144,64 +145,60 @@ const SubmissionSupport = ({
     });
   };
   return (
-    <HStack
-      marginTop="200"
-      gap="300"
-      padding="300"
-      borderRadius="6px"
-      borderWidth="1px"
-      borderColor="pink.100"
-      fontSize="0.9rem"
-      justifyContent="space-between"
-      flexWrap="wrap"
-    >
-      <Box flex="1" minWidth="16rem">
-        {outcome === 'failed'
-          ? 'Students could not be sent. Your match decisions have been preserved. Please contact support.'
-          : 'Some records could not be sent. Your match decisions have been preserved. Please contact support for help identifying the affected students.'}
+    <HStack marginTop="200" gap="300" alignItems="flex-start" fontSize="0.9rem">
+      <Box bg="pink.400" padding="100" borderRadius="21px" flexShrink={0} aria-hidden="true">
+        <IconExclamation height={24} width={24} />
       </Box>
-      <VStack alignItems="flex-end" gap="100">
-        <ContactSupport
-          message={`${reference} ${outcome === 'failed' ? 'failed' : 'completed with errors'}`}
-        />
-        {outcome === 'failed' &&
-          // Past the review limit the page has no students to send again.
-          (overLimit ? (
-            <Box fontSize="0.8rem" opacity="0.8" maxWidth="14rem" textAlign="right">
-              Too many students to send again from here. Support can help.
-            </Box>
-          ) : !leftToResend ? (
-            <Box fontSize="0.8rem" opacity="0.8" maxWidth="14rem" textAlign="right">
-              All {sendRun.studentCount} sent again
-            </Box>
-          ) : (
-            <ConfirmAction
-              isDisabled={!!submitBlocked || sending}
-              headerText={`Send submission ${number}'s students again?`}
-              bodyText="Sending again will usually fail unless the cause has been fixed. Please contact support first."
-              yesButtonText="Send again"
-              noButtonText="Cancel"
-              action={sendAgain}
-            >
-              {(confirmProps) => (
-                <>
-                  <QuietButton
-                    size="xs"
-                    isDisabled={!!submitBlocked}
-                    isLoading={sending}
-                    {...confirmProps}
-                  >
-                    Send again
-                  </QuietButton>
-                  {submitBlocked && (
-                    <Box fontSize="0.8rem" opacity="0.8" maxWidth="14rem" textAlign="right">
-                      {submitBlocked}
-                    </Box>
-                  )}
-                </>
-              )}
-            </ConfirmAction>
-          ))}
+      <VStack alignItems="stretch" gap="300" flex="1" minWidth="0">
+        <VStack alignItems="stretch" gap="100">
+          <Box as="h3" textStyle="bodyBold">
+            {outcome === 'failed' ? 'Students could not be sent' : 'Some records could not be sent'}
+          </Box>
+          <Box opacity="0.85">
+            Your match decisions have been preserved.{' '}
+            {outcome === 'failed'
+              ? 'Please contact support.'
+              : 'Please contact support for help identifying the affected students.'}
+          </Box>
+        </VStack>
+        <HStack gap="300" flexWrap="wrap">
+          <ContactSupport
+            message={`${reference} ${outcome === 'failed' ? 'failed' : 'completed with errors'}`}
+          />
+          {outcome === 'failed' &&
+            // Past the review limit the page has no students to send again.
+            (overLimit ? (
+              <Box fontSize="0.8rem" opacity="0.8">
+                Too many students to send again from here. Support can help.
+              </Box>
+            ) : !leftToResend ? (
+              <Box fontSize="0.8rem" opacity="0.8">
+                All {sendRun.studentCount} sent again
+              </Box>
+            ) : (
+              <ConfirmAction
+                isDisabled={!!submitBlocked || sending}
+                headerText={`Send submission ${number}'s students again?`}
+                bodyText="Sending again will usually fail unless the cause has been fixed. Please contact support first."
+                yesButtonText="Send again"
+                noButtonText="Cancel"
+                action={sendAgain}
+              >
+                {(confirmProps) => (
+                  <>
+                    <QuietButton isDisabled={!!submitBlocked} isLoading={sending} {...confirmProps}>
+                      Send again
+                    </QuietButton>
+                    {submitBlocked && (
+                      <Box fontSize="0.8rem" opacity="0.8">
+                        {submitBlocked}
+                      </Box>
+                    )}
+                  </>
+                )}
+              </ConfirmAction>
+            ))}
+        </HStack>
       </VStack>
     </HStack>
   );
