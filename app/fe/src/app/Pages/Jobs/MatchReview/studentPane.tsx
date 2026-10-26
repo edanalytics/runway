@@ -9,6 +9,7 @@ import {
   Th,
   Thead,
   Tr,
+  useToast,
   VStack,
 } from '@chakra-ui/react';
 import {
@@ -21,6 +22,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
+  asSentence,
   PrimaryButton,
   NoSuggestionFits,
   SearchField,
@@ -125,6 +127,7 @@ export const Workspace = ({
   onSaved: (action: LastAction) => void;
 }) => {
   const { statusOf, decisions, decide, clear, sendRunOf } = useReviewSession();
+  const toast = useToast();
   const id = student.correlationId;
   const status = statusOf(id);
   const decision = decisions.get(id);
@@ -176,7 +179,16 @@ export const Workspace = ({
     setError(null);
     const result = await write;
     if (!result.ok) {
-      setError(result.message);
+      // Once the reviewer has moved to another student, this pane is gone,
+      // so a toast reports the refusal instead, naming no one.
+      if (shown.current) setError(result.message);
+      else
+        toast({
+          status: 'error',
+          title: 'A decision you made couldn’t be saved',
+          description: `${asSentence(result.message)} The list has been refreshed.`,
+          isClosable: true,
+        });
       return false;
     }
     // A save that lands after the reviewer has moved to another student
