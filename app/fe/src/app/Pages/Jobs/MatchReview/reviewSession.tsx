@@ -9,6 +9,7 @@ import {
   GetStudentMatchResultsDto,
   StudentRosterDetailsJson,
   StudentSearchDetailsDto,
+  StudentMatchStatus,
 } from '@edanalytics/models';
 import { apiClient } from '../../../api/methods';
 import {
@@ -66,17 +67,8 @@ export type Batch = {
 export const isFinished = (batch: Batch) =>
   batch.status !== 'queued' && batch.status !== 'processing';
 
-/** Where each student stands. */
-export type StudentStatus =
-  | 'to-review'
-  | 'ready'
-  | 'reprocessing'
-  | 'reprocessed'
-  | 'run-failed'
-  | 'excluded';
-
 /** How each status reads on the page. */
-export const statusLabel: Record<StudentStatus, string> = {
+export const statusLabel: Record<StudentMatchStatus, string> = {
   'to-review': 'Needs review',
   ready: 'Ready to submit',
   excluded: 'Excluded',
@@ -102,7 +94,7 @@ type Session = {
   batches: Batch[];
   decide: (correlationId: string, decision: DecisionChoice) => Promise<void>;
   undo: (correlationId: string) => Promise<void>;
-  statusOf: (correlationId: string) => StudentStatus;
+  statusOf: (correlationId: string) => StudentMatchStatus;
   /** The latest batch this student was submitted in, if any. */
   batchOf: (correlationId: string) => Batch | undefined;
   /** Submits the match decisions among these students as one send run. */
@@ -201,7 +193,7 @@ export const ReviewSessionProvider = ({
   );
 
   const statusOf = useCallback(
-    (correlationId: string): StudentStatus => {
+    (correlationId: string): StudentMatchStatus => {
       const student = students.find((student) => student.correlationId === correlationId);
       return student ? student.status : 'to-review';
     },

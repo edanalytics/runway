@@ -13,11 +13,11 @@ import {
   Spinner,
   VStack,
 } from '@chakra-ui/react';
-import { GetStudentInputDetailsDto } from '@edanalytics/models';
+import { GetStudentInputDetailsDto, StudentMatchStatus } from '@edanalytics/models';
 import { KeyboardEvent, useState } from 'react';
 import { CheckIcon } from '@chakra-ui/icons';
 import { PrimaryButton, QuietButton, suggestionsOf } from './components';
-import { statusLabel, StudentStatus, useReviewSession } from './reviewSession';
+import { statusLabel, useReviewSession } from './reviewSession';
 import {
   Sort,
   sorts,
@@ -584,7 +584,7 @@ const SubmitPrompt = ({
 );
 
 /** The summary's counts. */
-const overviewTiles: { label: string; statuses: StudentStatus[] }[] = [
+const overviewTiles: { label: string; statuses: StudentMatchStatus[] }[] = [
   { label: statusLabel['to-review'], statuses: ['to-review'] },
   { label: statusLabel.ready, statuses: ['ready'] },
   { label: statusLabel.excluded, statuses: ['excluded'] },
@@ -594,7 +594,7 @@ const overviewTiles: { label: string; statuses: StudentStatus[] }[] = [
 /** Progress that says what's left to do, with identity and processing kept apart. */
 const Overview = () => {
   const { students, statusOf, batches } = useReviewSession();
-  const count = (...statuses: StudentStatus[]) =>
+  const count = (...statuses: StudentMatchStatus[]) =>
     students.filter((student) => statuses.includes(statusOf(student.correlationId))).length;
   const tooMany = students.length > USUAL_MAXIMUM;
   const tiles = overviewTiles.map((tile) => ({ ...tile, value: count(...tile.statuses) }));

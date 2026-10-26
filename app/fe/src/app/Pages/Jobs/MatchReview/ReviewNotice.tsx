@@ -1,8 +1,9 @@
+import { StudentMatchStatus } from '@edanalytics/models';
 import { Box, HStack } from '@chakra-ui/react';
 import { useNavigate } from '@tanstack/react-router';
 import { IconExclamation } from '../../../../assets/icons';
 import { PrimaryButton, QuietButton } from './components';
-import { StudentStatus, useReviewSession } from './reviewSession';
+import { useReviewSession } from './reviewSession';
 import { USUAL_MAXIMUM } from './WorkspaceReview';
 
 /*
@@ -18,7 +19,7 @@ export const ReviewNotice = () => {
 
   const onReview = () => navigate({ search: { tab: 'students' }, resetScroll: false });
 
-  const count = (...statuses: StudentStatus[]) =>
+  const count = (...statuses: StudentMatchStatus[]) =>
     students.filter((student) => statuses.includes(statusOf(student.correlationId))).length;
   const toReview = count('to-review', 'run-failed');
   const ready = count('ready');

@@ -11,7 +11,11 @@ import {
   Tr,
   VStack,
 } from '@chakra-ui/react';
-import { GetStudentInputDetailsDto, StudentRosterDetailsJson } from '@edanalytics/models';
+import {
+  GetStudentInputDetailsDto,
+  StudentRosterDetailsJson,
+  StudentMatchStatus,
+} from '@edanalytics/models';
 import { KeyboardEvent, ReactNode, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
@@ -29,7 +33,7 @@ import {
   suggestionsOf,
 } from './components';
 import { termsFrom, SearchTerms } from './search';
-import { Batch, Candidate, Decision, StudentStatus, useReviewSession } from './reviewSession';
+import { Batch, Candidate, Decision, useReviewSession } from './reviewSession';
 
 // Evidence -------------------------------------------------------------------
 
@@ -235,7 +239,7 @@ const DecisionState = ({
   reference,
 }: {
   correlationId: string;
-  status: StudentStatus;
+  status: StudentMatchStatus;
   decision: Decision | undefined;
   batch: Batch | undefined;
   batchNumber: number;

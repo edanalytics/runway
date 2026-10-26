@@ -1,8 +1,8 @@
 import { Box, HStack, VStack } from '@chakra-ui/react';
-import { GetStudentInputDetailsDto, JsonValue } from '@edanalytics/models';
+import { GetStudentInputDetailsDto, JsonValue, StudentMatchStatus } from '@edanalytics/models';
 import { useEffect, useRef } from 'react';
 import { studentName, secondId, valueText, suggestionsOf } from './components';
-import { Decision, StudentStatus } from './reviewSession';
+import { Decision } from './reviewSession';
 
 // Queue ----------------------------------------------------------------------
 
@@ -34,7 +34,7 @@ const topScore = (student: GetStudentInputDetailsDto) =>
   Math.max(-1, ...suggestionsOf(student).map((c) => c.score ?? -1));
 
 /** The list's groups, one per status, in the order work moves through them. */
-export const sections: { status: StudentStatus; finished?: boolean }[] = [
+export const sections: { status: StudentMatchStatus; finished?: boolean }[] = [
   { status: 'to-review' },
   { status: 'run-failed' },
   { status: 'ready' },
@@ -63,7 +63,7 @@ export const scrollEdges = {
   backgroundAttachment: 'local, local, scroll, scroll',
 };
 
-export const sectionIndex = (status: StudentStatus) =>
+export const sectionIndex = (status: StudentMatchStatus) =>
   sections.findIndex((section) => section.status === status);
 
 export const sortBy =
@@ -94,7 +94,7 @@ export const QueueRow = ({
 }: {
   student: GetStudentInputDetailsDto;
   decision: Decision | undefined;
-  status: StudentStatus;
+  status: StudentMatchStatus;
   isSelected: boolean;
   onSelect: () => void;
 }) => {
