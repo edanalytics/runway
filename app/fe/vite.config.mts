@@ -35,6 +35,12 @@ export default defineConfig({
   //  plugins: [ nxViteTsPaths() ],
   // },
 
+  // For `npm run fe:test`. Tests run in node: a test that needs a DOM can
+  // opt in to jsdom with a `@vitest-environment jsdom` docblock.
+  test: {
+    setupFiles: ['./src/test-setup.ts'],
+  },
+
   build: {
     outDir: '../dist/fe',
     emptyOutDir: true,

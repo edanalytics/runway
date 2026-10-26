@@ -4,6 +4,7 @@
   "scripts": {
     "fe:build": "nx run fe:build",
     "fe:typecheck": "nx run fe:typecheck",
+    "fe:test": "nx run fe:test",
     "api:build": "nx run api:build",
     "api:typecheck": "nx run api:typecheck",
     "api:start": "nx run api:serve",

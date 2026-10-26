@@ -11,6 +11,12 @@
       "options": {
         "command": "npx tsc --noEmit --project ./fe/tsconfig.app.json"
       }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx vitest run --config ./fe/vite.config.mts --passWithNoTests"
+      }
     }
   }
 }
