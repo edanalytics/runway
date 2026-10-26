@@ -36,7 +36,7 @@ import {
 } from './components';
 import { useMe } from '../../../api/queries/me.queries';
 import { SubmitResult, useReviewSession } from './reviewSession';
-import { refusalReason } from './sendRun';
+import { refusalReason } from './submitResult';
 
 // Submitting -------------------------------------------------------------------
 

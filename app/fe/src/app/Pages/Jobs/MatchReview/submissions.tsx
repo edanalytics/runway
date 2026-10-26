@@ -9,13 +9,13 @@ import { useReviewSession } from './reviewSession';
 import {
   needsAttention,
   outcomeLabel,
-  refusalReason,
   SendRunOutcome,
   sendRunOutcome,
   submissionNumber,
   submissionReference,
   studentsToResend,
 } from './sendRun';
+import { refusalReason } from './submitResult';
 
 /** Every submission, newest first. */
 export const SubmissionList = () => {

@@ -28,7 +28,8 @@ import {
 import { apiClient } from '../../../api/methods';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
 import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
-import { studentsToResend, SubmitRefusal, submitRefusal, wroteNothing } from './sendRun';
+import { studentsToResend } from './sendRun';
+import { SubmitRefusal, submitRefusal, wroteNothing } from './submitResult';
 
 /*
  * One review session per job page, backed by the match-review API: the
@@ -103,7 +104,7 @@ export type SubmitResult =
   | { ok: true }
   | {
       ok: false;
-      refusal: SubmitRefusal<SubmitStudent> | null;
+      refusal: SubmitRefusal | null;
       nothingSubmitted: boolean;
       message: string;
       refreshed: boolean;
