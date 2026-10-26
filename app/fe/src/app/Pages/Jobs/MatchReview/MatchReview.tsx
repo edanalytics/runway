@@ -1,6 +1,6 @@
 import { Box, HStack, Spinner, VStack } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto } from '@edanalytics/models';
-import { KeyboardEvent, useState } from 'react';
+import { useState } from 'react';
 import { CheckIcon } from '@chakra-ui/icons';
 import { PrimaryButton, QuietButton, TooManyNote, USUAL_MAXIMUM } from './components';
 import { statusLabel, useReviewSession } from './reviewSession';
@@ -63,8 +63,8 @@ export const MatchReview = () => {
     students.find((student) => student.correlationId === selectedId) ?? queue[0] ?? students[0];
   const ready = students.filter((student) => student.status === 'ready');
   const toReview = students.filter((student) => student.status === 'to-review');
-  // Completed reviews skip the intro on load, but Previous can still reopen it.
-  const atStart = showIntro && (toReview.length > 0 || selectedId !== null);
+  const reviewQueue = queue.filter((student) => student.status === 'to-review');
+  const atStart = showIntro && toReview.length > 0;
   // Every student has a decision, but saved matches haven't been submitted.
   const awaitingSubmit = ready.length > 0 && !toReview.length;
   // Then the pane says so rather than showing a student, until one is picked.
@@ -85,43 +85,36 @@ export const MatchReview = () => {
     if (next) setSelectedId(next.correlationId);
   };
   const move = (step: number) => {
-    if (!queue.length) return;
-    const index = queue.findIndex((student) => student.correlationId === selected.correlationId);
+    if (!reviewQueue.length) return;
+    const index = reviewQueue.findIndex(
+      (student) => student.correlationId === selected.correlationId
+    );
     if (step < 0 && index === 0) {
       setShowIntro(true);
       return;
     }
-    setSelectedId(queue[(index + step + queue.length) % queue.length].correlationId);
+    setSelectedId(
+      reviewQueue[(index + step + reviewQueue.length) % reviewQueue.length].correlationId
+    );
   };
-  const position = queue.findIndex((student) => student.correlationId === selected.correlationId);
+  const position = reviewQueue.findIndex(
+    (student) => student.correlationId === selected.correlationId
+  );
 
   // The review pane: one student at a time, or the start screen or the
   // prompt to submit in its place.
   const pane = (
-    <Box
-      flex="1"
-      minWidth="0"
-      layerStyle="contentBox"
-      padding="400"
-      tabIndex={-1}
-      outline="none"
-      onKeyDown={(event: KeyboardEvent) => {
-        if (atStart || atSubmitPrompt) return;
-        if ((event.target as HTMLElement).closest('input, textarea')) return;
-        if (event.key === 'j') move(1);
-        if (event.key === 'k') move(-1);
-      }}
-    >
+    <Box flex="1" minWidth="0" layerStyle="contentBox" padding="400">
       {atStart ? (
         <StartScreen
           toReview={toReview.length}
           total={students.length}
-          first={queue.find((student) => student.status === 'to-review') ?? toReview[0] ?? selected}
+          first={reviewQueue[0] ?? toReview[0]}
           onStart={(id) => setSelectedId(id)}
         />
       ) : (
         <>
-          {!atSubmitPrompt && (
+          {!atSubmitPrompt && selected.status === 'to-review' && (
             <HStack
               justifyContent="space-between"
               marginBottom="300"
@@ -130,13 +123,15 @@ export const MatchReview = () => {
               flexWrap="wrap"
             >
               <Box opacity="0.8">
-                {position >= 0 ? `${position + 1} of ${queue.length}` : 'Not in the current list'}
+                {position >= 0
+                  ? `${position + 1} of ${reviewQueue.length}`
+                  : 'Not in the current list'}
               </Box>
               <HStack gap="100">
-                <QuietButton size="xs" isDisabled={!queue.length} onClick={() => move(-1)}>
+                <QuietButton size="xs" isDisabled={!reviewQueue.length} onClick={() => move(-1)}>
                   ‹ Previous
                 </QuietButton>
-                <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
+                <QuietButton size="xs" isDisabled={reviewQueue.length < 2} onClick={() => move(1)}>
                   Next ›
                 </QuietButton>
               </HStack>
@@ -221,9 +216,7 @@ const StartScreen = ({
 }) => (
   <VStack alignItems="flex-start" gap="300" paddingY="500" paddingX="300" maxWidth="36rem">
     <Box textStyle="h3">
-      {toReview === 0
-        ? 'Review student matches'
-        : toReview === total
+      {toReview === total
         ? `${total} ${total === 1 ? 'student needs' : 'students need'} a match`
         : `${toReview} of ${total} students still need a match`}
     </Box>
