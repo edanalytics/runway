@@ -106,6 +106,51 @@ export const JobViewPage = () => {
   const { data: schoolYears } = useQuery(schoolYearQueries.getAll({}));
   const schoolYear = schoolYears?.find((year) => year.id === job.schoolYearId);
 
+  // The job's own sections; with match review, the first of its tabs.
+  const overview = (
+    <VStack
+      width="100%"
+      alignItems="flex-start"
+      layerStyle="contentBox"
+      padding="400"
+      gap="400"
+      divider={<StackDivider borderColor="blue.50-40" />}
+    >
+      <JobViewSection title="Progress">
+        {currentStage === 'not started' ? (
+          <HStack gap="300">
+            <Spinner size="md" color="blue.50" speed="0.75s" />
+            <Box textStyle="body">queued for processing...</Box>
+          </HStack>
+        ) : (
+          <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
+            <JobProgressTracker statusUpdates={statusUpdates} sendToOds={job.sendToOds} />
+          </Box>
+        )}
+        {errors?.map(({ error }) => (
+          // In theory, a job could have multiple errors, but in practice, any
+          // error flagged by the executor is fatal and so there will be only one.
+          <JobError key={error.id} err={error} />
+        ))}
+        {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
+        {showsMatchReview && <ReviewNotice />}
+      </JobViewSection>
+      {!!job.resourceSummaries && (
+        <JobViewSection title="Summary">
+          <ResourceSummary job={job} />
+        </JobViewSection>
+      )}
+      <JobViewSection title="Configuration">
+        <JobConfiguration job={job} />
+      </JobViewSection>
+      {canViewOutputFiles && (
+        <JobViewSection title="Output Files">
+          <JobOutputFiles job={job} />
+        </JobViewSection>
+      )}
+    </VStack>
+  );
+
   return (
     <VStack
       height="100%"
@@ -158,82 +203,45 @@ export const JobViewPage = () => {
           </Box>
         )}
       </Box>
-      {/* Notes sit above the tabs, so they're in view whichever tab is open,
-          and close under the job's summary rather than a full gap below it. */}
-      <Box width="100%" marginTop="-2rem">
-        <JobNotes job={job} />
-      </Box>
-      <ReviewSessionProvider job={job}>
-        <Tabs
-          isLazy
-          lazyBehavior="keepMounted"
-          width="100%"
-          index={tabIndex}
-          onChange={(index) =>
-            navigate({ search: index === 1 ? { tab: 'students' } : {}, resetScroll: false })
-          }
-        >
-          <TabList borderColor="blue.50-40">
-            <Tab _selected={selectedTab}>Overview</Tab>
-            {showsMatchReview && <Tab _selected={selectedTab}>Unmatched Students</Tab>}
-          </TabList>
-          <TabPanels>
-            <TabPanel paddingX="0" paddingY="400">
-              <VStack width="100%" alignItems="flex-start" gap="500">
-                <VStack
-                  width="100%"
-                  alignItems="flex-start"
-                  layerStyle="contentBox"
-                  padding="400"
-                  gap="400"
-                  divider={<StackDivider borderColor="blue.50-40" />}
-                >
-                  <JobViewSection title="Progress">
-                    {currentStage === 'not started' ? (
-                      <HStack gap="300">
-                        <Spinner size="md" color="blue.50" speed="0.75s" />
-                        <Box textStyle="body">queued for processing...</Box>
-                      </HStack>
-                    ) : (
-                      <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
-                        <JobProgressTracker
-                          statusUpdates={statusUpdates}
-                          sendToOds={job.sendToOds}
-                        />
-                      </Box>
-                    )}
-                    {errors?.map(({ error }) => (
-                      // In theory, a job could have multiple errors, but in practice, any
-                      // error flagged by the executor is fatal and so there will be only one.
-                      <JobError key={error.id} err={error} />
-                    ))}
-                    {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
-                    {showsMatchReview && <ReviewNotice />}
-                  </JobViewSection>
-                  {!!job.resourceSummaries && (
-                    <JobViewSection title="Summary">
-                      <ResourceSummary job={job} />
-                    </JobViewSection>
-                  )}
-                  <JobViewSection title="Configuration">
-                    <JobConfiguration job={job} />
-                  </JobViewSection>
-                  {canViewOutputFiles && (
-                    <JobViewSection title="Output Files">
-                      <JobOutputFiles job={job} />
-                    </JobViewSection>
-                  )}
-                </VStack>
-              </VStack>
-            </TabPanel>
-            {showsMatchReview && (
-              <TabPanel paddingX="0" paddingY="400">
-                <WorkspaceReview />
-              </TabPanel>
-            )}
-          </TabPanels>
-        </Tabs>
-      </ReviewSessionProvider>
+      {showsMatchReview ? (
+        <>
+          {/* Notes sit above the tabs, so they're in view whichever tab is open,
+              and close under the job's summary rather than a full gap below it. */}
+          <Box width="100%" marginTop="-2rem">
+            <JobNotes job={job} />
+          </Box>
+          {/* Keyed by job, so nothing from one job's review outlives it. */}
+          <ReviewSessionProvider key={job.id} job={job}>
+            <Tabs
+              isLazy
+              lazyBehavior="keepMounted"
+              width="100%"
+              index={tabIndex}
+              onChange={(index) =>
+                navigate({ search: index === 1 ? { tab: 'students' } : {}, resetScroll: false })
+              }
+            >
+              <TabList borderColor="blue.50-40">
+                <Tab _selected={selectedTab}>Overview</Tab>
+                <Tab _selected={selectedTab}>Unmatched Students</Tab>
+              </TabList>
+              <TabPanels>
+                <TabPanel paddingX="0" paddingY="400">
+                  {overview}
+                </TabPanel>
+                <TabPanel paddingX="0" paddingY="400">
+                  <WorkspaceReview />
+                </TabPanel>
+              </TabPanels>
+            </Tabs>
+          </ReviewSessionProvider>
+        </>
+      ) : (
+        <>
+          <JobNotes job={job} />
+          {overview}
+        </>
+      )}
     </VStack>
   );
 };
