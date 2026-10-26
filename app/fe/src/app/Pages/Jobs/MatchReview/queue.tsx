@@ -2,7 +2,6 @@ import { Box, HStack, VStack } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto, JsonValue, StudentMatchStatus } from '@edanalytics/models';
 import { useEffect, useRef } from 'react';
 import { studentName, secondId, valueText, suggestionsOf } from './components';
-import { Decision } from './reviewSession';
 
 // Queue ----------------------------------------------------------------------
 
@@ -88,14 +87,10 @@ export const searchText = (student: GetStudentInputDetailsDto) =>
 
 export const QueueRow = ({
   student,
-  decision,
-  status,
   isSelected,
   onSelect,
 }: {
   student: GetStudentInputDetailsDto;
-  decision: Decision | undefined;
-  status: StudentMatchStatus;
   isSelected: boolean;
   onSelect: () => void;
 }) => {
@@ -123,8 +118,8 @@ export const QueueRow = ({
       <HStack justifyContent="space-between" gap="200" fontSize="0.75rem">
         <Box>{secondId(student)}</Box>
         <Box whiteSpace="nowrap">
-          {status === 'ready' && decision?.kind === 'match'
-            ? decision.candidate.studentUniqueId
+          {student.status === 'ready' && student.decision?.kind === 'match'
+            ? student.decision.studentUniqueId
             : `${count} ${count === 1 ? 'suggestion' : 'suggestions'}`}
         </Box>
       </HStack>

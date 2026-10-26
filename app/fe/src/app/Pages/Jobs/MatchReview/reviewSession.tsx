@@ -27,7 +27,6 @@ import {
 } from '@edanalytics/models';
 import { apiClient } from '../../../api/methods';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
-import { useMe } from '../../../api/queries/me.queries';
 import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
 import { studentsToResend, SubmitRefusal, submitRefusal, wroteNothing } from './sendRun';
 
@@ -52,8 +51,6 @@ export type Candidate = {
 };
 
 export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: 'exclude' };
-
-export type Decision = DecisionChoice & { version: number; decidedAt: number; decidedBy: string };
 
 /** How each status reads on the page. */
 export const statusLabel: Record<StudentMatchStatus, string> = {
@@ -121,7 +118,6 @@ type Session = {
   overLimit: boolean;
   isLoading: boolean;
   isError: boolean;
-  decisions: Map<string, Decision>;
   /** The job's send runs, newest first. */
   sendRuns: GetSendRunDto[];
   /**
@@ -135,9 +131,6 @@ type Session = {
   ) => Promise<DecisionResult>;
   /** Clears the decision at `replacesVersion`, leaving the student undecided. */
   clear: (correlationId: string, replacesVersion: number | null) => Promise<DecisionResult>;
-  statusOf: (correlationId: string) => StudentMatchStatus;
-  /** The send run that decides this student's status, if they've been submitted. */
-  sendRunOf: (correlationId: string) => GetSendRunDto | undefined;
   /** Submits the match decisions among these students as one send run. */
   submit: (correlationIds: string[]) => Promise<SubmitResult>;
   /**
@@ -170,46 +163,6 @@ const messageOf = (err: unknown) => {
   return Array.isArray(message) ? message.join('; ') : message ?? 'Something went wrong.';
 };
 
-/** The candidate a stored decision rests on: its suggestion, or its search. */
-const candidateOf = (
-  student: GetStudentInputDetailsDto,
-  decision: GetStudentMatchDecisionDto
-): Candidate => {
-  if (decision.search) {
-    return {
-      studentUniqueId: decision.studentUniqueId ?? '',
-      rosterDetails: decision.search.rosterDetails,
-      score: null,
-      source: 'search',
-      searchDetails: decision.search.searchDetails as StudentSearchDetailsDto,
-    };
-  }
-  const suggestion = student.results
-    .find((r) => r.id === decision.resultId)
-    ?.suggestions.find((s) => s.ordinal === decision.ordinal);
-  return {
-    studentUniqueId: decision.studentUniqueId ?? '',
-    rosterDetails: suggestion?.rosterDetails ?? {},
-    score: suggestion?.score ?? null,
-    source: 'suggestion',
-    resultId: decision.resultId ?? undefined,
-    ordinal: decision.ordinal ?? undefined,
-  };
-};
-
-const toDecision = (
-  student: GetStudentInputDetailsDto,
-  decision: GetStudentMatchDecisionDto,
-  meId: number | undefined
-): Decision => {
-  const decidedBy =
-    decision.decidedBy?.id === meId ? 'you' : decision.decidedBy?.displayName ?? 'someone';
-  const common = { version: decision.version, decidedAt: +decision.decidedOn, decidedBy };
-  return decision.kind === 'match'
-    ? { kind: 'match', candidate: candidateOf(student, decision), ...common }
-    : { kind: 'exclude', ...common };
-};
-
 export const ReviewSessionProvider = ({
   job,
   children,
@@ -235,8 +188,6 @@ export const ReviewSessionProvider = ({
     queryClient.invalidateQueries({ queryKey: ['jobs', 'list'] });
   }, [jobId, queryClient]);
   const toast = useToast();
-  const { data: me } = useMe();
-  const meId = me?.user?.id;
   const [searches, setSearches] = useState<Map<string, SearchState>>(() => new Map());
 
   // When the counts change, so may the job: its status, its counts and, after
@@ -253,35 +204,6 @@ export const ReviewSessionProvider = ({
 
   const students = useMemo(() => data?.students ?? [], [data]);
   const sendRuns = useMemo(() => data?.sendRuns ?? [], [data]);
-  const decisions = useMemo(
-    () =>
-      new Map(
-        students.flatMap((student) =>
-          student.decision
-            ? [[student.correlationId, toDecision(student, student.decision, meId)] as const]
-            : []
-        )
-      ),
-    [students, meId]
-  );
-
-  const statusOf = useCallback(
-    (correlationId: string): StudentMatchStatus => {
-      const student = students.find((student) => student.correlationId === correlationId);
-      return student ? student.status : 'to-review';
-    },
-    [students]
-  );
-
-  const sendRunOf = useCallback(
-    (correlationId: string) => {
-      const sendRunId = students.find(
-        (student) => student.correlationId === correlationId
-      )?.sendRunId;
-      return sendRuns.find(({ id }) => id === sendRunId);
-    },
-    [students, sendRuns]
-  );
 
   /** Writes a decision, then puts the server's answer straight into the cache. */
   const write = useCallback(
@@ -395,11 +317,12 @@ export const ReviewSessionProvider = ({
     (correlationIds: string[]) =>
       send(
         correlationIds.flatMap((correlationId) => {
-          const decision = decisions.get(correlationId);
+          const { decision } =
+            students.find((student) => student.correlationId === correlationId) ?? {};
           return decision?.kind === 'match' ? [{ correlationId, version: decision.version }] : [];
         })
       ),
-    [decisions, send]
+    [send, students]
   );
 
   const resend = useCallback(
@@ -432,12 +355,9 @@ export const ReviewSessionProvider = ({
     overLimit: !!data && !data.students,
     isLoading,
     isError,
-    decisions,
     sendRuns,
     decide,
     clear,
-    statusOf,
-    sendRunOf,
     submit,
     submitBlocked:
       job.fullRun?.status === 'success'

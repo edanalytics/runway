@@ -225,7 +225,7 @@ const SubmissionCard = ({
   number: number;
   outcome: SendRunOutcome;
 }) => {
-  const { job, students, overLimit, decisions } = useReviewSession();
+  const { job, students, overLimit } = useReviewSession();
   const [open, setOpen] = useState(false);
   // The students this run decides the status of. Any it delivered that have
   // been sent again since belong to the later submission.
@@ -271,22 +271,14 @@ const SubmissionCard = ({
           </QuietButton>
           {open && (
             <VStack alignItems="flex-start" gap="100" marginTop="100">
-              {members.map((student) => {
-                const decision = decisions.get(student.correlationId);
-                return (
-                  <HStack
-                    key={student.correlationId}
-                    gap="200"
-                    alignItems="baseline"
-                    flexWrap="wrap"
-                  >
-                    <Box minWidth="10rem">{studentName(student.inputDetails)}</Box>
-                    {decision?.kind === 'match' && (
-                      <Box opacity="0.8">→ {decision.candidate.studentUniqueId}</Box>
-                    )}
-                  </HStack>
-                );
-              })}
+              {members.map(({ correlationId, inputDetails, decision }) => (
+                <HStack key={correlationId} gap="200" alignItems="baseline" flexWrap="wrap">
+                  <Box minWidth="10rem">{studentName(inputDetails)}</Box>
+                  {decision?.kind === 'match' && (
+                    <Box opacity="0.8">→ {decision.studentUniqueId}</Box>
+                  )}
+                </HStack>
+              ))}
               {sentAgain > 0 && (
                 <Box fontSize="0.85rem" opacity="0.8">
                   {sentAgain} since sent again

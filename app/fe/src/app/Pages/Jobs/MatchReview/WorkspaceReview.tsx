@@ -50,8 +50,7 @@ import { SubmitReview } from './submit';
  * students and the submit button, and the top counts them and shows submissions.
  */
 export const WorkspaceReview = () => {
-  const { students, counts, overLimit, isLoading, isError, statusOf, decisions, submitBlocked } =
-    useReviewSession();
+  const { students, counts, overLimit, isLoading, isError, submitBlocked } = useReviewSession();
   // null means that filter is off.
   const [countFilter, setCountFilter] = useState<CountFilter | null>(null);
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
@@ -87,9 +86,7 @@ export const WorkspaceReview = () => {
     )
     .sort(sortBy(sort))
     // The list reads section by section, so previous and next do too.
-    .sort(
-      (a, b) => sectionIndex(statusOf(a.correlationId)) - sectionIndex(statusOf(b.correlationId))
-    );
+    .sort((a, b) => sectionIndex(a.status) - sectionIndex(b.status));
   const filtered = countFilter !== null || !!terms;
   const clearFilters = () => {
     setCountFilter(null);
@@ -116,8 +113,8 @@ export const WorkspaceReview = () => {
 
   const selected =
     students.find((student) => student.correlationId === selectedId) ?? queue[0] ?? students[0];
-  const ready = students.filter((student) => statusOf(student.correlationId) === 'ready');
-  const toReview = students.filter((student) => statusOf(student.correlationId) === 'to-review');
+  const ready = students.filter((student) => student.status === 'ready');
+  const toReview = students.filter((student) => student.status === 'to-review');
   const atStart = !started && toReview.length > 0;
   // Every student has a decision, but saved matches haven't been submitted.
   const awaitingSubmit = ready.length > 0 && !toReview.length;
@@ -128,16 +125,14 @@ export const WorkspaceReview = () => {
   const submitPrompt = (
     <SubmitPrompt
       readyCount={ready.length}
-      excludedCount={
-        students.filter((student) => statusOf(student.correlationId) === 'excluded').length
-      }
+      excludedCount={students.filter((student) => student.status === 'excluded').length}
     />
   );
 
   const advance = (from: string) => {
     const index = queue.findIndex((student) => student.correlationId === from);
     const after = [...queue.slice(index + 1), ...queue.slice(0, Math.max(index, 0))];
-    const next = after.find((student) => statusOf(student.correlationId) === 'to-review');
+    const next = after.find((student) => student.status === 'to-review');
     if (next) setSelectedId(next.correlationId);
   };
   const move = (step: number) => {
@@ -253,9 +248,7 @@ export const WorkspaceReview = () => {
         <StartScreen
           toReview={toReview.length}
           total={students.length}
-          first={
-            queue.find((student) => statusOf(student.correlationId) === 'to-review') ?? toReview[0]
-          }
+          first={queue.find((student) => student.status === 'to-review') ?? toReview[0]}
           onStart={(id) => setSelectedId(id)}
         />
       ) : (
@@ -355,7 +348,7 @@ export const WorkspaceReview = () => {
             )}
             {sections.map(({ status, finished }) => {
               const title = statusLabel[status];
-              const members = queue.filter((student) => statusOf(student.correlationId) === status);
+              const members = queue.filter((student) => student.status === status);
               // A folded group opens while its student is the one shown,
               // e.g. after stepping to it with previous and next.
               const holdsSelected = members.some((student) => student.correlationId === shownId);
@@ -416,8 +409,6 @@ export const WorkspaceReview = () => {
                         <QueueRow
                           key={student.correlationId}
                           student={student}
-                          decision={decisions.get(student.correlationId)}
-                          status={statusOf(student.correlationId)}
                           isSelected={student.correlationId === shownId}
                           onSelect={() => setSelectedId(student.correlationId)}
                         />

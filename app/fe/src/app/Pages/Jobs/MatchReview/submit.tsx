@@ -26,11 +26,15 @@ import {
   AgreementMark,
   asSentence,
   CrossYearCue,
+  deciderName,
+  isOwnDecision,
+  matchedCandidate,
   PrimaryButton,
   QuietButton,
   studentName,
   valueText,
 } from './components';
+import { useMe } from '../../../api/queries/me.queries';
 import { SubmitResult, useReviewSession } from './reviewSession';
 import { refusalReason } from './sendRun';
 
@@ -94,7 +98,9 @@ export const SubmitReview = ({
   onClose: () => void;
   onView: (correlationId: string) => void;
 }) => {
-  const { decisions, submit, submitBlocked, students, statusOf } = useReviewSession();
+  const { submit, submitBlocked, students } = useReviewSession();
+  const { data: me } = useMe();
+  const meId = me?.user?.id;
   const [sent, setSent] = useState(false);
   // The last submit's failure, with the students it submitted.
   const [failure, setFailure] = useState<{
@@ -125,11 +131,8 @@ export const SubmitReview = ({
     if (result.ok) onClose();
     else setFailure({ result, submitted: correlationIds });
   };
-  const excluded = students.filter((student) => statusOf(student.correlationId) === 'excluded');
-  const byOthers = ready.filter((student) => {
-    const by = decisions.get(student.correlationId)?.decidedBy;
-    return by && by !== 'you';
-  });
+  const excluded = students.filter((student) => student.status === 'excluded');
+  const byOthers = ready.filter(({ decision }) => decision && !isOwnDecision(decision, meId));
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">
@@ -208,8 +211,8 @@ export const SubmitReview = ({
             </Thead>
             <Tbody>
               {ready.map((student) => {
-                const decision = decisions.get(student.correlationId);
-                const candidate = decision?.kind === 'match' ? decision.candidate : null;
+                const { decision } = student;
+                const candidate = matchedCandidate(student);
                 return (
                   <Tr key={student.correlationId}>
                     <Td>
@@ -228,9 +231,9 @@ export const SubmitReview = ({
                           Found by search
                         </Box>
                       )}
-                      {decision && decision.decidedBy !== 'you' && (
+                      {decision && !isOwnDecision(decision, meId) && (
                         <Box fontSize="0.75rem" color="purple.200">
-                          Saved by {decision.decidedBy}
+                          Saved by {deciderName(decision, meId)}
                         </Box>
                       )}
                     </Td>

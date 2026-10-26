@@ -10,9 +10,11 @@ import {
 } from '@chakra-ui/react';
 import {
   GetStudentInputDetailsDto,
+  GetStudentMatchDecisionDto,
   JsonValue,
   StudentInputDetailsJson,
   StudentRosterDetailsJson,
+  StudentSearchDetailsDto,
 } from '@edanalytics/models';
 import { CheckIcon, CopyIcon } from '@chakra-ui/icons';
 import { ReactNode, useState } from 'react';
@@ -258,6 +260,42 @@ export const suggestionsOf = (student: GetStudentInputDetailsDto): Candidate[] =
       ordinal: s.ordinal,
     }));
 };
+
+/** The candidate a student's match rests on: its suggestion, or its search. Null unless matched. */
+export const matchedCandidate = ({
+  decision,
+  results,
+}: GetStudentInputDetailsDto): Candidate | null => {
+  if (decision?.kind !== 'match') return null;
+  if (decision.search) {
+    return {
+      studentUniqueId: decision.studentUniqueId ?? '',
+      rosterDetails: decision.search.rosterDetails,
+      score: null,
+      source: 'search',
+      searchDetails: decision.search.searchDetails as StudentSearchDetailsDto,
+    };
+  }
+  const suggestion = results
+    .find((r) => r.id === decision.resultId)
+    ?.suggestions.find((s) => s.ordinal === decision.ordinal);
+  return {
+    studentUniqueId: decision.studentUniqueId ?? '',
+    rosterDetails: suggestion?.rosterDetails ?? {},
+    score: suggestion?.score ?? null,
+    source: 'suggestion',
+    resultId: decision.resultId ?? undefined,
+    ordinal: decision.ordinal ?? undefined,
+  };
+};
+
+/** Whether the current user saved this decision. */
+export const isOwnDecision = (decision: GetStudentMatchDecisionDto, meId: number | undefined) =>
+  !!decision.decidedBy && decision.decidedBy.id === meId;
+
+/** Who saved a decision, as the page names them. */
+export const deciderName = (decision: GetStudentMatchDecisionDto, meId: number | undefined) =>
+  isOwnDecision(decision, meId) ? 'you' : decision.decidedBy?.displayName ?? 'someone';
 
 export const valueText = (value: JsonValue | undefined): string | null => {
   if (value === null || value === undefined || value === '') return null;

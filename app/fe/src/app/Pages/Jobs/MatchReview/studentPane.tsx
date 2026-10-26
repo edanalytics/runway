@@ -12,12 +12,7 @@ import {
   useToast,
   VStack,
 } from '@chakra-ui/react';
-import {
-  GetSendRunDto,
-  GetStudentInputDetailsDto,
-  StudentRosterDetailsJson,
-  StudentMatchStatus,
-} from '@edanalytics/models';
+import { GetStudentInputDetailsDto, StudentRosterDetailsJson } from '@edanalytics/models';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
@@ -34,11 +29,14 @@ import {
   dateTime,
   CopyButton,
   CrossYearCue,
+  deciderName,
+  matchedCandidate,
   suggestionsOf,
 } from './components';
+import { useMe } from '../../../api/queries/me.queries';
 import { ContactSupport } from '../../../components/SupportButton';
 import { termsFrom, SearchTerms } from './search';
-import { Candidate, Decision, DecisionResult, useReviewSession } from './reviewSession';
+import { Candidate, DecisionChoice, DecisionResult, useReviewSession } from './reviewSession';
 import { outcomeLabel, sendRunOutcome, submissionNumber, submissionReference } from './sendRun';
 
 // Evidence -------------------------------------------------------------------
@@ -126,12 +124,9 @@ export const Workspace = ({
   student: GetStudentInputDetailsDto;
   onSaved: (action: LastAction) => void;
 }) => {
-  const { statusOf, decisions, decide, clear, sendRunOf } = useReviewSession();
+  const { decide, clear } = useReviewSession();
   const toast = useToast();
-  const id = student.correlationId;
-  const status = statusOf(id);
-  const decision = decisions.get(id);
-  const sendRun = sendRunOf(id);
+  const { correlationId: id, status, decision } = student;
   // Once a student's match is in a send run, failed or not, they take no new
   // decision (Decisions Log #46): a failed one's remedy is its submission's.
   const isSubmitted =
@@ -141,16 +136,14 @@ export const Workspace = ({
   // Saying none fit stays on this student and opens search and exclude.
   const [noneFit, setNoneFit] = useState(false);
 
+  const matched = matchedCandidate(student);
   // A match found by searching stays in view beside the suggestions.
-  const fromSearch =
-    decision?.kind === 'match' && decision.candidate.source === 'search'
-      ? decision.candidate
-      : null;
+  const fromSearch = matched?.source === 'search' ? matched : null;
   const candidates =
     fromSearch && !suggestions.some((c) => c.studentUniqueId === fromSearch.studentUniqueId)
       ? [...suggestions, fromSearch]
       : suggestions;
-  const saved = decision?.kind === 'match' ? decision.candidate.studentUniqueId : null;
+  const saved = matched?.studentUniqueId ?? null;
   const name = studentName(student.inputDetails);
 
   // Why the last write was refused, shown here on the student.
@@ -175,7 +168,11 @@ export const Workspace = ({
     write: Promise<DecisionResult>,
     action: { message: string; advance: boolean }
   ) => {
-    const previous = decision;
+    const previous: DecisionChoice | null = matched
+      ? { kind: 'match', candidate: matched }
+      : decision?.kind === 'exclude'
+      ? { kind: 'exclude' }
+      : null;
     setError(null);
     const result = await write;
     if (!result.ok) {
@@ -241,7 +238,7 @@ export const Workspace = ({
         ))}
       </VStack>
 
-      <DecisionState status={status} decision={decision} sendRun={sendRun} />
+      <DecisionState student={student} />
 
       {error && (
         <Box
@@ -296,22 +293,20 @@ export const Workspace = ({
 };
 
 /** What's been decided and what's happened since, kept apart. */
-const DecisionState = ({
-  status,
-  decision,
-  sendRun,
-}: {
-  status: StudentMatchStatus;
-  decision: Decision | undefined;
-  /** The submission that decides the student's status, once they've been submitted. */
-  sendRun: GetSendRunDto | undefined;
-}) => {
+const DecisionState = ({ student }: { student: GetStudentInputDetailsDto }) => {
   const { job, sendRuns } = useReviewSession();
-  const by = decision ? ` by ${decision.decidedBy} on ${dateTime(decision.decidedAt)}` : '';
+  const { data: me } = useMe();
+  const { status, decision } = student;
+  const matched = matchedCandidate(student);
+  // The submission that decides the student's status, once they've been submitted.
+  const sendRun = sendRuns.find(({ id }) => id === student.sendRunId);
+  const by = decision
+    ? ` by ${deciderName(decision, me?.user?.id)} on ${dateTime(decision.decidedOn)}`
+    : '';
   let body: ReactNode = null;
-  if (status === 'ready' && decision?.kind === 'match') {
-    body = `Match saved${by}: ${decision.candidate.studentUniqueId}${
-      decision.candidate.source === 'search' ? ', found by searching' : ''
+  if (status === 'ready' && matched) {
+    body = `Match saved${by}: ${matched.studentUniqueId}${
+      matched.source === 'search' ? ', found by searching' : ''
     }. Not submitted yet.`;
   } else if (status === 'excluded') {
     body = `Excluded from this job${by}. Its records won't be reprocessed.`;
@@ -320,7 +315,7 @@ const DecisionState = ({
     (status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed')
   ) {
     // No decision can follow a send, so the current one is what was sent.
-    const chosen = decision?.kind === 'match' ? decision.candidate.studentUniqueId : null;
+    const chosen = matched?.studentUniqueId;
     const number = submissionNumber(sendRuns, sendRun);
     const outcome = sendRunOutcome(sendRun, job.template.reportResources);
     body = (
@@ -358,9 +353,9 @@ const DecisionState = ({
       fontSize="0.9rem"
     >
       {body}
-      {decision?.kind === 'match' && (
+      {matched && (
         <Box marginTop="100">
-          <CrossYearCue rosterDetails={decision.candidate.rosterDetails} />
+          <CrossYearCue rosterDetails={matched.rosterDetails} />
         </Box>
       )}
     </Box>
