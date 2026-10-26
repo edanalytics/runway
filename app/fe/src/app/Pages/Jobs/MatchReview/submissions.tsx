@@ -157,8 +157,8 @@ const SubmissionSupport = ({
     >
       <Box flex="1" minWidth="16rem">
         {outcome === 'failed'
-          ? "The run failed. Its matches still stand. Support can find out why from the run's logs."
-          : "The run can't say which students the failed records belong to. The matches still stand; support can trace the failures from the run's logs."}
+          ? 'Students could not be sent. Your match decisions have been preserved. Please contact support.'
+          : 'Some records could not be sent. Your match decisions have been preserved. Please contact support for help identifying the affected students.'}
       </Box>
       <VStack alignItems="flex-end" gap="100">
         <ContactSupport
@@ -178,7 +178,7 @@ const SubmissionSupport = ({
             <ConfirmAction
               isDisabled={!!submitBlocked || sending}
               headerText={`Send submission ${number}'s students again?`}
-              bodyText="Sending again usually fails the same way unless the cause has been fixed. Support can find the cause in the run's logs and tell you when it's worth sending again."
+              bodyText="Sending again will usually fail unless the cause has been fixed. Please contact support first."
               yesButtonText="Send again"
               noButtonText="Cancel"
               action={sendAgain}
