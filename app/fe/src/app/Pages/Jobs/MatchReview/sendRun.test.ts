@@ -1,6 +1,12 @@
 import { GetRunDto } from '@edanalytics/models';
 import { describe, expect, it } from 'vitest';
-import { ResendableStudent, sendRunOutcome, studentsToResend, submitRefusal } from './sendRun';
+import {
+  needsAttention,
+  ResendableStudent,
+  sendRunOutcome,
+  studentsToResend,
+  submitRefusal,
+} from './sendRun';
 
 // The bundle reports on student assessments only, as every bundle does today.
 const reportResources = ['studentAssessments'];
@@ -190,5 +196,29 @@ describe('submitRefusal', () => {
   it('is null for a failure with no code', () => {
     const body = { statusCode: 500, message: 'Failed to submit the matches' };
     expect(submitRefusal(body, submitted)).toBeNull();
+  });
+});
+
+describe('needsAttention', () => {
+  it('needs the reviewer once complete with errors, for support to trace', () => {
+    expect(needsAttention('complete with errors', 0)).toBe(true);
+  });
+
+  it('needs the reviewer when failed with students still to send again', () => {
+    expect(needsAttention('failed', 2)).toBe(true);
+  });
+
+  it('needs no one when failed but all its students have been sent again', () => {
+    expect(needsAttention('failed', 0)).toBe(false);
+  });
+
+  it('needs the reviewer when failed and the page cannot tell who is left, past the limit', () => {
+    expect(needsAttention('failed', null)).toBe(true);
+  });
+
+  it('needs no one while queued, running or complete', () => {
+    expect(needsAttention('queued', 0)).toBe(false);
+    expect(needsAttention('running', 0)).toBe(false);
+    expect(needsAttention('complete', 0)).toBe(false);
   });
 });

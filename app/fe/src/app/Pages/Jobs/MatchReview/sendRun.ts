@@ -141,3 +141,13 @@ export const refusalReason = ({ code, refused }: SubmitRefusal<unknown>) => {
       return 'The job is still processing, so nothing can be submitted yet.';
   }
 };
+
+/**
+ * Whether a submission needs the reviewer: one complete with errors, which
+ * support can trace, or a failed one with students still to send again.
+ * `leftToResend` is null when the page can't tell, past the review limit,
+ * and then a failed one needs them too.
+ */
+export const needsAttention = (outcome: SendRunOutcome, leftToResend: number | null): boolean => {
+  throw new Error('not implemented');
+};
