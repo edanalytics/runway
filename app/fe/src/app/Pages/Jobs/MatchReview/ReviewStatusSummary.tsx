@@ -4,11 +4,11 @@ import { outstandingStudents } from '@edanalytics/models';
 import { countOf, statusLabel, useReviewSession } from './reviewSession';
 import { sections } from './queue';
 
-/** The same student statuses and review progress on both job tabs. */
+/** Student status counts, with optional decision progress for the review workspace. */
 export const ReviewStatusSummary = ({
-  progressTrackColor = 'blue.600',
+  showDecisionProgress = true,
 }: {
-  progressTrackColor?: string;
+  showDecisionProgress?: boolean;
 }) => {
   const { counts } = useReviewSession();
   // A count per status, in the list's order.
@@ -31,7 +31,7 @@ export const ReviewStatusSummary = ({
           </VStack>
         ))}
       </HStack>
-      <ReviewProgress trackColor={progressTrackColor} />
+      {showDecisionProgress && <ReviewProgress />}
     </VStack>
   );
 };
@@ -57,7 +57,7 @@ const ReviewComplete = () => (
  * Progress toward review done: students decided, whether or not submitted.
  * A run-failed student is decided: what's left is sending them again.
  */
-const ReviewProgress = ({ trackColor }: { trackColor: string }) => {
+const ReviewProgress = () => {
   const { counts } = useReviewSession();
   const done = useReviewDone();
   const decided = counts.total - counts.toReview;
@@ -68,7 +68,7 @@ const ReviewProgress = ({ trackColor }: { trackColor: string }) => {
         value={counts.total ? (decided / counts.total) * 100 : 0}
         size="xs"
         borderRadius="999px"
-        bg={trackColor}
+        bg="blue.600"
         sx={{ '& > div': { bg: 'green.100' } }}
         aria-label="Students decided"
       />

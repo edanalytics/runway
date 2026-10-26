@@ -28,7 +28,11 @@ export const ReviewNotice = () => {
         </Box>
         <PrimaryButton onClick={onView}>View unmatched students</PrimaryButton>
       </HStack>
-      <ReviewStatusSummary progressTrackColor="blue.700" />
+      <Box textStyle="body">
+        These students could not be matched to the roster automatically. The counts below show their
+        current review and reprocessing status.
+      </Box>
+      <ReviewStatusSummary showDecisionProgress={false} />
       {counts.total > USUAL_MAXIMUM && <TooManyNote count={counts.total} />}
     </VStack>
   );
