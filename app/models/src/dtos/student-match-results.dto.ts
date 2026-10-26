@@ -21,6 +21,8 @@ import {
   ValidatorConstraintInterface,
 } from 'class-validator';
 import {
+  Run,
+  RunStatus,
   StudentInputDetails,
   StudentMatchDecision,
   StudentMatchDecisionKind,
@@ -31,6 +33,7 @@ import {
 import { makeSerializer, makeSerializerCustomType } from '../utils/make-serializer';
 import { StudentInputDetailsJson, StudentRosterDetailsJson } from './earthbeam-api.dto';
 import { GetUserDto } from './user.dto';
+import { GetRunDto } from './run.dto';
 import { POSTGRES_INTEGER_MAX } from '../constants';
 
 /*
@@ -344,25 +347,48 @@ export const toPostStudentMatchDecisionResponseDto = makeSerializerCustomType<
 >(PostStudentMatchDecisionResponseDto);
 
 /**
- * A student's place in review, derived from their latest decision and whether
- * that decision is in a send run.
+ * A student's place in review, derived from their latest decision and, for a
+ * match in a send run, that send run's status.
  */
-export type StudentMatchStatus = 'to-review' | 'ready' | 'excluded' | 'submitted';
+export type StudentMatchStatus =
+  | 'to-review'
+  | 'ready'
+  | 'excluded'
+  | 'reprocessing'
+  | 'reprocessed'
+  | 'run-failed';
 
+/**
+ * `sendRunStatus` is the status of the latest send run that delivers the
+ * latest decision, if any does. No decision can follow a send, so the latest
+ * decision is the only one in any send run, and this agrees with the guards,
+ * which refuse a student any of whose decision rows is in one.
+ */
 export const studentMatchStatus = (
   latestDecision: StudentMatchDecisionKind | undefined,
-  submitted: boolean
+  sendRunStatus: RunStatus | undefined
 ): StudentMatchStatus => {
   switch (latestDecision) {
-    case 'match':
-      // Only a match is ever submitted, and it stays submitted whatever its
-      // send run's outcome.
-      return submitted ? 'submitted' : 'ready';
     case 'exclude':
       return 'excluded';
     case 'clear':
     case undefined:
       return 'to-review';
+    case 'match':
+      // Only a match is ever submitted.
+      switch (sendRunStatus) {
+        case undefined:
+          return 'ready';
+        case 'new':
+        case 'running':
+          return 'reprocessing';
+        // Whatever its resource errors: the run was attempted.
+        case 'success':
+          return 'reprocessed';
+        // Including a send run that failed to start.
+        case 'error':
+          return 'run-failed';
+      }
   }
 };
 
@@ -383,6 +409,14 @@ export class GetStudentInputDetailsDto {
   @Expose()
   status: StudentMatchStatus;
 
+  /**
+   * The latest send run that delivers the current decision, which decides the
+   * status. Null when none does. Once a failed send run's student is resent,
+   * this is the resend, not the failed run.
+   */
+  @Expose()
+  sendRunId: number | null;
+
   /** Null when nothing is decided, including after a clear. */
   @Expose()
   @Type(() => GetStudentMatchDecisionDto)
@@ -399,6 +433,7 @@ export class GetStudentInputDetailsDto {
 
 type StudentInputDetailsWithResults = StudentInputDetails & {
   status: StudentMatchStatus;
+  sendRunId: number | null;
   decision: StudentMatchDecisionWithUser | null;
   results: (StudentMatchResult & { suggestions: StudentMatchSuggestion[] })[];
 };
@@ -422,14 +457,38 @@ export class GetStudentMatchCountsDto {
   @Expose()
   excluded: number;
 
-  /** Matches in a send run, whatever its status. */
+  /** Matches whose latest send run is new or running. */
   @Expose()
-  submitted: number;
+  reprocessing: number;
+
+  /** Matches whose latest send run succeeded. */
+  @Expose()
+  reprocessed: number;
+
+  /** Matches whose latest send run ended in error. */
+  @Expose()
+  runFailed: number;
+}
+
+/** One of the job's send runs, as the review read lists them. */
+export class GetSendRunDto extends GetRunDto {
+  /** The submitter. Null once their user is deleted. */
+  @Expose()
+  @Transform(({ value }) => plainToInstance(GetUserDto, value, { excludeExtraneousValues: true }))
+  createdBy: GetUserDto | null;
+
+  /**
+   * How many students it delivers, from its own rows. Students it delivered
+   * and that were later resent still count here, though their `sendRunId` is
+   * the resend's.
+   */
+  @Expose()
+  studentCount: number;
 }
 
 /**
- * A job's students to match. Past the review limit, `students` is null, but
- * `counts` is still there.
+ * A job's students to match, and its send runs. Past the review limit,
+ * `students` is null, but `counts` and `sendRuns` are still there.
  */
 export class GetStudentMatchResultsDto {
   @Expose()
@@ -439,6 +498,11 @@ export class GetStudentMatchResultsDto {
   @Expose()
   @Type(() => GetStudentInputDetailsDto)
   students: GetStudentInputDetailsDto[] | null;
+
+  /** Newest first. */
+  @Expose()
+  @Type(() => GetSendRunDto)
+  sendRuns: GetSendRunDto[];
 }
 
 export const toGetStudentMatchResultsDto = makeSerializerCustomType<
@@ -446,5 +510,6 @@ export const toGetStudentMatchResultsDto = makeSerializerCustomType<
   {
     counts: GetStudentMatchCountsDto;
     students: StudentInputDetailsWithResults[] | null;
+    sendRuns: (Run & { createdBy: User | null; studentCount: number })[];
   }
 >(GetStudentMatchResultsDto);

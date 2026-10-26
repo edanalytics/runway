@@ -22,8 +22,10 @@ import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.ser
 import { GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
 import { FileService } from 'api/src/files/file.service';
 import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
+import { noStudentsToMatch } from 'api/src/jobs/student-match-review.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
+import { sortBy } from 'lodash';
 import { IdMatchingMode, Job, JobNote, RunKind, RunStatus } from '@prisma/client';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
@@ -184,7 +186,7 @@ describe('GET /jobs', () => {
 describe('GET /jobs/:id', () => {
   let endpointA: string;
   let endpointB: string;
-  let jobA: Job;
+  let jobA: SeededJob;
   let jobB: Job;
   let jobDGlobal: Job;
   let jobEGlobal: Job;
@@ -235,6 +237,41 @@ describe('GET /jobs/:id', () => {
       expect(resA.body.id).toEqual(jobA.id);
     });
 
+    // The frontend picks the full run by its kind, to compute the job's status,
+    // and reads each run's summary.
+    it('returns each run’s kind and summary', async () => {
+      // Only a fuzzy job has send runs, and only after a successful full run.
+      const job = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        idMatchingMode: 'fuzzy',
+        runStatus: 'success',
+      });
+      const summary = {
+        studentAssessments: { records_processed: 4, records_skipped: 0, records_failed: 1 },
+      };
+      const sendRun = await prisma.run.create({
+        data: { jobId: job.id, kind: 'send', status: 'error', summary },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/jobs/${job.id}`)
+        .set('Cookie', [cookieA]);
+
+      const runs = res.body.runs.map(
+        ({ id, kind, summary }: { id: number; kind: RunKind; summary: unknown }) => ({
+          id,
+          kind,
+          summary,
+        })
+      );
+      expect(sortBy(runs, 'id')).toEqual([
+        { id: job.runs[0].id, kind: 'full', summary: null },
+        { id: sendRun.id, kind: 'send', summary },
+      ]);
+    });
+
     it('shows failed resources the bundle reports on as complete with errors', async () => {
       // bundleA reports studentAssessments only, so students' failures don't count.
       await prisma.run.updateMany({
@@ -255,7 +292,7 @@ describe('GET /jobs/:id', () => {
       expect(job.status).toBe('complete with errors');
     });
 
-    it('has no resource summaries when the last run has no summary', async () => {
+    it('has no resource summaries when its run has no summary', async () => {
       const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       const job = plainToInstance(GetJobDto, res.body);
 
@@ -1029,6 +1066,102 @@ describe('PUT /jobs/:id/start', () => {
   });
 });
 
+describe('GET /jobs/:id/status-updates and /errors', () => {
+  let cookie: string;
+
+  beforeEach(async () => {
+    cookie = (await authHelper.login(idpA, userA, tenantA)).cookies;
+  });
+
+  /** The job's status updates' actions and its errors' codes. */
+  const updatesAndErrorsOf = async (jobId: number, userCookie: string) => {
+    const updates = await request(app.getHttpServer())
+      .get(`/jobs/${jobId}/status-updates`)
+      .set('Cookie', [userCookie]);
+    const errors = await request(app.getHttpServer())
+      .get(`/jobs/${jobId}/errors`)
+      .set('Cookie', [userCookie]);
+    return {
+      updates: updates.body.map(({ action }: { action: string }) => action),
+      errors: errors.body.map(({ error }: { error: { code: string } }) => error.code),
+    };
+  };
+
+  it('returns the full run’s, not a later send run’s', async () => {
+    // A send run follows only a successful full run.
+    const job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+      runStatus: 'success',
+    });
+    await prisma.runUpdate.create({
+      data: { runId: job.runs[0].id, action: 'done', status: 'success' },
+    });
+    const sendRun = await prisma.run.create({
+      data: { jobId: job.id, kind: 'send', status: 'error' },
+    });
+    await prisma.runUpdate.create({
+      data: { runId: sendRun.id, action: 'lightbeam_send', status: 'failure' },
+    });
+    await prisma.runError.create({ data: { runId: sendRun.id, code: 'lightbeam_send' } });
+
+    expect(await updatesAndErrorsOf(job.id, cookie)).toEqual({ updates: ['done'], errors: [] });
+  });
+
+  // A job is started once, so this guards a state that shouldn't occur.
+  it('reads the latest full run, should a job ever have several', async () => {
+    const job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      runStatus: 'success',
+    });
+    await prisma.run.update({
+      where: { id: job.runs[0].id },
+      data: {
+        summary: {
+          studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 2 },
+        },
+      },
+    });
+    await prisma.runUpdate.create({
+      data: { runId: job.runs[0].id, action: 'earthmover_run', status: 'failure' },
+    });
+    await prisma.runError.create({ data: { runId: job.runs[0].id, code: 'earthmover_run' } });
+    const latest = await prisma.run.create({
+      data: {
+        jobId: job.id,
+        kind: 'full',
+        status: 'success',
+        summary: {
+          studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 0 },
+        },
+      },
+    });
+    await prisma.runUpdate.create({
+      data: { runId: latest.id, action: 'done', status: 'success' },
+    });
+
+    const read = await request(app.getHttpServer())
+      .get(`/jobs/${job.id}`)
+      .set('Cookie', [cookie]);
+    const readJob = plainToInstance(GetJobDto, read.body);
+
+    expect({
+      fullRunId: readJob.fullRun?.id,
+      status: readJob.status,
+      resourceSummaries: readJob.resourceSummaries,
+    }).toEqual({
+      fullRunId: latest.id,
+      status: 'success',
+      resourceSummaries: { studentAssessments: { success: 10, skipped: 0, failed: 0 } },
+    });
+    expect(await updatesAndErrorsOf(job.id, cookie)).toEqual({ updates: ['done'], errors: [] });
+  });
+});
+
 describe('PUT /jobs/:id/resolve', () => {
   const endpoint = (id: number) => `/jobs/${id}/resolve`;
   let jobA: SeededJob;
@@ -1150,7 +1283,7 @@ describe('PUT /jobs/:id/resolve', () => {
           where: { id: jobA.id },
           include: { runs: true, files: true },
         })),
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
+        studentMatchCounts: noStudentsToMatch,
       }).status;
       if (!statusBefore) {
         // sanity check
@@ -1178,7 +1311,7 @@ describe('PUT /jobs/:id/resolve', () => {
 
       const statusAfter = toGetJobDto({
         ...revertedJob,
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
+        studentMatchCounts: noStudentsToMatch,
       }).status;
       expect(statusAfter).toBe(statusBefore);
     });

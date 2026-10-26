@@ -87,7 +87,7 @@ export class EarthbeamApiJobResponseDto {
   @Expose()
   send?: {
     runId: number;
-    students: Array<{ correlationId: string; studentUniqueId: string; isCrossYear: boolean }>;
+    students: { correlationId: string; studentUniqueId: string; isCrossYear: boolean }[];
   };
 
   @Expose()

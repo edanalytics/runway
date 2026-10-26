@@ -1,10 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
+import { type PrismaClient } from '@prisma/client';
 import {
   ExecutorService,
   ExecutorStartResult,
   EXECUTOR_SERVICE,
 } from '../earthbeam/executor/executor.service';
+import { advanceRunStatus } from './run-status';
 
 /** Launches runs on the Executor this environment uses. */
 @Injectable()
@@ -14,7 +15,7 @@ export class RunsService {
 
   /**
    * Starts the Executor on a run that's already committed, since the Executor
-   * reads the run back from another connection. A failure to start leaves the
+   * reads the run back from another connection. A failure to start marks the
    * run done, in error.
    */
   async launch(
@@ -27,26 +28,29 @@ export class RunsService {
     } catch (e) {
       this.logger.error(`Failed to start run ${run.id}: ${e}`);
 
-      await prisma.run.update({
-        where: { id: run.id },
-        data: {
-          status: 'error',
-          runError: {
-            create: {
-              code: 'failed_to_start_executor',
-              payload: { stacktrace: 'stacktrace unavailable' },
-            },
+      return await prisma.$transaction(async (tx) => {
+        // Only from `new`, so a run's status is never overwritten. That also
+        // guards an unlikely case: a task takes tens of seconds to initialize,
+        // far longer than RunTask takes to answer, but if ECS reported a
+        // failure after its task had initialized, the run is executing and
+        // will report its own `done`, so it's left running and counted as
+        // launched.
+        if (!(await advanceRunStatus(tx, run.id, 'new', 'error'))) {
+          this.logger.warn(
+            `Run ${run.id} initialized though its launch failed; treating it as started`
+          );
+          return { status: 'SUCCESS' };
+        }
+        await tx.runError.create({
+          data: {
+            runId: run.id,
+            code: 'failed_to_start_executor',
+            payload: { stacktrace: 'stacktrace unavailable' },
           },
-          runUpdate: {
-            create: {
-              action: 'done',
-              status: 'failure',
-            },
-          },
-        },
+        });
+        await tx.runUpdate.create({ data: { runId: run.id, action: 'done', status: 'failure' } });
+        return { status: 'ERROR', code: 'failed_to_start_executor' };
       });
-
-      return { status: 'ERROR', code: 'failed_to_start_executor' };
     }
 
     if (startResult.ecsTaskArn || startResult.taskSize) {

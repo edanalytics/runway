@@ -1,11 +1,8 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   Inject,
-  InternalServerErrorException,
   Logger,
-  NotFoundException,
   Param,
   ParseIntPipe,
   UnauthorizedException,
@@ -18,6 +15,7 @@ import { makeEarthbeamJWTGuard } from './earthbeam-api-auth.guard';
 import { EarthbeamApiAuthService } from './earthbeam-api-auth.service';
 import { Public } from 'api/src/auth/login/public.decorator';
 import { toEarthbeamApiInitResponseDto } from '@edanalytics/models';
+import { advanceRunStatus } from '../../../jobs/run-status';
 
 @Controller()
 @Public() // do not require session auth
@@ -32,21 +30,13 @@ export class EarthbeamApiAuthController {
 
   @Get(':runId/init')
   async init(@Param('runId', ParseIntPipe) runId: number) {
-    const result = await this.apiAuthService.initRun(runId);
-    if (result.status === 'ERROR') {
-      this.logger.error(`Failed to initialize run: ${runId}`, result.reason);
-      if (result.reason === 'not found') {
-        throw new NotFoundException('Run not found');
-      } else if (result.reason === 'invalid token') {
-        throw new UnauthorizedException('Invalid token');
-      } else {
-        throw new BadRequestException('Failed to initialize run');
-      }
-    }
-
-    if (result.status !== 'SUCCESS') {
-      this.logger.error(`Failed to initialize run. Unexpected status for run: ${runId}`, result);
-      throw new InternalServerErrorException();
+    // Only from `new`, so a run's status is never overwritten.
+    const run = await advanceRunStatus(this.prisma, runId, 'new', 'running');
+    if (!run) {
+      // The token has been used, or the run failed to launch (or, which shouldn't
+      // happen, no longer exists).
+      this.logger.error(`Failed to initialize run: ${runId}`);
+      throw new UnauthorizedException('Invalid token');
     }
 
     return toEarthbeamApiInitResponseDto(await this.apiAuthService.initResponse({ runId }));

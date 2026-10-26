@@ -14,6 +14,7 @@ import {
 import { PRISMA_READ_ONLY } from 'api/src/database';
 import { EncryptionService } from 'api/src/encryption/encryption.service';
 import { hasSchoolYears, isInJobYear } from '../../jobs/school-years';
+import { advanceRunStatus } from '../../jobs/run-status';
 import { plainToInstance } from 'class-transformer';
 import {
   earthbeamErrorUpdateEndpoint,
@@ -271,11 +272,36 @@ export class EarthbeamApiService {
     return students;
   }
 
-  async completeRun(runId: Run['id'], status: 'success' | 'error', prisma: PrismaClient) {
+  /** Completes a run on its `done`, with the status the Executor reported. */
+  async completeRun(
+    runId: Run['id'],
+    reportedStatus: string,
+    prisma: PrismaClient
+  ): Promise<{ status: 'SUCCESS' } | { status: 'ERROR'; code: 'run_already_complete' }> {
     // TODO: probably belongs in earthbeam-run.service.ts ?
-    const run = await prisma.run.update({
+    const completed = await prisma.$transaction(async (tx) => {
+      // `success` and `error` are final, and resending a failed send run's
+      // students relies on it, so a later `done` is refused.
+      const advanced = await advanceRunStatus(
+        tx,
+        runId,
+        ['new', 'running'],
+        reportedStatus === 'success' ? 'success' : 'error'
+      );
+      if (!advanced) {
+        return false;
+      }
+      // With the status, before anything below can fail: the job page polls
+      // until it sees the run's `done` update, and a retried `done` would be
+      // refused.
+      await tx.runUpdate.create({ data: { runId, action: 'done', status: reportedStatus } });
+      return true;
+    });
+    if (!completed) {
+      return { status: 'ERROR', code: 'run_already_complete' };
+    }
+    const run = await prisma.run.findUniqueOrThrow({
       where: { id: runId },
-      data: { status },
       include: {
         job: { include: { files: true, odsConfig: { include: { activeConnection: true } } } },
         runError: true,
@@ -336,10 +362,13 @@ export class EarthbeamApiService {
       const unmatchedStudentCount = unmatchedStudentsInfo?.count ?? 0;
       const unmatchedStudentsMessage =
         unmatchedStudentCount === 0 ? '' : `${unmatchedStudentCount} unmatched`;
-      const errorCode = run.status !== 'success' ? run.runError?.[0].code : null;
+      const errorCode = run.status !== 'success' ? run.runError?.[0]?.code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
 
-      const summaryString = `${assessmentType} (${assessmentFiles.join(
+      // A send run delivers only some of the job's students, so its summary
+      // says what kind of run it is.
+      const runPrefix = run.kind === 'send' ? 'send run: ' : '';
+      const summaryString = `${runPrefix}${assessmentType} (${assessmentFiles.join(
         ', '
       )}) ${errorString} ${resourceErrorString} ${unmatchedStudentsMessage} (${partnerId}/${tenantCode}) jobId ${
         run.job.id
@@ -348,6 +377,7 @@ export class EarthbeamApiService {
       await this.eventEmitter.emit('run_complete', {
         summary: summaryString,
         runId: run.id,
+        runType: run.kind,
         jobId: run.job.id,
         status: run.status,
         completedWithErrors:
@@ -393,6 +423,7 @@ export class EarthbeamApiService {
     } catch (error) {
       this.logger.error(`Error emitting event: ${error} for run ${run.id}`);
     }
+    return { status: 'SUCCESS' };
   }
 }
 

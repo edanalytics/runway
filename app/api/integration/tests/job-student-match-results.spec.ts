@@ -7,7 +7,7 @@ import { tenantA, tenantB, tenantDGlobal } from '../fixtures/context-fixtures/te
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
-import { GetJobDto, GetStudentInputDetailsDto } from '@edanalytics/models';
+import { GetJobDto, GetSendRunDto, GetStudentInputDetailsDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { StudentMatchReviewService } from 'api/src/jobs/student-match-review.service';
 import { reportMatchResults as report } from '../helpers/report-match-results';
@@ -60,6 +60,18 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         where: { jobId_correlationId_runId: { jobId, correlationId, runId } },
       })
     ).id.toString();
+
+  /** Matches each student to their suggestion, as a reviewer does. */
+  const matchAll = async (cookies: string, correlationIds: string[]) => {
+    for (const correlationId of correlationIds) {
+      await decide(cookies, correlationId, {
+        replacesVersion: null,
+        kind: 'match',
+        resultId: await resultIdOf(correlationId),
+        ordinal: 0,
+      });
+    }
+  };
 
   /** Students with one suggestion each, reported by the job's full run. */
   const reportStudents = (correlationIds: string[], runId = runA.id) =>
@@ -134,7 +146,15 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 2, toReview: 2, ready: 0, excluded: 0, submitted: 0 },
+        counts: {
+          total: 2,
+          toReview: 2,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
         students: [
           {
             correlationId: 'corr-1',
@@ -142,6 +162,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             createdOn: expect.any(String),
             inputDetails: { first_name: 'Ada', last_name: 'Lovelace' },
             status: 'to-review',
+            sendRunId: null,
             decision: null,
             results: [
               {
@@ -171,6 +192,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             createdOn: expect.any(String),
             inputDetails: { first_name: 'Grace' },
             status: 'to-review',
+            sendRunId: null,
             decision: null,
             results: [
               {
@@ -182,6 +204,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             ],
           },
         ],
+        sendRuns: [],
       });
     });
 
@@ -234,8 +257,17 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
+        counts: {
+          total: 0,
+          toReview: 0,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
         students: [],
+        sendRuns: [],
       });
     });
 
@@ -298,37 +330,36 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           toReview: 1,
           ready: 1,
           excluded: 1,
-          submitted: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
         });
       });
 
-      // A match stays submitted whatever its send run's status.
-      it.each(['running', 'success', 'error'] as const)(
-        'returns a match in a send run as submitted, with its decision, when the run is %s',
-        async (sendRunStatus) => {
+      /** Each student's status and the version of their decision. */
+      const statusesOf = (students: GetStudentInputDetailsDto[]) =>
+        students.map(({ correlationId, status, decision }) => ({
+          correlationId,
+          status,
+          version: decision?.version,
+        }));
+
+      it.each([
+        ['new', 'reprocessing', { reprocessing: 1, reprocessed: 0, runFailed: 0 }],
+        ['running', 'reprocessing', { reprocessing: 1, reprocessed: 0, runFailed: 0 }],
+        ['success', 'reprocessed', { reprocessing: 0, reprocessed: 1, runFailed: 0 }],
+        ['error', 'run-failed', { reprocessing: 0, reprocessed: 0, runFailed: 1 }],
+      ] as const)(
+        'returns a match whose send run is %s as %s, with its decision',
+        async (sendRunStatus, status, sendRunCounts) => {
           await reportStudents(['corr-1', 'corr-2']);
-          for (const correlationId of ['corr-1', 'corr-2']) {
-            await decide(cookies, correlationId, {
-              replacesVersion: null,
-              kind: 'match',
-              resultId: await resultIdOf(correlationId),
-              ordinal: 0,
-            });
-          }
+          await matchAll(cookies, ['corr-1', 'corr-2']);
           await seedSendRun(jobA.id, ['corr-1'], sendRunStatus);
 
           const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
-          expect(
-            res.body.students.map(
-              ({ correlationId, status, decision }: GetStudentInputDetailsDto) => ({
-                correlationId,
-                status,
-                version: decision?.version,
-              })
-            )
-          ).toEqual([
-            { correlationId: 'corr-1', status: 'submitted', version: 1 },
+          expect(statusesOf(res.body.students)).toEqual([
+            { correlationId: 'corr-1', status, version: 1 },
             { correlationId: 'corr-2', status: 'ready', version: 1 },
           ]);
           expect(res.body.counts).toEqual({
@@ -336,10 +367,118 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             toReview: 0,
             ready: 1,
             excluded: 0,
-            submitted: 1,
+            ...sendRunCounts,
           });
         }
       );
+
+      it('lists the job’s send runs, newest first, each with its submitter, summary and student count', async () => {
+        await reportStudents(['corr-1', 'corr-2']);
+        await matchAll(cookies, ['corr-1', 'corr-2']);
+        const failed = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'error');
+        const resent = await seedSendRun(jobA.id, ['corr-1'], 'running');
+        const summary = {
+          studentAssessments: { records_processed: 4, records_skipped: 0, records_failed: 1 },
+        };
+        await prisma.run.update({ where: { id: failed.id }, data: { summary } });
+        // The submitter, as a submit records them: the audit trigger sets it on
+        // insert from the session, which the test client doesn't have.
+        await prisma.run.updateMany({
+          where: { id: { in: [failed.id, resent.id] } },
+          data: { createdById: userA.id },
+        });
+        // Another tenant's job, whose send run isn't listed.
+        const otherTenantJob = await seedJob({
+          odsConfig: odsConfigB2526,
+          bundle: bundleA,
+          tenant: tenantB,
+          idMatchingMode: 'fuzzy',
+        });
+        const otherTenantRun = otherTenantJob.runs[0];
+        await reportStudents(['corr-1'], otherTenantRun.id);
+        const { cookies: tenantBCookies } = await authHelper.login(idpA, userB, tenantB);
+        await decide(
+          tenantBCookies,
+          'corr-1',
+          {
+            replacesVersion: null,
+            kind: 'match',
+            resultId: await resultIdOf('corr-1', otherTenantRun.id, otherTenantJob.id),
+            ordinal: 0,
+          },
+          otherTenantJob.id
+        );
+        await seedSendRun(otherTenantJob.id, ['corr-1'], 'running');
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(
+          res.body.sendRuns.map(
+            ({ id, kind, status, summary, createdOn, createdBy, studentCount }: GetSendRunDto) => ({
+              id,
+              kind,
+              status,
+              summary,
+              createdOn,
+              submitterId: createdBy?.id,
+              studentCount,
+            })
+          )
+        ).toEqual([
+          {
+            id: resent.id,
+            kind: 'send',
+            createdOn: resent.createdOn.toISOString(),
+            status: 'running',
+            summary: null,
+            submitterId: userA.id,
+            studentCount: 1,
+          },
+          {
+            id: failed.id,
+            kind: 'send',
+            createdOn: failed.createdOn.toISOString(),
+            status: 'error',
+            summary,
+            submitterId: userA.id,
+            studentCount: 2,
+          },
+        ]);
+      });
+
+      // A resend delivers the same decision row as the failed send run before
+      // it, so the latest send run decides.
+      it('reads each submitted student by their latest send run, and gives its id', async () => {
+        await reportStudents(['corr-1', 'corr-2', 'corr-3']);
+        await matchAll(cookies, ['corr-1', 'corr-2', 'corr-3']);
+        const failed = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'error');
+        const resent = await seedSendRun(jobA.id, ['corr-1'], 'running');
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(
+          res.body.students.map(
+            ({ correlationId, status, sendRunId }: GetStudentInputDetailsDto) => ({
+              correlationId,
+              status,
+              sendRunId,
+            })
+          )
+        ).toEqual([
+          { correlationId: 'corr-1', status: 'reprocessing', sendRunId: resent.id },
+          { correlationId: 'corr-2', status: 'run-failed', sendRunId: failed.id },
+          { correlationId: 'corr-3', status: 'ready', sendRunId: null },
+        ]);
+        expect(res.body.counts).toEqual({
+          total: 3,
+          toReview: 0,
+          ready: 1,
+          excluded: 0,
+          reprocessing: 1,
+          reprocessed: 0,
+          runFailed: 1,
+        });
+      });
 
       // A suggestion pick's search is null: see the test above.
       it('returns a match to a student found by searching, with the search and roster details, as ready', async () => {
@@ -374,7 +513,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           toReview: 1,
           ready: 1,
           excluded: 0,
-          submitted: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
         });
       });
 
@@ -435,16 +576,27 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       });
       afterEach(() => limit.restore());
 
-      it('returns the counts without the students', async () => {
+      it('returns the counts and send runs without the students', async () => {
         await reportStudents(['corr-1', 'corr-2', 'corr-3']);
         await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
+        await matchAll(cookies, ['corr-2']);
+        const sendRun = await seedSendRun(jobA.id, ['corr-2'], 'success');
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
-          counts: { total: 3, toReview: 2, ready: 0, excluded: 1, submitted: 0 },
+          counts: {
+            total: 3,
+            toReview: 1,
+            ready: 0,
+            excluded: 1,
+            reprocessing: 0,
+            reprocessed: 1,
+            runFailed: 0,
+          },
           students: null,
+          sendRuns: [expect.objectContaining({ id: sendRun.id, studentCount: 1 })],
         });
       });
 
@@ -553,27 +705,33 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         'corr-cleared',
         'corr-matched',
         'corr-excluded',
-        'corr-submitted',
+        'corr-reprocessing',
+        'corr-reprocessed',
+        'corr-run-failed',
       ]);
       await decide(cookies, 'corr-cleared', { replacesVersion: null, kind: 'exclude' });
       await decide(cookies, 'corr-cleared', { replacesVersion: 1, kind: 'clear' });
-      await decide(cookies, 'corr-matched', {
-        replacesVersion: null,
-        kind: 'match',
-        resultId: await resultIdOf('corr-matched'),
-        ordinal: 0,
-      });
       await decide(cookies, 'corr-excluded', { replacesVersion: null, kind: 'exclude' });
-      await decide(cookies, 'corr-submitted', {
-        replacesVersion: null,
-        kind: 'match',
-        resultId: await resultIdOf('corr-submitted'),
-        ordinal: 0,
-      });
-      await seedSendRun(jobA.id, ['corr-submitted'], 'running');
+      await matchAll(cookies, [
+        'corr-matched',
+        'corr-reprocessing',
+        'corr-reprocessed',
+        'corr-run-failed',
+      ]);
+      await seedSendRun(jobA.id, ['corr-reprocessing'], 'running');
+      await seedSendRun(jobA.id, ['corr-reprocessed'], 'success');
+      await seedSendRun(jobA.id, ['corr-run-failed'], 'error');
 
       expect(await countsOf(jobA.id)).toEqual(
-        Array(2).fill({ total: 5, toReview: 2, ready: 1, excluded: 1, submitted: 1 })
+        Array(2).fill({
+          total: 7,
+          toReview: 2,
+          ready: 1,
+          excluded: 1,
+          reprocessing: 1,
+          reprocessed: 1,
+          runFailed: 1,
+        })
       );
     });
 
@@ -621,33 +779,128 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(inList.status).toBe('complete with errors');
     });
 
-    // A submitted student counts as done: the send run, as the job's last
-    // run, shows how its delivery went.
-    it.each(['success', 'error'] as const)(
-      'shows a fuzzy job whose students are all excluded or submitted as its send run’s status, %s',
-      async (sendRunStatus) => {
+    describe('with send runs', () => {
+      // bundleA reports on studentAssessments.
+      const withFailedRecords = {
+        studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 2 },
+      };
+      const withoutFailedRecords = {
+        studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 0 },
+      };
+
+      beforeEach(async () => {
         await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
         await reportStudents(['corr-1', 'corr-2']);
-        await decide(cookies, 'corr-2', { replacesVersion: null, kind: 'exclude' });
-        await decide(cookies, 'corr-1', {
-          replacesVersion: null,
-          kind: 'match',
-          resultId: await resultIdOf('corr-1'),
-          ordinal: 0,
+        await matchAll(cookies, ['corr-1', 'corr-2']);
+      });
+
+      // Reprocessing and run-failed students are outstanding; reprocessed ones are done.
+      it.each([
+        ['running', 'complete with errors'],
+        ['error', 'complete with errors'],
+        ['success', 'success'],
+      ] as const)(
+        'shows a fuzzy job whose students are all in a send run that is %s as %s',
+        async (sendRunStatus, jobStatus) => {
+          await seedSendRun(jobA.id, ['corr-1', 'corr-2'], sendRunStatus);
+
+          const jobs = await readJob(jobA.id);
+
+          expect(jobs.map(({ status }) => status)).toEqual(Array(2).fill(jobStatus));
+        }
+      );
+
+      it('shows a failed send run as complete with errors after a later send run of other students succeeds', async () => {
+        await seedSendRun(jobA.id, ['corr-1'], 'error');
+        await seedSendRun(jobA.id, ['corr-2'], 'success');
+
+        const jobs = await readJob(jobA.id);
+
+        expect(jobs.map(({ status }) => status)).toEqual(Array(2).fill('complete with errors'));
+      });
+
+      it('keeps the full run’s failed records as complete with errors after a successful send run', async () => {
+        await prisma.run.update({ where: { id: runA.id }, data: { summary: withFailedRecords } });
+        const sendRun = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'success');
+        await prisma.run.update({
+          where: { id: sendRun.id },
+          data: { summary: withoutFailedRecords },
         });
-        const sendRun = await seedSendRun(jobA.id, ['corr-1'], sendRunStatus);
 
         const jobs = await readJob(jobA.id);
 
         expect(
-          jobs.map(({ lastRun, studentMatchCounts, status }) => ({
-            lastRunId: lastRun?.id,
-            submitted: studentMatchCounts.submitted,
+          jobs.map(({ status, resourceErrors }) => ({
             status,
+            failedResources: resourceErrors.map(({ resource }) => resource),
           }))
-        ).toEqual(Array(2).fill({ lastRunId: sendRun.id, submitted: 1, status: sendRunStatus }));
-      }
-    );
+        ).toEqual(
+          Array(2).fill({ status: 'complete with errors', failedResources: ['studentAssessments'] })
+        );
+      });
+
+      // A send run's own failed records are how a partly failed send shows on the job.
+      it('shows a successful send run’s failed records as complete with errors, with no student outstanding', async () => {
+        await prisma.run.update({
+          where: { id: runA.id },
+          data: { summary: withoutFailedRecords },
+        });
+        const sendRun = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'success');
+        await prisma.run.update({ where: { id: sendRun.id }, data: { summary: withFailedRecords } });
+
+        const jobs = await readJob(jobA.id);
+
+        expect(
+          jobs.map(({ status, resourceErrors }) => ({
+            status,
+            failedResources: resourceErrors.map(({ resource }) => resource),
+          }))
+        ).toEqual(
+          Array(2).fill({ status: 'complete with errors', failedResources: ['studentAssessments'] })
+        );
+      });
+
+      it('sums the resource summaries of the full run and each successful send run, leaving out failed ones', async () => {
+        await prisma.run.update({
+          where: { id: runA.id },
+          data: { summary: withoutFailedRecords },
+        });
+        const sent = await seedSendRun(jobA.id, ['corr-1'], 'success');
+        const failed = await seedSendRun(jobA.id, ['corr-2'], 'error');
+        // A resend of the failed run's student, which reported no summary.
+        await seedSendRun(jobA.id, ['corr-2'], 'success');
+        await prisma.run.update({
+          where: { id: sent.id },
+          data: {
+            summary: {
+              studentAssessments: { records_processed: 3, records_skipped: 1, records_failed: 0 },
+              students: { records_processed: 2, records_skipped: 0, records_failed: 0 },
+            },
+          },
+        });
+        await prisma.run.update({
+          where: { id: failed.id },
+          data: {
+            summary: {
+              studentAssessments: {
+                records_processed: 100,
+                records_skipped: 0,
+                records_failed: 50,
+              },
+            },
+          },
+        });
+
+        const jobs = await readJob(jobA.id);
+
+        expect(jobs.map(({ resourceSummaries }) => resourceSummaries)).toEqual(
+          Array(2).fill({
+            studentAssessments: { success: 12, skipped: 1, failed: 0 },
+            students: { success: 2, skipped: 0, failed: 0 },
+          })
+        );
+      });
+    });
 
     it('counts each listed job’s own students', async () => {
       const seedFuzzyJob = () =>
@@ -662,7 +915,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       await reportStudents(['corr-1', 'corr-2']);
       await reportStudents(['corr-1', 'corr-2'], runB.id);
       // The same correlation ids in each job: jobA's corr-1 is matched and
-      // corr-2 excluded, and only jobB's corr-1 is submitted.
+      // corr-2 excluded, and only jobB's corr-1 is in a send run.
       await decide(cookies, 'corr-1', {
         replacesVersion: null,
         kind: 'match',
@@ -690,9 +943,33 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       };
 
       expect([countsIn(jobA.id), countsIn(jobB.id), countsIn(jobC.id)]).toEqual([
-        { total: 2, toReview: 0, ready: 1, excluded: 1, submitted: 0 },
-        { total: 2, toReview: 1, ready: 0, excluded: 0, submitted: 1 },
-        { total: 0, toReview: 0, ready: 0, excluded: 0, submitted: 0 },
+        {
+          total: 2,
+          toReview: 0,
+          ready: 1,
+          excluded: 1,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
+        {
+          total: 2,
+          toReview: 1,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 1,
+          reprocessed: 0,
+          runFailed: 0,
+        },
+        {
+          total: 0,
+          toReview: 0,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
       ]);
     });
 

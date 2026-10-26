@@ -9,7 +9,7 @@ import { seedJob } from '../factories/job-factory';
 import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods-fixture';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
-import { Run } from '@prisma/client';
+import { Run, RunStatus } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
@@ -17,6 +17,8 @@ import { FileService } from 'api/src/files/file.service';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { StudentRosterDetailsJson } from '@edanalytics/models';
+import { holdRunRow } from '../helpers/db/hold-job-row';
+import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -609,6 +611,61 @@ describe('Earthbeam API', () => {
 
   });
 
+  describe('GET auth/:runId/init', () => {
+    /** The Executor's init call, with the run's init token. */
+    const init = async (runId: number) => {
+      const token = await app.get(EarthbeamApiAuthService).createInitToken({ runId });
+      return request(app.getHttpServer())
+        .get(`/earthbeam/auth/${runId}/init`)
+        .set('Authorization', `Bearer ${token}`);
+    };
+
+    it('starts a new run', async () => {
+      const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+
+      const res = await init(job.runs[0].id);
+
+      expect(res.status).toBe(200);
+      const run = await prisma.run.findUniqueOrThrow({ where: { id: job.runs[0].id } });
+      expect(run.status).toBe('running');
+    });
+
+    // Its init token has been used, or the run failed to launch.
+    it.each<RunStatus>(['running', 'error'])(
+      'refuses a run that is %s, leaving it as it was',
+      async (runStatus) => {
+        const job = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          runStatus,
+        });
+
+        const res = await init(job.runs[0].id);
+
+        expect(res.status).toBe(401);
+        const run = await prisma.run.findUniqueOrThrow({ where: { id: job.runs[0].id } });
+        expect(run.status).toBe(runStatus);
+      }
+    );
+
+    // An init token is single-use: of two racing inits, only the first starts the run.
+    it('starts a run once when two inits race', async () => {
+      const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+      const holder = await holdRunRow(job.runs[0].id);
+      try {
+        const pending = [1, 2].map(() => init(job.runs[0].id));
+        await waitUntilBlockedBy(holder.pid, 2);
+        await holder.client.query('ROLLBACK');
+        const responses = await Promise.all(pending);
+
+        expect(responses.map(({ status }) => status).sort()).toEqual([200, 401]);
+      } finally {
+        await holder.release();
+      }
+    });
+  });
+
   describe('GET /:runId/roster', () => {
     let runA: Run;
     let endpointA: string;
@@ -1038,6 +1095,99 @@ describe('Earthbeam API', () => {
         expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
       });
 
+      // The job page polls until the run's `done` update appears, and a retried
+      // `done` is refused once the run is final, so the update must be
+      // recorded with the status, before anything that can fail.
+      it('records a done with its status even when listing the output files fails', async () => {
+        fileServiceMock.listFilesAtPath.mockRejectedValueOnce(new Error('S3 is unavailable'));
+
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ action: 'done', status: 'success' });
+
+        expect(res.status).toBe(500);
+        expect(await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).toMatchObject({
+          status: 'success',
+        });
+        expect(
+          (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
+            ({ action, status }) => [action, status]
+          )
+        ).toEqual([['done', 'success']]);
+      });
+
+      // A run's `success` or `error` is final. A late `done` that contradicts
+      // it would let a run counted as failed, and so resent, count as
+      // delivered too.
+      it.each([
+        ['failure', 'error', 'success'],
+        ['success', 'success', 'failure'],
+      ])(
+        'refuses a done after done/%s, leaving the run %s, with no event, listing or update',
+        async (first, runStatus, second) => {
+          const done = (status: string) =>
+            request(app.getHttpServer())
+              .post(endpointA)
+              .set('Authorization', `Bearer ${tokenA}`)
+              .send({ action: 'done', status });
+
+          // The file service mock is shared, so its calls accumulate across tests.
+          const listings = () => fileServiceMock.listFilesAtPath.mock.calls.length;
+
+          expect((await done(first)).status).toBe(201);
+          const listingsAfterFirst = listings();
+          const res = await done(second);
+
+          expect(res.status).toBe(409);
+          expect(await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).toMatchObject({
+            status: runStatus,
+          });
+          // The first done's event only.
+          expect(
+            eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete')
+          ).toHaveLength(1);
+          expect(listings()).toBe(listingsAfterFirst);
+          expect(
+            (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
+              ({ action, status }) => [action, status]
+            )
+          ).toEqual([['done', first]]);
+        }
+      );
+
+      // Of two racing dones, only the first completes the run, and the second
+      // is refused as if it came later.
+      it('completes a run once when two dones race', async () => {
+        const holder = await holdRunRow(runA.id);
+        try {
+          // then() sends each request now, rather than when it's awaited.
+          const pending = ['success', 'failure'].map((status) =>
+            request(app.getHttpServer())
+              .post(endpointA)
+              .set('Authorization', `Bearer ${tokenA}`)
+              .send({ action: 'done', status })
+              .then((res) => res)
+          );
+          await waitUntilBlockedBy(holder.pid, 2);
+          await holder.client.query('ROLLBACK');
+          const responses = await Promise.all(pending);
+
+          expect(responses.map(({ status }) => status).sort()).toEqual([201, 409]);
+          const updates = await prisma.runUpdate.findMany({ where: { runId: runA.id } });
+          expect(updates.map(({ action }) => action)).toEqual(['done']);
+          // The run took the outcome of the done that was recorded.
+          expect((await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).status).toBe(
+            updates[0].status === 'success' ? 'success' : 'error'
+          );
+          expect(
+            eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete')
+          ).toHaveLength(1);
+        } finally {
+          await holder.release();
+        }
+      });
+
       describe('Slack Notifiction', () => {
         it('should send a slack notification when the run is complete', async () => {
           const res = await request(app.getHttpServer())
@@ -1055,6 +1205,52 @@ describe('Earthbeam API', () => {
               status: 'success',
             })
           );
+        });
+
+        // A run can fail without reporting an error, such as when the Executor
+        // dies before it can.
+        it('sends a notification for a failed run with no errors reported', async () => {
+          const res = await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'failure' });
+
+          expect(res.status).toBe(201);
+          expect(eventEmitterMock).toHaveBeenCalledWith(
+            'run_complete',
+            expect.objectContaining({ runId: runA.id, status: 'error' })
+          );
+        });
+
+        it('marks a full run’s event with its kind, leaving its summary as it was', async () => {
+          const job = await prisma.job.findUniqueOrThrow({ where: { id: runA.jobId } });
+
+          await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload.runType).toBe('full');
+          expect(payload.summary.startsWith(`${job.name} (`)).toBe(true);
+        });
+
+        it('marks a send run’s event with its kind, and says so in its summary', async () => {
+          const sendRun = await prisma.run.create({
+            data: { jobId: runA.jobId, kind: 'send', status: 'running' },
+          });
+          const sendToken = await app
+            .get(EarthbeamApiAuthService)
+            .createAccessToken({ runId: sendRun.id });
+
+          await request(app.getHttpServer())
+            .post(`/earthbeam/jobs/${sendRun.id}/status`)
+            .set('Authorization', `Bearer ${sendToken}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload).toMatchObject({ runId: sendRun.id, runType: 'send' });
+          expect(payload.summary).toMatch(/^send run: /);
         });
 
         it('should report reportable resource errors and the input params', async () => {
