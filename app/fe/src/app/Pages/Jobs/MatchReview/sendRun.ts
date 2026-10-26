@@ -148,6 +148,6 @@ export const refusalReason = ({ code, refused }: SubmitRefusal<unknown>) => {
  * `leftToResend` is null when the page can't tell, past the review limit,
  * and then a failed one needs them too.
  */
-export const needsAttention = (outcome: SendRunOutcome, leftToResend: number | null): boolean => {
-  throw new Error('not implemented');
-};
+export const needsAttention = (outcome: SendRunOutcome, leftToResend: number | null): boolean =>
+  outcome === 'complete with errors' ||
+  (outcome === 'failed' && (leftToResend === null || leftToResend > 0));

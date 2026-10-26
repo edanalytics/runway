@@ -1,18 +1,20 @@
 import { Box, HStack, Progress, Spinner, useToast, VStack } from '@chakra-ui/react';
 import { ConfirmAction } from '@edanalytics/common-ui';
 import { getResourceSummaries, GetSendRunDto } from '@edanalytics/models';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ContactSupport } from '../../../components/SupportButton';
 import { reportedSummaries } from '../JobViewComponents/ResourceSummary';
 import { QuietButton, studentName } from './components';
 import { useReviewSession } from './reviewSession';
 import {
+  needsAttention,
   outcomeLabel,
   refusalReason,
   SendRunOutcome,
   sendRunOutcome,
   submissionNumber,
   submissionReference,
+  studentsToResend,
 } from './sendRun';
 
 /** Every submission, newest first. */
@@ -28,14 +30,22 @@ export const SubmissionList = () => {
 };
 
 /**
- * One line per submission; expands to its counts and students. One that had
- * trouble starts open, so its way to support is in view.
+ * One line per submission; expands to its counts and students. One that
+ * needs the reviewer opens, whether on load or as it happens, so its way to
+ * support is in view.
  */
 const SubmissionSummary = ({ sendRun }: { sendRun: GetSendRunDto }) => {
-  const { job, sendRuns } = useReviewSession();
+  const { job, sendRuns, students, overLimit } = useReviewSession();
   const outcome = sendRunOutcome(sendRun, job.template.reportResources);
   const troubled = outcome === 'complete with errors' || outcome === 'failed';
-  const [open, setOpen] = useState(troubled);
+  const attention = needsAttention(
+    outcome,
+    overLimit ? null : studentsToResend(students, sendRun.id).length
+  );
+  const [open, setOpen] = useState(attention);
+  useEffect(() => {
+    if (attention) setOpen(true);
+  }, [attention]);
   const number = submissionNumber(sendRuns, sendRun);
   return (
     <VStack alignItems="stretch" gap="100">
@@ -110,8 +120,9 @@ const SubmissionSupport = ({
   number: number;
   outcome: 'complete with errors' | 'failed';
 }) => {
-  const { job, overLimit, resend, submitBlocked } = useReviewSession();
+  const { job, students, overLimit, resend, submitBlocked } = useReviewSession();
   const toast = useToast();
+  const leftToResend = studentsToResend(students, sendRun.id).length;
   const reference = submissionReference(job.id, number, sendRun);
   // There's no submit modal here, so a failure is a toast. After a refusal,
   // the refreshed list no longer has the refused students as this run's,
@@ -163,6 +174,10 @@ const SubmissionSupport = ({
           (overLimit ? (
             <Box fontSize="0.8rem" opacity="0.8" maxWidth="14rem" textAlign="right">
               Too many students to send again from here. Support can help.
+            </Box>
+          ) : !leftToResend ? (
+            <Box fontSize="0.8rem" opacity="0.8" maxWidth="14rem" textAlign="right">
+              All {sendRun.studentCount} sent again
             </Box>
           ) : (
             <ConfirmAction
