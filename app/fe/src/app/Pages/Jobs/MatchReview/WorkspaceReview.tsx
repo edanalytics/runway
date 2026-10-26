@@ -294,8 +294,8 @@ export const WorkspaceReview = () => {
                 setLastAction({
                   ...action,
                   undo: () => {
-                    action.undo();
                     setSelectedId(id);
+                    return action.undo();
                   },
                 });
                 if (action.advance) advance(selected.correlationId);

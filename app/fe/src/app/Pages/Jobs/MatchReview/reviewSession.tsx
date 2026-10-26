@@ -84,6 +84,12 @@ export const hasMatchReview = (job: GetJobDto) =>
 
 export type SearchState = { terms: SearchTerms; hits: SearchHit[] | null };
 
+/**
+ * A decision write's outcome: the version it wrote (null after a clear,
+ * which leaves no decision), or why it was refused.
+ */
+export type DecisionResult = { ok: true; version: number | null } | { ok: false; message: string };
+
 /** A student as submit takes them: their correlation id and their match's version. */
 export type SubmitStudent = { correlationId: string; version: number };
 
@@ -108,8 +114,17 @@ type Session = {
   decisions: Map<string, Decision>;
   /** The job's send runs, newest first. */
   sendRuns: GetSendRunDto[];
-  decide: (correlationId: string, decision: DecisionChoice) => Promise<void>;
-  undo: (correlationId: string) => Promise<void>;
+  /**
+   * Saves a decision over the one at `replacesVersion` (null for none), which
+   * the API refuses if it's no longer current.
+   */
+  decide: (
+    correlationId: string,
+    decision: DecisionChoice,
+    replacesVersion: number | null
+  ) => Promise<DecisionResult>;
+  /** Clears the decision at `replacesVersion`, leaving the student undecided. */
+  clear: (correlationId: string, replacesVersion: number | null) => Promise<DecisionResult>;
   statusOf: (correlationId: string) => StudentMatchStatus;
   /** The send run that decides this student's status, if they've been submitted. */
   sendRunOf: (correlationId: string) => GetSendRunDto | undefined;
@@ -258,19 +273,13 @@ export const ReviewSessionProvider = ({
     [students, sendRuns]
   );
 
-  const failed = useCallback(
-    (err: unknown) => {
-      toast({ status: 'error', title: "Couldn't save that", description: messageOf(err) });
-      // A 409 means the page is behind: catch up.
-      refetch();
-    },
-    [refetch, toast]
-  );
-
   /** Writes a decision, then puts the server's answer straight into the cache. */
   const write = useCallback(
-    async (correlationId: string, body: object) => {
-      const replacesVersion = decisions.get(correlationId)?.version ?? null;
+    async (
+      correlationId: string,
+      body: object,
+      replacesVersion: number | null
+    ): Promise<DecisionResult> => {
       try {
         const res = (await apiClient.post(
           `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}/decisions`,
@@ -292,16 +301,21 @@ export const ReviewSessionProvider = ({
         );
         // For the counts, which the cache update leaves as they were.
         refetch();
+        return { ok: true, version: decision?.version ?? null };
       } catch (err) {
-        failed(err);
+        // A refusal means the page is behind: catch up before saying so.
+        await refetch();
+        return { ok: false, message: messageOf(err) };
       }
     },
-    [decisions, failed, jobId, queryClient, refetch, resultsQuery.queryKey]
+    [jobId, queryClient, refetch, resultsQuery.queryKey]
   );
 
   const decide = useCallback(
-    (correlationId: string, choice: DecisionChoice) => {
-      if (choice.kind === 'exclude') return write(correlationId, { kind: 'exclude' });
+    (correlationId: string, choice: DecisionChoice, replacesVersion: number | null) => {
+      if (choice.kind === 'exclude') {
+        return write(correlationId, { kind: 'exclude' }, replacesVersion);
+      }
       const { candidate } = choice;
       return write(
         correlationId,
@@ -314,14 +328,16 @@ export const ReviewSessionProvider = ({
                 rosterDetails: candidate.rosterDetails,
               },
             }
-          : { kind: 'match', resultId: candidate.resultId, ordinal: candidate.ordinal }
+          : { kind: 'match', resultId: candidate.resultId, ordinal: candidate.ordinal },
+        replacesVersion
       );
     },
     [write]
   );
 
-  const undo = useCallback(
-    (correlationId: string) => write(correlationId, { kind: 'clear' }),
+  const clear = useCallback(
+    (correlationId: string, replacesVersion: number | null) =>
+      write(correlationId, { kind: 'clear' }, replacesVersion),
     [write]
   );
 
@@ -402,7 +418,7 @@ export const ReviewSessionProvider = ({
     decisions,
     sendRuns,
     decide,
-    undo,
+    clear,
     statusOf,
     sendRunOf,
     submit,

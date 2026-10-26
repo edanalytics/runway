@@ -17,7 +17,7 @@ import {
   StudentRosterDetailsJson,
   StudentMatchStatus,
 } from '@edanalytics/models';
-import { KeyboardEvent, ReactNode, useState } from 'react';
+import { KeyboardEvent, ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
@@ -36,7 +36,7 @@ import {
 } from './components';
 import { ContactSupport } from '../../../components/SupportButton';
 import { termsFrom, SearchTerms } from './search';
-import { Candidate, Decision, useReviewSession } from './reviewSession';
+import { Candidate, Decision, DecisionResult, useReviewSession } from './reviewSession';
 import { outcomeLabel, sendRunOutcome, submissionNumber, submissionReference } from './sendRun';
 
 // Evidence -------------------------------------------------------------------
@@ -59,7 +59,12 @@ const fileIssues = (student: GetStudentInputDetailsDto) => {
   return issues;
 };
 
-export type LastAction = { message: string; undo: () => void; advance: boolean };
+/** A saved decision, as the page reports it, with a way to undo it. */
+export type LastAction = {
+  message: string;
+  undo: () => Promise<DecisionResult>;
+  advance: boolean;
+};
 
 export const LastActionBar = ({
   action,
@@ -67,34 +72,48 @@ export const LastActionBar = ({
 }: {
   action: LastAction;
   onDismiss: () => void;
-}) => (
-  <HStack
-    marginBottom="300"
-    padding="200"
-    paddingLeft="300"
-    borderRadius="6px"
-    bg="blue.600"
-    borderLeftWidth="3px"
-    borderColor="green.100"
-    justifyContent="space-between"
-    role="status"
-  >
-    <Box fontSize="0.9rem">{action.message}</Box>
-    <HStack gap="100">
-      <QuietButton
-        onClick={() => {
-          action.undo();
-          onDismiss();
-        }}
-      >
-        Undo
-      </QuietButton>
-      <QuietButton onClick={onDismiss} aria-label="Dismiss">
-        ✕
-      </QuietButton>
+}) => {
+  const [undoing, setUndoing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // A new action replaces the last, along with any refusal of its undo.
+  useEffect(() => setError(null), [action]);
+  return (
+    <HStack
+      marginBottom="300"
+      padding="200"
+      paddingLeft="300"
+      borderRadius="6px"
+      bg="blue.600"
+      borderLeftWidth="3px"
+      borderColor="green.100"
+      justifyContent="space-between"
+      role="status"
+    >
+      <Box fontSize="0.9rem">
+        {error ? `Couldn't undo that: ${error} The page has been refreshed.` : action.message}
+      </Box>
+      <HStack gap="100">
+        {!error && (
+          <QuietButton
+            isLoading={undoing}
+            onClick={async () => {
+              setUndoing(true);
+              const result = await action.undo();
+              setUndoing(false);
+              if (result.ok) onDismiss();
+              else setError(result.message);
+            }}
+          >
+            Undo
+          </QuietButton>
+        )}
+        <QuietButton onClick={onDismiss} aria-label="Dismiss">
+          ✕
+        </QuietButton>
+      </HStack>
     </HStack>
-  </HStack>
-);
+  );
+};
 
 // One student ------------------------------------------------------------------
 
@@ -105,7 +124,7 @@ export const Workspace = ({
   student: GetStudentInputDetailsDto;
   onSaved: (action: LastAction) => void;
 }) => {
-  const { statusOf, decisions, decide, undo, sendRunOf } = useReviewSession();
+  const { statusOf, decisions, decide, clear, sendRunOf } = useReviewSession();
   const id = student.correlationId;
   const status = statusOf(id);
   const decision = decisions.get(id);
@@ -128,34 +147,50 @@ export const Workspace = ({
   const saved = decision?.kind === 'match' ? decision.candidate.studentUniqueId : null;
   const name = studentName(student.inputDetails);
 
-  // Restoring the prior decision is what makes an undo trustworthy.
-  const restore = (previous: Decision | undefined) => () =>
-    previous ? decide(id, previous) : undo(id);
+  // Why the last write was refused, shown here on the student.
+  const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Waits for a write: only once it's saved does the page say so, offer an
+   * undo and move on. Restoring the prior decision is what makes an undo
+   * trustworthy. It replaces the version this write produced, so a change
+   * by someone else since is refused rather than overwritten.
+   */
+  const save = async (
+    write: Promise<DecisionResult>,
+    action: { message: string; advance: boolean }
+  ) => {
+    const previous = decision;
+    setError(null);
+    const result = await write;
+    if (!result.ok) {
+      setError(result.message);
+      return false;
+    }
+    onSaved({
+      ...action,
+      undo: () => (previous ? decide(id, previous, result.version) : clear(id, result.version)),
+    });
+    return true;
+  };
 
   // One step: the submit list is where matches get their second look.
-  const use = (candidate: Candidate) => {
-    const previous = decision;
-    decide(id, { kind: 'match', candidate });
-    onSaved({
+  const use = (candidate: Candidate) =>
+    save(decide(id, { kind: 'match', candidate }, decision?.version ?? null), {
       message: `Saved ${candidate.studentUniqueId} as the match for ${name}.`,
-      undo: restore(previous),
       advance: true,
     });
-  };
-  const clear = () => {
-    const previous = decision;
-    undo(id);
-    onSaved({
+  const clearDecision = () =>
+    save(clear(id, decision?.version ?? null), {
       message: `Cleared the decision for ${name}.`,
-      undo: restore(previous),
       advance: false,
     });
-  };
-  const exclude = () => {
-    const previous = decision;
-    decide(id, { kind: 'exclude' });
-    setNoneFit(false);
-    onSaved({ message: `Excluded ${name} from this job.`, undo: restore(previous), advance: true });
+  const exclude = async () => {
+    const saved = await save(decide(id, { kind: 'exclude' }, decision?.version ?? null), {
+      message: `Excluded ${name} from this job.`,
+      advance: true,
+    });
+    if (saved) setNoneFit(false);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -184,6 +219,19 @@ export const Workspace = ({
 
       <DecisionState status={status} decision={decision} sendRun={sendRun} />
 
+      {error && (
+        <Box
+          padding="300"
+          borderRadius="6px"
+          borderWidth="1px"
+          borderColor="pink.100"
+          fontSize="0.9rem"
+          role="alert"
+        >
+          Couldn't save that: {error} The page has been refreshed.
+        </Box>
+      )}
+
       {(noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
         <NoSuggestionFits
           student={student}
@@ -194,7 +242,7 @@ export const Workspace = ({
           search={<Search student={student} saved={saved} onUse={use} />}
         >
           {decision && (
-            <QuietButton alignSelf="flex-start" onClick={clear}>
+            <QuietButton alignSelf="flex-start" onClick={clearDecision}>
               Clear decision
             </QuietButton>
           )}
@@ -216,7 +264,7 @@ export const Workspace = ({
                 Search the roster or exclude this record.
               </Box>
               <Box flex="1" />
-              {decision && <QuietButton onClick={clear}>Clear decision</QuietButton>}
+              {decision && <QuietButton onClick={clearDecision}>Clear decision</QuietButton>}
             </HStack>
           )}
         </VStack>
