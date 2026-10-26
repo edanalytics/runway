@@ -12,9 +12,13 @@ import {
   useToast,
   VStack,
 } from '@chakra-ui/react';
-import { GetStudentInputDetailsDto, StudentRosterDetailsJson } from '@edanalytics/models';
+import {
+  GetStudentInputDetailsDto,
+  StudentInputDetailsJson,
+  StudentRosterDetailsJson,
+} from '@edanalytics/models';
 import { ReactNode, useEffect, useRef, useState } from 'react';
-import { Agreement, compare } from './compare';
+import { compare, isComparedField } from './compare';
 import {
   AgreementMark,
   PrimaryButton,
@@ -353,54 +357,28 @@ const DecisionState = ({ student }: { student: GetStudentInputDetailsDto }) => {
   );
 };
 
-type Row = {
-  label: string;
-  roster: (candidate: StudentRosterDetailsJson) => string | null;
-  /** Compared rows get marks. */
-  compared: boolean;
+/**
+ * A row of the evidence table: a field of the roster's details, and of the
+ * file's too unless only the roster has it. Rows for compared fields get marks.
+ */
+type Row = { label: string } & (
+  | { field: keyof StudentInputDetailsJson & keyof StudentRosterDetailsJson; rosterOnly: false }
   /** Only the roster has these; they're a click away. */
-  rosterOnly: boolean;
-};
+  | {
+      field: Exclude<keyof StudentRosterDetailsJson, keyof StudentInputDetailsJson>;
+      rosterOnly: true;
+    }
+);
 
 const rows: Row[] = [
-  {
-    label: 'First name',
-    roster: (r) => valueText(r.first_name),
-    compared: true,
-    rosterOnly: false,
-  },
-  {
-    label: 'Last name',
-    roster: (r) => valueText(r.last_name),
-    compared: true,
-    rosterOnly: false,
-  },
-  {
-    label: 'Date of birth',
-    roster: (r) => valueText(r.birth_date),
-    compared: true,
-    rosterOnly: false,
-  },
+  { field: 'first_name', label: 'First name', rosterOnly: false },
+  { field: 'last_name', label: 'Last name', rosterOnly: false },
+  { field: 'birth_date', label: 'Date of birth', rosterOnly: false },
   // Both sides have IDs, but usually from different ID systems (the roster's
   // are typed), so they're shown side by side without a mark.
-  {
-    label: 'Student IDs',
-    roster: (r) => valueText(r.student_ids),
-    compared: false,
-    rosterOnly: false,
-  },
-  {
-    label: 'Middle name',
-    roster: (r) => valueText(r.middle_name),
-    compared: false,
-    rosterOnly: true,
-  },
-  {
-    label: 'School years',
-    roster: (r) => valueText(r.school_years),
-    compared: false,
-    rosterOnly: true,
-  },
+  { field: 'student_ids', label: 'Student IDs', rosterOnly: false },
+  { field: 'middle_name', label: 'Middle name', rosterOnly: true },
+  { field: 'school_years', label: 'School years', rosterOnly: true },
 ];
 
 const MAX_COMPARED = 3;
@@ -449,16 +427,6 @@ const EvidenceTable = ({
       ? candidates.filter((c) => shortlist.includes(c.studentUniqueId))
       : candidates;
   const comparisons = shown.map((c) => compare(student.inputDetails, c.rosterDetails));
-  const fileValue: Record<string, string | null> = {
-    'First name': valueText(student.inputDetails.first_name),
-    'Last name': valueText(student.inputDetails.last_name),
-    'Date of birth': valueText(student.inputDetails.birth_date),
-    'Middle name': null,
-    'Student IDs': valueText(student.inputDetails.student_ids),
-    'School years': null,
-  };
-  const agreementOf = (label: string, index: number): Agreement =>
-    comparisons[index].find((f) => f.label === label)?.agreement ?? 'unknown';
   // The band behind each candidate's column; a saved match's band is outlined.
   const band = (c: Candidate) => ({
     bg: 'blue.600',
@@ -470,18 +438,22 @@ const EvidenceTable = ({
   });
 
   const renderRow = (row: Row) => (
-    <Tr key={row.label}>
+    <Tr key={row.field}>
       <Td whiteSpace="nowrap" opacity="0.85">
         {row.label}
       </Td>
-      <Td>{fileValue[row.label] ?? <Missing compared={!row.rosterOnly} />}</Td>
+      <Td>
+        {(row.rosterOnly ? null : valueText(student.inputDetails[row.field])) ?? (
+          <Missing compared={!row.rosterOnly} />
+        )}
+      </Td>
       {shown.map((c, i) => {
-        const value = row.roster(c.rosterDetails);
+        const value = valueText(c.rosterDetails[row.field]);
         return (
           <Td key={c.studentUniqueId} {...band(c)}>
             <HStack gap="100" alignItems="baseline">
-              {row.compared ? (
-                <AgreementMark agreement={agreementOf(row.label, i)} />
+              {isComparedField(row.field) ? (
+                <AgreementMark agreement={comparisons[i][row.field]} />
               ) : (
                 // Keeps unmarked values aligned with marked ones.
                 !row.rosterOnly && <Box width="1.5rem" flexShrink={0} />

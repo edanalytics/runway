@@ -21,7 +21,7 @@ import {
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
 import { ReactNode, useEffect, useState } from 'react';
-import { Agreement, compare } from './compare';
+import { Agreement, compare, ComparedField } from './compare';
 import {
   AgreementMark,
   CrossYearCue,
@@ -49,15 +49,14 @@ const RecordLines = ({
   details: StudentInputDetailsJson | StudentRosterDetailsJson;
   against?: StudentInputDetailsJson;
 }) => {
-  const fields = against ? compare(against, details as StudentRosterDetailsJson) : null;
-  const agreement = (label: string): Agreement =>
-    fields?.find((f) => f.label === label)?.agreement ?? 'unknown';
+  const agreements = against ? compare(against, details as StudentRosterDetailsJson) : null;
+  const agreement = (field: ComparedField): Agreement => agreements?.[field] ?? 'unknown';
   // The name is the same only if both parts are; any part that differs, differs.
-  const nameMark: Agreement = [agreement('First name'), agreement('Last name')].includes(
+  const nameMark: Agreement = [agreement('first_name'), agreement('last_name')].includes(
     'different'
   )
     ? 'different'
-    : agreement('First name') === 'same' && agreement('Last name') === 'same'
+    : agreement('first_name') === 'same' && agreement('last_name') === 'same'
     ? 'same'
     : 'unknown';
   const line = (content: ReactNode, mark?: Agreement | null, bold = false) => (
@@ -75,7 +74,7 @@ const RecordLines = ({
       {line(studentName(details), marks ? nameMark : undefined, true)}
       {line(
         `born ${valueText(details.birth_date) ?? '—'}`,
-        marks ? agreement('Date of birth') : undefined
+        marks ? agreement('birth_date') : undefined
       )}
       {/* IDs come from different systems, so they're shown, not marked. */}
       {line(`IDs ${valueText(details.student_ids) ?? '—'}`, marks ? null : undefined)}

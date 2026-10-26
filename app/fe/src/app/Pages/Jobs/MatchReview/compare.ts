@@ -8,7 +8,16 @@ import { JsonValue, StudentInputDetailsJson, StudentRosterDetailsJson } from '@e
 
 export type Agreement = 'same' | 'different' | 'unknown';
 
-export type ComparedField = { label: string; agreement: Agreement };
+/**
+ * The fields compared. Not IDs: the file's and the roster's come from
+ * different identifier systems, so equal strings aren't evidence either way.
+ */
+const comparedFields = ['first_name', 'last_name', 'birth_date'] as const;
+
+export type ComparedField = (typeof comparedFields)[number];
+
+export const isComparedField = (field: string): field is ComparedField =>
+  (comparedFields as readonly string[]).includes(field);
 
 const text = (value: JsonValue | undefined): string | null =>
   typeof value === 'string' && value.trim()
@@ -26,24 +35,12 @@ const compareText = (a: string | null, b: string | null): Agreement => {
   return a.toLowerCase() === b.toLowerCase() ? 'same' : 'different';
 };
 
-/**
- * The fields compared. Not IDs: the file's and the roster's come from
- * different identifier systems, so equal strings aren't evidence either way.
- */
+/** How the file and the roster agree on each compared field. */
 export const compare = (
   file: StudentInputDetailsJson,
   roster: StudentRosterDetailsJson
-): ComparedField[] => [
-  {
-    label: 'First name',
-    agreement: compareText(text(file.first_name), text(roster.first_name)),
-  },
-  {
-    label: 'Last name',
-    agreement: compareText(text(file.last_name), text(roster.last_name)),
-  },
-  {
-    label: 'Date of birth',
-    agreement: compareText(text(file.birth_date), text(roster.birth_date)),
-  },
-];
+): Record<ComparedField, Agreement> => ({
+  first_name: compareText(text(file.first_name), text(roster.first_name)),
+  last_name: compareText(text(file.last_name), text(roster.last_name)),
+  birth_date: compareText(text(file.birth_date), text(roster.birth_date)),
+});
