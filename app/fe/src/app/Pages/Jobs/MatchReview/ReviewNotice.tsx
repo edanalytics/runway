@@ -2,9 +2,8 @@ import { Box, HStack } from '@chakra-ui/react';
 import { outstandingStudents } from '@edanalytics/models';
 import { useNavigate } from '@tanstack/react-router';
 import { IconExclamation } from '../../../../assets/icons';
-import { PrimaryButton, QuietButton } from './components';
+import { PrimaryButton, QuietButton, TooManyNote, USUAL_MAXIMUM } from './components';
 import { useReviewSession } from './reviewSession';
-import { USUAL_MAXIMUM } from './WorkspaceReview';
 
 /*
  * The job page's pointer to unmatched-student review, driven by
@@ -74,10 +73,8 @@ export const ReviewNotice = () => {
         {others.map((sentence) => ` ${sentence}`)}
       </Box>
       {counts.total > USUAL_MAXIMUM && (
-        <Box textStyle="body" marginBottom="300" color="purple.200">
-          That's more than a file usually has, which often points to a problem with the file itself
-          (such as the wrong ID column or school year). Fixing and uploading it again may be
-          quicker.
+        <Box marginBottom="300">
+          <TooManyNote count={counts.total} />
         </Box>
       )}
       <PrimaryButton onClick={onReview}>

@@ -16,7 +16,13 @@ import {
 import { GetStudentInputDetailsDto, outstandingStudents } from '@edanalytics/models';
 import { KeyboardEvent, useState } from 'react';
 import { CheckIcon } from '@chakra-ui/icons';
-import { PrimaryButton, QuietButton, suggestionsOf } from './components';
+import {
+  PrimaryButton,
+  QuietButton,
+  suggestionsOf,
+  TooManyNote,
+  USUAL_MAXIMUM,
+} from './components';
 import { countOf, statusLabel, useReviewSession } from './reviewSession';
 import {
   Sort,
@@ -613,26 +619,3 @@ const Overview = () => {
     </VStack>
   );
 };
-
-/**
- * A file usually has no more than 15-20 students to match. Many more points
- * at a problem with the file itself, better fixed there than one by one.
- */
-export const USUAL_MAXIMUM = 20;
-
-const TooManyNote = ({ count }: { count: number }) => (
-  <Box
-    padding="300"
-    borderRadius="6px"
-    borderWidth="1px"
-    borderColor="purple.200"
-    fontSize="0.9rem"
-    role="note"
-  >
-    <Box fontWeight="600">{count} students couldn't be matched, more than a file usually has</Box>
-    <Box opacity="0.9">
-      That often means a problem with the file itself, such as the wrong ID column or school year.
-      It may be quicker to fix and upload the file again than to review each student.
-    </Box>
-  </Box>
-);
