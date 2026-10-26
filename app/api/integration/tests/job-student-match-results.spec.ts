@@ -9,7 +9,10 @@ import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { GetJobDto, GetSendRunDto, GetStudentInputDetailsDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
-import { StudentMatchReviewService } from 'api/src/jobs/student-match-review.service';
+import {
+  noStudentsToMatch,
+  StudentMatchReviewService,
+} from '../../src/jobs/student-match-review.service';
 import { reportMatchResults as report } from '../helpers/report-match-results';
 import { withoutPrivilege } from '../helpers/without-privilege';
 
@@ -90,6 +93,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       bundle: bundleA,
       tenant: tenantA,
       idMatchingMode: 'fuzzy',
+      runStatus: 'success',
     });
     jobA = seeded;
     runA = seeded.runs[0];
@@ -127,6 +131,64 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     let cookies: string;
     beforeEach(async () => {
       ({ cookies } = await authHelper.login(idpA, userA, tenantA));
+    });
+
+    it.each(['new', 'running', 'error'] as const)(
+      'hides reported students and job counts while the full run is %s',
+      async (status) => {
+        await reportStudents(['corr-1']);
+        await prisma.run.update({ where: { id: runA.id }, data: { status } });
+
+        const [review, job, list] = await Promise.all([
+          request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]),
+          request(app.getHttpServer()).get(`/jobs/${jobA.id}`).set('Cookie', [cookies]),
+          request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]),
+        ]);
+
+        expect(review.status).toBe(200);
+        expect(review.body).toEqual({ counts: noStudentsToMatch, students: [], sendRuns: [] });
+        expect(job.status).toBe(200);
+        expect(job.body.studentMatchCounts).toEqual(noStudentsToMatch);
+        expect(list.status).toBe(200);
+        expect(list.body.find((j: { id: number }) => j.id === jobA.id).studentMatchCounts).toEqual(
+          noStudentsToMatch
+        );
+        expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
+
+        if (status === 'running') {
+          await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+          const [visible, completedJob, completedList] = await Promise.all([
+            request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]),
+            request(app.getHttpServer()).get(`/jobs/${jobA.id}`).set('Cookie', [cookies]),
+            request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]),
+          ]);
+          const expectedCounts = { ...noStudentsToMatch, total: 1, toReview: 1 };
+          expect(visible.status).toBe(200);
+          expect(visible.body.counts).toEqual(expectedCounts);
+          expect(visible.body.students[0].correlationId).toBe('corr-1');
+          expect(completedJob.status).toBe(200);
+          expect(completedJob.body.studentMatchCounts).toEqual(expectedCounts);
+          expect(completedList.status).toBe(200);
+          expect(
+            completedList.body.find((j: { id: number }) => j.id === jobA.id).studentMatchCounts
+          ).toEqual(expectedCounts);
+        }
+      }
+    );
+
+    it('does not treat a successful send run as a successful full run', async () => {
+      await reportStudents(['corr-1']);
+      await prisma.run.update({ where: { id: runA.id }, data: { kind: 'send' } });
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+      const job = await request(app.getHttpServer())
+        .get(`/jobs/${jobA.id}`)
+        .set('Cookie', [cookies]);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ counts: noStudentsToMatch, students: [], sendRuns: [] });
+      expect(job.status).toBe(200);
+      expect(job.body.studentMatchCounts).toEqual(noStudentsToMatch);
     });
 
     it('returns each student with its result and suggestions', async () => {
@@ -214,7 +276,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       // Everything goes in out of order, so only the query's ordering can
       // put it right: the later run reports first, corr-2 before corr-1.
       const runB = await prisma.run.create({
-        data: { jobId: jobA.id, kind: 'full', status: 'new' },
+        data: { jobId: jobA.id, kind: 'full', status: 'success' },
       });
       const noMatches = (correlation_id: string) => ({
         correlation_id,
@@ -547,7 +609,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           ordinal: 0,
         });
         const runB = await prisma.run.create({
-          data: { jobId: jobA.id, kind: 'full', status: 'new' },
+          data: { jobId: jobA.id, kind: 'full', status: 'success' },
         });
         await reportStudents(['corr-1'], runB.id);
 
@@ -623,6 +685,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         bundle: bundleA,
         tenant: inTenantB ? tenantB : tenantA,
         idMatchingMode,
+        runStatus: 'success',
       });
       await report(job.runs[0].id, [
         { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
@@ -846,7 +909,10 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           data: { summary: withoutFailedRecords },
         });
         const sendRun = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'success');
-        await prisma.run.update({ where: { id: sendRun.id }, data: { summary: withFailedRecords } });
+        await prisma.run.update({
+          where: { id: sendRun.id },
+          data: { summary: withFailedRecords },
+        });
 
         const jobs = await readJob(jobA.id);
 
@@ -909,6 +975,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           bundle: bundleA,
           tenant: tenantA,
           idMatchingMode: 'fuzzy',
+          runStatus: 'success',
         });
       const [jobB, jobC] = [await seedFuzzyJob(), await seedFuzzyJob()];
       const runB = jobB.runs[0];
