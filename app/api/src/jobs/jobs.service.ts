@@ -26,25 +26,24 @@ export class JobsService {
     private runService: RunsService
   ) {}
 
-  /** The full run's. A send run's surface through its students. */
-  async getStatusUpdates(jobId: Job['id']) {
-    const fullRun = await this.prisma.run.findFirst({
+  private findFullRun<TInclude extends Prisma.RunInclude>(jobId: Job['id'], include: TInclude) {
+    return this.prisma.run.findFirst({
       where: { jobId, kind: 'full' },
       // A job has one full run; the latest, should it ever have more.
       orderBy: { id: 'desc' },
-      include: { runUpdate: true },
+      include,
     });
+  }
+
+  /** The full run's. A send run's surface through its students. */
+  async getStatusUpdates(jobId: Job['id']) {
+    const fullRun = await this.findFullRun(jobId, { runUpdate: true });
     return fullRun?.runUpdate;
   }
 
   /** The full run's. A send run's surface through its students. */
   async getErrors(jobId: Job['id']) {
-    const fullRun = await this.prisma.run.findFirst({
-      where: { jobId, kind: 'full' },
-      // A job has one full run; the latest, should it ever have more.
-      orderBy: { id: 'desc' },
-      include: { runError: true },
-    });
+    const fullRun = await this.findFullRun(jobId, { runError: true });
     return fullRun?.runError;
   }
 
