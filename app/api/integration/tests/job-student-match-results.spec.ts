@@ -157,10 +157,21 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
         if (status === 'running') {
           await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
-          const visible = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+          const [visible, completedJob, completedList] = await Promise.all([
+            request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]),
+            request(app.getHttpServer()).get(`/jobs/${jobA.id}`).set('Cookie', [cookies]),
+            request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]),
+          ]);
+          const expectedCounts = { ...noStudentsToMatch, total: 1, toReview: 1 };
           expect(visible.status).toBe(200);
-          expect(visible.body.counts.total).toBe(1);
+          expect(visible.body.counts).toEqual(expectedCounts);
           expect(visible.body.students[0].correlationId).toBe('corr-1');
+          expect(completedJob.status).toBe(200);
+          expect(completedJob.body.studentMatchCounts).toEqual(expectedCounts);
+          expect(completedList.status).toBe(200);
+          expect(
+            completedList.body.find((j: { id: number }) => j.id === jobA.id).studentMatchCounts
+          ).toEqual(expectedCounts);
         }
       }
     );
