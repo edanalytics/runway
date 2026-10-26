@@ -152,7 +152,7 @@ export const SubmitReview = ({
               <Box>
                 {refusal
                   ? `Nothing was submitted. ${refusalReason(refusal)}`
-                  : `Nothing was submitted: ${failure.result.message}`}
+                  : `The page couldn't confirm whether these were submitted (${failure.result.message}). They may already be in a submission.`}
               </Box>
               {refusal?.refused.map(({ correlationId }) => (
                 <HStack key={correlationId} gap="200">
@@ -162,22 +162,16 @@ export const SubmitReview = ({
                   </QuietButton>
                 </HStack>
               ))}
-              {refusal?.action === 'leave out' && (
-                <Box fontSize="0.9rem">
-                  The list has been refreshed. Submit the rest without them, or check them first.
-                </Box>
-              )}
-              {refusal?.action === 'leave out or exclude' && (
-                <Box fontSize="0.9rem">
-                  The list has been refreshed. Submit the rest without them, or open each to exclude
-                  it from the job.
-                </Box>
-              )}
-              {!refusal && (
-                <Box fontSize="0.9rem">
-                  The list has been refreshed. Check it, then submit again.
-                </Box>
-              )}
+              <Box fontSize="0.9rem">
+                {failure.result.refreshed
+                  ? 'The list has been refreshed.'
+                  : "The list couldn't be refreshed: reload the page before going on."}{' '}
+                {refusal?.action === 'leave out' &&
+                  'Submit the rest without them, or check them first.'}
+                {refusal?.action === 'leave out or exclude' &&
+                  'Submit the rest without them, or open each to exclude it from the job.'}
+                {!refusal && 'Check it before submitting again.'}
+              </Box>
             </VStack>
           )}
           {byOthers.length > 0 && (

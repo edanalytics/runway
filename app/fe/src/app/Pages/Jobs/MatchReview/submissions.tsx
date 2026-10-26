@@ -116,21 +116,24 @@ const SubmissionSupport = ({
   // There's no submit modal here, so a failure is a toast. After a refusal,
   // the refreshed list no longer has the refused students as this run's,
   // so Send again sends the rest.
+  const [sending, setSending] = useState(false);
   const sendAgain = async () => {
+    setSending(true);
     const result = await resend(sendRun.id);
+    setSending(false);
     if (result.ok) return;
-    const { refusal } = result;
+    const { refusal, refreshed } = result;
+    const caughtUp = refreshed
+      ? 'The list has been refreshed'
+      : "The list couldn't be refreshed: reload the page before going on";
     toast({
       status: 'error',
-      title: 'Nothing was sent again',
-      description:
-        refusal && refusal.action !== 'try later'
-          ? `${refusalReason(
-              refusal
-            )} The list has been refreshed, and Send again now sends the rest.`
-          : refusal
-          ? refusalReason(refusal)
-          : result.message,
+      title: refusal ? 'Nothing was sent again' : 'Couldn’t confirm whether they were sent again',
+      description: !refusal
+        ? `${result.message}. They may already be in a submission. ${caughtUp}.`
+        : refusal.action === 'try later'
+        ? refusalReason(refusal)
+        : `${refusalReason(refusal)} ${caughtUp}, and Send again now sends the rest.`,
       isClosable: true,
     });
   };
@@ -163,7 +166,7 @@ const SubmissionSupport = ({
             </Box>
           ) : (
             <ConfirmAction
-              isDisabled={!!submitBlocked}
+              isDisabled={!!submitBlocked || sending}
               headerText={`Send submission ${number}'s students again?`}
               bodyText="Sending again usually fails the same way unless the cause has been fixed. Support can find the cause in the run's logs and tell you when it's worth sending again."
               yesButtonText="Send again"
@@ -172,7 +175,12 @@ const SubmissionSupport = ({
             >
               {(confirmProps) => (
                 <>
-                  <QuietButton size="xs" isDisabled={!!submitBlocked} {...confirmProps}>
+                  <QuietButton
+                    size="xs"
+                    isDisabled={!!submitBlocked}
+                    isLoading={sending}
+                    {...confirmProps}
+                  >
                     Send again
                   </QuietButton>
                   {submitBlocked && (

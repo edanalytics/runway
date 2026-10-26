@@ -94,13 +94,20 @@ export type DecisionResult = { ok: true; version: number | null } | { ok: false;
 export type SubmitStudent = { correlationId: string; version: number };
 
 /**
- * A submit's outcome. A refused one says which students it refused and why,
- * when the API did; any other failure has only a message. A submit whose run
- * couldn't start still stands.
+ * A submit's outcome. A refusal says which students it refused and why, and
+ * that nothing was submitted. Any other failure, such as a 500 after the
+ * submit committed or a lost response, leaves the outcome unknown, so it has
+ * no refusal. Either way, `refreshed` says whether the page has caught up
+ * since. A submit whose run couldn't start still stands.
  */
 export type SubmitResult =
   | { ok: true }
-  | { ok: false; refusal: SubmitRefusal<SubmitStudent> | null; message: string };
+  | {
+      ok: false;
+      refusal: SubmitRefusal<SubmitStudent> | null;
+      message: string;
+      refreshed: boolean;
+    };
 
 type Session = {
   job: GetJobDto;
@@ -344,14 +351,13 @@ export const ReviewSessionProvider = ({
   /** Creates a send run for these students' decisions, at the versions given. */
   const send = useCallback(
     async (students: SubmitStudent[]): Promise<SubmitResult> => {
-      if (!students.length) {
-        return { ok: false, refusal: null, message: 'There are no students to send.' };
-      }
       try {
         const { launched } = (await apiClient.post(`/jobs/${jobId}/student-match-results/submit`, {
           students,
         })) as unknown as PostStudentMatchSubmitResponseDto;
-        refetch();
+        // Done once the page shows the submission, so nothing offers to
+        // submit its students again meanwhile.
+        await refetch();
         if (!launched) {
           // The submit stands, and its students are run-failed: sending again
           // at once would most likely fail the same way.
@@ -366,9 +372,15 @@ export const ReviewSessionProvider = ({
         }
         return { ok: true };
       } catch (err) {
-        // A refusal means the page is behind, and any failure may: catch up.
-        refetch();
-        return { ok: false, refusal: submitRefusal(err, students), message: messageOf(err) };
+        // A refusal means the page is behind, and any other failure may have
+        // submitted: catch up before saying what's known.
+        const { isError } = await refetch();
+        return {
+          ok: false,
+          refusal: submitRefusal(err, students),
+          message: messageOf(err),
+          refreshed: !isError,
+        };
       }
     },
     [jobId, refetch, toast]
