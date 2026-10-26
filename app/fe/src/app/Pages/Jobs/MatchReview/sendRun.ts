@@ -77,3 +77,25 @@ export const studentsToResend = (
       ? [{ correlationId: student.correlationId, version: student.decision.version }]
       : []
   );
+
+/** What a refused submit asks of the reviewer. */
+export type SubmitRefusalAction =
+  /** Leave these students out and submit the rest: `decision_changed`, `already_submitted`. */
+  | 'leave out'
+  /** As above, or exclude them first: `not_a_match`, `invalid_school_years`. */
+  | 'leave out or exclude'
+  /** Submit later, once the job's full run has succeeded: `full_run_not_done`. */
+  | 'try later';
+
+export type SubmitRefusal<S> = { code: string; action: SubmitRefusalAction; refused: S[] };
+
+/**
+ * A submit's 409, read against the students it submitted: which of them it
+ * refused, by the body's `indices`, and what that asks of the reviewer. Null
+ * for any other failure, which the page reports as an error: another status,
+ * a code the page doesn't know, or a refusal that should name students and
+ * doesn't.
+ */
+export const submitRefusal = <S>(body: unknown, submitted: S[]): SubmitRefusal<S> | null => {
+  throw new Error('not implemented');
+};
