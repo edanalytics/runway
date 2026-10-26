@@ -2,13 +2,7 @@ import { Box, HStack, Progress, Spinner, VStack } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto, outstandingStudents } from '@edanalytics/models';
 import { KeyboardEvent, useState } from 'react';
 import { CheckIcon } from '@chakra-ui/icons';
-import {
-  FailureIndicator,
-  PrimaryButton,
-  QuietButton,
-  TooManyNote,
-  USUAL_MAXIMUM,
-} from './components';
+import { PrimaryButton, QuietButton, TooManyNote, USUAL_MAXIMUM } from './components';
 import { countOf, statusLabel, useReviewSession } from './reviewSession';
 import { Queue, sections, useQueue } from './queue';
 import { LastAction, LastActionBar, StudentPane } from './studentPane';
@@ -320,7 +314,6 @@ const ReviewSummary = () => {
   const tooMany = !overLimit && counts.total > USUAL_MAXIMUM;
   // A count per status, in the list's order.
   const tiles = sections.map(({ status }) => ({
-    status,
     label: statusLabel[status],
     value: countOf(counts, status),
   }));
@@ -331,10 +324,9 @@ const ReviewSummary = () => {
       <HStack gap="500" flexWrap="wrap">
         {tiles.map((tile) => (
           <VStack key={tile.label} alignItems="flex-start" gap="0">
-            <HStack gap="100" fontSize="1.3rem" fontWeight="600" lineHeight="1.2">
-              {tile.status === 'run-failed' && tile.value > 0 && <FailureIndicator />}
-              <Box>{tile.value}</Box>
-            </HStack>
+            <Box fontSize="1.3rem" fontWeight="600" lineHeight="1.2">
+              {tile.value}
+            </Box>
             <Box fontSize="0.8rem" opacity="0.8">
               {tile.label}
             </Box>

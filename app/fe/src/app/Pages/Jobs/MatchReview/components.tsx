@@ -16,7 +16,6 @@ import {
   StudentSearchDetailsDto,
 } from '@edanalytics/models';
 import { CheckIcon, CopyIcon } from '@chakra-ui/icons';
-import { IconExclamation } from '../../../../assets/icons';
 import { ReactNode, useState } from 'react';
 import { Agreement } from './compare';
 import { crossYearOf } from './crossYear';
@@ -26,22 +25,6 @@ import { Candidate, useReviewSession } from './reviewSession';
 /*
  * Pieces of the match review.
  */
-
-export const FailureIndicator = () => (
-  <Box
-    as="span"
-    display="inline-flex"
-    alignItems="center"
-    justifyContent="center"
-    boxSize="1rem"
-    flexShrink={0}
-    borderRadius="full"
-    bg="pink.400"
-    aria-hidden="true"
-  >
-    <IconExclamation width={12} height={12} />
-  </Box>
-);
 
 // Shape as well as color tells the marks apart: identical is filled, not
 // identical is outlined, nothing to compare is a quieter dot. They sit on a

@@ -13,14 +13,7 @@ import {
 } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto, JsonValue, StudentMatchStatus } from '@edanalytics/models';
 import { useEffect, useRef, useState } from 'react';
-import {
-  FailureIndicator,
-  PrimaryButton,
-  QuietButton,
-  studentName,
-  secondId,
-  suggestionsOf,
-} from './components';
+import { PrimaryButton, QuietButton, studentName, secondId, suggestionsOf } from './components';
 import { statusLabel } from './reviewSession';
 import { valueText } from './values';
 
@@ -362,18 +355,7 @@ export const Queue = ({
             >
               {!finished && (
                 <Box fontSize="0.8rem" fontWeight="600" opacity="0.8" paddingX="200" paddingY="100">
-                  {title} (
-                  <Box
-                    as="span"
-                    display="inline-flex"
-                    alignItems="center"
-                    gap="100"
-                    verticalAlign="middle"
-                  >
-                    {status === 'run-failed' && members.length > 0 && <FailureIndicator />}
-                    {members.length}
-                  </Box>
-                  )
+                  {title} ({members.length})
                 </Box>
               )}
               {finished && (
