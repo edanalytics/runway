@@ -29,7 +29,7 @@ import {
   studentName,
   secondId,
   valueText,
-  time,
+  dateTime,
   CopyButton,
   CrossYearCue,
   suggestionsOf,
@@ -282,7 +282,7 @@ const DecisionState = ({
   sendRun: GetSendRunDto | undefined;
 }) => {
   const { job, sendRuns } = useReviewSession();
-  const by = decision ? ` by ${decision.decidedBy} at ${time(decision.decidedAt)}` : '';
+  const by = decision ? ` by ${decision.decidedBy} on ${dateTime(decision.decidedAt)}` : '';
   let body: ReactNode = null;
   if (status === 'ready' && decision?.kind === 'match') {
     body = `Match saved${by}: ${decision.candidate.studentUniqueId}${
@@ -669,7 +669,7 @@ const Search = ({
         {field('first_name', 'First name')}
         {field('last_name', 'Last name')}
         {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
-        {field('student_ids', 'Student IDs', 'any IDs, e.student. state or local')}
+        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
       </SimpleGrid>
       <HStack gap="300">
         <SecondaryButton onClick={run} isLoading={searching}>

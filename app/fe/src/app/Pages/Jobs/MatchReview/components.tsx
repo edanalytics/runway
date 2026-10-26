@@ -311,8 +311,9 @@ export const CopyButton = ({ value, label }: { value: string; label?: string }) 
   );
 };
 
-export const time = (at: number) =>
-  new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+/** A date and time, short: a job's review can span days. */
+export const dateTime = (at: Date | number) =>
+  new Date(at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
 
 /**
  * A warning on a roster student outside the job's school year, who'd be sent

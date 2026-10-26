@@ -106,8 +106,8 @@ export const WorkspaceReview = () => {
         <Overview />
         <Box textStyle="body" layerStyle="contentBox" padding="400">
           {counts.total.toLocaleString()} students couldn't be matched, which is too many to review
-          here. That usually means something is off with the file, such as the wrong ID column.
-          Check the file and reprocess it.
+          here. That usually means something is off with the file, such as the wrong ID column. Fix
+          the file and upload it again.
         </Box>
       </VStack>
     );
