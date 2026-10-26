@@ -23,6 +23,7 @@ import {
   StudentRosterDetailsJson,
   StudentSearchDetailsDto,
   StudentMatchStatus,
+  studentMatchStatus,
 } from '@edanalytics/models';
 import { apiClient } from '../../../api/methods';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
@@ -295,7 +296,8 @@ export const ReviewSessionProvider = ({
           { replacesVersion, ...body }
         )) as unknown as { decision: GetStudentMatchDecisionDto | null };
         const decision = res.decision && plainToInstance(GetStudentMatchDecisionDto, res.decision);
-        const status = !decision ? 'to-review' : decision.kind === 'match' ? 'ready' : 'excluded';
+        // Not yet in a send run: the API refuses a decision for a student who is.
+        const status = studentMatchStatus(decision?.kind, undefined);
         queryClient.setQueryData<GetStudentMatchResultsDto>(resultsQuery.queryKey, (current) =>
           current?.students
             ? {
