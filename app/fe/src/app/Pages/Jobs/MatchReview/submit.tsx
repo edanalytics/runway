@@ -22,7 +22,14 @@ import {
 } from '@edanalytics/models';
 import { ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare } from './compare';
-import { AgreementMark, PrimaryButton, QuietButton, studentName, valueText } from './components';
+import {
+  AgreementMark,
+  CrossYearCue,
+  PrimaryButton,
+  QuietButton,
+  studentName,
+  valueText,
+} from './components';
 import { SubmitResult, useReviewSession } from './reviewSession';
 import { refusalReason } from './sendRun';
 
@@ -215,6 +222,7 @@ export const SubmitReview = ({
                           against={student.inputDetails}
                         />
                       )}
+                      {candidate && <CrossYearCue rosterDetails={candidate.rosterDetails} />}
                       {candidate?.source === 'search' && (
                         <Box fontSize="0.75rem" opacity="0.8">
                           Found by search

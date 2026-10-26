@@ -1,4 +1,4 @@
-import { StudentRosterDetailsJson } from '@edanalytics/models';
+import { hasSchoolYears, isInJobYear, StudentRosterDetailsJson } from '@edanalytics/models';
 
 /**
  * Whether a roster student is in the job's school year: `in-year` when their
@@ -12,5 +12,6 @@ export const crossYearOf = (
   rosterDetails: StudentRosterDetailsJson | null | undefined,
   endYear: number
 ): CrossYear => {
-  throw new Error('not implemented');
+  if (!hasSchoolYears(rosterDetails)) return 'unknown';
+  return isInJobYear(rosterDetails, endYear) ? 'in-year' : 'cross-year';
 };

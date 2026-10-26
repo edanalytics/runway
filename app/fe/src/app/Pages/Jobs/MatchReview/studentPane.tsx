@@ -31,6 +31,7 @@ import {
   valueText,
   time,
   CopyButton,
+  CrossYearCue,
   suggestionsOf,
 } from './components';
 import { ContactSupport } from '../../../components/SupportButton';
@@ -287,6 +288,11 @@ const DecisionState = ({
       fontSize="0.9rem"
     >
       {body}
+      {decision?.kind === 'match' && (
+        <Box marginTop="100">
+          <CrossYearCue rosterDetails={decision.candidate.rosterDetails} />
+        </Box>
+      )}
     </Box>
   );
 };
@@ -512,6 +518,7 @@ const EvidenceTable = ({
                       .join(' · ')
                       .replace(/^./, (first) => first.toUpperCase())}
                   </Box>
+                  <CrossYearCue rosterDetails={c.rosterDetails} />
                 </Th>
               ))}
             </Tr>
