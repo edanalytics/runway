@@ -125,11 +125,11 @@ const SupportPath = ({ batches }: { batches: Batch[] }) => {
 };
 
 export const BatchCard = ({ batch }: { batch: Batch }) => {
-  const { groups, retry } = useReviewSession();
+  const { students, retry } = useReviewSession();
   const [open, setOpen] = useState(false);
   const nameOf = (correlationId: string) => {
-    const group = groups.find((g) => g.correlationId === correlationId);
-    return group ? studentName(group.inputDetails) : correlationId;
+    const student = students.find((student) => student.correlationId === correlationId);
+    return student ? studentName(student.inputDetails) : correlationId;
   };
   const counts = totalOf(batch.summary);
   const isDone = batch.status === 'complete' || batch.status === 'complete with errors';

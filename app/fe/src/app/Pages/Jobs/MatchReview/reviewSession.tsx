@@ -41,7 +41,7 @@ export type Candidate = {
   searchDetails?: StudentSearchDetailsDto;
 };
 
-export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: 'not-in-roster' };
+export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: 'exclude' };
 
 export type Decision = DecisionChoice & { version: number; decidedAt: number; decidedBy: string };
 
@@ -75,6 +75,16 @@ export type StudentStatus =
   | 'run-failed'
   | 'excluded';
 
+/** How each status reads on the page. */
+export const statusLabel: Record<StudentStatus, string> = {
+  'to-review': 'Needs review',
+  ready: 'Ready to submit',
+  excluded: 'Excluded',
+  reprocessing: 'Reprocessing',
+  reprocessed: 'Reprocessed',
+  'run-failed': 'Run failed',
+};
+
 export type SearchState = { terms: SearchTerms; hits: SearchHit[] | null };
 
 export type SubmitResult =
@@ -83,7 +93,7 @@ export type SubmitResult =
 
 type Session = {
   job: GetJobDto;
-  groups: GetStudentInputDetailsDto[];
+  students: GetStudentInputDetailsDto[];
   /** How many students there are when there are too many to fetch for review, else null. */
   overLimit: number | null;
   isLoading: boolean;
@@ -122,7 +132,7 @@ const messageOf = (err: unknown) => {
 
 /** The candidate a stored decision rests on: its suggestion, or its search. */
 const candidateOf = (
-  group: GetStudentInputDetailsDto,
+  student: GetStudentInputDetailsDto,
   decision: GetStudentMatchDecisionDto
 ): Candidate => {
   if (decision.search) {
@@ -134,7 +144,7 @@ const candidateOf = (
       searchDetails: decision.search.searchDetails as StudentSearchDetailsDto,
     };
   }
-  const suggestion = group.results
+  const suggestion = student.results
     .find((r) => r.id === decision.resultId)
     ?.suggestions.find((s) => s.ordinal === decision.ordinal);
   return {
@@ -148,7 +158,7 @@ const candidateOf = (
 };
 
 const toDecision = (
-  group: GetStudentInputDetailsDto,
+  student: GetStudentInputDetailsDto,
   decision: GetStudentMatchDecisionDto,
   meId: number | undefined
 ): Decision => {
@@ -156,8 +166,8 @@ const toDecision = (
     decision.decidedBy?.id === meId ? 'you' : decision.decidedBy?.displayName ?? 'someone';
   const common = { version: decision.version, decidedAt: +decision.decidedOn, decidedBy };
   return decision.kind === 'match'
-    ? { kind: 'match', candidate: candidateOf(group, decision), ...common }
-    : { kind: 'not-in-roster', ...common };
+    ? { kind: 'match', candidate: candidateOf(student, decision), ...common }
+    : { kind: 'exclude', ...common };
 };
 
 export const ReviewSessionProvider = ({
@@ -177,23 +187,25 @@ export const ReviewSessionProvider = ({
   const meId = me?.user?.id;
   const [searches, setSearches] = useState<Map<string, SearchState>>(() => new Map());
 
-  const groups = useMemo(() => data?.students ?? [], [data]);
+  const students = useMemo(() => data?.students ?? [], [data]);
   const decisions = useMemo(
     () =>
       new Map(
-        groups.flatMap((g) =>
-          g.decision ? [[g.correlationId, toDecision(g, g.decision, meId)] as const] : []
+        students.flatMap((student) =>
+          student.decision
+            ? [[student.correlationId, toDecision(student, student.decision, meId)] as const]
+            : []
         )
       ),
-    [groups, meId]
+    [students, meId]
   );
 
   const statusOf = useCallback(
     (correlationId: string): StudentStatus => {
-      const group = groups.find((g) => g.correlationId === correlationId);
-      return group ? group.status : 'to-review';
+      const student = students.find((student) => student.correlationId === correlationId);
+      return student ? student.status : 'to-review';
     },
-    [groups]
+    [students]
   );
 
   const failed = useCallback(
@@ -220,8 +232,10 @@ export const ReviewSessionProvider = ({
           current?.students
             ? {
                 ...current,
-                students: current.students.map((g) =>
-                  g.correlationId === correlationId ? { ...g, decision, status } : g
+                students: current.students.map((student) =>
+                  student.correlationId === correlationId
+                    ? { ...student, decision, status }
+                    : student
                 ),
               }
             : current
@@ -236,7 +250,7 @@ export const ReviewSessionProvider = ({
 
   const decide = useCallback(
     (correlationId: string, choice: DecisionChoice) => {
-      if (choice.kind === 'not-in-roster') return write(correlationId, { kind: 'exclude' });
+      if (choice.kind === 'exclude') return write(correlationId, { kind: 'exclude' });
       const { candidate } = choice;
       return write(
         correlationId,
@@ -303,7 +317,7 @@ export const ReviewSessionProvider = ({
 
   const session: Session = {
     job,
-    groups,
+    students,
     overLimit: data && !data.students ? data.counts.total : null,
     isLoading,
     isError,

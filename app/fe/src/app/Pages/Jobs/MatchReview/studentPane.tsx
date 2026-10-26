@@ -40,8 +40,8 @@ const realDate = (value: string) => {
 };
 
 /** Missing or invalid values in the file: clues, not a diagnosis of IDRS. */
-const fileIssues = (group: GetStudentInputDetailsDto) => {
-  const d = group.inputDetails;
+const fileIssues = (student: GetStudentInputDetailsDto) => {
+  const d = student.inputDetails;
   const issues: string[] = [];
   if (!valueText(d.first_name)) issues.push('No first name in your file.');
   if (!valueText(d.last_name)) issues.push('No last name in your file.');
@@ -91,19 +91,19 @@ export const LastActionBar = ({
 // One student ------------------------------------------------------------------
 
 export const Workspace = ({
-  group,
+  student,
   onSaved,
 }: {
-  group: GetStudentInputDetailsDto;
+  student: GetStudentInputDetailsDto;
   onSaved: (action: LastAction) => void;
 }) => {
   const { job, statusOf, decisions, decide, undo, batchOf, batches } = useReviewSession();
-  const id = group.correlationId;
+  const id = student.correlationId;
   const status = statusOf(id);
   const decision = decisions.get(id);
   const batch = batchOf(id);
   const isSubmitted = status === 'reprocessing' || status === 'reprocessed';
-  const suggestions = suggestionsOf(group);
+  const suggestions = suggestionsOf(student);
 
   // Saying none fit stays on this student and opens search and exclude.
   const [noneFit, setNoneFit] = useState(false);
@@ -118,7 +118,7 @@ export const Workspace = ({
       ? [...suggestions, fromSearch]
       : suggestions;
   const saved = decision?.kind === 'match' ? decision.candidate.studentUniqueId : null;
-  const name = studentName(group.inputDetails);
+  const name = studentName(student.inputDetails);
 
   // Restoring the prior decision is what makes an undo trustworthy.
   const restore = (previous: Decision | undefined) => () =>
@@ -145,7 +145,7 @@ export const Workspace = ({
   };
   const exclude = () => {
     const previous = decision;
-    decide(id, { kind: 'not-in-roster' });
+    decide(id, { kind: 'exclude' });
     setNoneFit(false);
     onSaved({ message: `Excluded ${name} from this job.`, undo: restore(previous), advance: true });
   };
@@ -154,7 +154,7 @@ export const Workspace = ({
     if ((event.target as HTMLElement).closest('input, textarea') || isSubmitted) return;
   };
 
-  const issues = fileIssues(group);
+  const issues = fileIssues(student);
   const batchNumber = batch ? batches.findIndex((b) => b.id === batch.id) + 1 : 0;
 
   return (
@@ -166,7 +166,7 @@ export const Workspace = ({
         </Box>
         <HStack gap="300" alignItems="baseline" flexWrap="wrap">
           <Box textStyle="h4">{name}</Box>
-          <Box opacity="0.85">{secondId(group)}</Box>
+          <Box opacity="0.85">{secondId(student)}</Box>
         </HStack>
         {issues.map((issue) => (
           <Box key={issue} fontSize="0.85rem" color="purple.200">
@@ -186,12 +186,12 @@ export const Workspace = ({
 
       {(noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
         <NoSuggestionFits
-          group={group}
+          student={student}
           suggestionCount={suggestions.length}
           onBack={candidates.length ? () => setNoneFit(false) : undefined}
           onUse={use}
           onExclude={exclude}
-          search={<Search group={group} saved={saved} onUse={use} />}
+          search={<Search student={student} saved={saved} onUse={use} />}
         >
           {decision && (
             <QuietButton alignSelf="flex-start" onClick={clear}>
@@ -202,7 +202,7 @@ export const Workspace = ({
       ) : (
         <VStack alignItems="stretch" gap="200">
           <EvidenceTable
-            group={group}
+            student={student}
             candidates={candidates}
             saved={saved}
             onUse={isSubmitted ? undefined : use}
@@ -359,12 +359,12 @@ const rosterDetailsKey = 'runway.match-review.roster-details';
  * view, and roster-only details are a click away.
  */
 const EvidenceTable = ({
-  group,
+  student,
   candidates,
   saved,
   onUse,
 }: {
-  group: GetStudentInputDetailsDto;
+  student: GetStudentInputDetailsDto;
   candidates: Candidate[];
   saved: string | null;
   onUse?: (candidate: Candidate) => void;
@@ -393,13 +393,13 @@ const EvidenceTable = ({
     candidates.length > MAX_COMPARED
       ? candidates.filter((c) => shortlist.includes(c.studentUniqueId))
       : candidates;
-  const comparisons = shown.map((c) => compare(group.inputDetails, c.rosterDetails));
+  const comparisons = shown.map((c) => compare(student.inputDetails, c.rosterDetails));
   const fileValue: Record<string, string | null> = {
-    'First name': valueText(group.inputDetails.first_name),
-    'Last name': valueText(group.inputDetails.last_name),
-    'Date of birth': valueText(group.inputDetails.birth_date),
+    'First name': valueText(student.inputDetails.first_name),
+    'Last name': valueText(student.inputDetails.last_name),
+    'Date of birth': valueText(student.inputDetails.birth_date),
     'Middle name': null,
-    'Student IDs': valueText(group.inputDetails.student_ids),
+    'Student IDs': valueText(student.inputDetails.student_ids),
     'School years': null,
   };
   const agreementOf = (label: string, index: number): Agreement =>
@@ -579,18 +579,18 @@ const Missing = ({ compared }: { compared: boolean }) => (
 
 /** Search, remembered per student so a trip to the SIS doesn't lose it. */
 const Search = ({
-  group,
+  student,
   saved,
   onUse,
 }: {
-  group: GetStudentInputDetailsDto;
+  student: GetStudentInputDetailsDto;
   saved: string | null;
   onUse: (candidate: Candidate) => void;
 }) => {
   const { search, searchOf, setSearch } = useReviewSession();
-  const remembered = searchOf(group.correlationId);
+  const remembered = searchOf(student.correlationId);
   const [terms, setTerms] = useState<SearchTerms>(
-    remembered?.terms ?? termsFrom(group.inputDetails)
+    remembered?.terms ?? termsFrom(student.inputDetails)
   );
   const [searching, setSearching] = useState(false);
   const hits = remembered?.hits ?? null;
@@ -600,8 +600,8 @@ const Search = ({
     setSearching(true);
     setError(null);
     try {
-      const found = await search(group.correlationId, terms);
-      setSearch(group.correlationId, { terms, hits: found });
+      const found = await search(student.correlationId, terms);
+      setSearch(student.correlationId, { terms, hits: found });
     } catch (err) {
       setError((err as { message?: string })?.message ?? 'The search failed.');
     }
@@ -609,7 +609,7 @@ const Search = ({
   };
   const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
     <SearchField
-      id={`search-${key}-${group.correlationId}`}
+      id={`search-${key}-${student.correlationId}`}
       label={label}
       value={terms[key]}
       placeholder={placeholder}
@@ -624,7 +624,7 @@ const Search = ({
         {field('first_name', 'First name')}
         {field('last_name', 'Last name')}
         {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
-        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
+        {field('student_ids', 'Student IDs', 'any IDs, e.student. state or local')}
       </SimpleGrid>
       <HStack gap="300">
         <SecondaryButton onClick={run} isLoading={searching}>
@@ -641,7 +641,7 @@ const Search = ({
       {hits && !searching && hits.length > 0 && (
         <Box bg="blue.700" borderRadius="6px" padding="200">
           <EvidenceTable
-            group={group}
+            student={student}
             candidates={hits.map((hit) => ({
               studentUniqueId: hit.studentUniqueId,
               rosterDetails: hit.rosterDetails,

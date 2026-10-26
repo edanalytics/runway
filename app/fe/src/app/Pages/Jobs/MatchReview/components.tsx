@@ -130,7 +130,7 @@ export const SearchField = ({
  * so searching and excluding never read as the same kind of step.
  */
 export const NoSuggestionFits = ({
-  group,
+  student,
   suggestionCount,
   onBack,
   onUse,
@@ -138,7 +138,7 @@ export const NoSuggestionFits = ({
   search,
   children,
 }: {
-  group: GetStudentInputDetailsDto;
+  student: GetStudentInputDetailsDto;
   suggestionCount: number;
   search: ReactNode;
   /** Back to the suggestions, when the reviewer came from them. */
@@ -221,11 +221,11 @@ const OptionBox = ({
 );
 
 /** The latest search IDRS ran for this student; earlier ones are history. */
-const latestResult = (group: GetStudentInputDetailsDto) =>
-  [...group.results].sort((a, b) => +new Date(b.createdOn) - +new Date(a.createdOn))[0];
+const latestResult = (student: GetStudentInputDetailsDto) =>
+  [...student.results].sort((a, b) => +new Date(b.createdOn) - +new Date(a.createdOn))[0];
 
-export const suggestionsOf = (group: GetStudentInputDetailsDto): Candidate[] => {
-  const latest = latestResult(group);
+export const suggestionsOf = (student: GetStudentInputDetailsDto): Candidate[] => {
+  const latest = latestResult(student);
   return (latest?.suggestions ?? [])
     .slice()
     .sort((a, b) => a.ordinal - b.ordinal)
@@ -256,8 +256,8 @@ export const valueText = (value: JsonValue | undefined): string | null => {
 };
 
 /** A second identifier beside the name, so similarly named records stay distinguishable. */
-export const secondId = (group: GetStudentInputDetailsDto) => {
-  const d = group.inputDetails;
+export const secondId = (student: GetStudentInputDetailsDto) => {
+  const d = student.inputDetails;
   return [
     valueText(d.birth_date) && `b. ${valueText(d.birth_date)}`,
     valueText(d.student_ids) && `ID ${valueText(d.student_ids)}`,

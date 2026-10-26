@@ -25,23 +25,23 @@ export const sorts: { key: SortKey; label: string; descending: boolean }[] = [
   { key: 'score', label: 'Top match score', descending: true },
 ];
 
-const lastNameOf = (group: GetStudentInputDetailsDto) =>
-  `${valueText(group.inputDetails.last_name) ?? ''} ${
-    valueText(group.inputDetails.first_name) ?? ''
+const lastNameOf = (student: GetStudentInputDetailsDto) =>
+  `${valueText(student.inputDetails.last_name) ?? ''} ${
+    valueText(student.inputDetails.first_name) ?? ''
   }`.toLowerCase();
 
-const topScore = (group: GetStudentInputDetailsDto) =>
-  Math.max(-1, ...suggestionsOf(group).map((c) => c.score ?? -1));
+const topScore = (student: GetStudentInputDetailsDto) =>
+  Math.max(-1, ...suggestionsOf(student).map((c) => c.score ?? -1));
 
-/** The list's groups, in the order work moves through them. */
-export const sections: { title: string; statuses: StudentStatus[]; finished?: boolean }[] = [
-  { title: 'To review', statuses: ['to-review'] },
-  { title: 'Run failed', statuses: ['run-failed'] },
-  { title: 'Ready to submit', statuses: ['ready'] },
-  { title: 'Reprocessing', statuses: ['reprocessing'] },
+/** The list's groups, one per status, in the order work moves through them. */
+export const sections: { status: StudentStatus; finished?: boolean }[] = [
+  { status: 'to-review' },
+  { status: 'run-failed' },
+  { status: 'ready' },
+  { status: 'reprocessing' },
   // Finished work starts collapsed, out of the way of what's left to do.
-  { title: 'Reprocessed', statuses: ['reprocessed'], finished: true },
-  { title: 'Excluded', statuses: ['excluded'], finished: true },
+  { status: 'reprocessed', finished: true },
+  { status: 'excluded', finished: true },
 ];
 
 /**
@@ -64,7 +64,7 @@ export const scrollEdges = {
 };
 
 export const sectionIndex = (status: StudentStatus) =>
-  sections.findIndex((section) => section.statuses.includes(status));
+  sections.findIndex((section) => section.status === status);
 
 export const sortBy =
   ({ key, descending }: Sort) =>
@@ -82,23 +82,23 @@ export const sortBy =
   };
 
 /** What the list's search box matches against: name, birth date and IDs. */
-export const searchText = (group: GetStudentInputDetailsDto) =>
-  [studentName(group.inputDetails), secondId(group)].join(' ').toLowerCase();
+export const searchText = (student: GetStudentInputDetailsDto) =>
+  [studentName(student.inputDetails), secondId(student)].join(' ').toLowerCase();
 
 export const QueueRow = ({
-  group,
+  student,
   decision,
   status,
   isSelected,
   onSelect,
 }: {
-  group: GetStudentInputDetailsDto;
+  student: GetStudentInputDetailsDto;
   decision: Decision | undefined;
   status: StudentStatus;
   isSelected: boolean;
   onSelect: () => void;
 }) => {
-  const count = suggestionsOf(group).length;
+  const count = suggestionsOf(student).length;
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (isSelected) ref.current?.scrollIntoView({ block: 'nearest' });
@@ -117,9 +117,9 @@ export const QueueRow = ({
       _hover={{ bg: isSelected ? 'blue.500' : 'blue.600' }}
       textAlign="left"
     >
-      <Box fontWeight="600">{studentName(group.inputDetails)}</Box>
+      <Box fontWeight="600">{studentName(student.inputDetails)}</Box>
       <HStack justifyContent="space-between" gap="200" fontSize="0.75rem" opacity="0.75">
-        <Box>{secondId(group)}</Box>
+        <Box>{secondId(student)}</Box>
         <Box whiteSpace="nowrap">
           {status === 'ready' && decision?.kind === 'match'
             ? decision.candidate.studentUniqueId

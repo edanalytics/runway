@@ -17,7 +17,7 @@ import { GetStudentInputDetailsDto } from '@edanalytics/models';
 import { KeyboardEvent, useState } from 'react';
 import { CheckIcon } from '@chakra-ui/icons';
 import { PrimaryButton, QuietButton, suggestionsOf } from './components';
-import { StudentStatus, useReviewSession } from './reviewSession';
+import { statusLabel, StudentStatus, useReviewSession } from './reviewSession';
 import {
   Sort,
   sorts,
@@ -50,7 +50,7 @@ import { SubmitReview } from './submit';
  * students and the submit button, and the top counts them and shows batches.
  */
 export const WorkspaceReview = () => {
-  const { groups, overLimit, isLoading, isError, statusOf, decisions } = useReviewSession();
+  const { students, overLimit, isLoading, isError, statusOf, decisions } = useReviewSession();
   // null means that filter is off.
   const [countFilter, setCountFilter] = useState<CountFilter | null>(null);
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
@@ -79,8 +79,11 @@ export const WorkspaceReview = () => {
 
   const countTest = countFilters.find((f) => f.key === countFilter)?.test ?? (() => true);
   const terms = query.trim().toLowerCase();
-  const queue = groups
-    .filter((g) => countTest(suggestionsOf(g).length) && (!terms || searchText(g).includes(terms)))
+  const queue = students
+    .filter(
+      (student) =>
+        countTest(suggestionsOf(student).length) && (!terms || searchText(student).includes(terms))
+    )
     .sort(sortBy(sort))
     // The list reads section by section, so previous and next do too.
     .sort(
@@ -96,7 +99,7 @@ export const WorkspaceReview = () => {
   if (isError) return <Box>Couldn't load unmatched students.</Box>;
   // Past the review limit the API sends only the count: that many students to
   // match means something is wrong with the file, not a queue to work through.
-  if (overLimit && !groups.length) {
+  if (overLimit && !students.length) {
     return (
       <Box textStyle="body" layerStyle="contentBox" padding="400">
         {overLimit.toLocaleString()} students couldn't be matched, which is too many to review here.
@@ -105,11 +108,12 @@ export const WorkspaceReview = () => {
       </Box>
     );
   }
-  if (!groups.length) return <Box>No unmatched students for this assessment.</Box>;
+  if (!students.length) return <Box>No unmatched students for this assessment.</Box>;
 
-  const selected = groups.find((g) => g.correlationId === selectedId) ?? queue[0] ?? groups[0];
-  const ready = groups.filter((g) => statusOf(g.correlationId) === 'ready');
-  const toReview = groups.filter((g) => statusOf(g.correlationId) === 'to-review');
+  const selected =
+    students.find((student) => student.correlationId === selectedId) ?? queue[0] ?? students[0];
+  const ready = students.filter((student) => statusOf(student.correlationId) === 'ready');
+  const toReview = students.filter((student) => statusOf(student.correlationId) === 'to-review');
   const atStart = !started && toReview.length > 0;
   // Every student has a decision, but saved matches haven't been submitted.
   const awaitingSubmit = ready.length > 0 && !toReview.length;
@@ -120,22 +124,24 @@ export const WorkspaceReview = () => {
   const submitPrompt = (
     <SubmitPrompt
       readyCount={ready.length}
-      excludedCount={groups.filter((g) => statusOf(g.correlationId) === 'excluded').length}
+      excludedCount={
+        students.filter((student) => statusOf(student.correlationId) === 'excluded').length
+      }
     />
   );
 
   const advance = (from: string) => {
-    const index = queue.findIndex((g) => g.correlationId === from);
+    const index = queue.findIndex((student) => student.correlationId === from);
     const after = [...queue.slice(index + 1), ...queue.slice(0, Math.max(index, 0))];
-    const next = after.find((g) => statusOf(g.correlationId) === 'to-review');
+    const next = after.find((student) => statusOf(student.correlationId) === 'to-review');
     if (next) setSelectedId(next.correlationId);
   };
   const move = (step: number) => {
     if (!queue.length) return;
-    const index = queue.findIndex((g) => g.correlationId === selected.correlationId);
+    const index = queue.findIndex((student) => student.correlationId === selected.correlationId);
     setSelectedId(queue[(index + step + queue.length) % queue.length].correlationId);
   };
-  const position = queue.findIndex((g) => g.correlationId === selected.correlationId);
+  const position = queue.findIndex((student) => student.correlationId === selected.correlationId);
 
   const searchBox = (
     <Input
@@ -213,7 +219,7 @@ export const WorkspaceReview = () => {
   const countLine = (
     <HStack fontSize="0.8rem" gap="200" minHeight="1.5rem">
       <Box opacity="0.8" whiteSpace="nowrap">
-        {queue.length} of {groups.length} students
+        {queue.length} of {students.length} students
       </Box>
       {filtered && (
         <QuietButton size="xs" onClick={clearFilters}>
@@ -241,8 +247,10 @@ export const WorkspaceReview = () => {
       {atStart ? (
         <StartScreen
           toReview={toReview.length}
-          total={groups.length}
-          first={queue.find((g) => statusOf(g.correlationId) === 'to-review') ?? toReview[0]}
+          total={students.length}
+          first={
+            queue.find((student) => statusOf(student.correlationId) === 'to-review') ?? toReview[0]
+          }
           onStart={(id) => setSelectedId(id)}
         />
       ) : (
@@ -274,7 +282,7 @@ export const WorkspaceReview = () => {
           ) : (
             <Workspace
               key={selected.correlationId}
-              group={selected}
+              student={selected}
               onSaved={(action) => {
                 // Undo goes back to the student it undoes, even past the
                 // prompt to submit.
@@ -340,15 +348,16 @@ export const WorkspaceReview = () => {
                 </QuietButton>
               </Box>
             )}
-            {sections.map(({ title, statuses, finished }) => {
-              const members = queue.filter((g) => statuses.includes(statusOf(g.correlationId)));
+            {sections.map(({ status, finished }) => {
+              const title = statusLabel[status];
+              const members = queue.filter((student) => statusOf(student.correlationId) === status);
               // A folded group opens while its student is the one shown,
               // e.g. after stepping to it with previous and next.
-              const holdsSelected = members.some((g) => g.correlationId === shownId);
+              const holdsSelected = members.some((student) => student.correlationId === shownId);
               const isOpen = !finished || openFinished.has(title) || holdsSelected;
               // Saved matches and the button that submits them sit
               // together, in one place, even when empty.
-              const isReadyBox = statuses.includes('ready');
+              const isReadyBox = status === 'ready';
               if (!members.length && !isReadyBox) return null;
               const list = (
                 <VStack
@@ -398,14 +407,14 @@ export const WorkspaceReview = () => {
                       overflowY="auto"
                       {...(members.length > 10 ? scrollEdges : {})}
                     >
-                      {members.map((group) => (
+                      {members.map((student) => (
                         <QueueRow
-                          key={group.correlationId}
-                          group={group}
-                          decision={decisions.get(group.correlationId)}
-                          status={statusOf(group.correlationId)}
-                          isSelected={group.correlationId === shownId}
-                          onSelect={() => setSelectedId(group.correlationId)}
+                          key={student.correlationId}
+                          student={student}
+                          decision={decisions.get(student.correlationId)}
+                          status={statusOf(student.correlationId)}
+                          isSelected={student.correlationId === shownId}
+                          onSelect={() => setSelectedId(student.correlationId)}
                         />
                       ))}
                     </VStack>
@@ -466,10 +475,12 @@ export const WorkspaceReview = () => {
  * include delivery errors, as a job can complete with errors today.
  */
 const useReviewDone = () => {
-  const { groups, statusOf } = useReviewSession();
+  const { students, statusOf } = useReviewSession();
   return (
-    groups.length > 0 &&
-    groups.every((g) => ['reprocessed', 'excluded'].includes(statusOf(g.correlationId)))
+    students.length > 0 &&
+    students.every((student) =>
+      ['reprocessed', 'excluded'].includes(statusOf(student.correlationId))
+    )
   );
 };
 
@@ -482,16 +493,16 @@ const ReviewComplete = () => (
 
 /** Progress toward review done: students decided, whether or not submitted. */
 const ReviewProgress = () => {
-  const { groups, statusOf } = useReviewSession();
+  const { students, statusOf } = useReviewSession();
   const done = useReviewDone();
-  const decided = groups.filter(
-    (g) => !['to-review', 'run-failed'].includes(statusOf(g.correlationId))
+  const decided = students.filter(
+    (student) => !['to-review', 'run-failed'].includes(statusOf(student.correlationId))
   ).length;
   return (
     <HStack gap="300" fontSize="0.8rem">
       <Progress
         flex="1"
-        value={groups.length ? (decided / groups.length) * 100 : 0}
+        value={students.length ? (decided / students.length) * 100 : 0}
         size="xs"
         borderRadius="999px"
         bg="blue.600"
@@ -502,7 +513,7 @@ const ReviewProgress = () => {
         <ReviewComplete />
       ) : (
         <Box opacity="0.8" whiteSpace="nowrap">
-          {decided} of {groups.length} decided
+          {decided} of {students.length} decided
         </Box>
       )}
     </HStack>
@@ -537,7 +548,8 @@ const StartScreen = ({
     </Box>
     <PrimaryButton onClick={() => onStart(first.correlationId)}>Start reviewing</PrimaryButton>
     <Box fontSize="0.85rem" opacity="0.75">
-      This opens the first student under To review. You can also pick any student there.
+      This opens the first student under {statusLabel['to-review']}. You can also pick any student
+      there.
     </Box>
   </VStack>
 );
@@ -562,7 +574,7 @@ const SubmitPrompt = ({
         {readyCount} {readyCount === 1 ? 'match is' : 'matches are'} ready to submit
         {excludedCount > 0 &&
           `, and ${excludedCount} ${excludedCount === 1 ? 'record is' : 'records are'} excluded`}
-        . Check them and submit from Ready to submit, in the list.
+        . Check them and submit from {statusLabel.ready}, in the list.
       </Box>
       <Box fontSize="0.85rem" opacity="0.75">
         To look at a student again, pick them from the list.
@@ -573,23 +585,23 @@ const SubmitPrompt = ({
 
 /** The summary's counts. */
 const overviewTiles: { label: string; statuses: StudentStatus[] }[] = [
-  { label: 'Needs review', statuses: ['to-review'] },
-  { label: 'Matches to submit', statuses: ['ready'] },
-  { label: 'Excluded', statuses: ['excluded'] },
+  { label: statusLabel['to-review'], statuses: ['to-review'] },
+  { label: statusLabel.ready, statuses: ['ready'] },
+  { label: statusLabel.excluded, statuses: ['excluded'] },
   { label: 'Submitted', statuses: ['reprocessing', 'reprocessed', 'run-failed'] },
 ];
 
 /** Progress that says what's left to do, with identity and processing kept apart. */
 const Overview = () => {
-  const { groups, statusOf, batches } = useReviewSession();
+  const { students, statusOf, batches } = useReviewSession();
   const count = (...statuses: StudentStatus[]) =>
-    groups.filter((g) => statuses.includes(statusOf(g.correlationId))).length;
-  const tooMany = groups.length > USUAL_MAXIMUM;
+    students.filter((student) => statuses.includes(statusOf(student.correlationId))).length;
+  const tooMany = students.length > USUAL_MAXIMUM;
   const tiles = overviewTiles.map((tile) => ({ ...tile, value: count(...tile.statuses) }));
 
   return (
     <VStack alignItems="stretch" gap="200" layerStyle="contentBox" padding="300">
-      {tooMany && <TooManyNote count={groups.length} />}
+      {tooMany && <TooManyNote count={students.length} />}
       <HStack gap="500" flexWrap="wrap">
         {tiles.map((tile) => (
           <VStack key={tile.label} alignItems="flex-start" gap="0">

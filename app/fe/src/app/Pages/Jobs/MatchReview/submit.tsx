@@ -85,7 +85,7 @@ export const SubmitReview = ({
   onClose: () => void;
   onView: (correlationId: string) => void;
 }) => {
-  const { decisions, submit, groups, statusOf } = useReviewSession();
+  const { decisions, submit, students, statusOf } = useReviewSession();
   const [sent, setSent] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null);
   useEffect(() => {
@@ -94,9 +94,9 @@ export const SubmitReview = ({
       setConflict(null);
     }
   }, [isOpen]);
-  const excluded = groups.filter((g) => statusOf(g.correlationId) === 'excluded');
-  const byOthers = ready.filter((g) => {
-    const by = decisions.get(g.correlationId)?.decidedBy;
+  const excluded = students.filter((student) => statusOf(student.correlationId) === 'excluded');
+  const byOthers = ready.filter((student) => {
+    const by = decisions.get(student.correlationId)?.decidedBy;
     return by && by !== 'you';
   });
 
@@ -152,19 +152,19 @@ export const SubmitReview = ({
               </Tr>
             </Thead>
             <Tbody>
-              {ready.map((group) => {
-                const decision = decisions.get(group.correlationId);
+              {ready.map((student) => {
+                const decision = decisions.get(student.correlationId);
                 const candidate = decision?.kind === 'match' ? decision.candidate : null;
                 return (
-                  <Tr key={group.correlationId}>
+                  <Tr key={student.correlationId}>
                     <Td>
-                      <RecordLines details={group.inputDetails} />
+                      <RecordLines details={student.inputDetails} />
                     </Td>
                     <Td>
                       {candidate && (
                         <RecordLines
                           details={candidate.rosterDetails}
-                          against={group.inputDetails}
+                          against={student.inputDetails}
                         />
                       )}
                       {candidate?.source === 'search' && (
@@ -179,7 +179,7 @@ export const SubmitReview = ({
                       )}
                     </Td>
                     <Td textAlign="right">
-                      <QuietButton onClick={() => onView(group.correlationId)}>
+                      <QuietButton onClick={() => onView(student.correlationId)}>
                         View evidence
                       </QuietButton>
                     </Td>
@@ -191,8 +191,8 @@ export const SubmitReview = ({
           {excluded.length > 0 && (
             <Box marginTop="300" fontSize="0.85rem" opacity="0.85">
               Not part of this submission: {excluded.length} excluded from this job (
-              {excluded.map((g) => studentName(g.inputDetails)).join(', ')}). Exclusions already
-              apply.
+              {excluded.map((student) => studentName(student.inputDetails)).join(', ')}). Exclusions
+              already apply.
             </Box>
           )}
           <Box marginTop="300" fontSize="0.85rem" opacity="0.85">
@@ -207,7 +207,7 @@ export const SubmitReview = ({
             isLoading={sent}
             onClick={async () => {
               setSent(true);
-              const result = await submit(ready.map((g) => g.correlationId));
+              const result = await submit(ready.map((student) => student.correlationId));
               setSent(false);
               if (result.ok) onClose();
               else setConflict(result.message);

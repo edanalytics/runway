@@ -12,14 +12,14 @@ import { USUAL_MAXIMUM } from './WorkspaceReview';
  */
 
 export const ReviewNotice = () => {
-  const { groups, isLoading, statusOf } = useReviewSession();
+  const { students, isLoading, statusOf } = useReviewSession();
   const navigate = useNavigate({ from: '/assessments/$assessmentId/' });
-  if (isLoading || !groups.length) return null;
+  if (isLoading || !students.length) return null;
 
   const onReview = () => navigate({ search: { tab: 'students' }, resetScroll: false });
 
   const count = (...statuses: StudentStatus[]) =>
-    groups.filter((g) => statuses.includes(statusOf(g.correlationId))).length;
+    students.filter((student) => statuses.includes(statusOf(student.correlationId))).length;
   const toReview = count('to-review', 'run-failed');
   const ready = count('ready');
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -57,7 +57,7 @@ export const ReviewNotice = () => {
           ready > 0 &&
           ` ${plural(ready, 'match is', 'matches are')} saved and waiting to be submitted.`}
       </Box>
-      {groups.length > USUAL_MAXIMUM && (
+      {students.length > USUAL_MAXIMUM && (
         <Box textStyle="body" marginBottom="300" color="purple.200">
           That's more than a file usually has, which often points to a problem with the file itself
           (such as the wrong ID column or school year). Fixing and uploading it again may be
