@@ -25,10 +25,7 @@ import {
   StudentMatchStatus,
 } from '@edanalytics/models';
 import { apiClient } from '../../../api/methods';
-import {
-  getJobStudentMatchResults,
-  useInvalidateJobQueries,
-} from '../../../api/queries/job.queries';
+import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
 import { useMe } from '../../../api/queries/me.queries';
 import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
 import { studentsToResend, SubmitRefusal, submitRefusal } from './sendRun';
@@ -206,22 +203,28 @@ export const ReviewSessionProvider = ({
     refetchInterval: (query) => (query.state.data?.counts.reprocessing ? 5000 : false),
   });
   const queryClient = useQueryClient();
-  const invalidateJob = useInvalidateJobQueries(jobId);
+  // Where the job's status, counts and combined summary show: its page and
+  // the jobs table. Not this read, which is what changed.
+  const refreshJob = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${jobId}`] });
+    queryClient.invalidateQueries({ queryKey: ['jobs', 'list'] });
+  }, [jobId, queryClient]);
   const toast = useToast();
   const { data: me } = useMe();
   const meId = me?.user?.id;
   const [searches, setSearches] = useState<Map<string, SearchState>>(() => new Map());
 
   // When the counts change, so may the job: its status, its counts and, after
-  // a send run, its combined summary. The first load changes nothing, and
-  // refetching the job refetches this read, whose counts are then the same.
+  // a send run, its combined summary. This is the one path that refreshes the
+  // job: decisions and submits refetch this read, and its counts say whether
+  // anything about the job changed. The first load changes nothing.
   const previousCounts = useRef<GetStudentMatchCountsDto>();
   useEffect(() => {
     if (!data) return;
     const previous = previousCounts.current;
     previousCounts.current = data.counts;
-    if (previous && !isEqual(previous, data.counts)) invalidateJob();
-  }, [data, invalidateJob]);
+    if (previous && !isEqual(previous, data.counts)) refreshJob();
+  }, [data, refreshJob]);
 
   const students = useMemo(() => data?.students ?? [], [data]);
   const sendRuns = useMemo(() => data?.sendRuns ?? [], [data]);
@@ -287,12 +290,13 @@ export const ReviewSessionProvider = ({
               }
             : current
         );
-        invalidateJob();
+        // For the counts, which the cache update leaves as they were.
+        refetch();
       } catch (err) {
         failed(err);
       }
     },
-    [decisions, failed, invalidateJob, jobId, queryClient, resultsQuery.queryKey]
+    [decisions, failed, jobId, queryClient, refetch, resultsQuery.queryKey]
   );
 
   const decide = useCallback(
@@ -331,7 +335,7 @@ export const ReviewSessionProvider = ({
         const { launched } = (await apiClient.post(`/jobs/${jobId}/student-match-results/submit`, {
           students,
         })) as unknown as PostStudentMatchSubmitResponseDto;
-        invalidateJob();
+        refetch();
         if (!launched) {
           // The submit stands, and its students are run-failed: sending again
           // at once would most likely fail the same way.
@@ -351,7 +355,7 @@ export const ReviewSessionProvider = ({
         return { ok: false, refusal: submitRefusal(err, students), message: messageOf(err) };
       }
     },
-    [invalidateJob, jobId, refetch, toast]
+    [jobId, refetch, toast]
   );
 
   const submit = useCallback(
