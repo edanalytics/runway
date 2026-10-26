@@ -9,13 +9,16 @@
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "npx tsc --noEmit --project ./fe/tsconfig.app.json"
+        "commands": [
+          "npx tsc --noEmit --project ./fe/tsconfig.app.json",
+          "npx tsc --noEmit --project ./fe/tsconfig.spec.json"
+        ]
       }
     },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "npx vitest run --config ./fe/vite.config.mts --passWithNoTests"
+        "command": "npx vitest run --config ./fe/vite.config.mts"
       }
     }
   }
