@@ -1,4 +1,5 @@
-import { Box, HStack, Progress, Spinner, VStack } from '@chakra-ui/react';
+import { Box, HStack, Progress, Spinner, useToast, VStack } from '@chakra-ui/react';
+import { ConfirmAction } from '@edanalytics/common-ui';
 import { getResourceSummaries, GetSendRunDto } from '@edanalytics/models';
 import { useState } from 'react';
 import { ContactSupport } from '../../../components/SupportButton';
@@ -95,7 +96,9 @@ const SubmissionIcon = ({ outcome }: { outcome: SendRunOutcome }) => {
 
 /**
  * A troubled submission's next step: support, who can trace its records
- * from the run's logs. The matches stand either way.
+ * from the run's logs. The matches stand either way. A failed one can also
+ * be sent again, though without a fix that usually fails the same way, so
+ * support comes first.
  */
 const SubmissionSupport = ({
   sendRun,
@@ -106,8 +109,15 @@ const SubmissionSupport = ({
   number: number;
   outcome: 'complete with errors' | 'failed';
 }) => {
-  const { job } = useReviewSession();
+  const { job, overLimit, resend } = useReviewSession();
+  const toast = useToast();
   const reference = submissionReference(job.id, number, sendRun);
+  const sendAgain = async () => {
+    const result = await resend(sendRun.id);
+    if (!result.ok) {
+      toast({ status: 'error', title: "Couldn't send them again", description: result.message });
+    }
+  };
   return (
     <HStack
       marginTop="200"
@@ -125,9 +135,32 @@ const SubmissionSupport = ({
           ? "The run failed. Its matches still stand. Support can find out why from the run's logs."
           : "The run can't say which students the failed records belong to. The matches still stand; support can trace the failures from the run's logs."}
       </Box>
-      <ContactSupport
-        message={`${reference} ${outcome === 'failed' ? 'failed' : 'completed with errors'}`}
-      />
+      <VStack alignItems="flex-end" gap="100">
+        <ContactSupport
+          message={`${reference} ${outcome === 'failed' ? 'failed' : 'completed with errors'}`}
+        />
+        {outcome === 'failed' &&
+          // Past the review limit the page has no students to send again.
+          (overLimit ? (
+            <Box fontSize="0.8rem" opacity="0.8" maxWidth="14rem" textAlign="right">
+              Too many students to send again from here. Support can help.
+            </Box>
+          ) : (
+            <ConfirmAction
+              headerText={`Send submission ${number}'s students again?`}
+              bodyText="Sending again usually fails the same way unless the cause has been fixed. Support can find the cause in the run's logs and tell you when it's worth sending again."
+              yesButtonText="Send again"
+              noButtonText="Cancel"
+              action={sendAgain}
+            >
+              {(confirmProps) => (
+                <QuietButton size="xs" {...confirmProps}>
+                  Send again
+                </QuietButton>
+              )}
+            </ConfirmAction>
+          ))}
+      </VStack>
     </HStack>
   );
 };

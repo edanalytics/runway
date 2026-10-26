@@ -20,6 +20,7 @@ import {
 } from '../../../api/queries/job.queries';
 import { useMe } from '../../../api/queries/me.queries';
 import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
+import { studentsToResend } from './sendRun';
 
 /*
  * One review session per job page, backed by the match-review API: the
@@ -98,6 +99,8 @@ type Session = {
   sendRunOf: (correlationId: string) => GetSendRunDto | undefined;
   /** Submits the match decisions among these students as one send run. */
   submit: (correlationIds: string[]) => Promise<SubmitResult>;
+  /** Submits a failed send run's students again, as a new send run. */
+  resend: (sendRunId: number) => Promise<SubmitResult>;
   /** Searches IDRS for a student with the reviewer's terms. */
   search: (correlationId: string, terms: SearchTerms) => Promise<SearchHit[]>;
   /** The reviewer's last search for a student, kept for when they come back. */
@@ -278,12 +281,9 @@ export const ReviewSessionProvider = ({
     [write]
   );
 
-  const submit = useCallback(
-    async (correlationIds: string[]): Promise<SubmitResult> => {
-      const students = correlationIds.flatMap((correlationId) => {
-        const decision = decisions.get(correlationId);
-        return decision?.kind === 'match' ? [{ correlationId, version: decision.version }] : [];
-      });
+  /** Creates a send run for these students' decisions, at the versions given. */
+  const send = useCallback(
+    async (students: { correlationId: string; version: number }[]): Promise<SubmitResult> => {
       if (!students.length) return { ok: true };
       try {
         await apiClient.post(`/jobs/${jobId}/student-match-results/submit`, { students });
@@ -299,7 +299,23 @@ export const ReviewSessionProvider = ({
         };
       }
     },
-    [decisions, invalidateJob, jobId, refetch]
+    [invalidateJob, jobId, refetch]
+  );
+
+  const submit = useCallback(
+    (correlationIds: string[]) =>
+      send(
+        correlationIds.flatMap((correlationId) => {
+          const decision = decisions.get(correlationId);
+          return decision?.kind === 'match' ? [{ correlationId, version: decision.version }] : [];
+        })
+      ),
+    [decisions, send]
+  );
+
+  const resend = useCallback(
+    (sendRunId: number) => send(studentsToResend(students, sendRunId)),
+    [send, students]
   );
 
   const search = useCallback(
@@ -334,6 +350,7 @@ export const ReviewSessionProvider = ({
     statusOf,
     sendRunOf,
     submit,
+    resend,
     search,
     searchOf,
     setSearch,

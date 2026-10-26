@@ -260,8 +260,8 @@ const DecisionState = ({
         </Box>
         {status === 'run-failed' ? (
           <Box fontSize="0.85rem" opacity="0.85">
-            That submission's run failed. The match still stands. Submission {number}, above, has
-            what to do next.
+            That submission's run failed. The match still stands. Submission {number}, above, is
+            where to contact support or send its students again.
           </Box>
         ) : (
           <HStack fontSize="0.85rem" gap="300" flexWrap="wrap" justifyContent="space-between">

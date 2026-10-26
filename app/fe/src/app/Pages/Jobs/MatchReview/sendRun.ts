@@ -71,6 +71,9 @@ export type ResendableStudent = Pick<
 export const studentsToResend = (
   students: ResendableStudent[],
   sendRunId: number
-): { correlationId: string; version: number }[] => {
-  throw new Error('not implemented');
-};
+): { correlationId: string; version: number }[] =>
+  students.flatMap((student) =>
+    student.status === 'run-failed' && student.sendRunId === sendRunId && student.decision
+      ? [{ correlationId: student.correlationId, version: student.decision.version }]
+      : []
+  );
