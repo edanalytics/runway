@@ -1,5 +1,4 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { plainToInstance } from 'class-transformer';
 import { useToast } from '@chakra-ui/react';
 import { isEqual } from 'lodash';
 import {
@@ -13,23 +12,23 @@ import {
   useState,
 } from 'react';
 import {
-  GetIdrsStudentDto,
   GetJobDto,
   PostStudentMatchDecisionDto,
   GetSendRunDto,
-  PostStudentMatchSubmitResponseDto,
+  PostStudentMatchSubmitStudentDto,
   GetStudentInputDetailsDto,
   GetStudentMatchCountsDto,
-  GetStudentMatchDecisionDto,
   GetStudentMatchResultsDto,
   StudentRosterDetailsJson,
   StudentSearchDetailsDto,
   StudentMatchStatus,
   studentMatchStatus,
 } from '@edanalytics/models';
-import { apiClient } from '../../../api/methods';
 import {
   getJobStudentMatchResults,
+  postStudentMatchDecision,
+  postStudentMatchSearch,
+  postStudentMatchSubmit,
   useInvalidateJobSummary,
 } from '../../../api/queries/job.queries';
 import { SearchTerms, searchDetailsFrom } from './search';
@@ -101,8 +100,8 @@ export type SearchState = { terms: SearchTerms; hits: Candidate[] | null };
  */
 export type DecisionResult = { ok: true; version: number | null } | { ok: false; message: string };
 
-/** A student as submit takes them: their correlation id and their match's version. */
-export type SubmitStudent = { correlationId: string; version: number };
+/** A search's outcome: the students it found, or why it failed. */
+export type SearchResult = { ok: true; candidates: Candidate[] } | { ok: false; message: string };
 
 /** A submit's outcome. A submit whose run couldn't start still stands. */
 export type SubmitResult = { ok: true } | ({ ok: false } & SubmitFailure);
@@ -140,7 +139,7 @@ type Session = {
   /** Submits a failed send run's students again, as a new send run. */
   resend: (sendRunId: number) => Promise<SubmitResult>;
   /** Searches IDRS for a student with the reviewer's terms. */
-  search: (correlationId: string, terms: SearchTerms) => Promise<Candidate[]>;
+  search: (correlationId: string, terms: SearchTerms) => Promise<SearchResult>;
   /** The reviewer's last search for a student, kept for when they come back. */
   searchOf: (correlationId: string) => SearchState | undefined;
   setSearch: (correlationId: string, search: SearchState) => void;
@@ -210,11 +209,10 @@ export const ReviewSessionProvider = ({
       replacesVersion: number | null
     ): Promise<DecisionResult> => {
       try {
-        const res = (await apiClient.post(
-          `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}/decisions`,
-          { replacesVersion, ...body }
-        )) as unknown as { decision: GetStudentMatchDecisionDto | null };
-        const decision = res.decision && plainToInstance(GetStudentMatchDecisionDto, res.decision);
+        const { decision } = await postStudentMatchDecision(jobId, correlationId, {
+          replacesVersion,
+          ...body,
+        });
         // Not yet in a send run: the API refuses a decision for a student who is.
         const status = studentMatchStatus(decision?.kind, undefined);
         queryClient.setQueryData<GetStudentMatchResultsDto>(resultsQuery.queryKey, (current) =>
@@ -273,11 +271,9 @@ export const ReviewSessionProvider = ({
 
   /** Creates a send run for these students' decisions, at the versions given. */
   const send = useCallback(
-    async (students: SubmitStudent[]): Promise<SubmitResult> => {
+    async (students: PostStudentMatchSubmitStudentDto[]): Promise<SubmitResult> => {
       try {
-        const { launched } = (await apiClient.post(`/jobs/${jobId}/student-match-results/submit`, {
-          students,
-        })) as unknown as PostStudentMatchSubmitResponseDto;
+        const { launched } = await postStudentMatchSubmit(jobId, { students });
         // Done once the page shows the submission, so nothing offers to
         // submit its students again meanwhile.
         await refetch();
@@ -325,19 +321,23 @@ export const ReviewSessionProvider = ({
   );
 
   const search = useCallback(
-    async (correlationId: string, terms: SearchTerms): Promise<Candidate[]> => {
+    async (correlationId: string, terms: SearchTerms): Promise<SearchResult> => {
       const searchDetails = searchDetailsFrom(terms);
-      const found = (await apiClient.post(
-        `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}/search`,
-        searchDetails
-      )) as unknown as GetIdrsStudentDto[];
-      return found.map(({ studentUniqueId, rosterDetails, score }) => ({
-        studentUniqueId,
-        rosterDetails,
-        score,
-        source: 'search',
-        searchDetails,
-      }));
+      try {
+        const found = await postStudentMatchSearch(jobId, correlationId, searchDetails);
+        return {
+          ok: true,
+          candidates: found.map(({ studentUniqueId, rosterDetails, score }) => ({
+            studentUniqueId,
+            rosterDetails,
+            score,
+            source: 'search',
+            searchDetails,
+          })),
+        };
+      } catch (err) {
+        return { ok: false, message: messageOf(err) };
+      }
     },
     [jobId]
   );

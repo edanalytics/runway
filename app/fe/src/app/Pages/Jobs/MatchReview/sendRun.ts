@@ -4,6 +4,7 @@ import {
   GetSendRunDto,
   GetStudentInputDetailsDto,
   GetStudentMatchDecisionDto,
+  PostStudentMatchSubmitStudentDto,
 } from '@edanalytics/models';
 
 /*
@@ -71,7 +72,7 @@ export type ResendableStudent = Pick<
 export const studentsToResend = (
   students: ResendableStudent[],
   sendRunId: number
-): { correlationId: string; version: number }[] =>
+): PostStudentMatchSubmitStudentDto[] =>
   students.flatMap((student) =>
     student.status === 'run-failed' && student.sendRunId === sendRunId && student.decision
       ? [{ correlationId: student.correlationId, version: student.decision.version }]

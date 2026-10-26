@@ -627,12 +627,9 @@ const Search = ({
   const run = async () => {
     setSearching(true);
     setError(null);
-    try {
-      const found = await search(student.correlationId, terms);
-      setSearch(student.correlationId, { terms, hits: found });
-    } catch (err) {
-      setError((err as { message?: string })?.message ?? 'The search failed.');
-    }
+    const result = await search(student.correlationId, terms);
+    if (result.ok) setSearch(student.correlationId, { terms, hits: result.candidates });
+    else setError(result.message);
     setSearching(false);
   };
   const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (

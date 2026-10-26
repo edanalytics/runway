@@ -9,6 +9,12 @@ import {
   PutJobResolveDto,
   GetOutputFileDto,
   GetStudentMatchResultsDto,
+  GetIdrsStudentDto,
+  PostStudentMatchDecisionDto,
+  PostStudentMatchDecisionResponseDto,
+  PostStudentMatchSubmitDto,
+  PostStudentMatchSubmitResponseDto,
+  StudentSearchDetailsDto,
 } from '@edanalytics/models';
 import { EntityQueryBuilder } from './builder';
 import { apiClient, methods } from '../methods';
@@ -80,6 +86,42 @@ export const getJobStudentMatchResults = (jobId: string) => ({
   queryKey: ['jobs', jobId, 'student-match-results'],
   queryFn: () => methods.getOne(`/jobs/${jobId}/student-match-results`, GetStudentMatchResultsDto),
 });
+
+/** The route for one of a job's students to match. Correlation ids are opaque, so encoded. */
+const studentMatchUrl = (jobId: string, correlationId: string) =>
+  `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}`;
+
+export const postStudentMatchDecision = (
+  jobId: string,
+  correlationId: string,
+  dto: PostStudentMatchDecisionDto
+) =>
+  methods.post(
+    `${studentMatchUrl(jobId, correlationId)}/decisions`,
+    PostStudentMatchDecisionDto,
+    PostStudentMatchDecisionResponseDto,
+    dto
+  );
+
+export const postStudentMatchSearch = (
+  jobId: string,
+  correlationId: string,
+  dto: StudentSearchDetailsDto
+) =>
+  methods.postMany(
+    `${studentMatchUrl(jobId, correlationId)}/search`,
+    StudentSearchDetailsDto,
+    GetIdrsStudentDto,
+    dto
+  );
+
+export const postStudentMatchSubmit = (jobId: string, dto: PostStudentMatchSubmitDto) =>
+  methods.post(
+    `/jobs/${jobId}/student-match-results/submit`,
+    PostStudentMatchSubmitDto,
+    PostStudentMatchSubmitResponseDto,
+    dto
+  );
 
 export const getJobOutputFiles = (jobId: string) => ({
   queryKey: ['jobs', jobId, 'output-files'],
