@@ -129,7 +129,10 @@ export const Workspace = ({
   const status = statusOf(id);
   const decision = decisions.get(id);
   const sendRun = sendRunOf(id);
-  const isSubmitted = status === 'reprocessing' || status === 'reprocessed';
+  // Once a student's match is in a send run, failed or not, they take no new
+  // decision (Decisions Log #46): a failed one's remedy is its submission's.
+  const isSubmitted =
+    status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed';
   const suggestions = suggestionsOf(student);
 
   // Saying none fit stays on this student and opens search and exclude.
