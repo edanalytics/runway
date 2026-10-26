@@ -107,7 +107,8 @@ export class StudentMatchReviewService {
 
   /**
    * Each job's student match counts. Job reads and the review read both use
-   * this, so they count the same way. Jobs with no students are absent.
+   * this, so they count the same way. Jobs with no students or without a
+   * successful full run are absent.
    *
    * Takes a Prisma client, though it only reads, so the review read can run it
    * in its transaction. Other callers use the service's read-only client.
@@ -156,6 +157,12 @@ export class StudentMatchReviewService {
         LIMIT 1
       ) d ON true
       WHERE i.job_id = ANY(${jobIds}::int[])
+        AND (
+          SELECT r.status FROM public.run r
+          WHERE r.job_id = i.job_id AND r.kind = 'full'
+          ORDER BY r.id DESC
+          LIMIT 1
+        ) = 'success'
       GROUP BY i.job_id
     `;
     return new Map(
@@ -208,6 +215,16 @@ export class StudentMatchReviewService {
     // each other even while students are reported, decided or sent.
     return this.prisma.$transaction(
       async (tx) => {
+        // Match the submit gate: until the full run succeeds, its reported
+        // students cannot be sent and aren't available for review.
+        const fullRun = await tx.run.findFirst({
+          where: { jobId, kind: 'full' },
+          orderBy: { id: 'desc' },
+          select: { status: true },
+        });
+        if (fullRun?.status !== 'success') {
+          return { counts: noStudentsToMatch, students: [], sendRuns: [] };
+        }
         const counts =
           (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ??
           noStudentsToMatch;
