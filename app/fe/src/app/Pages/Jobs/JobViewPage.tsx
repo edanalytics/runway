@@ -203,44 +203,45 @@ export const JobViewPage = () => {
           </Box>
         )}
       </Box>
+      {/* One element either way, so a note being typed survives the page
+          gaining match review as results arrive. With it, the notes sit
+          above the tabs, so they're in view whichever tab is open, and close
+          under the job's summary rather than a full gap below it. Without,
+          the wrapper takes no box of its own, and the notes lay out as they
+          always have. */}
+      <Box
+        {...(showsMatchReview ? { width: '100%', marginTop: '-2rem' } : { display: 'contents' })}
+      >
+        <JobNotes job={job} />
+      </Box>
       {showsMatchReview ? (
-        <>
-          {/* Notes sit above the tabs, so they're in view whichever tab is open,
-              and close under the job's summary rather than a full gap below it. */}
-          <Box width="100%" marginTop="-2rem">
-            <JobNotes job={job} />
-          </Box>
-          {/* Keyed by job, so nothing from one job's review outlives it. */}
-          <ReviewSessionProvider key={job.id} job={job}>
-            <Tabs
-              isLazy
-              lazyBehavior="keepMounted"
-              width="100%"
-              index={tabIndex}
-              onChange={(index) =>
-                navigate({ search: index === 1 ? { tab: 'students' } : {}, resetScroll: false })
-              }
-            >
-              <TabList borderColor="blue.50-40">
-                <Tab _selected={selectedTab}>Overview</Tab>
-                <Tab _selected={selectedTab}>Unmatched Students</Tab>
-              </TabList>
-              <TabPanels>
-                <TabPanel paddingX="0" paddingY="400">
-                  {overview}
-                </TabPanel>
-                <TabPanel paddingX="0" paddingY="400">
-                  <WorkspaceReview />
-                </TabPanel>
-              </TabPanels>
-            </Tabs>
-          </ReviewSessionProvider>
-        </>
+        // Keyed by job, so nothing from one job's review outlives it.
+        <ReviewSessionProvider key={job.id} job={job}>
+          <Tabs
+            isLazy
+            lazyBehavior="keepMounted"
+            width="100%"
+            index={tabIndex}
+            onChange={(index) =>
+              navigate({ search: index === 1 ? { tab: 'students' } : {}, resetScroll: false })
+            }
+          >
+            <TabList borderColor="blue.50-40">
+              <Tab _selected={selectedTab}>Overview</Tab>
+              <Tab _selected={selectedTab}>Unmatched Students</Tab>
+            </TabList>
+            <TabPanels>
+              <TabPanel paddingX="0" paddingY="400">
+                {overview}
+              </TabPanel>
+              <TabPanel paddingX="0" paddingY="400">
+                <WorkspaceReview />
+              </TabPanel>
+            </TabPanels>
+          </Tabs>
+        </ReviewSessionProvider>
       ) : (
-        <>
-          <JobNotes job={job} />
-          {overview}
-        </>
+        overview
       )}
     </VStack>
   );
