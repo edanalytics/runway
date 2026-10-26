@@ -16,9 +16,9 @@
       }
     },
     "test": {
-      "executor": "nx:run-commands",
+      "executor": "@nx/jest:jest",
       "options": {
-        "command": "npx vitest run --config ./fe/vite.config.mts"
+        "jestConfig": "fe/jest.config.ts"
       }
     }
   }

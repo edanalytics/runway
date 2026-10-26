@@ -1,6 +1,6 @@
 import { GetRunDto, GetSendRunDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from '@jest/globals';
 import {
   needsAttention,
   ResendableStudent,

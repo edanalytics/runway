@@ -56,7 +56,7 @@ npx nx test-unit api
 
 Prefer integration tests; write a unit test only when integration tests can't practically reach the logic (e.g. code behind mocked AWS clients, like task-size selection in `executor.aws.service.spec.ts`). Unit tests are `*.spec.ts` files next to the code they test in `api/src/`, and must assert behavior that can really break — not just that mocks were called. Both suites run as part of `npm run api:test`.
 
-**Frontend unit tests** (vitest, in node; `*.test.ts` files next to the code, for pure logic):
+**Frontend unit tests** (Jest, in node; `*.test.ts` files next to the code, for pure logic):
 
 ```bash
 npm run fe:test

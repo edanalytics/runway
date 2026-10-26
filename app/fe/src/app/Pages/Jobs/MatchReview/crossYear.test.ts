@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from '@jest/globals';
 import { crossYearOf } from './crossYear';
 
 // A 2024–25 job.

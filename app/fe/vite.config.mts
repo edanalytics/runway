@@ -1,4 +1,3 @@
-/// <reference types='vitest' />
 import { resolve } from 'node:path';
 import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
@@ -34,12 +33,6 @@ export default defineConfig({
   // worker: {
   //  plugins: [ nxViteTsPaths() ],
   // },
-
-  // For `npm run fe:test`. Tests run in node: a test that needs a DOM can
-  // opt in to jsdom with a `@vitest-environment jsdom` docblock.
-  test: {
-    setupFiles: ['./src/test-setup.ts'],
-  },
 
   build: {
     outDir: '../dist/fe',
