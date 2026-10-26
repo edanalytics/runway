@@ -667,18 +667,7 @@ const Search = ({
       )}
       {hits && !searching && hits.length > 0 && (
         <Box bg="blue.700" borderRadius="6px" padding="200">
-          <EvidenceTable
-            student={student}
-            candidates={hits.map((hit) => ({
-              studentUniqueId: hit.studentUniqueId,
-              rosterDetails: hit.rosterDetails,
-              score: hit.score,
-              source: 'search' as const,
-              searchDetails: hit.searchDetails,
-            }))}
-            saved={saved}
-            onUse={onUse}
-          />
+          <EvidenceTable student={student} candidates={hits} saved={saved} onUse={onUse} />
         </Box>
       )}
     </VStack>

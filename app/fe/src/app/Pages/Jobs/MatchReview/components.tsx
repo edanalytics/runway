@@ -257,25 +257,30 @@ export const matchedCandidate = ({
   results,
 }: GetStudentInputDetailsDto): Candidate | null => {
   if (decision?.kind !== 'match') return null;
-  if (decision.search) {
+  const { studentUniqueId, search, resultId, ordinal } = decision;
+  // A guard: every match has its answer and exactly one basis. The DTO's
+  // fields are nullable for an exclude, and for the basis a match doesn't use.
+  if (studentUniqueId === null) return null;
+  if (search) {
     return {
-      studentUniqueId: decision.studentUniqueId ?? '',
-      rosterDetails: decision.search.rosterDetails,
+      studentUniqueId,
+      rosterDetails: search.rosterDetails,
       score: null,
       source: 'search',
-      searchDetails: decision.search.searchDetails as StudentSearchDetailsDto,
+      searchDetails: search.searchDetails as StudentSearchDetailsDto,
     };
   }
+  if (resultId === null || ordinal === null) return null;
   const suggestion = results
-    .find((r) => r.id === decision.resultId)
-    ?.suggestions.find((s) => s.ordinal === decision.ordinal);
+    .find((r) => r.id === resultId)
+    ?.suggestions.find((s) => s.ordinal === ordinal);
   return {
-    studentUniqueId: decision.studentUniqueId ?? '',
+    studentUniqueId,
     rosterDetails: suggestion?.rosterDetails ?? {},
     score: suggestion?.score ?? null,
     source: 'suggestion',
-    resultId: decision.resultId ?? undefined,
-    ordinal: decision.ordinal ?? undefined,
+    resultId,
+    ordinal,
   };
 };
 

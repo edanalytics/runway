@@ -13,7 +13,9 @@ import {
   useState,
 } from 'react';
 import {
+  GetIdrsStudentDto,
   GetJobDto,
+  PostStudentMatchDecisionDto,
   GetSendRunDto,
   PostStudentMatchSubmitResponseDto,
   GetStudentInputDetailsDto,
@@ -30,7 +32,7 @@ import {
   getJobStudentMatchResults,
   useInvalidateJobSummary,
 } from '../../../api/queries/job.queries';
-import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
+import { SearchTerms, searchDetailsFrom } from './search';
 import { studentsToResend } from './sendRun';
 import { SubmitFailure, submitRefusal, wroteNothing } from './submitResult';
 
@@ -41,18 +43,25 @@ import { SubmitFailure, submitRefusal, wroteNothing } from './submitResult';
  * version, which the next write for that student names as `replacesVersion`.
  */
 
+/** A student the reviewer can match to: one of IDRS's suggestions, or a search hit. */
 export type Candidate = {
   studentUniqueId: string;
   rosterDetails: StudentRosterDetailsJson;
   /** IDRS's score, when the candidate came from IDRS. */
   score: number | null;
-  source: 'suggestion' | 'search';
-  /** A suggestion's place, which a match to it names. */
-  resultId?: string;
-  ordinal?: number;
-  /** A search hit's search, which a match to it stores. */
-  searchDetails?: StudentSearchDetailsDto;
-};
+} & (
+  | {
+      source: 'suggestion';
+      /** The suggestion's place, which a match to it names. */
+      resultId: string;
+      ordinal: number;
+    }
+  | {
+      source: 'search';
+      /** The search that found the student, which a match to them stores. */
+      searchDetails: StudentSearchDetailsDto;
+    }
+);
 
 export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: 'exclude' };
 
@@ -84,7 +93,7 @@ export const countOf = (counts: GetStudentMatchCountsDto, status: StudentMatchSt
 export const hasMatchReview = (job: GetJobDto) =>
   job.idMatchingMode === 'fuzzy' && job.studentMatchCounts.total > 0;
 
-export type SearchState = { terms: SearchTerms; hits: SearchHit[] | null };
+export type SearchState = { terms: SearchTerms; hits: Candidate[] | null };
 
 /**
  * A decision write's outcome: the version it wrote (null after a clear,
@@ -131,7 +140,7 @@ type Session = {
   /** Submits a failed send run's students again, as a new send run. */
   resend: (sendRunId: number) => Promise<SubmitResult>;
   /** Searches IDRS for a student with the reviewer's terms. */
-  search: (correlationId: string, terms: SearchTerms) => Promise<SearchHit[]>;
+  search: (correlationId: string, terms: SearchTerms) => Promise<Candidate[]>;
   /** The reviewer's last search for a student, kept for when they come back. */
   searchOf: (correlationId: string) => SearchState | undefined;
   setSearch: (correlationId: string, search: SearchState) => void;
@@ -197,7 +206,7 @@ export const ReviewSessionProvider = ({
   const write = useCallback(
     async (
       correlationId: string,
-      body: object,
+      body: Omit<PostStudentMatchDecisionDto, 'replacesVersion'>,
       replacesVersion: number | null
     ): Promise<DecisionResult> => {
       try {
@@ -245,7 +254,7 @@ export const ReviewSessionProvider = ({
               kind: 'match',
               studentUniqueId: candidate.studentUniqueId,
               search: {
-                searchDetails: candidate.searchDetails ?? {},
+                searchDetails: candidate.searchDetails,
                 rosterDetails: candidate.rosterDetails,
               },
             }
@@ -316,13 +325,19 @@ export const ReviewSessionProvider = ({
   );
 
   const search = useCallback(
-    async (correlationId: string, terms: SearchTerms): Promise<SearchHit[]> => {
+    async (correlationId: string, terms: SearchTerms): Promise<Candidate[]> => {
       const searchDetails = searchDetailsFrom(terms);
       const found = (await apiClient.post(
         `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}/search`,
         searchDetails
-      )) as unknown as Omit<SearchHit, 'searchDetails'>[];
-      return found.map((hit) => ({ ...hit, searchDetails }));
+      )) as unknown as GetIdrsStudentDto[];
+      return found.map(({ studentUniqueId, rosterDetails, score }) => ({
+        studentUniqueId,
+        rosterDetails,
+        score,
+        source: 'search',
+        searchDetails,
+      }));
     },
     [jobId]
   );

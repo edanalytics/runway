@@ -1,6 +1,5 @@
 import { StudentInputDetailsJson, StudentSearchDetailsDto } from '@edanalytics/models';
 import { valueText } from './values';
-import type { Candidate } from './reviewSession';
 
 /** The search form's fields, as typed. */
 export type SearchTerms = {
@@ -9,12 +8,6 @@ export type SearchTerms = {
   birth_date: string;
   /** Any IDs the reviewer has, separated by commas or spaces. */
   student_ids: string;
-};
-
-/** A student the search found, with the search that found them, which a match to them stores. */
-export type SearchHit = Required<Pick<Candidate, 'studentUniqueId' | 'rosterDetails'>> & {
-  score: number;
-  searchDetails: StudentSearchDetailsDto;
 };
 
 /** Search terms pre-filled from the file's details. */
