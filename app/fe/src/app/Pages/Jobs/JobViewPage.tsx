@@ -18,7 +18,7 @@ import {
   jobQueries,
   useInvalidateJobQueries,
 } from '../../api/queries/job.queries';
-import { useParams } from '@tanstack/react-router';
+import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { schoolYearQueries } from '../../api';
 import { JobStatus } from './SharedJobComponents/JobStatus';
 import { useEffect, useState } from 'react';
@@ -67,8 +67,12 @@ export const JobViewPage = () => {
   const canViewCrossTenantJobs = me?.privileges?.has('job.metatenant.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
-  const [tabIndex, setTabIndex] = useState(0);
   const hasStudentsToMatch = !!job.studentMatchCounts?.total;
+  // The open tab is in the URL, so a link can open the review. A job without
+  // students to match has no such tab, so it falls back to the Overview.
+  const { tab } = useSearch({ from: '/assessments/$assessmentId/' });
+  const tabIndex = hasStudentsToMatch && tab === 'students' ? 1 : 0;
+  const navigate = useNavigate({ from: '/assessments/$assessmentId/' });
 
   /**
    * The job progress through a series of stages. We determine which stage
@@ -165,7 +169,9 @@ export const JobViewPage = () => {
           lazyBehavior="keepMounted"
           width="100%"
           index={tabIndex}
-          onChange={setTabIndex}
+          onChange={(index) =>
+            navigate({ search: index === 1 ? { tab: 'students' } : {}, resetScroll: false })
+          }
         >
           <TabList borderColor="blue.50-40">
             <Tab _selected={selectedTab}>Overview</Tab>
@@ -190,10 +196,7 @@ export const JobViewPage = () => {
                       </HStack>
                     ) : (
                       <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
-                        <JobProgressTracker
-                          statusUpdates={statusUpdates}
-                          sendToOds={job.sendToOds}
-                        />
+                        <JobProgressTracker statusUpdates={statusUpdates} sendToOds={job.sendToOds} />
                       </Box>
                     )}
                     {errors?.map(({ error }) => (
@@ -202,7 +205,7 @@ export const JobViewPage = () => {
                       <JobError key={error.id} err={error} />
                     ))}
                     {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
-                    {hasStudentsToMatch && <ReviewNotice onReview={() => setTabIndex(1)} />}
+                    {hasStudentsToMatch && <ReviewNotice />}
                   </JobViewSection>
                   {!!job.resourceSummaries && (
                     <JobViewSection title="Summary">

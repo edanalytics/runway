@@ -1,4 +1,5 @@
 import { Box, HStack } from '@chakra-ui/react';
+import { useNavigate } from '@tanstack/react-router';
 import { IconExclamation } from '../../../../assets/icons';
 import { PrimaryButton, QuietButton } from './components';
 import { StudentStatus, useReviewSession } from './reviewSession';
@@ -10,9 +11,12 @@ import { USUAL_MAXIMUM } from './WorkspaceReview';
  * unmatched-IDs summary on the run. Styled like that older notice.
  */
 
-export const ReviewNotice = ({ onReview }: { onReview: () => void }) => {
+export const ReviewNotice = () => {
   const { groups, isLoading, statusOf } = useReviewSession();
+  const navigate = useNavigate({ from: '/assessments/$assessmentId/' });
   if (isLoading || !groups.length) return null;
+
+  const onReview = () => navigate({ search: { tab: 'students' }, resetScroll: false });
 
   const count = (...statuses: StudentStatus[]) =>
     groups.filter((g) => statuses.includes(statusOf(g.correlationId))).length;
