@@ -56,11 +56,13 @@ npx nx test-unit api
 
 Prefer integration tests; write a unit test only when integration tests can't practically reach the logic (e.g. code behind mocked AWS clients, like task-size selection in `executor.aws.service.spec.ts`). Unit tests are `*.spec.ts` files next to the code they test in `api/src/`, and must assert behavior that can really break — not just that mocks were called. Both suites run as part of `npm run api:test`.
 
-**Frontend unit tests** (Jest, in node; `*.test.ts` files next to the code, for pure logic):
+**Frontend tests** (Jest; `*.test.ts` or `*.test.tsx` files next to the code):
 
 ```bash
 npm run fe:test
 ```
+
+Tests run in Node by default. DOM tests opt into the existing jsdom environment with a `@jest-environment jsdom` file comment.
 
 **Typechecking:**
 

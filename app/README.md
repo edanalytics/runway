@@ -137,7 +137,7 @@ npx nx test-unit api
 
 A unit test should assert behavior that can really break (e.g. "files over the threshold launch the large task"), not just that mocks were called.
 
-**Frontend unit tests** cover the front end's pure logic, in `*.test.ts` files next to the code, and run with Jest:
+**Frontend tests** run with Jest, in `*.test.ts` or `*.test.tsx` files next to the code. They use Node by default; DOM tests opt into the existing jsdom environment with a `@jest-environment jsdom` file comment:
 
 ```bash
 npm run fe:test

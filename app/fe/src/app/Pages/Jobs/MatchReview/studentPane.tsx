@@ -81,8 +81,17 @@ export const LastActionBar = ({
   );
   const [undoing, setUndoing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // A new action replaces the last, along with any refusal of its undo.
-  useEffect(() => setError(null), [action]);
+  const currentAction = useRef<LastAction | null>(action);
+  // A new action has its own Undo state. Ignore the old request if its
+  // action was replaced or the banner was dismissed while it was pending.
+  useEffect(() => {
+    currentAction.current = action;
+    setUndoing(false);
+    setError(null);
+    return () => {
+      currentAction.current = null;
+    };
+  }, [action]);
   return (
     <HStack
       marginBottom="300"
@@ -105,6 +114,7 @@ export const LastActionBar = ({
             onClick={async () => {
               setUndoing(true);
               const result = await action.undo();
+              if (currentAction.current !== action) return;
               setUndoing(false);
               if (result.ok) onDismiss();
               else setError(result.message);
