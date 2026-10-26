@@ -149,6 +149,8 @@ export const StudentPane = ({
   // Whether this student is still the one shown: the pane is keyed by
   // student, so it unmounts when the reviewer moves on.
   const shown = useRef(true);
+  const saving = useRef(false);
+  const [pending, setPending] = useState<{ candidateId?: string } | null>(null);
   useEffect(() => {
     shown.current = true;
     return () => {
@@ -163,16 +165,30 @@ export const StudentPane = ({
    * by someone else since is refused rather than overwritten.
    */
   const save = async (
-    write: Promise<DecisionResult>,
-    action: { message: string; advance: boolean }
+    write: (onSaved: (version: number | null) => void) => Promise<DecisionResult>,
+    action: { message: string; advance: boolean; candidateId?: string }
   ) => {
+    if (saving.current) return false;
+    saving.current = true;
+    setPending({ candidateId: action.candidateId });
     const previous: DecisionChoice | null = matched
       ? { kind: 'match', candidate: matched }
       : decision?.kind === 'exclude'
       ? { kind: 'exclude' }
       : null;
     setError(null);
-    const result = await write;
+    const result = await write((version) => {
+      // The session calls this alongside the cache update, so the saved
+      // student never paints between the response and moving to the next.
+      if (!shown.current) return;
+      onSaved({
+        message: action.message,
+        advance: action.advance,
+        undo: () => (previous ? decide(id, previous, version) : clear(id, version)),
+      });
+    });
+    saving.current = false;
+    if (shown.current) setPending(null);
     if (!result.ok) {
       // Once the reviewer has moved to another student, this pane is gone,
       // so a toast reports the refusal instead, naming no one.
@@ -186,40 +202,49 @@ export const StudentPane = ({
         });
       return false;
     }
-    // A save that lands after the reviewer has moved to another student
-    // still stands, but reporting it would take them back, or replace a
-    // newer action's undo with this older one.
-    if (!shown.current) return true;
-    onSaved({
-      ...action,
-      undo: () => (previous ? decide(id, previous, result.version) : clear(id, result.version)),
-    });
     return true;
   };
 
   // One step: the submit list is where matches get their second look.
   const use = (candidate: Candidate) =>
-    save(decide(id, { kind: 'match', candidate }, decision?.version ?? null), {
-      message: `Saved ${candidate.studentUniqueId} as the match for ${name}.`,
-      advance: true,
-    });
+    save(
+      (onSaved) => decide(id, { kind: 'match', candidate }, decision?.version ?? null, onSaved),
+      {
+        message: `Saved ${candidate.studentUniqueId} as the match for ${name}.`,
+        advance: true,
+        candidateId: candidate.studentUniqueId,
+      }
+    );
   const clearDecision = () =>
-    save(clear(id, decision?.version ?? null), {
+    save((onSaved) => clear(id, decision?.version ?? null, onSaved), {
       message: `Cleared the decision for ${name}.`,
       advance: false,
     });
   const exclude = async () => {
-    const saved = await save(decide(id, { kind: 'exclude' }, decision?.version ?? null), {
-      message: `Excluded ${name} from this job.`,
-      advance: true,
-    });
+    const saved = await save(
+      (onSaved) => decide(id, { kind: 'exclude' }, decision?.version ?? null, onSaved),
+      {
+        message: `Excluded ${name} from this job.`,
+        advance: true,
+      }
+    );
     if (saved) setNoneFit(false);
   };
 
   const issues = fileIssues(student);
 
   return (
-    <VStack alignItems="stretch" gap="400">
+    <VStack
+      as="fieldset"
+      disabled={!!pending}
+      aria-busy={!!pending}
+      minWidth="0"
+      padding="0"
+      margin="0"
+      border="0"
+      alignItems="stretch"
+      gap="400"
+    >
       {/* The source record stays put while everything else changes. */}
       <VStack alignItems="flex-start" gap="100">
         <Box fontSize="0.8rem" opacity="0.8">
@@ -256,7 +281,14 @@ export const StudentPane = ({
           suggestionCount={suggestions.length}
           onBack={candidates.length ? () => setNoneFit(false) : undefined}
           onExclude={exclude}
-          search={<Search student={student} matchedId={matchedId} onUse={use} />}
+          search={
+            <Search
+              student={student}
+              matchedId={matchedId}
+              onUse={use}
+              savingMatchId={pending?.candidateId}
+            />
+          }
         >
           {decision && (
             <QuietButton alignSelf="flex-start" onClick={clearDecision}>
@@ -271,6 +303,7 @@ export const StudentPane = ({
             candidates={candidates}
             matchedId={matchedId}
             onUse={isSubmitted ? undefined : use}
+            savingMatchId={pending?.candidateId}
           />
           {!isSubmitted && (
             <HStack gap="300" paddingTop="100">
@@ -396,11 +429,13 @@ const EvidenceTable = ({
   candidates,
   matchedId,
   onUse,
+  savingMatchId,
 }: {
   student: GetStudentInputDetailsDto;
   candidates: Candidate[];
   matchedId: string | null;
   onUse?: (candidate: Candidate) => void;
+  savingMatchId?: string;
 }) => {
   // Details only the roster has are a click away; remembered across students.
   const [showRosterOnly, setShowRosterOnlyState] = useState(() => {
@@ -584,7 +619,11 @@ const EvidenceTable = ({
                     </Box>
                   ) : (
                     onUse && (
-                      <PrimaryButton onClick={() => onUse(c)}>
+                      <PrimaryButton
+                        onClick={() => onUse(c)}
+                        isLoading={savingMatchId === c.studentUniqueId}
+                        loadingText="Saving…"
+                      >
                         {c.source === 'search' ? 'Use this student' : 'Use suggestion'}
                       </PrimaryButton>
                     )
@@ -610,10 +649,12 @@ const Search = ({
   student,
   matchedId,
   onUse,
+  savingMatchId,
 }: {
   student: GetStudentInputDetailsDto;
   matchedId: string | null;
   onUse: (candidate: Candidate) => void;
+  savingMatchId?: string;
 }) => {
   const { search, searchOf, setSearch } = useReviewSession();
   const remembered = searchOf(student.correlationId);
@@ -664,7 +705,13 @@ const Search = ({
       )}
       {hits && !searching && hits.length > 0 && (
         <Box bg="blue.700" borderRadius="6px" padding="200">
-          <EvidenceTable student={student} candidates={hits} matchedId={matchedId} onUse={onUse} />
+          <EvidenceTable
+            student={student}
+            candidates={hits}
+            matchedId={matchedId}
+            onUse={onUse}
+            savingMatchId={savingMatchId}
+          />
         </Box>
       )}
     </VStack>

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@chakra-ui/react';
 import { isEqual } from 'lodash';
+import { flushSync } from 'react-dom';
 import {
   createContext,
   ReactNode,
@@ -99,6 +100,7 @@ export type SearchState = { terms: SearchTerms; hits: Candidate[] | null };
  * which leaves no decision), or why it was refused.
  */
 export type DecisionResult = { ok: true; version: number | null } | { ok: false; message: string };
+type DecisionSaved = (version: number | null) => void;
 
 /** A search's outcome: the students it found, or why it failed. */
 export type SearchResult = { ok: true; candidates: Candidate[] } | { ok: false; message: string };
@@ -124,10 +126,15 @@ type Session = {
   decide: (
     correlationId: string,
     decision: DecisionChoice,
-    replacesVersion: number | null
+    replacesVersion: number | null,
+    onSaved?: DecisionSaved
   ) => Promise<DecisionResult>;
   /** Clears the decision at `replacesVersion`, leaving the student undecided. */
-  clear: (correlationId: string, replacesVersion: number | null) => Promise<DecisionResult>;
+  clear: (
+    correlationId: string,
+    replacesVersion: number | null,
+    onSaved?: DecisionSaved
+  ) => Promise<DecisionResult>;
   /** Submits the match decisions among these students as one send run. */
   submit: (correlationIds: string[]) => Promise<SubmitResult>;
   /**
@@ -206,7 +213,8 @@ export const ReviewSessionProvider = ({
     async (
       correlationId: string,
       body: Omit<PostStudentMatchDecisionDto, 'replacesVersion'>,
-      replacesVersion: number | null
+      replacesVersion: number | null,
+      onSaved?: DecisionSaved
     ): Promise<DecisionResult> => {
       try {
         const { decision } = await postStudentMatchDecision(jobId, correlationId, {
@@ -215,18 +223,23 @@ export const ReviewSessionProvider = ({
         });
         // Not yet in a send run: the API refuses a decision for a student who is.
         const status = studentMatchStatus(decision?.kind, undefined);
-        queryClient.setQueryData<GetStudentMatchResultsDto>(resultsQuery.queryKey, (current) =>
-          current?.students
-            ? {
-                ...current,
-                students: current.students.map((student) =>
-                  student.correlationId === correlationId
-                    ? { ...student, decision, status }
-                    : student
-                ),
-              }
-            : current
-        );
+        // Commit the cache and the pane's next selection together, before a
+        // query notification can paint the saved student in their new section.
+        flushSync(() => {
+          queryClient.setQueryData<GetStudentMatchResultsDto>(resultsQuery.queryKey, (current) =>
+            current?.students
+              ? {
+                  ...current,
+                  students: current.students.map((student) =>
+                    student.correlationId === correlationId
+                      ? { ...student, decision, status }
+                      : student
+                  ),
+                }
+              : current
+          );
+          onSaved?.(decision?.version ?? null);
+        });
         // For the counts, which the cache update leaves as they were.
         refetch();
         return { ok: true, version: decision?.version ?? null };
@@ -240,9 +253,14 @@ export const ReviewSessionProvider = ({
   );
 
   const decide = useCallback(
-    (correlationId: string, choice: DecisionChoice, replacesVersion: number | null) => {
+    (
+      correlationId: string,
+      choice: DecisionChoice,
+      replacesVersion: number | null,
+      onSaved?: DecisionSaved
+    ) => {
       if (choice.kind === 'exclude') {
-        return write(correlationId, { kind: 'exclude' }, replacesVersion);
+        return write(correlationId, { kind: 'exclude' }, replacesVersion, onSaved);
       }
       const { candidate } = choice;
       return write(
@@ -257,15 +275,16 @@ export const ReviewSessionProvider = ({
               },
             }
           : { kind: 'match', resultId: candidate.resultId, ordinal: candidate.ordinal },
-        replacesVersion
+        replacesVersion,
+        onSaved
       );
     },
     [write]
   );
 
   const clear = useCallback(
-    (correlationId: string, replacesVersion: number | null) =>
-      write(correlationId, { kind: 'clear' }, replacesVersion),
+    (correlationId: string, replacesVersion: number | null, onSaved?: DecisionSaved) =>
+      write(correlationId, { kind: 'clear' }, replacesVersion, onSaved),
     [write]
   );
 
