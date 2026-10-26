@@ -145,12 +145,12 @@ const SubmissionSupport = ({
     });
   };
   return (
-    <HStack marginTop="200" gap="300" alignItems="flex-start" fontSize="0.9rem">
-      <Box bg="pink.400" padding="100" borderRadius="21px" flexShrink={0} aria-hidden="true">
-        <IconExclamation height={24} width={24} />
-      </Box>
-      <VStack alignItems="stretch" gap="300" flex="1" minWidth="0">
-        <VStack alignItems="stretch" gap="100">
+    <HStack marginTop="200" gap="300" fontSize="0.9rem" flexWrap="wrap">
+      <HStack gap="300" alignItems="flex-start" flex="1" minWidth="16rem">
+        <Box bg="pink.400" padding="100" borderRadius="21px" flexShrink={0} aria-hidden="true">
+          <IconExclamation height={24} width={24} />
+        </Box>
+        <VStack alignItems="stretch" gap="100" flex="1" minWidth="0">
           <Box as="h3" textStyle="bodyBold">
             {outcome === 'failed' ? 'Students could not be sent' : 'Some records could not be sent'}
           </Box>
@@ -161,45 +161,52 @@ const SubmissionSupport = ({
               : 'Please contact support for help identifying the affected students.'}
           </Box>
         </VStack>
-        <HStack gap="300" flexWrap="wrap">
-          <ContactSupport
-            message={`${reference} ${outcome === 'failed' ? 'failed' : 'completed with errors'}`}
-          />
-          {outcome === 'failed' &&
-            // Past the review limit the page has no students to send again.
-            (overLimit ? (
-              <Box fontSize="0.8rem" opacity="0.8">
-                Too many students to send again from here. Support can help.
-              </Box>
-            ) : !leftToResend ? (
-              <Box fontSize="0.8rem" opacity="0.8">
-                All {sendRun.studentCount} sent again
-              </Box>
-            ) : (
-              <ConfirmAction
-                isDisabled={!!submitBlocked || sending}
-                headerText={`Send submission ${number}'s students again?`}
-                bodyText="Sending again will usually fail unless the cause has been fixed. Please contact support first."
-                yesButtonText="Send again"
-                noButtonText="Cancel"
-                action={sendAgain}
-              >
-                {(confirmProps) => (
-                  <>
-                    <QuietButton isDisabled={!!submitBlocked} isLoading={sending} {...confirmProps}>
-                      Send again
-                    </QuietButton>
-                    {submitBlocked && (
-                      <Box fontSize="0.8rem" opacity="0.8">
-                        {submitBlocked}
-                      </Box>
-                    )}
-                  </>
-                )}
-              </ConfirmAction>
-            ))}
-        </HStack>
-      </VStack>
+      </HStack>
+      <HStack
+        gap="300"
+        flexWrap="wrap"
+        flexShrink={0}
+        marginLeft="auto"
+        justifyContent="flex-end"
+        maxWidth="100%"
+      >
+        <ContactSupport
+          message={`${reference} ${outcome === 'failed' ? 'failed' : 'completed with errors'}`}
+        />
+        {outcome === 'failed' &&
+          // Past the review limit the page has no students to send again.
+          (overLimit ? (
+            <Box fontSize="0.8rem" opacity="0.8">
+              Too many students to send again from here. Support can help.
+            </Box>
+          ) : !leftToResend ? (
+            <Box fontSize="0.8rem" opacity="0.8">
+              All {sendRun.studentCount} sent again
+            </Box>
+          ) : (
+            <ConfirmAction
+              isDisabled={!!submitBlocked || sending}
+              headerText={`Send submission ${number}'s students again?`}
+              bodyText="Sending again will usually fail unless the cause has been fixed. Please contact support first."
+              yesButtonText="Send again"
+              noButtonText="Cancel"
+              action={sendAgain}
+            >
+              {(confirmProps) => (
+                <>
+                  <QuietButton isDisabled={!!submitBlocked} isLoading={sending} {...confirmProps}>
+                    Send again
+                  </QuietButton>
+                  {submitBlocked && (
+                    <Box fontSize="0.8rem" opacity="0.8">
+                      {submitBlocked}
+                    </Box>
+                  )}
+                </>
+              )}
+            </ConfirmAction>
+          ))}
+      </HStack>
     </HStack>
   );
 };
