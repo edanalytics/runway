@@ -50,9 +50,9 @@ const topScore = (student: GetStudentInputDetailsDto) =>
 /** The list's groups, one per status, in the order work moves through them. */
 export const sections: { status: StudentMatchStatus; finished?: boolean }[] = [
   { status: 'to-review' },
-  { status: 'run-failed' },
   { status: 'ready' },
   { status: 'reprocessing' },
+  { status: 'run-failed' },
   // Finished work starts collapsed, out of the way of what's left to do.
   { status: 'reprocessed', finished: true },
   { status: 'excluded', finished: true },
