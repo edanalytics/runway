@@ -13,6 +13,7 @@ import {
 import { EntityQueryBuilder } from './builder';
 import { apiClient, methods } from '../methods';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 
 export const jobQueries = new EntityQueryBuilder({ classNamePlural: 'Jobs' })
   .getAll({ ResDto: GetJobDto })
@@ -29,13 +30,13 @@ export const jobQueries = new EntityQueryBuilder({ classNamePlural: 'Jobs' })
   )
   .build();
 
-export const putJobResolve = (job: GetJobDto, queryClient = useQueryClient()) => ({
+export const putJobResolve = (
+  job: GetJobDto,
+  invalidateJobSummary = useInvalidateJobSummary(job.id)
+) => ({
   mutationFn: (putResolveDto: PutJobResolveDto) =>
     methods.put(`/jobs/${job.id}/resolve`, PutJobResolveDto, GetJobDto, putResolveDto),
-  onSuccess: async () => {
-    await queryClient.invalidateQueries({ queryKey: ['jobs', 'list'] });
-    await queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${job.id}`] });
-  },
+  onSuccess: invalidateJobSummary,
 });
 
 export const getJobStatusUpdates = (jobId: string) => ({
@@ -91,4 +92,21 @@ export const useInvalidateJobQueries = (jobId: string | number) => {
     queryClient.invalidateQueries({ queryKey: ['jobs', jobId.toString()] });
     queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${jobId}`] });
   };
+};
+
+/**
+ * Refreshes where a job's status, counts and combined summary show: its page
+ * and the jobs table. Unlike `useInvalidateJobQueries`, not the job's other
+ * reads, such as its match results, which a caller may be refreshing itself.
+ */
+export const useInvalidateJobSummary = (jobId: string | number) => {
+  const queryClient = useQueryClient();
+  return useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['jobs', 'list'] }),
+        queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${jobId}`] }),
+      ]),
+    [jobId, queryClient]
+  );
 };

@@ -26,7 +26,10 @@ import {
   studentMatchStatus,
 } from '@edanalytics/models';
 import { apiClient } from '../../../api/methods';
-import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
+import {
+  getJobStudentMatchResults,
+  useInvalidateJobSummary,
+} from '../../../api/queries/job.queries';
 import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
 import { studentsToResend } from './sendRun';
 import { SubmitFailure, submitRefusal, wroteNothing } from './submitResult';
@@ -170,12 +173,8 @@ export const ReviewSessionProvider = ({
     refetchInterval: (query) => (query.state.data?.counts.reprocessing ? 5000 : false),
   });
   const queryClient = useQueryClient();
-  // Where the job's status, counts and combined summary show: its page and
-  // the jobs table. Not this read, which is what changed.
-  const refreshJob = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${jobId}`] });
-    queryClient.invalidateQueries({ queryKey: ['jobs', 'list'] });
-  }, [jobId, queryClient]);
+  // The job's summary, not this read, which is what changed.
+  const refreshJob = useInvalidateJobSummary(jobId);
   const toast = useToast();
   const [searches, setSearches] = useState<Map<string, SearchState>>(() => new Map());
 
