@@ -3,7 +3,7 @@ import { getResourceSummaries, GetSendRunDto } from '@edanalytics/models';
 import { useState } from 'react';
 import { ContactSupport } from '../../../components/SupportButton';
 import { reportedSummaries } from '../JobViewComponents/ResourceSummary';
-import { QuietButton, studentName, time } from './components';
+import { QuietButton, studentName } from './components';
 import { useReviewSession } from './reviewSession';
 import {
   outcomeLabel,
@@ -56,7 +56,7 @@ const SubmissionSummary = ({ sendRun }: { sendRun: GetSendRunDto }) => {
         <Box fontWeight="600">Submission {number}</Box>
         <Box opacity="0.85">
           {sendRun.studentCount} {sendRun.studentCount === 1 ? 'student' : 'students'} · submitted{' '}
-          {time(+sendRun.createdOn)}
+          {sendRun.createdOn.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
           {sendRun.createdBy && ` by ${sendRun.createdBy.displayName}`}
         </Box>
         <Box flex="1" />
