@@ -5,7 +5,7 @@ import { StudentStatus, useReviewSession } from './reviewSession';
 import { USUAL_MAXIMUM } from './WorkspaceReview';
 
 /*
- * PROTOTYPE. The job page's pointer to unmatched-student review, driven by
+ * The job page's pointer to unmatched-student review, driven by
  * the stored match results (via the review session) rather than the older
  * unmatched-IDs summary on the run. Styled like that older notice.
  */

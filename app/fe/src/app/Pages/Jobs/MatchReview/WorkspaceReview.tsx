@@ -33,15 +33,7 @@ import {
   StudentInputDetailsJson,
   StudentRosterDetailsJson,
 } from '@edanalytics/models';
-import {
-  Fragment,
-  KeyboardEvent,
-  ReactNode,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
+import { KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { CheckIcon, CopyIcon } from '@chakra-ui/icons';
 import { Agreement, compare } from './compare';
 import {
@@ -49,9 +41,7 @@ import {
   BatchCard,
   PrimaryButton,
   NoSuggestionFits,
-  useOrientation,
   SearchField,
-  useStartState,
   QuietButton,
   SecondaryButton,
   studentName,
@@ -67,39 +57,16 @@ import {
 } from './reviewSession';
 
 /*
- * PROTOTYPE, design 5: Review workspace, following the design review in
- * docs/student-identity-review-ux.md. One persistent queue and one focused
- * workspace. Suggestion count is a filter, not a workflow. Two destinations:
- * save a match, or exclude the record from this job (mostly for junk data);
+ * The match review: one persistent queue and one focused workspace.
+ * Suggestion count is a filter, not a workflow. Two destinations: save a
+ * match, or exclude the record from this job (mostly for junk data);
  * rejecting the suggestions is neither. Submitting is a deliberate
  * checkpoint, and batch outcomes stay with the batch.
  */
 
 // Queue ----------------------------------------------------------------------
 
-const statusLabel: Record<StudentStatus, string> = {
-  'to-review': 'Needs review',
-  ready: 'Match saved',
-  reprocessing: 'Submitted',
-  reprocessed: 'Submitted',
-  'run-failed': 'Run failed',
-  excluded: 'Excluded',
-};
-
-type StatusFilter = 'open' | 'to-review' | 'ready' | 'excluded' | 'submitted';
 type CountFilter = 'none' | 'one' | 'several';
-
-const statusFilters: { key: StatusFilter; label: string; includes: StudentStatus[] }[] = [
-  {
-    key: 'open',
-    label: 'Open',
-    includes: ['to-review', 'ready', 'run-failed'],
-  },
-  { key: 'to-review', label: 'Needs review', includes: ['to-review'] },
-  { key: 'ready', label: 'Match saved', includes: ['ready'] },
-  { key: 'excluded', label: 'Excluded', includes: ['excluded'] },
-  { key: 'submitted', label: 'Submitted', includes: ['reprocessing', 'reprocessed', 'run-failed'] },
-];
 
 const countFilters: { key: CountFilter; label: string; test: (n: number) => boolean }[] = [
   { key: 'none', label: 'No suggestions', test: (n) => n === 0 },
@@ -107,22 +74,16 @@ const countFilters: { key: CountFilter; label: string; test: (n: number) => bool
   { key: 'several', label: 'Several', test: (n) => n > 1 },
 ];
 
-type SortKey = 'file' | 'name' | 'birth' | 'id' | 'suggestions' | 'score' | 'status';
+type SortKey = 'file' | 'name' | 'birth' | 'score';
 type Sort = { key: SortKey; descending: boolean };
 
-/** Each sort's natural first direction: best scores first, most suggestions first. */
+/** Each sort's natural first direction: best scores first. */
 const sorts: { key: SortKey; label: string; descending: boolean }[] = [
   { key: 'file', label: 'File order', descending: false },
   { key: 'name', label: 'Last name', descending: false },
   { key: 'birth', label: 'Date of birth', descending: false },
-  { key: 'id', label: 'Local ID', descending: false },
-  { key: 'suggestions', label: 'Suggestions', descending: true },
   { key: 'score', label: 'Top match score', descending: true },
-  { key: 'status', label: 'Status', descending: false },
 ];
-
-/** The side list's sort menu offers fewer; the table's columns sort by every key. */
-const menuSorts = sorts.filter((s) => ['file', 'name', 'birth', 'score'].includes(s.key));
 
 const lastNameOf = (group: GetStudentInputDetailsDto) =>
   `${valueText(group.inputDetails.last_name) ?? ''} ${
@@ -132,17 +93,7 @@ const lastNameOf = (group: GetStudentInputDetailsDto) =>
 const topScore = (group: GetStudentInputDetailsDto) =>
   Math.max(-1, ...suggestionsOf(group).map((c) => c.score ?? -1));
 
-// Work waiting on the reviewer first, then work in flight, then work done.
-const statusOrder: StudentStatus[] = [
-  'to-review',
-  'run-failed',
-  'ready',
-  'reprocessing',
-  'reprocessed',
-  'excluded',
-];
-
-/** The split view's list groups, in the order work moves through them. */
+/** The list's groups, in the order work moves through them. */
 const sections: { title: string; statuses: StudentStatus[]; finished?: boolean }[] = [
   { title: 'To review', statuses: ['to-review'] },
   { title: 'Run failed', statuses: ['run-failed'] },
@@ -176,7 +127,7 @@ const sectionIndex = (status: StudentStatus) =>
   sections.findIndex((section) => section.statuses.includes(status));
 
 const sortBy =
-  ({ key, descending }: Sort, statusOf: (id: string) => StudentStatus) =>
+  ({ key, descending }: Sort) =>
   (a: GetStudentInputDetailsDto, b: GetStudentInputDetailsDto) => {
     const text = (v: JsonValue | undefined) => valueText(v) ?? '';
     const order =
@@ -184,19 +135,8 @@ const sortBy =
         ? lastNameOf(a).localeCompare(lastNameOf(b))
         : key === 'birth'
         ? text(a.inputDetails.birth_date).localeCompare(text(b.inputDetails.birth_date))
-        : key === 'id'
-        ? text(a.inputDetails.student_ids).localeCompare(
-            text(b.inputDetails.student_ids),
-            undefined,
-            { numeric: true }
-          )
-        : key === 'suggestions'
-        ? suggestionsOf(a).length - suggestionsOf(b).length
         : key === 'score'
         ? topScore(a) - topScore(b)
-        : key === 'status'
-        ? statusOrder.indexOf(statusOf(a.correlationId)) -
-          statusOrder.indexOf(statusOf(b.correlationId))
         : 0;
     return descending ? -order : order;
   };
@@ -301,78 +241,28 @@ const time = (at: number) =>
 
 // The workspace ---------------------------------------------------------------
 
-const selectedKey = (jobId: number) => `runway.match-review-prototype.${jobId}.selected`;
-
 /**
- * `split` is the list beside the workspace, grouped by status: the side list
- * holds the students and the submit button, and the top counts them and
- * shows batches.
- * `topbar` turns that around: the side list holds only students still to
- * review, and the top collects decisions, submits them and shows what's
- * been submitted. `table` starts from the whole list as a sortable table;
- * opening a student condenses it to the side list, like opening a thread or
- * a ticket. `inline` keeps the table and opens the review pane beneath the
- * student's row. `stacked` puts a table of ten rows above the review pane,
- * so the pane stays put as the reviewer moves through the table, under a
- * summary whose counts filter the table.
+ * The list beside the workspace, grouped by status: the side list holds the
+ * students and the submit button, and the top counts them and shows batches.
  */
-export const WorkspaceReview = ({
-  layout = 'split',
-}: {
-  layout?: 'split' | 'topbar' | 'table' | 'inline' | 'stacked';
-}) => {
-  const { job, groups, overLimit, isLoading, isError, statusOf, decisions } = useReviewSession();
-  // null means that filter is off. Clicking the active chip turns it off.
-  // The split view groups the list by status instead of filtering by it.
-  const grouped = layout === 'split';
-  // The top-bar view's list is only students still to review; the top bar
-  // has the rest.
-  const reviewOnly = layout === 'topbar';
-  // Expanding rows filters by status from the summary's counts, and starts
-  // showing everyone.
-  const tilesFilter = layout === 'inline';
-  // Stacked: the table above a review pane that stays put.
-  const stacked = layout === 'stacked';
-  const defaultStatus: StatusFilter | null =
-    grouped || tilesFilter || stacked ? null : reviewOnly ? 'to-review' : 'open';
-  const [statusFilter, setStatusFilter] = useState<StatusFilter | null>(defaultStatus);
+export const WorkspaceReview = () => {
+  const { groups, overLimit, isLoading, isError, statusOf, decisions } = useReviewSession();
+  // null means that filter is off.
   const [countFilter, setCountFilter] = useState<CountFilter | null>(null);
-  const [selectedId, setSelectedIdState] = useState<string | null>(() => {
-    try {
-      return window.localStorage.getItem(selectedKey(job.id));
-    } catch {
-      return null;
-    }
-  });
+  const [selectedId, setSelectedIdState] = useState<string | null>(null);
   // Set once the reviewer picks a student, so the prompt to submit gives way
   // to the student they asked for. Cleared when they save a decision.
   const [lookingBack, setLookingBack] = useState(false);
-  // With the start screen on, no student is shown until the reviewer starts,
-  // from the start screen or by picking one. Flipping the switch shows it again.
-  const [startState] = useStartState();
+  // No student is shown until the reviewer starts, from the start screen or
+  // by picking one.
   const [started, setStarted] = useState(false);
-  useEffect(() => setStarted(false), [startState]);
   const setSelectedId = (id: string | null) => {
     setStarted(true);
     setLookingBack(true);
     setSelectedIdState(id);
-    try {
-      if (id) window.localStorage.setItem(selectedKey(job.id), id);
-    } catch {
-      // A remembered place is a convenience.
-    }
   };
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>({ key: 'file', descending: false });
-  const [expanded, setExpanded] = useState(layout === 'table');
-  // Inline: the one row open beneath the table, if any.
-  const [inlineId, setInlineId] = useState<string | null>(null);
-  const chooseSort = (key: SortKey) =>
-    setSort((current) =>
-      current.key === key
-        ? { key, descending: !current.descending }
-        : { key, descending: sorts.find((s) => s.key === key)?.descending ?? false }
-    );
   const [reviewing, setReviewing] = useState(false);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const [openFinished, setOpenFinished] = useState<Set<string>>(() => new Set());
@@ -382,28 +272,18 @@ export const WorkspaceReview = ({
       if (!next.delete(title)) next.add(title);
       return next;
     });
-  const sideList = useRef<HTMLDivElement>(null);
 
-  const includes = statusFilters.find((f) => f.key === statusFilter)?.includes;
   const countTest = countFilters.find((f) => f.key === countFilter)?.test ?? (() => true);
   const terms = query.trim().toLowerCase();
   const queue = groups
-    .filter(
-      (g) =>
-        (!includes || includes.includes(statusOf(g.correlationId))) &&
-        countTest(suggestionsOf(g).length) &&
-        (!terms || searchText(g).includes(terms))
-    )
-    .sort(sortBy(sort, statusOf))
-    // Grouped, the list reads section by section, so previous and next do too.
-    .sort((a, b) =>
-      grouped
-        ? sectionIndex(statusOf(a.correlationId)) - sectionIndex(statusOf(b.correlationId))
-        : 0
+    .filter((g) => countTest(suggestionsOf(g).length) && (!terms || searchText(g).includes(terms)))
+    .sort(sortBy(sort))
+    // The list reads section by section, so previous and next do too.
+    .sort(
+      (a, b) => sectionIndex(statusOf(a.correlationId)) - sectionIndex(statusOf(b.correlationId))
     );
-  const filtered = statusFilter !== defaultStatus || countFilter !== null || !!terms;
+  const filtered = countFilter !== null || !!terms;
   const clearFilters = () => {
-    setStatusFilter(defaultStatus);
     setCountFilter(null);
     setQuery('');
   };
@@ -426,27 +306,17 @@ export const WorkspaceReview = ({
   const selected = groups.find((g) => g.correlationId === selectedId) ?? queue[0] ?? groups[0];
   const ready = groups.filter((g) => statusOf(g.correlationId) === 'ready');
   const toReview = groups.filter((g) => statusOf(g.correlationId) === 'to-review');
-  const atStart = startState === 'start-screen' && !started && toReview.length > 0;
+  const atStart = !started && toReview.length > 0;
   // Every student has a decision, but saved matches haven't been submitted.
   const awaitingSubmit = ready.length > 0 && !toReview.length;
   // Then the pane says so rather than showing a student, until one is picked.
   const atSubmitPrompt = awaitingSubmit && !lookingBack;
   // The student the list marks as open; none when the pane isn't showing one.
   const shownId = atStart || atSubmitPrompt ? null : selected.correlationId;
-  const submitFrom =
-    layout === 'split'
-      ? 'Ready to submit, in the list'
-      : layout === 'topbar'
-      ? 'Matches to submit, above'
-      : layout === 'inline' || stacked
-      ? 'Review and submit, below'
-      : 'Review and submit, above';
   const submitPrompt = (
     <SubmitPrompt
       readyCount={ready.length}
       excludedCount={groups.filter((g) => statusOf(g.correlationId) === 'excluded').length}
-      from={submitFrom}
-      lookFrom={layout === 'topbar' ? 'the lists above' : 'the list'}
     />
   );
 
@@ -465,7 +335,7 @@ export const WorkspaceReview = ({
 
   const searchBox = (
     <Input
-      id={`workspace-queue-search-${layout}`}
+      id="workspace-queue-search"
       size="sm"
       placeholder="Search"
       value={query}
@@ -473,39 +343,9 @@ export const WorkspaceReview = ({
       aria-label="Search the list"
     />
   );
-  const filterChips = (
-    <>
-      {!grouped && !reviewOnly && !tilesFilter && (
-        <FilterChips
-          label="Status"
-          options={statusFilters.map(({ key, label }) => ({
-            key,
-            label,
-            count: groups.filter((g) =>
-              (statusFilters.find((f) => f.key === key)?.includes ?? []).includes(
-                statusOf(g.correlationId)
-              )
-            ).length,
-          }))}
-          value={statusFilter}
-          onChange={(key) => setStatusFilter(key === statusFilter ? null : (key as StatusFilter))}
-        />
-      )}
-      <FilterChips
-        label="Suggestions"
-        options={countFilters.map(({ key, label }) => ({ key, label }))}
-        value={countFilter}
-        onChange={(key) => setCountFilter(key === countFilter ? null : (key as CountFilter))}
-      />
-    </>
-  );
   // The side list's sort and filters, folded into one menu. The button counts
   // what's changed from the default, so a narrowed list is never a mystery.
-  const changedOptions = [
-    statusFilter !== defaultStatus,
-    countFilter !== null,
-    sort.key !== 'file',
-  ].filter(Boolean).length;
+  const changedOptions = [countFilter !== null, sort.key !== 'file'].filter(Boolean).length;
   const optionStyle = { bg: 'blue.700', _hover: { bg: 'blue.600' }, _focus: { bg: 'blue.600' } };
   const listOptions = (
     <Menu closeOnSelect={false} placement="bottom-end">
@@ -541,32 +381,12 @@ export const WorkspaceReview = ({
             })
           }
         >
-          {menuSorts.map((s) => (
+          {sorts.map((s) => (
             <MenuItemOption key={s.key} value={s.key} {...optionStyle}>
               {s.label}
             </MenuItemOption>
           ))}
         </MenuOptionGroup>
-        {!grouped && !reviewOnly && (
-          <>
-            <MenuDivider borderColor="blue.50-40" />
-            <MenuOptionGroup
-              title="Status"
-              type="radio"
-              value={statusFilter ?? 'all'}
-              onChange={(key) => setStatusFilter(key === 'all' ? null : (key as StatusFilter))}
-            >
-              <MenuItemOption value="all" {...optionStyle}>
-                Any status
-              </MenuItemOption>
-              {statusFilters.map(({ key, label }) => (
-                <MenuItemOption key={key} value={key} {...optionStyle}>
-                  {label}
-                </MenuItemOption>
-              ))}
-            </MenuOptionGroup>
-          </>
-        )}
         <MenuDivider borderColor="blue.50-40" />
         <MenuOptionGroup
           title="Suggestions"
@@ -590,9 +410,6 @@ export const WorkspaceReview = ({
     <HStack fontSize="0.8rem" gap="200" minHeight="1.5rem">
       <Box opacity="0.8" whiteSpace="nowrap">
         {queue.length} of {groups.length} students
-        {(tilesFilter || stacked) &&
-          statusFilter &&
-          ` · ${overviewTiles.find((t) => t.key === statusFilter)?.label.toLowerCase()}`}
       </Box>
       {filtered && (
         <QuietButton size="xs" onClick={clearFilters}>
@@ -601,11 +418,6 @@ export const WorkspaceReview = ({
       )}
     </HStack>
   );
-  const open = (id: string) => {
-    setSelectedId(id);
-    setExpanded(false);
-  };
-
   // The review pane: one student at a time, or the start screen or the
   // prompt to submit in its place.
   const pane = (
@@ -628,7 +440,6 @@ export const WorkspaceReview = ({
           total={groups.length}
           first={queue.find((g) => statusOf(g.correlationId) === 'to-review') ?? toReview[0]}
           onStart={(id) => setSelectedId(id)}
-          where={grouped ? 'under To review' : 'to review in the list'}
         />
       ) : (
         <>
@@ -640,11 +451,7 @@ export const WorkspaceReview = ({
             flexWrap="wrap"
           >
             <Box opacity="0.8">
-              {position >= 0
-                ? `${position + 1} of ${queue.length}`
-                : reviewOnly
-                ? 'Already decided'
-                : 'Not in the current list'}
+              {position >= 0 ? `${position + 1} of ${queue.length}` : 'Not in the current list'}
             </Box>
             <HStack gap="100">
               <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
@@ -688,326 +495,153 @@ export const WorkspaceReview = ({
 
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
-      {layout === 'split' ? (
-        // The list holds the students and the one submit button; the summary
-        // only counts them, and shows submitted batches.
-        <Overview readyCount={ready.length} />
-      ) : layout === 'topbar' ? (
-        <ProgressBar
-          selectedId={selected.correlationId}
-          onOpen={setSelectedId}
-          onReview={() => setReviewing(true)}
-          onToReview={() => {
-            const first = queue.find((g) => statusOf(g.correlationId) === 'to-review');
-            if (first) setSelectedId(first.correlationId);
-            sideList.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          }}
-        />
-      ) : layout === 'inline' ? null : stacked ? (
-        // Each count filters the table to its students.
-        <Overview
-          onReview={() => setReviewing(true)}
-          readyCount={ready.length}
-          statusFilter={statusFilter}
-          onStatusFilter={(key) => setStatusFilter(key === statusFilter ? null : key)}
-        />
-      ) : (
-        <Overview onReview={() => setReviewing(true)} readyCount={ready.length} />
-      )}
+      {/* The list holds the students and the one submit button; the summary
+          only counts them, and shows submitted batches. */}
+      <Overview />
 
-      {layout === 'inline' ? (
-        <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
-          <HStack gap="300" alignItems="flex-start" flexWrap="wrap">
-            <Box width="20rem">{searchBox}</Box>
-            <VStack alignItems="stretch" gap="100" fontSize="0.8rem" flex="1">
-              {filterChips}
-            </VStack>
-          </HStack>
-          {countLine}
-          {awaitingSubmit && !inlineId && (
-            <VStack alignItems="stretch" gap="200">
-              {lastAction && (
-                <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
-              )}
-              {submitPrompt}
-            </VStack>
-          )}
-          <StudentTable
-            queue={queue}
-            sort={sort}
-            onSort={chooseSort}
-            onOpen={(id) => setInlineId(id === inlineId ? null : id)}
-            lastOpened={inlineId}
-            expandedId={inlineId}
-            renderExpanded={(group) => {
-              const index = queue.findIndex((g) => g.correlationId === group.correlationId);
-              const step = (by: number) =>
-                setInlineId(queue[(index + by + queue.length) % queue.length].correlationId);
-              const after = [...queue.slice(index + 1), ...queue.slice(0, Math.max(index, 0))];
-              const next = after.find(
-                (g) =>
-                  g.correlationId !== group.correlationId &&
-                  statusOf(g.correlationId) === 'to-review'
-              );
-              return (
-                <InlinePane
-                  position={`${index + 1} of ${queue.length}`}
-                  onPrevious={queue.length > 1 ? () => step(-1) : undefined}
-                  onNext={queue.length > 1 ? () => step(1) : undefined}
-                  onNextToReview={next ? () => setInlineId(next.correlationId) : undefined}
-                  onClose={() => setInlineId(null)}
-                  lastAction={lastAction}
-                  onDismissAction={() => setLastAction(null)}
-                >
-                  <Workspace
-                    key={group.correlationId}
-                    group={group}
-                    onSaved={(action) => {
-                      // Undo goes back to the student it undoes.
-                      setLastAction({
-                        ...action,
-                        undo: () => {
-                          action.undo();
-                          setInlineId(group.correlationId);
-                        },
-                      });
-                      if (action.advance) setInlineId(next?.correlationId ?? null);
-                    }}
-                  />
-                </InlinePane>
-              );
-            }}
-          />
-        </VStack>
-      ) : stacked ? (
-        <>
-          <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
-            {/* One row of controls; the count shows only while something is
-                filtered out. */}
-            <HStack gap="300" fontSize="0.8rem">
-              <Box width="14rem" flexShrink={0}>
-                {searchBox}
-              </Box>
-              {filtered && countLine}
-            </HStack>
-            <StudentTable
-              queue={queue}
-              sort={sort}
-              onSort={chooseSort}
-              onOpen={setSelectedId}
-              lastOpened={shownId}
-              selectedId={shownId}
-              maxRows={10}
-            />
-          </VStack>
-          {pane}
-        </>
-      ) : expanded ? (
-        <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
-          <HStack gap="300" alignItems="flex-start" flexWrap="wrap">
-            <Box width="20rem">{searchBox}</Box>
-            <VStack alignItems="stretch" gap="100" fontSize="0.8rem" flex="1">
-              {filterChips}
-            </VStack>
-          </HStack>
-          {countLine}
-          <StudentTable
-            queue={queue}
-            sort={sort}
-            onSort={chooseSort}
-            onOpen={open}
-            lastOpened={selectedId}
-          />
-        </VStack>
-      ) : (
-        <HStack
-          alignItems="flex-start"
-          gap="400"
-          width="100%"
-          onKeyDown={(event: KeyboardEvent) => {
-            if (layout !== 'table' || event.key !== 'Escape') return;
-            if ((event.target as HTMLElement).closest('input, textarea')) return;
-            setExpanded(true);
-          }}
+      <HStack alignItems="flex-start" gap="400" width="100%">
+        <VStack
+          width="20rem"
+          flexShrink={0}
+          alignItems="stretch"
+          layerStyle="contentBox"
+          padding="300"
+          gap="300"
+          position="sticky"
+          top="0"
+          maxHeight="100vh"
         >
-          <VStack
-            ref={sideList}
-            width="20rem"
-            flexShrink={0}
-            alignItems="stretch"
-            layerStyle="contentBox"
-            padding="300"
-            gap="300"
-            position="sticky"
-            top="0"
-            maxHeight="100vh"
-          >
-            {layout === 'table' && (
-              <SecondaryButton size="xs" alignSelf="flex-start" onClick={() => setExpanded(true)}>
-                ⤢ Back to table
-              </SecondaryButton>
-            )}
-            {/* One row of controls, so the list's groups lead. The count
+          {/* One row of controls, so the list's groups lead. The count
                 line shows only while something is filtered out. */}
-            <HStack gap="200">
-              <Box flex="1" minWidth="0">
-                {searchBox}
+          <HStack gap="200">
+            <Box flex="1" minWidth="0">
+              {searchBox}
+            </Box>
+            {listOptions}
+          </HStack>
+          {filtered && countLine}
+          <VStack
+            alignItems="stretch"
+            gap="0"
+            flex="1"
+            minHeight="0"
+            overflowY="auto"
+            marginX="-200"
+          >
+            {queue.length === 0 && (
+              <Box padding="200" opacity="0.8" fontSize="0.9rem">
+                Nothing matches.{' '}
+                <QuietButton size="xs" onClick={clearFilters}>
+                  Clear filters
+                </QuietButton>
               </Box>
-              {listOptions}
-            </HStack>
-            {filtered && countLine}
-            <VStack
-              alignItems="stretch"
-              gap="0"
-              flex="1"
-              minHeight="0"
-              overflowY="auto"
-              marginX="-200"
-            >
-              {queue.length === 0 &&
-                (reviewOnly && !filtered ? (
-                  <Box padding="200" opacity="0.8" fontSize="0.9rem">
-                    Every student has a decision. Check your matches above and submit them.
-                  </Box>
-                ) : (
-                  <Box padding="200" opacity="0.8" fontSize="0.9rem">
-                    Nothing matches.{' '}
-                    <QuietButton size="xs" onClick={clearFilters}>
-                      Clear filters
-                    </QuietButton>
-                  </Box>
-                ))}
-              {(grouped ? sections : [{ title: '', statuses: statusOrder, finished: false }]).map(
-                ({ title, statuses, finished }) => {
-                  const members = queue.filter((g) => statuses.includes(statusOf(g.correlationId)));
-                  // A folded group opens while its student is the one shown,
-                  // e.g. after stepping to it with previous and next.
-                  const holdsSelected = members.some((g) => g.correlationId === shownId);
-                  const isOpen = !finished || openFinished.has(title) || holdsSelected;
-                  // As in the focus view, saved matches and the button that
-                  // submits them sit together, in one place, even when empty.
-                  const isReadyBox = grouped && statuses.includes('ready');
-                  if (!members.length && !isReadyBox) return null;
-                  const list = (
+            )}
+            {sections.map(({ title, statuses, finished }) => {
+              const members = queue.filter((g) => statuses.includes(statusOf(g.correlationId)));
+              // A folded group opens while its student is the one shown,
+              // e.g. after stepping to it with previous and next.
+              const holdsSelected = members.some((g) => g.correlationId === shownId);
+              const isOpen = !finished || openFinished.has(title) || holdsSelected;
+              // Saved matches and the button that submits them sit
+              // together, in one place, even when empty.
+              const isReadyBox = statuses.includes('ready');
+              if (!members.length && !isReadyBox) return null;
+              const list = (
+                <VStack
+                  key={title}
+                  alignItems="stretch"
+                  gap="0"
+                  marginBottom={isReadyBox ? '0' : '200'}
+                >
+                  {!finished && (
+                    <Box
+                      fontSize="0.8rem"
+                      fontWeight="600"
+                      opacity="0.8"
+                      paddingX="200"
+                      paddingY="100"
+                    >
+                      {title} ({members.length})
+                    </Box>
+                  )}
+                  {finished && (
+                    <HStack
+                      as="button"
+                      onClick={holdsSelected ? undefined : () => toggleFinished(title)}
+                      aria-expanded={isOpen}
+                      gap="100"
+                      fontSize="0.8rem"
+                      fontWeight="600"
+                      opacity="0.8"
+                      paddingX="200"
+                      paddingY="100"
+                      textAlign="left"
+                      _hover={{ opacity: 1 }}
+                    >
+                      <Box width="0.8rem">{isOpen ? '▾' : '▸'}</Box>
+                      <Box>
+                        {title} ({members.length})
+                      </Box>
+                    </HStack>
+                  )}
+                  {isOpen && (
+                    // A long group scrolls within its own height (about
+                    // ten students), so the groups below stay in view.
                     <VStack
-                      key={title || 'all'}
                       alignItems="stretch"
                       gap="0"
-                      marginBottom={isReadyBox ? '0' : '200'}
+                      maxHeight="32rem"
+                      overflowY="auto"
+                      {...(members.length > 10 ? scrollEdges : {})}
                     >
-                      {grouped && !finished && (
-                        <Box
-                          fontSize="0.8rem"
-                          fontWeight="600"
-                          opacity="0.8"
-                          paddingX="200"
-                          paddingY="100"
-                        >
-                          {title} ({members.length})
-                        </Box>
-                      )}
-                      {grouped && finished && (
-                        <HStack
-                          as="button"
-                          onClick={holdsSelected ? undefined : () => toggleFinished(title)}
-                          aria-expanded={isOpen}
-                          gap="100"
-                          fontSize="0.8rem"
-                          fontWeight="600"
-                          opacity="0.8"
-                          paddingX="200"
-                          paddingY="100"
-                          textAlign="left"
-                          _hover={{ opacity: 1 }}
-                        >
-                          <Box width="0.8rem">{isOpen ? '▾' : '▸'}</Box>
-                          <Box>
-                            {title} ({members.length})
-                          </Box>
-                        </HStack>
-                      )}
-                      {isOpen && (
-                        // Grouped, a long group scrolls within its own height
-                        // (about ten students), so the groups below stay in view.
-                        <VStack
-                          alignItems="stretch"
-                          gap="0"
-                          maxHeight={grouped ? '32rem' : undefined}
-                          overflowY={grouped ? 'auto' : undefined}
-                          {...(grouped && members.length > 10 ? scrollEdges : {})}
-                        >
-                          {members.map((group) => (
-                            <QueueRow
-                              key={group.correlationId}
-                              group={group}
-                              decision={decisions.get(group.correlationId)}
-                              status={statusOf(group.correlationId)}
-                              showStatus={!grouped && !reviewOnly}
-                              isSelected={group.correlationId === shownId}
-                              onSelect={() => setSelectedId(group.correlationId)}
-                            />
-                          ))}
-                        </VStack>
-                      )}
+                      {members.map((group) => (
+                        <QueueRow
+                          key={group.correlationId}
+                          group={group}
+                          decision={decisions.get(group.correlationId)}
+                          status={statusOf(group.correlationId)}
+                          isSelected={group.correlationId === shownId}
+                          onSelect={() => setSelectedId(group.correlationId)}
+                        />
+                      ))}
                     </VStack>
-                  );
-                  if (!isReadyBox) return list;
-                  return (
-                    <VStack
-                      key={title}
-                      alignItems="stretch"
-                      gap="200"
-                      padding="200"
-                      marginX="100"
-                      marginBottom="200"
-                      borderRadius="6px"
-                      borderWidth="1px"
-                      borderColor="blue.50-40"
-                    >
-                      {list}
-                      {!members.length && (
-                        <Box fontSize="0.8rem" opacity="0.7" paddingX="200">
-                          Students you match land here until you submit them.
-                        </Box>
-                      )}
-                      <PrimaryButton
-                        width="100%"
-                        isDisabled={!ready.length}
-                        onClick={() => setReviewing(true)}
-                      >
-                        Review and submit {ready.length || ''}{' '}
-                        {ready.length === 1 ? 'match' : 'matches'}
-                      </PrimaryButton>
-                    </VStack>
-                  );
-                }
-              )}
-            </VStack>
+                  )}
+                </VStack>
+              );
+              if (!isReadyBox) return list;
+              return (
+                <VStack
+                  key={title}
+                  alignItems="stretch"
+                  gap="200"
+                  padding="200"
+                  marginX="100"
+                  marginBottom="200"
+                  borderRadius="6px"
+                  borderWidth="1px"
+                  borderColor="blue.50-40"
+                >
+                  {list}
+                  {!members.length && (
+                    <Box fontSize="0.8rem" opacity="0.7" paddingX="200">
+                      Students you match land here until you submit them.
+                    </Box>
+                  )}
+                  <PrimaryButton
+                    width="100%"
+                    isDisabled={!ready.length}
+                    onClick={() => setReviewing(true)}
+                  >
+                    Review and submit {ready.length || ''}{' '}
+                    {ready.length === 1 ? 'match' : 'matches'}
+                  </PrimaryButton>
+                </VStack>
+              );
+            })}
           </VStack>
-          {pane}
-        </HStack>
-      )}
-
-      {layout === 'inline' && (
-        // As in triage, progress and the submit button stay in reach at the
-        // bottom while the table scrolls.
-        <Box
-          position="sticky"
-          bottom="0"
-          zIndex={1}
-          borderRadius="8px"
-          boxShadow="0 -4px 12px rgba(0,0,0,0.3)"
-          maxHeight="40vh"
-          overflowY="auto"
-        >
-          <Overview
-            onReview={() => setReviewing(true)}
-            readyCount={ready.length}
-            statusFilter={statusFilter}
-            onStatusFilter={(key) => setStatusFilter(key === statusFilter ? null : key)}
-          />
-        </Box>
-      )}
+        </VStack>
+        {pane}
+      </HStack>
 
       <SubmitReview
         isOpen={reviewing}
@@ -1015,8 +649,7 @@ export const WorkspaceReview = ({
         onClose={() => setReviewing(false)}
         onView={(id) => {
           setReviewing(false);
-          if (layout === 'inline') setInlineId(id);
-          else open(id);
+          setSelectedId(id);
         }}
       />
     </VStack>
@@ -1073,7 +706,7 @@ const ReviewProgress = () => {
 };
 
 /**
- * PROTOTYPE start screen: shown in place of a student when the page opens
+ * Shown in place of a student when the page opens
  * with students to review, so the first thing it says is where to begin.
  */
 const StartScreen = ({
@@ -1081,14 +714,11 @@ const StartScreen = ({
   total,
   first,
   onStart,
-  where,
 }: {
   toReview: number;
   total: number;
   first: GetStudentInputDetailsDto;
   onStart: (id: string) => void;
-  /** Where the students to review are, e.g. "under To review". */
-  where: string;
 }) => (
   <VStack alignItems="flex-start" gap="300" paddingY="500" paddingX="300" maxWidth="36rem">
     <Box textStyle="h3">
@@ -1103,7 +733,7 @@ const StartScreen = ({
     </Box>
     <PrimaryButton onClick={() => onStart(first.correlationId)}>Start reviewing</PrimaryButton>
     <Box fontSize="0.85rem" opacity="0.75">
-      This opens the first student {where}. You can also pick any student there.
+      This opens the first student under To review. You can also pick any student there.
     </Box>
   </VStack>
 );
@@ -1116,13 +746,9 @@ const StartScreen = ({
 const SubmitPrompt = ({
   readyCount,
   excludedCount,
-  from,
-  lookFrom,
 }: {
   readyCount: number;
   excludedCount: number;
-  from: string;
-  lookFrom: string;
 }) => (
   <HStack alignItems="flex-start" gap="300" paddingY="400" role="status">
     <CheckIcon color="green.100" boxSize="1.1rem" marginTop="0.3rem" />
@@ -1132,25 +758,18 @@ const SubmitPrompt = ({
         {readyCount} {readyCount === 1 ? 'match is' : 'matches are'} ready to submit
         {excludedCount > 0 &&
           `, and ${excludedCount} ${excludedCount === 1 ? 'record is' : 'records are'} excluded`}
-        . Check them and submit from {from}.
+        . Check them and submit from Ready to submit, in the list.
       </Box>
       <Box fontSize="0.85rem" opacity="0.75">
-        To look at a student again, pick them from {lookFrom}.
+        To look at a student again, pick them from the list.
       </Box>
     </VStack>
   </HStack>
 );
 
 /** Every batch, newest first, with a support path when one had trouble. */
-const BatchList = ({ emptyText }: { emptyText: string }) => {
+const BatchList = () => {
   const { batches } = useReviewSession();
-  if (!batches.length) {
-    return (
-      <Box fontSize="0.85rem" opacity="0.75">
-        {emptyText}
-      </Box>
-    );
-  }
   return (
     <VStack alignItems="stretch" gap="100">
       {[...batches].reverse().map((batch) => (
@@ -1163,211 +782,16 @@ const BatchList = ({ emptyText }: { emptyText: string }) => {
   );
 };
 
-type TopView = 'ready' | 'excluded' | 'submitted';
-
-/**
- * The top-bar view's progress: where decisions are collected, submitted and
- * followed. Each count opens its students; "Needs review" points at the list.
- */
-const ProgressBar = ({
-  selectedId,
-  onOpen,
-  onReview,
-  onToReview,
-}: {
-  selectedId: string;
-  onOpen: (id: string) => void;
-  onReview: () => void;
-  onToReview: () => void;
-}) => {
-  const { groups, statusOf } = useReviewSession();
-  const [view, setView] = useState<TopView>('ready');
-  const of = (...statuses: StudentStatus[]) =>
-    groups.filter((g) => statuses.includes(statusOf(g.correlationId)));
-  const ready = of('ready');
-  const excluded = of('excluded');
-  const submitted = of('reprocessing', 'reprocessed', 'run-failed');
-  const toReview = of('to-review');
-  const tiles: { key: TopView | 'to-review'; label: string; value: number }[] = [
-    { key: 'to-review', label: 'Needs review', value: toReview.length },
-    { key: 'ready', label: 'Matches to submit', value: ready.length },
-    { key: 'excluded', label: 'Excluded', value: excluded.length },
-    { key: 'submitted', label: 'Submitted', value: submitted.length },
-  ];
-
-  return (
-    <VStack alignItems="stretch" gap="300" layerStyle="contentBox" padding="300">
-      {groups.length > USUAL_MAXIMUM && <TooManyNote count={groups.length} />}
-      <HStack gap="200" flexWrap="wrap">
-        {tiles.map((tile) => {
-          const isActive = tile.key === view;
-          return (
-            <VStack
-              key={tile.key}
-              as="button"
-              onClick={() => (tile.key === 'to-review' ? onToReview() : setView(tile.key))}
-              aria-pressed={tile.key === 'to-review' ? undefined : isActive}
-              alignItems="flex-start"
-              gap="0"
-              paddingX="300"
-              paddingY="100"
-              borderRadius="6px"
-              borderWidth="1px"
-              borderColor={isActive ? 'blue.50' : 'transparent'}
-              bg={isActive ? 'blue.600' : undefined}
-              _hover={{ bg: 'blue.600' }}
-              textAlign="left"
-            >
-              <Box fontSize="1.3rem" fontWeight="600" lineHeight="1.2">
-                {tile.value}
-              </Box>
-              <Box fontSize="0.8rem" opacity="0.8">
-                {tile.label}
-                {tile.key === 'to-review' && ' ↓'}
-              </Box>
-            </VStack>
-          );
-        })}
-      </HStack>
-      <ReviewProgress />
-      <VStack
-        alignItems="stretch"
-        gap="200"
-        paddingTop="300"
-        borderTopWidth="1px"
-        borderColor="blue.50-40"
-      >
-        {view === 'ready' && (
-          <>
-            <DecidedList
-              members={ready}
-              selectedId={selectedId}
-              onOpen={onOpen}
-              emptyText="Students you match land here until you submit them."
-            />
-            <PrimaryButton alignSelf="flex-end" isDisabled={!ready.length} onClick={onReview}>
-              Review and submit {ready.length || ''} {ready.length === 1 ? 'match' : 'matches'}
-            </PrimaryButton>
-          </>
-        )}
-        {view === 'excluded' && (
-          <DecidedList
-            members={excluded}
-            selectedId={selectedId}
-            onOpen={onOpen}
-            emptyText="No records excluded. Excluding a record keeps it out of this job; open it to undo."
-          />
-        )}
-        {view === 'submitted' && (
-          <BatchList emptyText="Nothing submitted yet. Each submission runs as a batch, and batches can run side by side." />
-        )}
-      </VStack>
-    </VStack>
-  );
-};
-
-/** Students with a decision, one per line, each opening in the workspace to look again. */
-const DecidedList = ({
-  members,
-  selectedId,
-  onOpen,
-  emptyText,
-}: {
-  members: GetStudentInputDetailsDto[];
-  selectedId: string;
-  onOpen: (id: string) => void;
-  emptyText: string;
-}) => {
-  const { decisions } = useReviewSession();
-  if (!members.length) {
-    return (
-      <Box fontSize="0.85rem" opacity="0.75">
-        {emptyText}
-      </Box>
-    );
-  }
-  return (
-    <VStack alignItems="stretch" gap="0">
-      {members.map((group) => {
-        const decision = decisions.get(group.correlationId);
-        const candidate = decision?.kind === 'match' ? decision.candidate : null;
-        const isSelected = group.correlationId === selectedId;
-        return (
-          <HStack
-            key={group.correlationId}
-            as="button"
-            onClick={() => onOpen(group.correlationId)}
-            gap="300"
-            paddingX="200"
-            paddingY="100"
-            borderRadius="4px"
-            bg={isSelected ? 'blue.500' : undefined}
-            _hover={{ bg: isSelected ? 'blue.500' : 'blue.600' }}
-            fontSize="0.9rem"
-            textAlign="left"
-          >
-            <OneLine name={studentName(group.inputDetails)} rest={[secondId(group)]} />
-            {candidate && (
-              <>
-                <Box opacity="0.7" aria-label="matched to">
-                  →
-                </Box>
-                <OneLine
-                  name={studentName(candidate.rosterDetails)}
-                  rest={[
-                    valueText(candidate.rosterDetails.birth_date) &&
-                      `b. ${valueText(candidate.rosterDetails.birth_date)}`,
-                    `ID ${candidate.studentUniqueId}`,
-                  ]}
-                />
-              </>
-            )}
-          </HStack>
-        );
-      })}
-    </VStack>
-  );
-};
-
-/** A student in one line: name, then details that fit, then truncated. */
-const OneLine = ({ name, rest }: { name: string; rest: (string | null | undefined)[] }) => (
-  <Box flex="1" minWidth="0" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
-    <Box as="span" fontWeight="600">
-      {name}
-    </Box>
-    <Box as="span" fontSize="0.8rem" opacity="0.75">
-      {rest
-        .filter(Boolean)
-        .map((part) => ` · ${part}`)
-        .join('')}
-    </Box>
-  </Box>
-);
-
-/** The summary's counts, each the status filter for its students. */
-const overviewTiles: { key: StatusFilter; label: string; statuses: StudentStatus[] }[] = [
-  { key: 'to-review', label: 'Needs review', statuses: ['to-review'] },
-  { key: 'ready', label: 'Matches to submit', statuses: ['ready'] },
-  { key: 'excluded', label: 'Excluded', statuses: ['excluded'] },
-  { key: 'submitted', label: 'Submitted', statuses: ['reprocessing', 'reprocessed', 'run-failed'] },
+/** The summary's counts. */
+const overviewTiles: { label: string; statuses: StudentStatus[] }[] = [
+  { label: 'Needs review', statuses: ['to-review'] },
+  { label: 'Matches to submit', statuses: ['ready'] },
+  { label: 'Excluded', statuses: ['excluded'] },
+  { label: 'Submitted', statuses: ['reprocessing', 'reprocessed', 'run-failed'] },
 ];
 
-/**
- * Progress that says what's left to do, with identity and processing kept
- * apart. Given `onStatusFilter`, each count filters the list to its students.
- * Without `onReview` there's no submit button, for a view that has its own.
- */
-const Overview = ({
-  readyCount,
-  onReview,
-  statusFilter,
-  onStatusFilter,
-}: {
-  readyCount: number;
-  onReview?: () => void;
-  statusFilter?: StatusFilter | null;
-  onStatusFilter?: (key: StatusFilter) => void;
-}) => {
+/** Progress that says what's left to do, with identity and processing kept apart. */
+const Overview = () => {
   const { groups, statusOf, batches } = useReviewSession();
   const count = (...statuses: StudentStatus[]) =>
     groups.filter((g) => statuses.includes(statusOf(g.correlationId))).length;
@@ -1377,49 +801,22 @@ const Overview = ({
   return (
     <VStack alignItems="stretch" gap="200" layerStyle="contentBox" padding="300">
       {tooMany && <TooManyNote count={groups.length} />}
-      <HStack justifyContent="space-between" flexWrap="wrap" gap="300">
-        <HStack gap="500" flexWrap="wrap">
-          {tiles.map((tile) => {
-            const isActive = tile.key === statusFilter;
-            const filterable = onStatusFilter
-              ? {
-                  as: 'button' as const,
-                  onClick: () => onStatusFilter(tile.key),
-                  'aria-pressed': isActive,
-                  title: isActive ? 'Show all students' : `Show only ${tile.label.toLowerCase()}`,
-                  paddingX: '300',
-                  paddingY: '100',
-                  marginX: '-300',
-                  borderRadius: '6px',
-                  borderWidth: '1px',
-                  borderColor: isActive ? 'blue.50' : 'transparent',
-                  bg: isActive ? 'blue.600' : undefined,
-                  _hover: { bg: 'blue.600' },
-                  textAlign: 'left' as const,
-                }
-              : {};
-            return (
-              <VStack key={tile.key} alignItems="flex-start" gap="0" {...filterable}>
-                <Box fontSize="1.3rem" fontWeight="600" lineHeight="1.2">
-                  {tile.value}
-                </Box>
-                <Box fontSize="0.8rem" opacity="0.8">
-                  {tile.label}
-                </Box>
-              </VStack>
-            );
-          })}
-        </HStack>
-        {onReview && (
-          <PrimaryButton isDisabled={!readyCount} onClick={onReview}>
-            Review and submit {readyCount || ''} {readyCount === 1 ? 'match' : 'matches'}
-          </PrimaryButton>
-        )}
+      <HStack gap="500" flexWrap="wrap">
+        {tiles.map((tile) => (
+          <VStack key={tile.label} alignItems="flex-start" gap="0">
+            <Box fontSize="1.3rem" fontWeight="600" lineHeight="1.2">
+              {tile.value}
+            </Box>
+            <Box fontSize="0.8rem" opacity="0.8">
+              {tile.label}
+            </Box>
+          </VStack>
+        ))}
       </HStack>
       <ReviewProgress />
       {batches.length > 0 && (
         <Box paddingTop="200" borderTopWidth="1px" borderColor="blue.50-40">
-          <BatchList emptyText="" />
+          <BatchList />
         </Box>
       )}
     </VStack>
@@ -1481,7 +878,7 @@ const BatchSummary = ({ batch, number }: { batch: Batch; number: number }) => {
           {isFinished(batch) ? batchStatusLabel[batch.status] : 'Running'}
         </Box>
       </HStack>
-      {open && <BatchCard batch={batch} number={number} compact />}
+      {open && <BatchCard batch={batch} />}
     </VStack>
   );
 };
@@ -1520,54 +917,16 @@ const batchStatusLabel: Record<Batch['status'], string> = {
   failed: 'Run failed',
 };
 
-const FilterChips = ({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: { key: string; label: string; count?: number }[];
-  value: string | null;
-  onChange: (key: string) => void;
-}) => (
-  <HStack gap="100" flexWrap="wrap" rowGap="100">
-    <Box opacity="0.8" marginRight="100" width="100%">
-      {label}
-    </Box>
-    {options.map((option) => (
-      <Box
-        as="button"
-        key={option.key}
-        onClick={() => onChange(option.key)}
-        paddingX="200"
-        paddingY="1px"
-        borderRadius="999px"
-        borderWidth="1px"
-        borderColor={value === option.key ? 'blue.50' : 'blue.50-40'}
-        bg={value === option.key ? 'blue.600' : undefined}
-        aria-pressed={value === option.key}
-      >
-        {option.label}
-        {option.count !== undefined && ` ${option.count}`}
-      </Box>
-    ))}
-  </HStack>
-);
-
 const QueueRow = ({
   group,
   decision,
   status,
-  showStatus,
   isSelected,
   onSelect,
 }: {
   group: GetStudentInputDetailsDto;
   decision: Decision | undefined;
   status: StudentStatus;
-  /** Off when a group heading already says it. */
-  showStatus: boolean;
   isSelected: boolean;
   onSelect: () => void;
 }) => {
@@ -1590,14 +949,7 @@ const QueueRow = ({
       _hover={{ bg: isSelected ? 'blue.500' : 'blue.600' }}
       textAlign="left"
     >
-      <HStack justifyContent="space-between" gap="200">
-        <Box fontWeight="600">{studentName(group.inputDetails)}</Box>
-        {showStatus && (
-          <Box fontSize="0.75rem" opacity="0.85" whiteSpace="nowrap">
-            {statusLabel[status]}
-          </Box>
-        )}
-      </HStack>
+      <Box fontWeight="600">{studentName(group.inputDetails)}</Box>
       <HStack justifyContent="space-between" gap="200" fontSize="0.75rem" opacity="0.75">
         <Box>{secondId(group)}</Box>
         <Box whiteSpace="nowrap">
@@ -1609,246 +961,6 @@ const QueueRow = ({
     </VStack>
   );
 };
-
-const columns: { key: SortKey; label: string; numeric?: boolean }[] = [
-  { key: 'name', label: 'Student' },
-  { key: 'birth', label: 'Date of birth' },
-  { key: 'id', label: 'Local ID' },
-  { key: 'suggestions', label: 'Suggestions', numeric: true },
-  { key: 'score', label: 'Top match score', numeric: true },
-  { key: 'status', label: 'Status' },
-];
-
-/** The whole list as a table: click a header to sort, a row to open the student. */
-const StudentTable = ({
-  queue,
-  sort,
-  onSort,
-  onOpen,
-  lastOpened,
-  expandedId,
-  renderExpanded,
-  selectedId,
-  maxRows,
-}: {
-  queue: GetStudentInputDetailsDto[];
-  sort: Sort;
-  onSort: (key: SortKey) => void;
-  onOpen: (correlationId: string) => void;
-  /** The student last open, marked so returning to the table keeps your place. */
-  lastOpened: string | null;
-  /** Inline: the row whose review pane is open beneath it. */
-  expandedId?: string | null;
-  renderExpanded?: (group: GetStudentInputDetailsDto) => ReactNode;
-  /** Stacked: the row whose student the pane below shows. */
-  selectedId?: string | null;
-  /** Stacked: show this many rows, then scroll within the table. */
-  maxRows?: number;
-}) => {
-  const { statusOf, decisions } = useReviewSession();
-  const lastRow = useRef<HTMLTableRowElement>(null);
-  const scroller = useRef<HTMLDivElement>(null);
-  const table = useRef<HTMLTableElement>(null);
-  const inline = !!renderExpanded;
-  // Stacked, the table is as tall as its header and maxRows rows.
-  const [height, setHeight] = useState<number>();
-  useLayoutEffect(() => {
-    const head = table.current?.tHead?.offsetHeight;
-    const row = table.current?.tBodies[0]?.rows[0]?.offsetHeight;
-    if (maxRows && head && row) setHeight(head + row * maxRows + 1);
-  }, [maxRows, queue.length]);
-  useEffect(() => {
-    const row = lastRow.current;
-    if (!row) return;
-    if (!maxRows) {
-      // Bring the open row to the top when it changes, so its pane is in view.
-      row.scrollIntoView({ block: inline ? 'start' : 'nearest', behavior: 'smooth' });
-      return;
-    }
-    // Stacked, scroll only the table, never the page, so the pane below
-    // stays where the reviewer is looking.
-    const box = scroller.current;
-    if (!box) return;
-    const head = table.current?.tHead?.offsetHeight ?? 0;
-    const view = box.getBoundingClientRect();
-    const at = row.getBoundingClientRect();
-    if (at.top < view.top + head) box.scrollTop -= view.top + head - at.top;
-    else if (at.bottom > view.bottom) box.scrollTop += at.bottom - view.bottom;
-  }, [inline, lastOpened, maxRows]);
-  if (!queue.length) {
-    return (
-      <Box padding="200" opacity="0.8" fontSize="0.9rem">
-        Nothing matches.
-      </Box>
-    );
-  }
-  return (
-    <Box
-      ref={scroller}
-      {...(inline ? {} : { overflowX: 'auto', maxHeight: height ?? '70vh', overflowY: 'auto' })}
-    >
-      <Table ref={table} size="sm" sx={{ 'td, th': { paddingX: '200' } }}>
-        <Thead position="sticky" top="0" bg="blue.700" zIndex={2}>
-          <Tr>
-            {columns.map((column) => {
-              const active = sort.key === column.key;
-              return (
-                <Th
-                  key={column.key}
-                  isNumeric={column.numeric}
-                  color="blue.50"
-                  textTransform="none"
-                  fontSize="0.8rem"
-                  aria-sort={active ? (sort.descending ? 'descending' : 'ascending') : 'none'}
-                >
-                  <Box
-                    as="button"
-                    onClick={() => onSort(column.key)}
-                    fontWeight={active ? '700' : '600'}
-                    _hover={{ textDecoration: 'underline' }}
-                  >
-                    {column.label}
-                    <Box as="span" marginLeft="100" opacity={active ? 1 : 0.3}>
-                      {active && sort.descending ? '↓' : '↑'}
-                    </Box>
-                  </Box>
-                </Th>
-              );
-            })}
-            <Th color="blue.50" textTransform="none" fontSize="0.8rem">
-              Match
-            </Th>
-            {inline && <Th width="1.5rem" />}
-          </Tr>
-        </Thead>
-        <Tbody>
-          {queue.map((group) => {
-            const status = statusOf(group.correlationId);
-            const decision = decisions.get(group.correlationId);
-            const suggestions = suggestionsOf(group);
-            const score = topScore(group);
-            const isLast = group.correlationId === lastOpened;
-            const isOpen =
-              (inline && group.correlationId === expandedId) || group.correlationId === selectedId;
-            return (
-              <Fragment key={group.correlationId}>
-                <Tr
-                  ref={isLast ? lastRow : undefined}
-                  onClick={() => onOpen(group.correlationId)}
-                  onKeyDown={(event) => event.key === 'Enter' && onOpen(group.correlationId)}
-                  tabIndex={0}
-                  cursor="pointer"
-                  // Clear of the sticky header when scrolled to the top.
-                  scrollMarginTop="3rem"
-                  bg={isOpen ? 'blue.500' : isLast ? 'blue.600' : undefined}
-                  _hover={{ bg: isOpen ? 'blue.500' : 'blue.600' }}
-                  _focusVisible={{ outline: '2px solid', outlineColor: 'blue.50' }}
-                  aria-label={`${inline && isOpen ? 'Close' : 'Open'} ${studentName(
-                    group.inputDetails
-                  )}`}
-                  aria-expanded={inline ? isOpen : undefined}
-                >
-                  <Td fontWeight="600">{studentName(group.inputDetails)}</Td>
-                  <Td>{valueText(group.inputDetails.birth_date) ?? '—'}</Td>
-                  <Td>{valueText(group.inputDetails.student_ids) ?? '—'}</Td>
-                  <Td isNumeric>{suggestions.length}</Td>
-                  <Td isNumeric>{score >= 0 ? score : '—'}</Td>
-                  <Td whiteSpace="nowrap">{statusLabel[status]}</Td>
-                  <Td whiteSpace="nowrap">
-                    {decision?.kind === 'match' ? decision.candidate.studentUniqueId : ''}
-                    {status === 'excluded' ? 'excluded' : ''}
-                  </Td>
-                  {inline && (
-                    <Td opacity="0.8" textAlign="center">
-                      {isOpen ? '▾' : '▸'}
-                    </Td>
-                  )}
-                </Tr>
-                {isOpen && renderExpanded && (
-                  <Tr>
-                    <Td colSpan={columns.length + 2} padding="0" borderBottomWidth="0">
-                      {renderExpanded(group)}
-                    </Td>
-                  </Tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </Tbody>
-      </Table>
-    </Box>
-  );
-};
-
-/** The review pane opened beneath a row, framed to set it apart from the table around it. */
-const InlinePane = ({
-  position,
-  onPrevious,
-  onNext,
-  onNextToReview,
-  onClose,
-  lastAction,
-  onDismissAction,
-  children,
-}: {
-  position: string;
-  onPrevious?: () => void;
-  onNext?: () => void;
-  onNextToReview?: () => void;
-  onClose: () => void;
-  lastAction: LastAction | null;
-  onDismissAction: () => void;
-  children: ReactNode;
-}) => (
-  <Box
-    marginX="300"
-    marginTop="200"
-    marginBottom="400"
-    padding="400"
-    // The page's own surface, so the panel's colors read as they do
-    // everywhere else; the frame is what sets it apart from the rows.
-    bg="blue.700"
-    borderWidth="2px"
-    borderColor="blue.200"
-    borderRadius="8px"
-    boxShadow="0 6px 18px rgba(0,0,0,0.35)"
-    // Keys act on this student; Esc closes the pane.
-    onKeyDown={(event: KeyboardEvent) => {
-      if ((event.target as HTMLElement).closest('input, textarea')) return;
-      if (event.key === 'Escape') onClose();
-      if (event.key === 'j') onNext?.();
-      if (event.key === 'k') onPrevious?.();
-    }}
-    tabIndex={-1}
-    outline="none"
-    cursor="auto"
-    textAlign="left"
-    whiteSpace="normal"
-    fontWeight="normal"
-    // The table's small size would otherwise shrink everything in the pane.
-    fontSize="1rem"
-  >
-    <HStack justifyContent="space-between" marginBottom="300" fontSize="0.85rem" gap="200">
-      <Box opacity="0.8">{position}</Box>
-      <HStack gap="100">
-        <QuietButton size="xs" isDisabled={!onPrevious} onClick={onPrevious}>
-          ‹ Previous
-        </QuietButton>
-        <QuietButton size="xs" isDisabled={!onNext} onClick={onNext}>
-          Next ›
-        </QuietButton>
-        <SecondaryButton size="xs" isDisabled={!onNextToReview} onClick={onNextToReview}>
-          Next to review
-        </SecondaryButton>
-        <QuietButton size="xs" onClick={onClose} aria-label="Close">
-          ✕
-        </QuietButton>
-      </HStack>
-    </HStack>
-    {lastAction && <LastActionBar action={lastAction} onDismiss={onDismissAction} />}
-    {children}
-  </Box>
-);
 
 type LastAction = { message: string; undo: () => void; advance: boolean };
 
@@ -2143,7 +1255,7 @@ const rows: Row[] = [
 
 const MAX_COMPARED = 3;
 
-const rosterDetailsKey = 'runway.match-review-prototype.roster-details';
+const rosterDetailsKey = 'runway.match-review.roster-details';
 
 /**
  * The file against every candidate, aligned, so the eye runs across a row.
@@ -2178,7 +1290,6 @@ const EvidenceTable = ({
       // A remembered preference is a convenience.
     }
   };
-  const [orientation] = useOrientation();
   // With many candidates, compare a shortlist; the full list stays one click away.
   const [shortlist, setShortlist] = useState<string[]>(() =>
     candidates.slice(0, MAX_COMPARED).map((c) => c.studentUniqueId)
@@ -2233,116 +1344,6 @@ const EvidenceTable = ({
     </Tr>
   );
 
-  // Rows: each candidate is a band across the fields, under the file's record.
-  const fields = rows.filter((row) => !row.rosterOnly || showRosterOnly);
-  const rowBand = (c: Candidate, edge: 'first' | 'middle' | 'last') => {
-    const isSaved = saved === c.studentUniqueId;
-    const line = 'var(--chakra-colors-green-100)';
-    const shadows = isSaved
-      ? [
-          `inset 0 2px 0 ${line}`,
-          `inset 0 -2px 0 ${line}`,
-          edge === 'first' && `inset 2px 0 0 ${line}`,
-          edge === 'last' && `inset -2px 0 0 ${line}`,
-        ].filter(Boolean)
-      : [];
-    return {
-      bg: 'blue.600',
-      borderBottomWidth: '0',
-      borderLeftRadius: edge === 'first' ? '8px' : undefined,
-      borderRightRadius: edge === 'last' ? '8px' : undefined,
-      boxShadow: shadows.length ? shadows.join(', ') : undefined,
-    };
-  };
-  const rowsTable = (
-    <Box overflowX="auto">
-      <Table
-        size="sm"
-        sx={{
-          // Separate rows, so each candidate's band has space around it.
-          borderCollapse: 'separate',
-          borderSpacing: '0 0.5rem',
-          td: { paddingX: '200', paddingY: '200', verticalAlign: 'top', borderColor: 'blue.50-40' },
-          th: { paddingX: '200' },
-        }}
-      >
-        <Thead>
-          <Tr>
-            <Th />
-            {fields.map((row) => (
-              <Th
-                key={row.label}
-                color="blue.50"
-                textTransform="none"
-                fontSize="0.8rem"
-                whiteSpace="nowrap"
-              >
-                {row.label}
-              </Th>
-            ))}
-            <Th />
-          </Tr>
-        </Thead>
-        <Tbody>
-          <Tr>
-            <Td fontWeight="600" whiteSpace="nowrap">
-              In your file
-            </Td>
-            {fields.map((row) => (
-              <Td key={row.label}>
-                {fileValue[row.label] ?? <Missing compared={!row.rosterOnly} />}
-              </Td>
-            ))}
-            <Td />
-          </Tr>
-          {shown.map((c, i) => (
-            <Tr key={c.studentUniqueId}>
-              <Td {...rowBand(c, 'first')} whiteSpace="nowrap">
-                <HStack gap="100" fontWeight="600">
-                  <Box>{c.studentUniqueId}</Box>
-                  <CopyButton value={c.studentUniqueId} />
-                </HStack>
-                <Box fontSize="0.75rem" opacity="0.8">
-                  {[
-                    c.source === 'search' && 'Found by your search',
-                    c.score !== null && `score ${c.score}`,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')
-                    .replace(/^./, (first) => first.toUpperCase())}
-                </Box>
-              </Td>
-              {fields.map((row) => {
-                const value = row.roster(c.rosterDetails);
-                return (
-                  <Td key={row.label} {...rowBand(c, 'middle')}>
-                    <HStack gap="100" alignItems="baseline">
-                      {row.compared && <AgreementMark agreement={agreementOf(row.label, i)} />}
-                      <Box>{value ?? <Missing compared={!row.rosterOnly} />}</Box>
-                    </HStack>
-                  </Td>
-                );
-              })}
-              <Td {...rowBand(c, 'last')} whiteSpace="nowrap">
-                {saved === c.studentUniqueId ? (
-                  <Box fontWeight="600" color="green.100" paddingY="100">
-                    ✓ Saved match
-                  </Box>
-                ) : (
-                  onUse && (
-                    <PrimaryButton size="sm" onClick={() => onUse(c)}>
-                      {c.source === 'search' ? 'Use this student' : 'Use suggestion'}
-                    </PrimaryButton>
-                  )
-                )}
-              </Td>
-            </Tr>
-          ))}
-        </Tbody>
-      </Table>
-    </Box>
-  );
-
   return (
     <VStack alignItems="stretch" gap="200">
       {candidates.length > MAX_COMPARED && (
@@ -2371,122 +1372,106 @@ const EvidenceTable = ({
           ))}
         </HStack>
       )}
-      {orientation === 'rows' && (
-        <>
-          <QuietButton
-            size="xs"
-            alignSelf="flex-start"
-            paddingX="0"
-            onClick={() => setShowRosterOnly(!showRosterOnly)}
-            aria-expanded={showRosterOnly}
-          >
-            {showRosterOnly ? '▾' : '▸'} Roster details
-          </QuietButton>
-          {rowsTable}
-        </>
-      )}
-      {orientation === 'columns' && (
-        <Box overflowX="auto">
-          <Table
-            size="sm"
-            sx={{
-              // Separate cells, so each candidate's band has space around it.
-              borderCollapse: 'separate',
-              borderSpacing: '0.5rem 0',
-              td: { paddingX: '200', verticalAlign: 'top', borderColor: 'blue.50-40' },
-              th: { paddingX: '200' },
-            }}
-          >
-            <Thead>
-              <Tr>
-                <Th />
-                <Th color="blue.50" textTransform="none" fontSize="0.8rem">
-                  In your file
+      <Box overflowX="auto">
+        <Table
+          size="sm"
+          sx={{
+            // Separate cells, so each candidate's band has space around it.
+            borderCollapse: 'separate',
+            borderSpacing: '0.5rem 0',
+            td: { paddingX: '200', verticalAlign: 'top', borderColor: 'blue.50-40' },
+            th: { paddingX: '200' },
+          }}
+        >
+          <Thead>
+            <Tr>
+              <Th />
+              <Th color="blue.50" textTransform="none" fontSize="0.8rem">
+                In your file
+              </Th>
+              {shown.map((c) => (
+                <Th
+                  key={c.studentUniqueId}
+                  color="blue.50"
+                  textTransform="none"
+                  fontSize="0.8rem"
+                  borderTopRadius="8px"
+                  paddingTop="200"
+                  {...band(c)}
+                  boxShadow={
+                    saved === c.studentUniqueId
+                      ? 'inset 0 2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
+                      : undefined
+                  }
+                >
+                  <HStack gap="100">
+                    <Box>{c.studentUniqueId}</Box>
+                    <CopyButton value={c.studentUniqueId} />
+                  </HStack>
+                  <Box fontWeight="normal" opacity="0.8">
+                    {[
+                      c.source === 'search' && 'Found by your search',
+                      c.score !== null && `match score ${c.score}`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                      .replace(/^./, (first) => first.toUpperCase())}
+                  </Box>
                 </Th>
-                {shown.map((c) => (
-                  <Th
-                    key={c.studentUniqueId}
-                    color="blue.50"
-                    textTransform="none"
-                    fontSize="0.8rem"
-                    borderTopRadius="8px"
-                    paddingTop="200"
-                    {...band(c)}
-                    boxShadow={
-                      saved === c.studentUniqueId
-                        ? 'inset 0 2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
-                        : undefined
-                    }
-                  >
-                    <HStack gap="100">
-                      <Box>{c.studentUniqueId}</Box>
-                      <CopyButton value={c.studentUniqueId} />
-                    </HStack>
-                    <Box fontWeight="normal" opacity="0.8">
-                      {[
-                        c.source === 'search' && 'Found by your search',
-                        c.score !== null && `match score ${c.score}`,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')
-                        .replace(/^./, (first) => first.toUpperCase())}
+              ))}
+            </Tr>
+          </Thead>
+          <Tbody>
+            {rows.filter((row) => !row.rosterOnly).map(renderRow)}
+            {/* The toggle stays put; roster details open beneath it. */}
+            <Tr>
+              <Td paddingY="100" colSpan={2}>
+                <QuietButton
+                  size="xs"
+                  paddingX="0"
+                  onClick={() => setShowRosterOnly(!showRosterOnly)}
+                  aria-expanded={showRosterOnly}
+                >
+                  {showRosterOnly ? '▾' : '▸'} Roster details
+                </QuietButton>
+              </Td>
+              {shown.map((c) => (
+                <Td key={c.studentUniqueId} {...band(c)} />
+              ))}
+            </Tr>
+            {showRosterOnly && rows.filter((row) => row.rosterOnly).map(renderRow)}
+            <Tr>
+              <Td />
+              <Td />
+              {shown.map((c) => (
+                <Td
+                  key={c.studentUniqueId}
+                  {...band(c)}
+                  borderBottomRadius="8px"
+                  paddingBottom="300"
+                  boxShadow={
+                    saved === c.studentUniqueId
+                      ? 'inset 0 -2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
+                      : undefined
+                  }
+                >
+                  {saved === c.studentUniqueId ? (
+                    <Box fontWeight="600" color="green.100" paddingY="100">
+                      ✓ Saved match
                     </Box>
-                  </Th>
-                ))}
-              </Tr>
-            </Thead>
-            <Tbody>
-              {rows.filter((row) => !row.rosterOnly).map(renderRow)}
-              {/* The toggle stays put; roster details open beneath it. */}
-              <Tr>
-                <Td paddingY="100" colSpan={2}>
-                  <QuietButton
-                    size="xs"
-                    paddingX="0"
-                    onClick={() => setShowRosterOnly(!showRosterOnly)}
-                    aria-expanded={showRosterOnly}
-                  >
-                    {showRosterOnly ? '▾' : '▸'} Roster details
-                  </QuietButton>
+                  ) : (
+                    onUse && (
+                      <PrimaryButton onClick={() => onUse(c)}>
+                        {c.source === 'search' ? 'Use this student' : 'Use suggestion'}
+                      </PrimaryButton>
+                    )
+                  )}
                 </Td>
-                {shown.map((c) => (
-                  <Td key={c.studentUniqueId} {...band(c)} />
-                ))}
-              </Tr>
-              {showRosterOnly && rows.filter((row) => row.rosterOnly).map(renderRow)}
-              <Tr>
-                <Td />
-                <Td />
-                {shown.map((c) => (
-                  <Td
-                    key={c.studentUniqueId}
-                    {...band(c)}
-                    borderBottomRadius="8px"
-                    paddingBottom="300"
-                    boxShadow={
-                      saved === c.studentUniqueId
-                        ? 'inset 0 -2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
-                        : undefined
-                    }
-                  >
-                    {saved === c.studentUniqueId ? (
-                      <Box fontWeight="600" color="green.100" paddingY="100">
-                        ✓ Saved match
-                      </Box>
-                    ) : (
-                      onUse && (
-                        <PrimaryButton onClick={() => onUse(c)}>
-                          {c.source === 'search' ? 'Use this student' : 'Use suggestion'}
-                        </PrimaryButton>
-                      )
-                    )}
-                  </Td>
-                ))}
-              </Tr>
-            </Tbody>
-          </Table>
-        </Box>
-      )}
+              ))}
+            </Tr>
+          </Tbody>
+        </Table>
+      </Box>
     </VStack>
   );
 };

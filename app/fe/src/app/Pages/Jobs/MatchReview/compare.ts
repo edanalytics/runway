@@ -17,7 +17,6 @@ export type ComparedField = {
 
 export type Comparison = {
   fields: ComparedField[];
-  summary: string;
 };
 
 const text = (value: JsonValue | undefined): string | null =>
@@ -85,29 +84,5 @@ export const compare = (
       agreement: 'unknown',
     },
   ];
-  return { fields, summary: summarize(fields) };
+  return { fields };
 };
-
-const list = (labels: string[]) =>
-  labels.length <= 1
-    ? labels.join('')
-    : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
-
-/** "Last name and date of birth match; first name differs." */
-const summarize = (fields: ComparedField[]) => {
-  const named = (agreement: Agreement) =>
-    fields
-      .filter((field) => field.agreement === agreement)
-      .map((field) => field.label.toLowerCase());
-  const same = named('same');
-  const different = named('different');
-  const parts = [
-    same.length && `${list(same)} ${same.length === 1 ? 'matches' : 'match'}`,
-    different.length && `${list(different)} ${different.length === 1 ? 'differs' : 'differ'}`,
-  ].filter(Boolean) as string[];
-  if (!parts.length) return 'Not enough details to compare.';
-  const sentence = parts.join('; ');
-  return `${capitalize(sentence)}.`;
-};
-
-const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
