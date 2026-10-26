@@ -21,32 +21,42 @@ import { submitFailureText } from './submitResult';
 /** Every submission, newest first. */
 export const SubmissionList = () => {
   const { sendRuns } = useReviewSession();
+  const latestFailedRunId = sendRuns.find((run) => run.status === 'error')?.id;
   return (
     <VStack alignItems="stretch" gap="100">
       {sendRuns.map((sendRun) => (
-        <SubmissionSummary key={sendRun.id} sendRun={sendRun} />
+        <SubmissionSummary
+          key={sendRun.id}
+          sendRun={sendRun}
+          isLatestFailure={sendRun.id === latestFailedRunId}
+        />
       ))}
     </VStack>
   );
 };
 
 /**
- * One line per submission; expands to its counts and students. One that
- * needs the reviewer opens, whether on load or as it happens, so its way to
- * support is in view.
+ * One line per submission; expands to its counts and students. Only the
+ * latest failed submission opens automatically; older ones can be opened.
  */
-const SubmissionSummary = ({ sendRun }: { sendRun: GetSendRunDto }) => {
+const SubmissionSummary = ({
+  sendRun,
+  isLatestFailure,
+}: {
+  sendRun: GetSendRunDto;
+  isLatestFailure: boolean;
+}) => {
   const { job, sendRuns, students, overLimit } = useReviewSession();
   const outcome = sendRunOutcome(sendRun, job.template.reportResources);
   const troubled = outcome === 'complete with errors' || outcome === 'failed';
-  const attention = needsAttention(
-    outcome,
-    overLimit ? null : studentsToResend(students, sendRun.id).length
-  );
+  const attention =
+    (outcome !== 'failed' || isLatestFailure) &&
+    needsAttention(outcome, overLimit ? null : studentsToResend(students, sendRun.id).length);
   const [open, setOpen] = useState(attention);
   useEffect(() => {
     if (attention) setOpen(true);
-  }, [attention]);
+    else if (outcome === 'failed') setOpen(false);
+  }, [attention, outcome]);
   const number = submissionNumber(sendRuns, sendRun);
   return (
     <VStack alignItems="stretch" gap="100">
