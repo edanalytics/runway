@@ -1,7 +1,8 @@
 import { Box, HStack, VStack } from '@chakra-ui/react';
 import { GetStudentInputDetailsDto, JsonValue, StudentMatchStatus } from '@edanalytics/models';
 import { useEffect, useRef } from 'react';
-import { studentName, secondId, valueText, suggestionsOf } from './components';
+import { studentName, secondId, suggestionsOf } from './components';
+import { valueText } from './values';
 
 export type CountFilter = 'none' | 'one' | 'several';
 

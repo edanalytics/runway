@@ -1,6 +1,6 @@
 import { StudentInputDetailsJson, StudentSearchDetailsDto } from '@edanalytics/models';
-import { valueText } from './components';
-import { Candidate } from './reviewSession';
+import { valueText } from './values';
+import type { Candidate } from './reviewSession';
 
 /** The search form's fields, as typed. */
 export type SearchTerms = {

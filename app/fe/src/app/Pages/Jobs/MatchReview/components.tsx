@@ -11,7 +11,6 @@ import {
 import {
   GetStudentInputDetailsDto,
   GetStudentMatchDecisionDto,
-  JsonValue,
   StudentInputDetailsJson,
   StudentRosterDetailsJson,
   StudentSearchDetailsDto,
@@ -20,6 +19,7 @@ import { CheckIcon, CopyIcon } from '@chakra-ui/icons';
 import { ReactNode, useState } from 'react';
 import { Agreement } from './compare';
 import { crossYearOf } from './crossYear';
+import { valueText } from './values';
 import { Candidate, useReviewSession } from './reviewSession';
 
 /*
@@ -286,21 +286,6 @@ export const isOwnDecision = (decision: GetStudentMatchDecisionDto, meId: number
 /** Who saved a decision, as the page names them. */
 export const deciderName = (decision: GetStudentMatchDecisionDto, meId: number | undefined) =>
   isOwnDecision(decision, meId) ? 'you' : decision.decidedBy?.displayName ?? 'someone';
-
-export const valueText = (value: JsonValue | undefined): string | null => {
-  if (value === null || value === undefined || value === '') return null;
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((v) =>
-        v && typeof v === 'object' && !Array.isArray(v) && 'id_value' in v
-          ? [v.id_type, v.id_value].filter(Boolean).join(' ')
-          : valueText(v)
-      )
-      .filter(Boolean);
-    return parts.length ? parts.join(', ') : null;
-  }
-  return typeof value === 'object' ? JSON.stringify(value) : String(value);
-};
 
 /** A second identifier beside the name, so similarly named records stay distinguishable. */
 export const secondId = (student: GetStudentInputDetailsDto) => {

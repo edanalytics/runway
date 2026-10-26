@@ -24,7 +24,6 @@ import {
   SecondaryButton,
   studentName,
   secondId,
-  valueText,
   dateTime,
   CopyButton,
   CrossYearCue,
@@ -32,6 +31,7 @@ import {
   matchedCandidate,
   suggestionsOf,
 } from './components';
+import { valueText } from './values';
 import { useMe } from '../../../api/queries/me.queries';
 import { ContactSupport } from '../../../components/SupportButton';
 import { termsFrom, SearchTerms } from './search';

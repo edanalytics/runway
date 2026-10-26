@@ -31,8 +31,8 @@ import {
   PrimaryButton,
   QuietButton,
   studentName,
-  valueText,
 } from './components';
+import { valueText } from './values';
 import { useMe } from '../../../api/queries/me.queries';
 import { SubmitResult, useReviewSession } from './reviewSession';
 import { submitFailureText } from './submitResult';
