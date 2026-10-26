@@ -62,7 +62,7 @@ const SubmissionSummary = ({ sendRun }: { sendRun: GetSendRunDto }) => {
           {sendRun.createdBy && ` by ${sendRun.createdBy.displayName}`}
         </Box>
         <Box flex="1" />
-        <Box color={troubled ? 'pink.100' : undefined}>{outcomeLabel[outcome]}</Box>
+        <Box color={troubled ? 'pink.50' : undefined}>{outcomeLabel[outcome]}</Box>
       </HStack>
       {open && <SubmissionCard sendRun={sendRun} number={number} outcome={outcome} />}
     </VStack>
@@ -225,7 +225,7 @@ const SubmissionCard = ({
             <Box key={resource}>
               {resource}: {counts.success} succeeded
               {counts.failed > 0 && (
-                <Box as="span" color="pink.100">
+                <Box as="span" color="pink.50">
                   , {counts.failed} failed
                 </Box>
               )}

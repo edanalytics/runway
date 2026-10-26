@@ -579,7 +579,7 @@ const EvidenceTable = ({
 };
 
 const Missing = ({ compared }: { compared: boolean }) => (
-  <Box as="span" opacity="0.55" fontStyle="italic">
+  <Box as="span" opacity="0.8" fontStyle="italic">
     {compared ? 'missing' : '—'}
   </Box>
 );

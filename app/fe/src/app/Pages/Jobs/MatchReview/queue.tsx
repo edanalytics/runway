@@ -118,7 +118,8 @@ export const QueueRow = ({
       textAlign="left"
     >
       <Box fontWeight="600">{studentName(student.inputDetails)}</Box>
-      <HStack justifyContent="space-between" gap="200" fontSize="0.75rem" opacity="0.75">
+      {/* Full strength: dimmed, it falls below AA on the selected row's blue.500. */}
+      <HStack justifyContent="space-between" gap="200" fontSize="0.75rem">
         <Box>{secondId(student)}</Box>
         <Box whiteSpace="nowrap">
           {status === 'ready' && decision?.kind === 'match'
