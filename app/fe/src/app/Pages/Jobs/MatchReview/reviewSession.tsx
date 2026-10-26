@@ -5,6 +5,7 @@ import { createContext, ReactNode, useCallback, useContext, useMemo, useState } 
 import {
   GetJobDto,
   GetStudentInputDetailsDto,
+  GetStudentMatchCountsDto,
   GetStudentMatchDecisionDto,
   GetStudentMatchResultsDto,
   StudentRosterDetailsJson,
@@ -77,6 +78,24 @@ export const statusLabel: Record<StudentMatchStatus, string> = {
   'run-failed': 'Run failed',
 };
 
+/** Where each status's count is in the review read's `counts`. */
+export const countOf = (counts: GetStudentMatchCountsDto, status: StudentMatchStatus) =>
+  ({
+    'to-review': counts.toReview,
+    ready: counts.ready,
+    excluded: counts.excluded,
+    reprocessing: counts.reprocessing,
+    reprocessed: counts.reprocessed,
+    'run-failed': counts.runFailed,
+  }[status]);
+
+/**
+ * Whether the job page has match review: a `fuzzy` job the Executor has sent
+ * students to review for. Other jobs make no review request.
+ */
+export const hasMatchReview = (job: GetJobDto) =>
+  job.idMatchingMode === 'fuzzy' && job.studentMatchCounts.total > 0;
+
 export type SearchState = { terms: SearchTerms; hits: SearchHit[] | null };
 
 export type SubmitResult =
@@ -86,8 +105,10 @@ export type SubmitResult =
 type Session = {
   job: GetJobDto;
   students: GetStudentInputDetailsDto[];
-  /** How many students there are when there are too many to fetch for review, else null. */
-  overLimit: number | null;
+  /** How many students have each status. */
+  counts: GetStudentMatchCountsDto;
+  /** Whether there are too many students to fetch for review; the counts still come. */
+  overLimit: boolean;
   isLoading: boolean;
   isError: boolean;
   decisions: Map<string, Decision>;
@@ -171,7 +192,10 @@ export const ReviewSessionProvider = ({
 }) => {
   const jobId = String(job.id);
   const resultsQuery = getJobStudentMatchResults(jobId);
-  const { data, isLoading, isError, refetch } = useQuery(resultsQuery);
+  const { data, isLoading, isError, refetch } = useQuery({
+    ...resultsQuery,
+    enabled: hasMatchReview(job),
+  });
   const queryClient = useQueryClient();
   const invalidateJob = useInvalidateJobQueries(jobId);
   const toast = useToast();
@@ -310,7 +334,9 @@ export const ReviewSessionProvider = ({
   const session: Session = {
     job,
     students,
-    overLimit: data && !data.students ? data.counts.total : null,
+    // The job's own counts stand in until the review read arrives.
+    counts: data?.counts ?? job.studentMatchCounts,
+    overLimit: !!data && !data.students,
     isLoading,
     isError,
     decisions,

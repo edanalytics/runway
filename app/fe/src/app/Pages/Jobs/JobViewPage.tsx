@@ -33,7 +33,7 @@ import { JobConfiguration } from './JobViewComponents/JobConfiguration';
 import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
 import { useMe } from '../../api/queries/me.queries';
-import { ReviewSessionProvider } from './MatchReview/reviewSession';
+import { hasMatchReview, ReviewSessionProvider } from './MatchReview/reviewSession';
 import { WorkspaceReview } from './MatchReview/WorkspaceReview';
 import { ReviewNotice } from './MatchReview/ReviewNotice';
 
@@ -67,11 +67,11 @@ export const JobViewPage = () => {
   const canViewCrossTenantJobs = me?.privileges?.has('job.metatenant.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
 
-  const hasStudentsToMatch = !!job.studentMatchCounts?.total;
+  const showsMatchReview = hasMatchReview(job);
   // The open tab is in the URL, so a link can open the review. A job without
-  // students to match has no such tab, so it falls back to the Overview.
+  // match review has no such tab, so it falls back to the Overview.
   const { tab } = useSearch({ from: '/assessments/$assessmentId/' });
-  const tabIndex = hasStudentsToMatch && tab === 'students' ? 1 : 0;
+  const tabIndex = showsMatchReview && tab === 'students' ? 1 : 0;
   const navigate = useNavigate({ from: '/assessments/$assessmentId/' });
 
   /**
@@ -175,7 +175,7 @@ export const JobViewPage = () => {
         >
           <TabList borderColor="blue.50-40">
             <Tab _selected={selectedTab}>Overview</Tab>
-            {hasStudentsToMatch && <Tab _selected={selectedTab}>Unmatched Students</Tab>}
+            {showsMatchReview && <Tab _selected={selectedTab}>Unmatched Students</Tab>}
           </TabList>
           <TabPanels>
             <TabPanel paddingX="0" paddingY="400">
@@ -208,7 +208,7 @@ export const JobViewPage = () => {
                       <JobError key={error.id} err={error} />
                     ))}
                     {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
-                    {hasStudentsToMatch && <ReviewNotice />}
+                    {showsMatchReview && <ReviewNotice />}
                   </JobViewSection>
                   {!!job.resourceSummaries && (
                     <JobViewSection title="Summary">
@@ -226,7 +226,7 @@ export const JobViewPage = () => {
                 </VStack>
               </VStack>
             </TabPanel>
-            {hasStudentsToMatch && (
+            {showsMatchReview && (
               <TabPanel paddingX="0" paddingY="400">
                 <WorkspaceReview />
               </TabPanel>

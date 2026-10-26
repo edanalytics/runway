@@ -13,11 +13,11 @@ import {
   Spinner,
   VStack,
 } from '@chakra-ui/react';
-import { GetStudentInputDetailsDto, StudentMatchStatus } from '@edanalytics/models';
+import { GetStudentInputDetailsDto } from '@edanalytics/models';
 import { KeyboardEvent, useState } from 'react';
 import { CheckIcon } from '@chakra-ui/icons';
 import { PrimaryButton, QuietButton, suggestionsOf } from './components';
-import { statusLabel, useReviewSession } from './reviewSession';
+import { countOf, statusLabel, useReviewSession } from './reviewSession';
 import {
   Sort,
   sorts,
@@ -50,7 +50,8 @@ import { SubmitReview } from './submit';
  * students and the submit button, and the top counts them and shows batches.
  */
 export const WorkspaceReview = () => {
-  const { students, overLimit, isLoading, isError, statusOf, decisions } = useReviewSession();
+  const { students, counts, overLimit, isLoading, isError, statusOf, decisions } =
+    useReviewSession();
   // null means that filter is off.
   const [countFilter, setCountFilter] = useState<CountFilter | null>(null);
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
@@ -97,15 +98,18 @@ export const WorkspaceReview = () => {
 
   if (isLoading) return <Spinner color="blue.50" />;
   if (isError) return <Box>Couldn't load unmatched students.</Box>;
-  // Past the review limit the API sends only the count: that many students to
+  // Past the review limit the API sends only the counts: that many students to
   // match means something is wrong with the file, not a queue to work through.
-  if (overLimit && !students.length) {
+  if (overLimit) {
     return (
-      <Box textStyle="body" layerStyle="contentBox" padding="400">
-        {overLimit.toLocaleString()} students couldn't be matched, which is too many to review here.
-        That usually means something is off with the file, such as the wrong ID column. Check the
-        file and reprocess it.
-      </Box>
+      <VStack alignItems="stretch" width="100%" gap="400">
+        <Overview />
+        <Box textStyle="body" layerStyle="contentBox" padding="400">
+          {counts.total.toLocaleString()} students couldn't be matched, which is too many to review
+          here. That usually means something is off with the file, such as the wrong ID column.
+          Check the file and reprocess it.
+        </Box>
+      </VStack>
     );
   }
   if (!students.length) return <Box>No unmatched students for this assessment.</Box>;
@@ -475,13 +479,8 @@ export const WorkspaceReview = () => {
  * include delivery errors, as a job can complete with errors today.
  */
 const useReviewDone = () => {
-  const { students, statusOf } = useReviewSession();
-  return (
-    students.length > 0 &&
-    students.every((student) =>
-      ['reprocessed', 'excluded'].includes(statusOf(student.correlationId))
-    )
-  );
+  const { counts } = useReviewSession();
+  return counts.total > 0 && counts.reprocessed + counts.excluded === counts.total;
 };
 
 const ReviewComplete = () => (
@@ -491,18 +490,19 @@ const ReviewComplete = () => (
   </HStack>
 );
 
-/** Progress toward review done: students decided, whether or not submitted. */
+/**
+ * Progress toward review done: students decided, whether or not submitted.
+ * A run-failed student is decided: what's left is sending them again.
+ */
 const ReviewProgress = () => {
-  const { students, statusOf } = useReviewSession();
+  const { counts } = useReviewSession();
   const done = useReviewDone();
-  const decided = students.filter(
-    (student) => !['to-review', 'run-failed'].includes(statusOf(student.correlationId))
-  ).length;
+  const decided = counts.total - counts.toReview;
   return (
     <HStack gap="300" fontSize="0.8rem">
       <Progress
         flex="1"
-        value={students.length ? (decided / students.length) * 100 : 0}
+        value={counts.total ? (decided / counts.total) * 100 : 0}
         size="xs"
         borderRadius="999px"
         bg="blue.600"
@@ -513,7 +513,7 @@ const ReviewProgress = () => {
         <ReviewComplete />
       ) : (
         <Box opacity="0.8" whiteSpace="nowrap">
-          {decided} of {students.length} decided
+          {decided} of {counts.total} decided
         </Box>
       )}
     </HStack>
@@ -583,25 +583,20 @@ const SubmitPrompt = ({
   </HStack>
 );
 
-/** The summary's counts. */
-const overviewTiles: { label: string; statuses: StudentMatchStatus[] }[] = [
-  { label: statusLabel['to-review'], statuses: ['to-review'] },
-  { label: statusLabel.ready, statuses: ['ready'] },
-  { label: statusLabel.excluded, statuses: ['excluded'] },
-  { label: 'Submitted', statuses: ['reprocessing', 'reprocessed', 'run-failed'] },
-];
-
 /** Progress that says what's left to do, with identity and processing kept apart. */
 const Overview = () => {
-  const { students, statusOf, batches } = useReviewSession();
-  const count = (...statuses: StudentMatchStatus[]) =>
-    students.filter((student) => statuses.includes(statusOf(student.correlationId))).length;
-  const tooMany = students.length > USUAL_MAXIMUM;
-  const tiles = overviewTiles.map((tile) => ({ ...tile, value: count(...tile.statuses) }));
+  const { counts, overLimit, batches } = useReviewSession();
+  // Past the review limit, the page says so in place of the list.
+  const tooMany = !overLimit && counts.total > USUAL_MAXIMUM;
+  // A count per status, in the list's order.
+  const tiles = sections.map(({ status }) => ({
+    label: statusLabel[status],
+    value: countOf(counts, status),
+  }));
 
   return (
     <VStack alignItems="stretch" gap="200" layerStyle="contentBox" padding="300">
-      {tooMany && <TooManyNote count={students.length} />}
+      {tooMany && <TooManyNote count={counts.total} />}
       <HStack gap="500" flexWrap="wrap">
         {tiles.map((tile) => (
           <VStack key={tile.label} alignItems="flex-start" gap="0">
