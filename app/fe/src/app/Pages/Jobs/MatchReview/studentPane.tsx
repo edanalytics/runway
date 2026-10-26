@@ -62,6 +62,7 @@ const fileIssues = (student: GetStudentInputDetailsDto) => {
 
 /** A saved decision, as the page reports it, with a way to undo it. */
 export type LastAction = {
+  correlationId: string;
   message: string;
   undo: () => Promise<DecisionResult>;
   advance: boolean;
@@ -74,6 +75,10 @@ export const LastActionBar = ({
   action: LastAction;
   onDismiss: () => void;
 }) => {
+  const { students } = useReviewSession();
+  const canUndo = students.some(
+    (student) => student.correlationId === action.correlationId && student.sendRunId === null
+  );
   const [undoing, setUndoing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // A new action replaces the last, along with any refusal of its undo.
@@ -94,7 +99,7 @@ export const LastActionBar = ({
         {error ? `Couldn't undo that: ${error} The page has been refreshed.` : action.message}
       </Box>
       <HStack gap="100">
-        {!error && (
+        {!error && canUndo && (
           <QuietButton
             isLoading={undoing}
             onClick={async () => {
@@ -182,6 +187,7 @@ export const StudentPane = ({
       // student never paints between the response and moving to the next.
       if (!shown.current) return;
       onSaved({
+        correlationId: id,
         message: action.message,
         advance: action.advance,
         undo: () => (previous ? decide(id, previous, version) : clear(id, version)),
