@@ -1,10 +1,12 @@
-import { GetRunDto } from '@edanalytics/models';
+import { GetRunDto, GetSendRunDto } from '@edanalytics/models';
+import { plainToInstance } from 'class-transformer';
 import { describe, expect, it } from 'vitest';
 import {
   needsAttention,
   ResendableStudent,
   sendRunOutcome,
   studentsToResend,
+  submissionNumber,
   submitRefusal,
 } from './sendRun';
 
@@ -220,5 +222,14 @@ describe('needsAttention', () => {
     expect(needsAttention('queued', 0)).toBe(false);
     expect(needsAttention('running', 0)).toBe(false);
     expect(needsAttention('complete', 0)).toBe(false);
+  });
+});
+
+describe('submissionNumber', () => {
+  // As the review read lists a job's send runs: newest first.
+  const sendRuns = [44, 42, 41].map((id) => plainToInstance(GetSendRunDto, { id }));
+
+  it("numbers a job's submissions from its first, the last the read lists", () => {
+    expect(sendRuns.map((sendRun) => submissionNumber(sendRuns, sendRun))).toEqual([3, 2, 1]);
   });
 });
