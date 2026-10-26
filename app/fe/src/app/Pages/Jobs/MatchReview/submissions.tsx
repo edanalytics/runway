@@ -1,7 +1,7 @@
 import { Box, HStack, Progress, Spinner, useToast, VStack } from '@chakra-ui/react';
 import { ConfirmAction } from '@edanalytics/common-ui';
 import { getResourceSummaries, GetSendRunDto } from '@edanalytics/models';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { IconExclamation } from '../../../../assets/icons';
 import { ContactSupport } from '../../../components/SupportButton';
 import { reportedSummaries } from '../JobViewComponents/ResourceSummary';
@@ -222,6 +222,7 @@ const SubmissionCard = ({
 }) => {
   const { job, students, overLimit } = useReviewSession();
   const [open, setOpen] = useState(false);
+  const studentsId = useId();
   // The students this run decides the status of. Any it delivered that have
   // been sent again since belong to the later submission.
   const members = students.filter((student) => student.sendRunId === sendRun.id);
@@ -260,12 +261,29 @@ const SubmissionCard = ({
       )}
       {/* Past the review limit there's no list of students to show. */}
       {!overLimit && (
-        <>
-          <QuietButton marginTop="100" paddingX="0" onClick={() => setOpen(!open)}>
-            {open ? 'Hide students' : 'Show students'}
+        <Box
+          marginLeft={
+            outcome === 'failed' || outcome === 'complete with errors'
+              ? 'calc(24px + 2 * var(--chakra-space-100) + var(--chakra-space-300))'
+              : undefined
+          }
+        >
+          <QuietButton
+            marginTop="100"
+            paddingX="0"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            aria-controls={studentsId}
+            leftIcon={
+              <Box as="span" aria-hidden="true">
+                {open ? '▾' : '▸'}
+              </Box>
+            }
+          >
+            {open ? 'Hide' : 'Show'} {outcome === 'failed' ? 'unsent students' : 'students'}
           </QuietButton>
           {open && (
-            <VStack alignItems="flex-start" gap="100" marginTop="100">
+            <VStack id={studentsId} alignItems="flex-start" gap="100" marginTop="100">
               {members.map(({ correlationId, inputDetails, decision }) => (
                 <HStack key={correlationId} gap="200" alignItems="baseline" flexWrap="wrap">
                   <Box minWidth="10rem">{studentName(inputDetails)}</Box>
@@ -281,7 +299,7 @@ const SubmissionCard = ({
               )}
             </VStack>
           )}
-        </>
+        </Box>
       )}
     </Box>
   );
