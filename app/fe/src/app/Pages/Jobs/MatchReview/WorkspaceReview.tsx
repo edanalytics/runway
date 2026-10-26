@@ -13,7 +13,7 @@ import {
   Spinner,
   VStack,
 } from '@chakra-ui/react';
-import { GetStudentInputDetailsDto } from '@edanalytics/models';
+import { GetStudentInputDetailsDto, outstandingStudents } from '@edanalytics/models';
 import { KeyboardEvent, useState } from 'react';
 import { CheckIcon } from '@chakra-ui/icons';
 import { PrimaryButton, QuietButton, suggestionsOf } from './components';
@@ -477,7 +477,7 @@ export const WorkspaceReview = () => {
  */
 const useReviewDone = () => {
   const { counts } = useReviewSession();
-  return counts.total > 0 && counts.reprocessed + counts.excluded === counts.total;
+  return counts.total > 0 && !outstandingStudents(counts);
 };
 
 const ReviewComplete = () => (

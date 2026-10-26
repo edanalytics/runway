@@ -1,4 +1,5 @@
 import { Box, HStack } from '@chakra-ui/react';
+import { outstandingStudents } from '@edanalytics/models';
 import { useNavigate } from '@tanstack/react-router';
 import { IconExclamation } from '../../../../assets/icons';
 import { PrimaryButton, QuietButton } from './components';
@@ -21,7 +22,7 @@ export const ReviewNotice = () => {
 
   // Nothing left for the reviewer to do: the students are done, or their
   // submissions are still running.
-  if (!toReview && !ready && !runFailed) {
+  if (outstandingStudents(counts) === reprocessing) {
     return (
       <HStack gap="200" fontSize="0.9rem">
         <Box opacity="0.85">
