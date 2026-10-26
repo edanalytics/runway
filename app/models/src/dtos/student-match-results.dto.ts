@@ -470,6 +470,19 @@ export class GetStudentMatchCountsDto {
   runFailed: number;
 }
 
+/**
+ * How many of a job's students are outstanding, those who aren't done: to
+ * review, ready, reprocessing and run-failed. A saved match delivers nothing
+ * on its own, and a send run's students aren't done until it succeeds.
+ * Excluded and reprocessed students are done.
+ */
+export const outstandingStudents = ({
+  toReview,
+  ready,
+  reprocessing,
+  runFailed,
+}: GetStudentMatchCountsDto) => toReview + ready + reprocessing + runFailed;
+
 /** One of the job's send runs, as the review read lists them. */
 export class GetSendRunDto extends GetRunDto {
   /** The submitter. Null once their user is deleted. */

@@ -3,6 +3,8 @@ import {
   GetJobTemplateDto,
   JobInputParamDto,
   getResourceErrors,
+  hasSchoolYears,
+  isInJobYear,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
@@ -13,7 +15,6 @@ import {
 } from '@prisma/client';
 import { PRISMA_READ_ONLY } from 'api/src/database';
 import { EncryptionService } from 'api/src/encryption/encryption.service';
-import { hasSchoolYears, isInJobYear } from '../../jobs/school-years';
 import { advanceRunStatus } from '../../jobs/run-status';
 import { plainToInstance } from 'class-transformer';
 import {

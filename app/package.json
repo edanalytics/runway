@@ -4,6 +4,7 @@
   "scripts": {
     "fe:build": "nx run fe:build",
     "fe:typecheck": "nx run fe:typecheck",
+    "fe:test": "nx run fe:test",
     "api:build": "nx run api:build",
     "api:typecheck": "nx run api:typecheck",
     "api:start": "nx run api:serve",
@@ -132,7 +133,6 @@
     "@typescript-eslint/eslint-plugin": "^7.3.0",
     "@typescript-eslint/parser": "^7.3.0",
     "@vitejs/plugin-react": "^4.2.0",
-    "@vitest/ui": "^1.3.1",
     "babel-jest": "^29.4.1",
     "cookie-signature": "^1.2.2",
     "eslint": "~8.57.0",
@@ -162,7 +162,6 @@
     "typescript": "~5.4.2",
     "vite": "^5.0.0",
     "vite-plugin-dts": "~3.8.1",
-    "vitest": "^1.3.1",
     "webpack-cli": "^5.1.4"
   }
 }

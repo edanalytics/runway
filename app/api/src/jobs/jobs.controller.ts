@@ -124,6 +124,7 @@ export class JobsController {
     const job = await this.prisma.job.findUnique({
       where: { id: jobId },
       include: {
+        schoolYear: true,
         files: true,
         runs: {
           include: {

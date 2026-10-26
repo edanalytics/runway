@@ -17,7 +17,7 @@ import { GetSchoolYearDto } from './school-year.dto';
 import { GetRunDto } from './run.dto';
 import { GetUserDto } from './user.dto';
 import { GetJobNoteDto } from './job-note.dto';
-import { GetStudentMatchCountsDto } from './student-match-results.dto';
+import { GetStudentMatchCountsDto, outstandingStudents } from './student-match-results.dto';
 
 interface IBaseJobDto {
   id: number;
@@ -175,15 +175,11 @@ export class GetJobDto
   }
 
   /**
-   * Fuzzy mode: outstanding students, those who aren't done: to review, ready,
-   * reprocessing and run-failed. A saved match delivers nothing on its own,
-   * and a send run's students aren't done until it succeeds. Excluded and
-   * reprocessed students are done. Never in fuzzy background mode, where the
-   * ID-based run has delivered.
+   * Fuzzy mode: outstanding students (`outstandingStudents`). Never in fuzzy
+   * background mode, where the ID-based run has delivered.
    */
   get hasFuzzyStudentsToMatch() {
-    const { toReview, ready, reprocessing, runFailed } = this.studentMatchCounts;
-    return this.idMatchingMode === 'fuzzy' && toReview + ready + reprocessing + runFailed > 0;
+    return this.idMatchingMode === 'fuzzy' && outstandingStudents(this.studentMatchCounts) > 0;
   }
 
   /**

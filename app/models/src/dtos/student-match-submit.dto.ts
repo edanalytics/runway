@@ -33,6 +33,13 @@ export class PostStudentMatchSubmitDto {
   students: PostStudentMatchSubmitStudentDto[];
 }
 
+/** A refused submit's codes that name the refused students, by their `indices` in the request. */
+export type StudentMatchSubmitRefusalCode =
+  | 'decision_changed'
+  | 'already_submitted'
+  | 'not_a_match'
+  | 'invalid_school_years';
+
 export class PostStudentMatchSubmitResponseDto {
   /** The send run that delivers the submitted students. */
   @Expose()

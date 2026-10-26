@@ -180,3 +180,5 @@ jobs:
         run: npm run api:test
       - name: Test Utils
         run: npm run utils:test
+      - name: Test FE
+        run: npm run fe:test

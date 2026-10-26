@@ -1,10 +1,13 @@
-import { PostStudentMatchSubmitStudentDto } from '@edanalytics/models';
+import {
+  hasSchoolYears,
+  PostStudentMatchSubmitStudentDto,
+  StudentMatchSubmitRefusalCode,
+} from '@edanalytics/models';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Job, PrismaClient } from '@prisma/client';
 import { lockJobRow } from './job-row-lock';
 import { RunsService } from './runs.service';
-import { hasSchoolYears } from './school-years';
 
 @Injectable()
 export class StudentMatchSubmitService {
@@ -22,7 +25,7 @@ export class StudentMatchSubmitService {
       }
     | {
         status: 'ERROR';
-        code: 'decision_changed' | 'already_submitted' | 'not_a_match' | 'invalid_school_years';
+        code: StudentMatchSubmitRefusalCode;
         indices: number[];
       }
   > {

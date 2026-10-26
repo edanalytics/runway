@@ -1,4 +1,3 @@
-/// <reference types='vitest' />
 import { resolve } from 'node:path';
 import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';

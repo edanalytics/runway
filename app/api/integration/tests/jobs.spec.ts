@@ -28,6 +28,7 @@ import { plainToInstance } from 'class-transformer';
 import { sortBy } from 'lodash';
 import { IdMatchingMode, Job, JobNote, RunKind, RunStatus } from '@prisma/client';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
+import { schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
@@ -235,6 +236,7 @@ describe('GET /jobs/:id', () => {
       const resA = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       expect(resA.status).toBe(200);
       expect(resA.body.id).toEqual(jobA.id);
+      expect(resA.body.schoolYear).toEqual(schoolYear2425);
     });
 
     // The frontend picks the full run by its kind, to compute the job's status,
