@@ -707,14 +707,9 @@ const Search = ({
         {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
         {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
       </SimpleGrid>
-      <HStack gap="300">
-        <SecondaryButton onClick={run} isLoading={searching}>
-          Search
-        </SecondaryButton>
-        <Box fontSize="0.8rem" opacity="0.7">
-          Results are compared with your file, not with these search terms.
-        </Box>
-      </HStack>
+      <SecondaryButton alignSelf="flex-start" onClick={run} isLoading={searching}>
+        Search
+      </SecondaryButton>
       {error && !searching && <Box color="pink.100">Couldn't search: {error}</Box>}
       {hits && !searching && hits.length === 0 && (
         <Box>No one in the roster matches those details.</Box>

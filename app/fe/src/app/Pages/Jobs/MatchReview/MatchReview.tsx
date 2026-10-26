@@ -102,6 +102,7 @@ export const MatchReview = () => {
       tabIndex={-1}
       outline="none"
       onKeyDown={(event: KeyboardEvent) => {
+        if (atStart || atSubmitPrompt) return;
         if ((event.target as HTMLElement).closest('input, textarea')) return;
         if (event.key === 'j') move(1);
         if (event.key === 'k') move(-1);
@@ -116,25 +117,27 @@ export const MatchReview = () => {
         />
       ) : (
         <>
-          <HStack
-            justifyContent="space-between"
-            marginBottom="300"
-            fontSize="0.85rem"
-            gap="200"
-            flexWrap="wrap"
-          >
-            <Box opacity="0.8">
-              {position >= 0 ? `${position + 1} of ${queue.length}` : 'Not in the current list'}
-            </Box>
-            <HStack gap="100">
-              <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
-                ‹ Previous
-              </QuietButton>
-              <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
-                Next ›
-              </QuietButton>
+          {!atSubmitPrompt && (
+            <HStack
+              justifyContent="space-between"
+              marginBottom="300"
+              fontSize="0.85rem"
+              gap="200"
+              flexWrap="wrap"
+            >
+              <Box opacity="0.8">
+                {position >= 0 ? `${position + 1} of ${queue.length}` : 'Not in the current list'}
+              </Box>
+              <HStack gap="100">
+                <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(-1)}>
+                  ‹ Previous
+                </QuietButton>
+                <QuietButton size="xs" isDisabled={queue.length < 2} onClick={() => move(1)}>
+                  Next ›
+                </QuietButton>
+              </HStack>
             </HStack>
-          </HStack>
+          )}
           {lastAction && (
             <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
           )}
