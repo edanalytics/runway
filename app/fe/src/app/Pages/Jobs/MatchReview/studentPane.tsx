@@ -1,0 +1,659 @@
+import {
+  Box,
+  Checkbox,
+  HStack,
+  SimpleGrid,
+  Table,
+  Tbody,
+  Td,
+  Th,
+  Thead,
+  Tr,
+  VStack,
+} from '@chakra-ui/react';
+import { GetStudentInputDetailsDto, StudentRosterDetailsJson } from '@edanalytics/models';
+import { KeyboardEvent, ReactNode, useState } from 'react';
+import { Agreement, compare } from './compare';
+import {
+  AgreementMark,
+  PrimaryButton,
+  NoSuggestionFits,
+  SearchField,
+  QuietButton,
+  SecondaryButton,
+  studentName,
+  secondId,
+  valueText,
+  time,
+  CopyButton,
+  suggestionsOf,
+} from './components';
+import { termsFrom, SearchTerms } from './search';
+import { Batch, Candidate, Decision, StudentStatus, useReviewSession } from './reviewSession';
+
+// Evidence -------------------------------------------------------------------
+
+const realDate = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
+
+/** Missing or invalid values in the file: clues, not a diagnosis of IDRS. */
+const fileIssues = (group: GetStudentInputDetailsDto) => {
+  const d = group.inputDetails;
+  const issues: string[] = [];
+  if (!valueText(d.first_name)) issues.push('No first name in your file.');
+  if (!valueText(d.last_name)) issues.push('No last name in your file.');
+  if (!valueText(d.birth_date)) issues.push('No date of birth in your file.');
+  else if (typeof d.birth_date === 'string' && !realDate(d.birth_date))
+    issues.push(`Date of birth ${d.birth_date} isn't a valid date.`);
+  return issues;
+};
+
+export type LastAction = { message: string; undo: () => void; advance: boolean };
+
+export const LastActionBar = ({
+  action,
+  onDismiss,
+}: {
+  action: LastAction;
+  onDismiss: () => void;
+}) => (
+  <HStack
+    marginBottom="300"
+    padding="200"
+    paddingLeft="300"
+    borderRadius="6px"
+    bg="blue.600"
+    borderLeftWidth="3px"
+    borderColor="green.100"
+    justifyContent="space-between"
+    role="status"
+  >
+    <Box fontSize="0.9rem">{action.message}</Box>
+    <HStack gap="100">
+      <QuietButton
+        onClick={() => {
+          action.undo();
+          onDismiss();
+        }}
+      >
+        Undo
+      </QuietButton>
+      <QuietButton onClick={onDismiss} aria-label="Dismiss">
+        ✕
+      </QuietButton>
+    </HStack>
+  </HStack>
+);
+
+// One student ------------------------------------------------------------------
+
+export const Workspace = ({
+  group,
+  onSaved,
+}: {
+  group: GetStudentInputDetailsDto;
+  onSaved: (action: LastAction) => void;
+}) => {
+  const { job, statusOf, decisions, decide, undo, batchOf, batches } = useReviewSession();
+  const id = group.correlationId;
+  const status = statusOf(id);
+  const decision = decisions.get(id);
+  const batch = batchOf(id);
+  const isSubmitted = status === 'reprocessing' || status === 'reprocessed';
+  const suggestions = suggestionsOf(group);
+
+  // Saying none fit stays on this student and opens search and exclude.
+  const [noneFit, setNoneFit] = useState(false);
+
+  // A match found by searching stays in view beside the suggestions.
+  const fromSearch =
+    decision?.kind === 'match' && decision.candidate.source === 'search'
+      ? decision.candidate
+      : null;
+  const candidates =
+    fromSearch && !suggestions.some((c) => c.studentUniqueId === fromSearch.studentUniqueId)
+      ? [...suggestions, fromSearch]
+      : suggestions;
+  const saved = decision?.kind === 'match' ? decision.candidate.studentUniqueId : null;
+  const name = studentName(group.inputDetails);
+
+  // Restoring the prior decision is what makes an undo trustworthy.
+  const restore = (previous: Decision | undefined) => () =>
+    previous ? decide(id, previous) : undo(id);
+
+  // One step: the submit list is where matches get their second look.
+  const use = (candidate: Candidate) => {
+    const previous = decision;
+    decide(id, { kind: 'match', candidate });
+    onSaved({
+      message: `Saved ${candidate.studentUniqueId} as the match for ${name}.`,
+      undo: restore(previous),
+      advance: true,
+    });
+  };
+  const clear = () => {
+    const previous = decision;
+    undo(id);
+    onSaved({
+      message: `Cleared the decision for ${name}.`,
+      undo: restore(previous),
+      advance: false,
+    });
+  };
+  const exclude = () => {
+    const previous = decision;
+    decide(id, { kind: 'not-in-roster' });
+    setNoneFit(false);
+    onSaved({ message: `Excluded ${name} from this job.`, undo: restore(previous), advance: true });
+  };
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if ((event.target as HTMLElement).closest('input, textarea') || isSubmitted) return;
+  };
+
+  const issues = fileIssues(group);
+  const batchNumber = batch ? batches.findIndex((b) => b.id === batch.id) + 1 : 0;
+
+  return (
+    <VStack alignItems="stretch" gap="400" onKeyDown={onKeyDown}>
+      {/* The source record stays put while everything else changes. */}
+      <VStack alignItems="flex-start" gap="100">
+        <Box fontSize="0.8rem" opacity="0.8">
+          From your file
+        </Box>
+        <HStack gap="300" alignItems="baseline" flexWrap="wrap">
+          <Box textStyle="h4">{name}</Box>
+          <Box opacity="0.85">{secondId(group)}</Box>
+        </HStack>
+        {issues.map((issue) => (
+          <Box key={issue} fontSize="0.85rem" color="purple.200">
+            {issue}
+          </Box>
+        ))}
+      </VStack>
+
+      <DecisionState
+        correlationId={id}
+        status={status}
+        decision={decision}
+        batch={batch}
+        batchNumber={batchNumber}
+        reference={`Job ${job.id}${batch ? ` · batch ${batchNumber}` : ''}`}
+      />
+
+      {(noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
+        <NoSuggestionFits
+          group={group}
+          suggestionCount={suggestions.length}
+          onBack={candidates.length ? () => setNoneFit(false) : undefined}
+          onUse={use}
+          onExclude={exclude}
+          search={<Search group={group} saved={saved} onUse={use} />}
+        >
+          {decision && (
+            <QuietButton alignSelf="flex-start" onClick={clear}>
+              Clear decision
+            </QuietButton>
+          )}
+        </NoSuggestionFits>
+      ) : (
+        <VStack alignItems="stretch" gap="200">
+          <EvidenceTable
+            group={group}
+            candidates={candidates}
+            saved={saved}
+            onUse={isSubmitted ? undefined : use}
+          />
+          {!isSubmitted && (
+            <HStack gap="300" paddingTop="100">
+              <SecondaryButton onClick={() => setNoneFit(true)}>
+                {candidates.length === 1 ? 'Not this student' : 'None of these'}
+              </SecondaryButton>
+              <Box fontSize="0.8rem" opacity="0.7">
+                Search the roster or exclude this record.
+              </Box>
+              <Box flex="1" />
+              {decision && <QuietButton onClick={clear}>Clear decision</QuietButton>}
+            </HStack>
+          )}
+        </VStack>
+      )}
+    </VStack>
+  );
+};
+
+/** What's been decided and what's happened since, kept apart. */
+const DecisionState = ({
+  correlationId,
+  status,
+  decision,
+  batch,
+  batchNumber,
+  reference,
+}: {
+  correlationId: string;
+  status: StudentStatus;
+  decision: Decision | undefined;
+  batch: Batch | undefined;
+  batchNumber: number;
+  reference: string;
+}) => {
+  const by = decision ? ` by ${decision.decidedBy} at ${time(decision.decidedAt)}` : '';
+  let body: ReactNode = null;
+  if (status === 'ready' && decision?.kind === 'match') {
+    body = `Match saved${by}: ${decision.candidate.studentUniqueId}${
+      decision.candidate.source === 'search' ? ', found by searching' : ''
+    }. Not submitted yet.`;
+  } else if (status === 'excluded') {
+    body = `Excluded from this job${by}. Its records won't be reprocessed.`;
+  } else if (
+    batch &&
+    (status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed')
+  ) {
+    const chosen = batch.items.find((it) => it.correlationId === correlationId)?.decision.candidate
+      .studentUniqueId;
+    body = (
+      <VStack alignItems="flex-start" gap="100">
+        <Box>
+          Submitted in batch {batchNumber}
+          {chosen ? ` with ${chosen}` : ''} · batch {batch.status}.
+        </Box>
+        {status === 'run-failed' ? (
+          <Box fontSize="0.85rem" opacity="0.85">
+            The run failed before attempting anything. Retry the batch below.
+          </Box>
+        ) : (
+          <HStack fontSize="0.85rem" opacity="0.85" gap="200" flexWrap="wrap">
+            <Box>
+              Correcting a submitted identity isn't supported here yet. To report a wrong match,
+              contact support with {reference}.
+            </Box>
+            <CopyButton value={reference} label="Copy reference" />
+          </HStack>
+        )}
+      </VStack>
+    );
+  }
+  if (!body) return null;
+  return (
+    <Box
+      padding="300"
+      borderRadius="6px"
+      borderWidth="1px"
+      borderColor="blue.50-40"
+      fontSize="0.9rem"
+    >
+      {body}
+    </Box>
+  );
+};
+
+type Row = {
+  label: string;
+  file: string | null;
+  roster: (candidate: StudentRosterDetailsJson) => string | null;
+  /** Compared rows get marks. */
+  compared: boolean;
+  /** Only the roster has these; they're a click away. */
+  rosterOnly: boolean;
+};
+
+const rows: Row[] = [
+  {
+    label: 'First name',
+    file: null,
+    roster: (r) => valueText(r.first_name),
+    compared: true,
+    rosterOnly: false,
+  },
+  {
+    label: 'Last name',
+    file: null,
+    roster: (r) => valueText(r.last_name),
+    compared: true,
+    rosterOnly: false,
+  },
+  {
+    label: 'Date of birth',
+    file: null,
+    roster: (r) => valueText(r.birth_date),
+    compared: true,
+    rosterOnly: false,
+  },
+  // Both sides have IDs, but usually from different ID systems (the roster's
+  // are typed), so they're shown side by side without a mark.
+  {
+    label: 'Student IDs',
+    file: null,
+    roster: (r) => valueText(r.student_ids),
+    compared: false,
+    rosterOnly: false,
+  },
+  {
+    label: 'Middle name',
+    file: null,
+    roster: (r) => valueText(r.middle_name),
+    compared: false,
+    rosterOnly: true,
+  },
+  {
+    label: 'School years',
+    file: null,
+    roster: (r) => valueText(r.school_years),
+    compared: false,
+    rosterOnly: true,
+  },
+];
+
+const MAX_COMPARED = 3;
+
+const rosterDetailsKey = 'runway.match-review.roster-details';
+
+/**
+ * The file against every candidate, aligned, so the eye runs across a row.
+ * Each candidate's column is its own tinted band, so one student's details
+ * read together. Nothing is hidden: a conflict all candidates share stays in
+ * view, and roster-only details are a click away.
+ */
+const EvidenceTable = ({
+  group,
+  candidates,
+  saved,
+  onUse,
+}: {
+  group: GetStudentInputDetailsDto;
+  candidates: Candidate[];
+  saved: string | null;
+  onUse?: (candidate: Candidate) => void;
+}) => {
+  // Details only the roster has are a click away; remembered across students.
+  const [showRosterOnly, setShowRosterOnlyState] = useState(() => {
+    try {
+      return window.localStorage.getItem(rosterDetailsKey) === 'open';
+    } catch {
+      return false;
+    }
+  });
+  const setShowRosterOnly = (open: boolean) => {
+    setShowRosterOnlyState(open);
+    try {
+      window.localStorage.setItem(rosterDetailsKey, open ? 'open' : 'closed');
+    } catch {
+      // A remembered preference is a convenience.
+    }
+  };
+  // With many candidates, compare a shortlist; the full list stays one click away.
+  const [shortlist, setShortlist] = useState<string[]>(() =>
+    candidates.slice(0, MAX_COMPARED).map((c) => c.studentUniqueId)
+  );
+  const shown =
+    candidates.length > MAX_COMPARED
+      ? candidates.filter((c) => shortlist.includes(c.studentUniqueId))
+      : candidates;
+  const comparisons = shown.map((c) => compare(group.inputDetails, c.rosterDetails));
+  const fileValue: Record<string, string | null> = {
+    'First name': valueText(group.inputDetails.first_name),
+    'Last name': valueText(group.inputDetails.last_name),
+    'Date of birth': valueText(group.inputDetails.birth_date),
+    'Middle name': null,
+    'Student IDs': valueText(group.inputDetails.student_ids),
+    'School years': null,
+  };
+  const agreementOf = (label: string, index: number): Agreement =>
+    comparisons[index].fields.find((f) => f.label === label)?.agreement ?? 'unknown';
+  // The band behind each candidate's column; a saved match's band is outlined.
+  const band = (c: Candidate) => ({
+    bg: 'blue.600',
+    borderBottomWidth: '0',
+    boxShadow:
+      saved === c.studentUniqueId
+        ? 'inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
+        : undefined,
+  });
+
+  const renderRow = (row: Row) => (
+    <Tr key={row.label}>
+      <Td whiteSpace="nowrap" opacity="0.85">
+        {row.label}
+      </Td>
+      <Td>{fileValue[row.label] ?? <Missing compared={!row.rosterOnly} />}</Td>
+      {shown.map((c, i) => {
+        const value = row.roster(c.rosterDetails);
+        return (
+          <Td key={c.studentUniqueId} {...band(c)}>
+            <HStack gap="100" alignItems="baseline">
+              {row.compared ? (
+                <AgreementMark agreement={agreementOf(row.label, i)} />
+              ) : (
+                // Keeps unmarked values aligned with marked ones.
+                !row.rosterOnly && <Box width="1.5rem" flexShrink={0} />
+              )}
+              <Box>{value ?? <Missing compared={!row.rosterOnly} />}</Box>
+            </HStack>
+          </Td>
+        );
+      })}
+    </Tr>
+  );
+
+  return (
+    <VStack alignItems="stretch" gap="200">
+      {candidates.length > MAX_COMPARED && (
+        <HStack gap="300" flexWrap="wrap" fontSize="0.85rem">
+          <Box opacity="0.8">
+            Comparing {shown.length} of {candidates.length}:
+          </Box>
+          {candidates.map((c) => (
+            <Checkbox
+              key={c.studentUniqueId}
+              size="sm"
+              isChecked={shortlist.includes(c.studentUniqueId)}
+              isDisabled={
+                !shortlist.includes(c.studentUniqueId) && shortlist.length >= MAX_COMPARED
+              }
+              onChange={() =>
+                setShortlist((list) =>
+                  list.includes(c.studentUniqueId)
+                    ? list.filter((x) => x !== c.studentUniqueId)
+                    : [...list, c.studentUniqueId]
+                )
+              }
+            >
+              {c.studentUniqueId}
+            </Checkbox>
+          ))}
+        </HStack>
+      )}
+      <Box overflowX="auto">
+        <Table
+          size="sm"
+          sx={{
+            // Separate cells, so each candidate's band has space around it.
+            borderCollapse: 'separate',
+            borderSpacing: '0.5rem 0',
+            td: { paddingX: '200', verticalAlign: 'top', borderColor: 'blue.50-40' },
+            th: { paddingX: '200' },
+          }}
+        >
+          <Thead>
+            <Tr>
+              <Th />
+              <Th color="blue.50" textTransform="none" fontSize="0.8rem">
+                In your file
+              </Th>
+              {shown.map((c) => (
+                <Th
+                  key={c.studentUniqueId}
+                  color="blue.50"
+                  textTransform="none"
+                  fontSize="0.8rem"
+                  borderTopRadius="8px"
+                  paddingTop="200"
+                  {...band(c)}
+                  boxShadow={
+                    saved === c.studentUniqueId
+                      ? 'inset 0 2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
+                      : undefined
+                  }
+                >
+                  <HStack gap="100">
+                    <Box>{c.studentUniqueId}</Box>
+                    <CopyButton value={c.studentUniqueId} />
+                  </HStack>
+                  <Box fontWeight="normal" opacity="0.8">
+                    {[
+                      c.source === 'search' && 'Found by your search',
+                      c.score !== null && `match score ${c.score}`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                      .replace(/^./, (first) => first.toUpperCase())}
+                  </Box>
+                </Th>
+              ))}
+            </Tr>
+          </Thead>
+          <Tbody>
+            {rows.filter((row) => !row.rosterOnly).map(renderRow)}
+            {/* The toggle stays put; roster details open beneath it. */}
+            <Tr>
+              <Td paddingY="100" colSpan={2}>
+                <QuietButton
+                  size="xs"
+                  paddingX="0"
+                  onClick={() => setShowRosterOnly(!showRosterOnly)}
+                  aria-expanded={showRosterOnly}
+                >
+                  {showRosterOnly ? '▾' : '▸'} Roster details
+                </QuietButton>
+              </Td>
+              {shown.map((c) => (
+                <Td key={c.studentUniqueId} {...band(c)} />
+              ))}
+            </Tr>
+            {showRosterOnly && rows.filter((row) => row.rosterOnly).map(renderRow)}
+            <Tr>
+              <Td />
+              <Td />
+              {shown.map((c) => (
+                <Td
+                  key={c.studentUniqueId}
+                  {...band(c)}
+                  borderBottomRadius="8px"
+                  paddingBottom="300"
+                  boxShadow={
+                    saved === c.studentUniqueId
+                      ? 'inset 0 -2px 0 var(--chakra-colors-green-100), inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
+                      : undefined
+                  }
+                >
+                  {saved === c.studentUniqueId ? (
+                    <Box fontWeight="600" color="green.100" paddingY="100">
+                      ✓ Saved match
+                    </Box>
+                  ) : (
+                    onUse && (
+                      <PrimaryButton onClick={() => onUse(c)}>
+                        {c.source === 'search' ? 'Use this student' : 'Use suggestion'}
+                      </PrimaryButton>
+                    )
+                  )}
+                </Td>
+              ))}
+            </Tr>
+          </Tbody>
+        </Table>
+      </Box>
+    </VStack>
+  );
+};
+
+const Missing = ({ compared }: { compared: boolean }) => (
+  <Box as="span" opacity="0.55" fontStyle="italic">
+    {compared ? 'missing' : '—'}
+  </Box>
+);
+
+/** Search, remembered per student so a trip to the SIS doesn't lose it. */
+const Search = ({
+  group,
+  saved,
+  onUse,
+}: {
+  group: GetStudentInputDetailsDto;
+  saved: string | null;
+  onUse: (candidate: Candidate) => void;
+}) => {
+  const { search, searchOf, setSearch } = useReviewSession();
+  const remembered = searchOf(group.correlationId);
+  const [terms, setTerms] = useState<SearchTerms>(
+    remembered?.terms ?? termsFrom(group.inputDetails)
+  );
+  const [searching, setSearching] = useState(false);
+  const hits = remembered?.hits ?? null;
+
+  const [error, setError] = useState<string | null>(null);
+  const run = async () => {
+    setSearching(true);
+    setError(null);
+    try {
+      const found = await search(group.correlationId, terms);
+      setSearch(group.correlationId, { terms, hits: found });
+    } catch (err) {
+      setError((err as { message?: string })?.message ?? 'The search failed.');
+    }
+    setSearching(false);
+  };
+  const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
+    <SearchField
+      id={`search-${key}-${group.correlationId}`}
+      label={label}
+      value={terms[key]}
+      placeholder={placeholder}
+      onChange={(value) => setTerms({ ...terms, [key as string]: value })}
+      onEnter={run}
+    />
+  );
+
+  return (
+    <VStack alignItems="stretch" gap="300">
+      <SimpleGrid columns={{ base: 2, md: 4 }} gap="200">
+        {field('first_name', 'First name')}
+        {field('last_name', 'Last name')}
+        {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
+        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
+      </SimpleGrid>
+      <HStack gap="300">
+        <SecondaryButton onClick={run} isLoading={searching}>
+          Search
+        </SecondaryButton>
+        <Box fontSize="0.8rem" opacity="0.7">
+          Results are compared with your file, not with these search terms.
+        </Box>
+      </HStack>
+      {error && !searching && <Box color="pink.100">Couldn't search: {error}</Box>}
+      {hits && !searching && hits.length === 0 && (
+        <Box>No one in the roster matches those details.</Box>
+      )}
+      {hits && !searching && hits.length > 0 && (
+        <Box bg="blue.700" borderRadius="6px" padding="200">
+          <EvidenceTable
+            group={group}
+            candidates={hits.map((hit) => ({
+              studentUniqueId: hit.studentUniqueId,
+              rosterDetails: hit.rosterDetails,
+              score: hit.score,
+              source: 'search' as const,
+              searchDetails: hit.searchDetails,
+            }))}
+            saved={saved}
+            onUse={onUse}
+          />
+        </Box>
+      )}
+    </VStack>
+  );
+};

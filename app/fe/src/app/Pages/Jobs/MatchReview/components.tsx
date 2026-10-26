@@ -1,17 +1,9 @@
-import {
-  Box,
-  Button,
-  FormControl,
-  FormLabel,
-  HStack,
-  Input,
-  Progress,
-  VStack,
-} from '@chakra-ui/react';
-import { GetStudentInputDetailsDto, StudentInputDetailsJson } from '@edanalytics/models';
+import { Box, Button, FormControl, FormLabel, HStack, Input, VStack } from '@chakra-ui/react';
+import { GetStudentInputDetailsDto, JsonValue, StudentInputDetailsJson } from '@edanalytics/models';
+import { CheckIcon, CopyIcon } from '@chakra-ui/icons';
 import { ReactNode, useState } from 'react';
 import { Agreement } from './compare';
-import { Batch, Candidate, isFinished, loadedOf, totalOf, useReviewSession } from './reviewSession';
+import { Candidate } from './reviewSession';
 
 /*
  * Pieces of the match review.
@@ -228,66 +220,76 @@ const OptionBox = ({
   </VStack>
 );
 
-export const BatchCard = ({ batch }: { batch: Batch }) => {
-  const { groups, retry } = useReviewSession();
-  const [open, setOpen] = useState(false);
-  const nameOf = (correlationId: string) => {
-    const group = groups.find((g) => g.correlationId === correlationId);
-    return group ? studentName(group.inputDetails) : correlationId;
-  };
-  const counts = totalOf(batch.summary);
-  const isDone = batch.status === 'complete' || batch.status === 'complete with errors';
+/** The latest search IDRS ran for this student; earlier ones are history. */
+const latestResult = (group: GetStudentInputDetailsDto) =>
+  [...group.results].sort((a, b) => +new Date(b.createdOn) - +new Date(a.createdOn))[0];
+
+export const suggestionsOf = (group: GetStudentInputDetailsDto): Candidate[] => {
+  const latest = latestResult(group);
+  return (latest?.suggestions ?? [])
+    .slice()
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .map((s) => ({
+      studentUniqueId: s.studentUniqueId,
+      rosterDetails: s.rosterDetails,
+      score: s.score,
+      source: 'suggestion' as const,
+      // A match to a suggestion names it by its result and position.
+      resultId: latest.id,
+      ordinal: s.ordinal,
+    }));
+};
+
+export const valueText = (value: JsonValue | undefined): string | null => {
+  if (value === null || value === undefined || value === '') return null;
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((v) =>
+        v && typeof v === 'object' && !Array.isArray(v) && 'id_value' in v
+          ? [v.id_type, v.id_value].filter(Boolean).join(' ')
+          : valueText(v)
+      )
+      .filter(Boolean);
+    return parts.length ? parts.join(', ') : null;
+  }
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+};
+
+/** A second identifier beside the name, so similarly named records stay distinguishable. */
+export const secondId = (group: GetStudentInputDetailsDto) => {
+  const d = group.inputDetails;
+  return [
+    valueText(d.birth_date) && `b. ${valueText(d.birth_date)}`,
+    valueText(d.student_ids) && `ID ${valueText(d.student_ids)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+};
+
+const copy = (value: string) => {
+  navigator.clipboard?.writeText(value).catch(() => undefined);
+};
+
+export const CopyButton = ({ value, label }: { value: string; label?: string }) => {
+  const [copied, setCopied] = useState(false);
   return (
-    <Box width="100%" padding="300" borderRadius="6px" bg="blue.600">
-      {batch.status === 'failed' && (
-        <HStack marginTop="200" gap="300" fontSize="0.9rem" flexWrap="wrap">
-          <Box>The run failed before reporting a summary, so nothing was attempted.</Box>
-          <SecondaryButton onClick={() => retry(batch.id)}>Retry this batch</SecondaryButton>
-        </HStack>
-      )}
-      {!isFinished(batch) && (
-        <Progress
-          marginTop="200"
-          size="xs"
-          colorScheme="progressGreen"
-          isIndeterminate
-          borderRadius="999px"
-        />
-      )}
-      {isDone && (
-        <VStack alignItems="flex-start" gap="100" marginTop="200" fontSize="0.9rem">
-          <Box>
-            {counts.processed} assessment {counts.processed === 1 ? 'record' : 'records'} processed:{' '}
-            {loadedOf(counts)} loaded
-            {counts.skipped > 0 && `, ${counts.skipped} skipped`}
-            {counts.failed > 0 && (
-              <Box as="span" color="pink.100">
-                , {counts.failed} failed
-              </Box>
-            )}
-            .
-          </Box>
-          {counts.failed > 0 && (
-            <Box opacity="0.85">
-              The run can't say which students the failed records belong to. The matches still
-              stand; support can trace the failures from the run's troubleshooting logs.
-            </Box>
-          )}
-        </VStack>
-      )}
-      <QuietButton marginTop="100" paddingX="0" onClick={() => setOpen(!open)}>
-        {open ? 'Hide students' : 'Show students'}
-      </QuietButton>
-      {open && (
-        <VStack alignItems="flex-start" gap="100" marginTop="100">
-          {batch.items.map((item) => (
-            <HStack key={item.correlationId} gap="200" alignItems="baseline" flexWrap="wrap">
-              <Box minWidth="10rem">{nameOf(item.correlationId)}</Box>
-              <Box opacity="0.8">→ {item.decision.candidate.studentUniqueId}</Box>
-            </HStack>
-          ))}
-        </VStack>
-      )}
-    </Box>
+    <QuietButton
+      size="xs"
+      paddingX="100"
+      minWidth="0"
+      onClick={() => {
+        copy(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+      aria-label={copied ? 'Copied' : `Copy ${value}`}
+      title={copied ? 'Copied' : `Copy ${value}`}
+      leftIcon={label ? copied ? <CheckIcon /> : <CopyIcon /> : undefined}
+    >
+      {label ?? (copied ? <CheckIcon /> : <CopyIcon />)}
+    </QuietButton>
   );
 };
+
+export const time = (at: number) =>
+  new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
