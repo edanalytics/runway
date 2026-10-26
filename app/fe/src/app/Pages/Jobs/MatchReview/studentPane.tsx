@@ -12,6 +12,7 @@ import {
   VStack,
 } from '@chakra-ui/react';
 import {
+  GetSendRunDto,
   GetStudentInputDetailsDto,
   StudentRosterDetailsJson,
   StudentMatchStatus,
@@ -32,8 +33,10 @@ import {
   CopyButton,
   suggestionsOf,
 } from './components';
+import { ContactSupport } from '../../../components/SupportButton';
 import { termsFrom, SearchTerms } from './search';
-import { Batch, Candidate, Decision, useReviewSession } from './reviewSession';
+import { Candidate, Decision, useReviewSession } from './reviewSession';
+import { outcomeLabel, sendRunOutcome, submissionNumber, submissionReference } from './sendRun';
 
 // Evidence -------------------------------------------------------------------
 
@@ -101,11 +104,11 @@ export const Workspace = ({
   student: GetStudentInputDetailsDto;
   onSaved: (action: LastAction) => void;
 }) => {
-  const { job, statusOf, decisions, decide, undo, batchOf, batches } = useReviewSession();
+  const { statusOf, decisions, decide, undo, sendRunOf } = useReviewSession();
   const id = student.correlationId;
   const status = statusOf(id);
   const decision = decisions.get(id);
-  const batch = batchOf(id);
+  const sendRun = sendRunOf(id);
   const isSubmitted = status === 'reprocessing' || status === 'reprocessed';
   const suggestions = suggestionsOf(student);
 
@@ -159,7 +162,6 @@ export const Workspace = ({
   };
 
   const issues = fileIssues(student);
-  const batchNumber = batch ? batches.findIndex((b) => b.id === batch.id) + 1 : 0;
 
   return (
     <VStack alignItems="stretch" gap="400" onKeyDown={onKeyDown}>
@@ -179,14 +181,7 @@ export const Workspace = ({
         ))}
       </VStack>
 
-      <DecisionState
-        correlationId={id}
-        status={status}
-        decision={decision}
-        batch={batch}
-        batchNumber={batchNumber}
-        reference={`Job ${job.id}${batch ? ` · batch ${batchNumber}` : ''}`}
-      />
+      <DecisionState status={status} decision={decision} sendRun={sendRun} />
 
       {(noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
         <NoSuggestionFits
@@ -231,20 +226,16 @@ export const Workspace = ({
 
 /** What's been decided and what's happened since, kept apart. */
 const DecisionState = ({
-  correlationId,
   status,
   decision,
-  batch,
-  batchNumber,
-  reference,
+  sendRun,
 }: {
-  correlationId: string;
   status: StudentMatchStatus;
   decision: Decision | undefined;
-  batch: Batch | undefined;
-  batchNumber: number;
-  reference: string;
+  /** The submission that decides the student's status, once they've been submitted. */
+  sendRun: GetSendRunDto | undefined;
 }) => {
+  const { job, sendRuns } = useReviewSession();
   const by = decision ? ` by ${decision.decidedBy} at ${time(decision.decidedAt)}` : '';
   let body: ReactNode = null;
   if (status === 'ready' && decision?.kind === 'match') {
@@ -254,28 +245,33 @@ const DecisionState = ({
   } else if (status === 'excluded') {
     body = `Excluded from this job${by}. Its records won't be reprocessed.`;
   } else if (
-    batch &&
+    sendRun &&
     (status === 'reprocessing' || status === 'reprocessed' || status === 'run-failed')
   ) {
-    const chosen = batch.items.find((it) => it.correlationId === correlationId)?.decision.candidate
-      .studentUniqueId;
+    // No decision can follow a send, so the current one is what was sent.
+    const chosen = decision?.kind === 'match' ? decision.candidate.studentUniqueId : null;
+    const number = submissionNumber(sendRuns, sendRun);
+    const outcome = sendRunOutcome(sendRun, job.template.reportResources);
     body = (
       <VStack alignItems="flex-start" gap="100">
         <Box>
-          Submitted in batch {batchNumber}
-          {chosen ? ` with ${chosen}` : ''} · batch {batch.status}.
+          Sent in submission {number}
+          {chosen ? ` with ${chosen}` : ''} · {outcomeLabel[outcome]}.
         </Box>
         {status === 'run-failed' ? (
           <Box fontSize="0.85rem" opacity="0.85">
-            The run failed before attempting anything. Retry the batch below.
+            That submission's run failed. The match still stands. Submission {number}, above, has
+            what to do next.
           </Box>
         ) : (
-          <HStack fontSize="0.85rem" opacity="0.85" gap="200" flexWrap="wrap">
-            <Box>
+          <HStack fontSize="0.85rem" gap="300" flexWrap="wrap" justifyContent="space-between">
+            <Box flex="1" minWidth="16rem" opacity="0.85">
               Correcting a submitted identity isn't supported here yet. To report a wrong match,
-              contact support with {reference}.
+              contact support.
             </Box>
-            <CopyButton value={reference} label="Copy reference" />
+            <ContactSupport
+              message={`${submissionReference(job.id, number, sendRun)}: reporting a wrong match`}
+            />
           </HStack>
         )}
       </VStack>

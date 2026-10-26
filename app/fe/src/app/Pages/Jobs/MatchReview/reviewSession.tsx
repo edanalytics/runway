@@ -4,6 +4,7 @@ import { useToast } from '@chakra-ui/react';
 import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from 'react';
 import {
   GetJobDto,
+  GetSendRunDto,
   GetStudentInputDetailsDto,
   GetStudentMatchCountsDto,
   GetStudentMatchDecisionDto,
@@ -25,9 +26,6 @@ import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
  * students and their decisions come from the job's match results, and every
  * decision, search and submission goes to the server. A decision carries its
  * version, which the next write for that student names as `replacesVersion`.
- *
- * Send runs ("batches") have no read endpoint yet (brief PR 5), so a submitted
- * student shows as submitted, without its send run's status.
  */
 
 export type Candidate = {
@@ -46,27 +44,6 @@ export type Candidate = {
 export type DecisionChoice = { kind: 'match'; candidate: Candidate } | { kind: 'exclude' };
 
 export type Decision = DecisionChoice & { version: number; decidedAt: number; decidedBy: string };
-
-export type MatchDecision = Extract<Decision, { kind: 'match' }>;
-
-/** One resource's counts, as a run's summary reports them. */
-export type ResourceSummary = { processed: number; skipped: number; failed: number };
-
-export type BatchItem = { correlationId: string; decision: MatchDecision };
-
-export type BatchStatus = 'queued' | 'processing' | 'complete' | 'complete with errors' | 'failed';
-
-export type Batch = {
-  id: number;
-  submittedAt: number;
-  items: BatchItem[];
-  retryOf?: number;
-  status: BatchStatus;
-  summary?: Record<string, ResourceSummary>;
-};
-
-export const isFinished = (batch: Batch) =>
-  batch.status !== 'queued' && batch.status !== 'processing';
 
 /** How each status reads on the page. */
 export const statusLabel: Record<StudentMatchStatus, string> = {
@@ -112,15 +89,15 @@ type Session = {
   isLoading: boolean;
   isError: boolean;
   decisions: Map<string, Decision>;
-  batches: Batch[];
+  /** The job's send runs, newest first. */
+  sendRuns: GetSendRunDto[];
   decide: (correlationId: string, decision: DecisionChoice) => Promise<void>;
   undo: (correlationId: string) => Promise<void>;
   statusOf: (correlationId: string) => StudentMatchStatus;
-  /** The latest batch this student was submitted in, if any. */
-  batchOf: (correlationId: string) => Batch | undefined;
+  /** The send run that decides this student's status, if they've been submitted. */
+  sendRunOf: (correlationId: string) => GetSendRunDto | undefined;
   /** Submits the match decisions among these students as one send run. */
   submit: (correlationIds: string[]) => Promise<SubmitResult>;
-  retry: (batchId: number) => void;
   /** Searches IDRS for a student with the reviewer's terms. */
   search: (correlationId: string, terms: SearchTerms) => Promise<SearchHit[]>;
   /** The reviewer's last search for a student, kept for when they come back. */
@@ -204,6 +181,7 @@ export const ReviewSessionProvider = ({
   const [searches, setSearches] = useState<Map<string, SearchState>>(() => new Map());
 
   const students = useMemo(() => data?.students ?? [], [data]);
+  const sendRuns = useMemo(() => data?.sendRuns ?? [], [data]);
   const decisions = useMemo(
     () =>
       new Map(
@@ -222,6 +200,16 @@ export const ReviewSessionProvider = ({
       return student ? student.status : 'to-review';
     },
     [students]
+  );
+
+  const sendRunOf = useCallback(
+    (correlationId: string) => {
+      const sendRunId = students.find(
+        (student) => student.correlationId === correlationId
+      )?.sendRunId;
+      return sendRuns.find(({ id }) => id === sendRunId);
+    },
+    [students, sendRuns]
   );
 
   const failed = useCallback(
@@ -340,31 +328,15 @@ export const ReviewSessionProvider = ({
     isLoading,
     isError,
     decisions,
-    batches: [],
+    sendRuns,
     decide,
     undo,
     statusOf,
-    batchOf: () => undefined,
+    sendRunOf,
     submit,
-    retry: () => undefined,
     search,
     searchOf,
     setSearch,
   };
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
 };
-
-/** Every resource's counts added up, e.g. across all of a job's batches. */
-export const totalOf = (summary: Record<string, ResourceSummary> | undefined) =>
-  Object.values(summary ?? {}).reduce(
-    (total, resource) => ({
-      processed: total.processed + resource.processed,
-      skipped: total.skipped + resource.skipped,
-      failed: total.failed + resource.failed,
-    }),
-    { processed: 0, skipped: 0, failed: 0 }
-  );
-
-/** Loaded is processed less skipped and failed, as the job page counts it. */
-export const loadedOf = (counts: ResourceSummary) =>
-  Math.max(0, counts.processed - counts.skipped - counts.failed);

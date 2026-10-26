@@ -32,7 +32,7 @@ import {
   CountFilter,
 } from './queue';
 import { LastAction, LastActionBar, Workspace } from './studentPane';
-import { BatchList } from './submissions';
+import { SubmissionList } from './submissions';
 import { SubmitReview } from './submit';
 
 /*
@@ -40,14 +40,14 @@ import { SubmitReview } from './submit';
  * Suggestion count is a filter, not a workflow. Two destinations: save a
  * match, or exclude the record from this job (mostly for junk data);
  * rejecting the suggestions is neither. Submitting is a deliberate
- * checkpoint, and batch outcomes stay with the batch.
+ * checkpoint, and each submission's outcome stays with the submission.
  */
 
 // The workspace ---------------------------------------------------------------
 
 /**
  * The list beside the workspace, grouped by status: the side list holds the
- * students and the submit button, and the top counts them and shows batches.
+ * students and the submit button, and the top counts them and shows submissions.
  */
 export const WorkspaceReview = () => {
   const { students, counts, overLimit, isLoading, isError, statusOf, decisions } =
@@ -312,7 +312,7 @@ export const WorkspaceReview = () => {
   return (
     <VStack alignItems="stretch" width="100%" gap="400">
       {/* The list holds the students and the one submit button; the summary
-          only counts them, and shows submitted batches. */}
+          only counts them, and shows submissions. */}
       <Overview />
 
       <HStack alignItems="flex-start" gap="400" width="100%">
@@ -585,7 +585,7 @@ const SubmitPrompt = ({
 
 /** Progress that says what's left to do, with identity and processing kept apart. */
 const Overview = () => {
-  const { counts, overLimit, batches } = useReviewSession();
+  const { counts, overLimit, sendRuns } = useReviewSession();
   // Past the review limit, the page says so in place of the list.
   const tooMany = !overLimit && counts.total > USUAL_MAXIMUM;
   // A count per status, in the list's order.
@@ -610,9 +610,9 @@ const Overview = () => {
         ))}
       </HStack>
       <ReviewProgress />
-      {batches.length > 0 && (
+      {sendRuns.length > 0 && (
         <Box paddingTop="200" borderTopWidth="1px" borderColor="blue.50-40">
-          <BatchList />
+          <SubmissionList />
         </Box>
       )}
     </VStack>

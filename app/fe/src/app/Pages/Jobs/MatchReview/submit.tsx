@@ -196,8 +196,8 @@ export const SubmitReview = ({
             </Box>
           )}
           <Box marginTop="300" fontSize="0.85rem" opacity="0.85">
-            The run will report how many records loaded, skipped or failed for the batch as a whole,
-            not per student. You can keep reviewing while it runs.
+            The run will report how many records loaded, skipped or failed for the submission as a
+            whole, not per student. You can keep reviewing while it runs.
           </Box>
         </ModalBody>
         <ModalFooter gap="200">
@@ -213,7 +213,7 @@ export const SubmitReview = ({
               else setConflict(result.message);
             }}
           >
-            Submit batch
+            Submit
           </PrimaryButton>
         </ModalFooter>
       </ModalContent>
