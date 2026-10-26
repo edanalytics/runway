@@ -1,7 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { plainToInstance } from 'class-transformer';
 import { useToast } from '@chakra-ui/react';
-import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from 'react';
+import { isEqual } from 'lodash';
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   GetJobDto,
   GetSendRunDto,
@@ -190,6 +200,10 @@ export const ReviewSessionProvider = ({
   const { data, isLoading, isError, refetch } = useQuery({
     ...resultsQuery,
     enabled: hasMatchReview(job),
+    // A send run's outcome changes its students' statuses with nothing on
+    // the page to prompt a refetch, so poll while one is in flight. React
+    // Query stops on unmount, and pauses while the browser tab is hidden.
+    refetchInterval: (query) => (query.state.data?.counts.reprocessing ? 5000 : false),
   });
   const queryClient = useQueryClient();
   const invalidateJob = useInvalidateJobQueries(jobId);
@@ -197,6 +211,17 @@ export const ReviewSessionProvider = ({
   const { data: me } = useMe();
   const meId = me?.user?.id;
   const [searches, setSearches] = useState<Map<string, SearchState>>(() => new Map());
+
+  // When the counts change, so may the job: its status, its counts and, after
+  // a send run, its combined summary. The first load changes nothing, and
+  // refetching the job refetches this read, whose counts are then the same.
+  const previousCounts = useRef<GetStudentMatchCountsDto>();
+  useEffect(() => {
+    if (!data) return;
+    const previous = previousCounts.current;
+    previousCounts.current = data.counts;
+    if (previous && !isEqual(previous, data.counts)) invalidateJob();
+  }, [data, invalidateJob]);
 
   const students = useMemo(() => data?.students ?? [], [data]);
   const sendRuns = useMemo(() => data?.sendRuns ?? [], [data]);
