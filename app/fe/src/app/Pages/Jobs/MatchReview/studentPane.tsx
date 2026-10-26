@@ -17,7 +17,7 @@ import {
   StudentRosterDetailsJson,
   StudentMatchStatus,
 } from '@edanalytics/models';
-import { KeyboardEvent, ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
@@ -196,14 +196,10 @@ export const Workspace = ({
     if (saved) setNoneFit(false);
   };
 
-  const onKeyDown = (event: KeyboardEvent) => {
-    if ((event.target as HTMLElement).closest('input, textarea') || isSubmitted) return;
-  };
-
   const issues = fileIssues(student);
 
   return (
-    <VStack alignItems="stretch" gap="400" onKeyDown={onKeyDown}>
+    <VStack alignItems="stretch" gap="400">
       {/* The source record stays put while everything else changes. */}
       <VStack alignItems="flex-start" gap="100">
         <Box fontSize="0.8rem" opacity="0.8">
@@ -237,10 +233,8 @@ export const Workspace = ({
 
       {(noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
         <NoSuggestionFits
-          student={student}
           suggestionCount={suggestions.length}
           onBack={candidates.length ? () => setNoneFit(false) : undefined}
-          onUse={use}
           onExclude={exclude}
           search={<Search student={student} saved={saved} onUse={use} />}
         >
@@ -350,7 +344,6 @@ const DecisionState = ({
 
 type Row = {
   label: string;
-  file: string | null;
   roster: (candidate: StudentRosterDetailsJson) => string | null;
   /** Compared rows get marks. */
   compared: boolean;
@@ -361,21 +354,18 @@ type Row = {
 const rows: Row[] = [
   {
     label: 'First name',
-    file: null,
     roster: (r) => valueText(r.first_name),
     compared: true,
     rosterOnly: false,
   },
   {
     label: 'Last name',
-    file: null,
     roster: (r) => valueText(r.last_name),
     compared: true,
     rosterOnly: false,
   },
   {
     label: 'Date of birth',
-    file: null,
     roster: (r) => valueText(r.birth_date),
     compared: true,
     rosterOnly: false,
@@ -384,21 +374,18 @@ const rows: Row[] = [
   // are typed), so they're shown side by side without a mark.
   {
     label: 'Student IDs',
-    file: null,
     roster: (r) => valueText(r.student_ids),
     compared: false,
     rosterOnly: false,
   },
   {
     label: 'Middle name',
-    file: null,
     roster: (r) => valueText(r.middle_name),
     compared: false,
     rosterOnly: true,
   },
   {
     label: 'School years',
-    file: null,
     roster: (r) => valueText(r.school_years),
     compared: false,
     rosterOnly: true,
@@ -460,7 +447,7 @@ const EvidenceTable = ({
     'School years': null,
   };
   const agreementOf = (label: string, index: number): Agreement =>
-    comparisons[index].fields.find((f) => f.label === label)?.agreement ?? 'unknown';
+    comparisons[index].find((f) => f.label === label)?.agreement ?? 'unknown';
   // The band behind each candidate's column; a saved match's band is outlined.
   const band = (c: Candidate) => ({
     bg: 'blue.600',

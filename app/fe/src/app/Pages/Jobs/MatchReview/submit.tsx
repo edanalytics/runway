@@ -47,7 +47,7 @@ const RecordLines = ({
   details: StudentInputDetailsJson | StudentRosterDetailsJson;
   against?: StudentInputDetailsJson;
 }) => {
-  const fields = against ? compare(against, details as StudentRosterDetailsJson).fields : null;
+  const fields = against ? compare(against, details as StudentRosterDetailsJson) : null;
   const agreement = (label: string): Agreement =>
     fields?.find((f) => f.label === label)?.agreement ?? 'unknown';
   // The name is the same only if both parts are; any part that differs, differs.

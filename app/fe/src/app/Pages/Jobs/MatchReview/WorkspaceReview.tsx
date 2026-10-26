@@ -630,7 +630,7 @@ const Overview = () => {
  */
 export const USUAL_MAXIMUM = 20;
 
-export const TooManyNote = ({ count }: { count: number }) => (
+const TooManyNote = ({ count }: { count: number }) => (
   <Box
     padding="300"
     borderRadius="6px"

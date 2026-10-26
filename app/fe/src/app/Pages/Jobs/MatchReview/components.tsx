@@ -147,20 +147,16 @@ export const SearchField = ({
  * so searching and excluding never read as the same kind of step.
  */
 export const NoSuggestionFits = ({
-  student,
   suggestionCount,
   onBack,
-  onUse,
   onExclude,
   search,
   children,
 }: {
-  student: GetStudentInputDetailsDto;
   suggestionCount: number;
   search: ReactNode;
   /** Back to the suggestions, when the reviewer came from them. */
   onBack?: () => void;
-  onUse: (candidate: Candidate) => void;
   onExclude: () => void;
   /** Context shown above the options, e.g. problems in the file. */
   children?: ReactNode;
@@ -237,13 +233,20 @@ const OptionBox = ({
   </VStack>
 );
 
-/** The latest search IDRS ran for this student; earlier ones are history. */
+/**
+ * The latest search IDRS ran for this student, from the highest run: the one
+ * a match to a suggestion must pick from. Earlier ones are history.
+ */
 const latestResult = (student: GetStudentInputDetailsDto) =>
-  [...student.results].sort((a, b) => +new Date(b.createdOn) - +new Date(a.createdOn))[0];
+  student.results.reduce<(typeof student.results)[number] | undefined>(
+    (latest, result) => (!latest || result.runId > latest.runId ? result : latest),
+    undefined
+  );
 
 export const suggestionsOf = (student: GetStudentInputDetailsDto): Candidate[] => {
   const latest = latestResult(student);
-  return (latest?.suggestions ?? [])
+  if (!latest) return [];
+  return latest.suggestions
     .slice()
     .sort((a, b) => a.ordinal - b.ordinal)
     .map((s) => ({
