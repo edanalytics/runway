@@ -85,6 +85,35 @@ export const refusalReason = ({ code, refused }: SubmitRefusal) => {
 };
 
 /**
+ * A failed submit, as the page reports it: `refused`, for a refusal the page
+ * can act on; `not submitted`, when the API certainly wrote nothing; or
+ * `unknown`, when a server error or a lost response leaves open whether the
+ * submit committed. `refreshed` says whether the page has caught up since.
+ */
+export type SubmitFailure = { message: string; refreshed: boolean } & (
+  | { kind: 'refused'; refusal: SubmitRefusal }
+  | { kind: 'not submitted' }
+  | { kind: 'unknown' }
+);
+
+/** What a failed submit or Send again tells the reviewer, in the modal and the toast alike. */
+export const submitFailureText = (failure: SubmitFailure, verb: 'submitted' | 'sent again') => ({
+  title:
+    failure.kind === 'unknown'
+      ? `Couldn’t confirm whether they were ${verb}`
+      : `Nothing was ${verb}`,
+  detail:
+    failure.kind === 'refused'
+      ? refusalReason(failure.refusal)
+      : failure.kind === 'not submitted'
+      ? failure.message
+      : `${failure.message} They may already be in a submission.`,
+  caughtUp: failure.refreshed
+    ? 'The list has been refreshed.'
+    : 'The list couldn’t be refreshed: reload the page before going on.',
+});
+
+/**
  * Whether a failed submit certainly wrote nothing: the API answered with a
  * client error, which it decides before writing anything. A 5xx can come
  * after the submit committed, and a failure with no status, such as a lost

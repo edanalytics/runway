@@ -24,7 +24,6 @@ import { ReactNode, useEffect, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
-  asSentence,
   CrossYearCue,
   deciderName,
   isOwnDecision,
@@ -36,7 +35,7 @@ import {
 } from './components';
 import { useMe } from '../../../api/queries/me.queries';
 import { SubmitResult, useReviewSession } from './reviewSession';
-import { refusalReason } from './submitResult';
+import { submitFailureText } from './submitResult';
 
 // Submitting -------------------------------------------------------------------
 
@@ -113,11 +112,13 @@ export const SubmitReview = ({
       setFailure(null);
     }
   }, [isOpen]);
-  const refusal = failure?.result.refusal;
+  const result = failure?.result;
+  const refusal = result?.kind === 'refused' ? result.refusal : null;
+  const text = result && submitFailureText(result, 'submitted');
   // After a refusal that names students, the same submit without them.
   const refusedIds = new Set(refusal?.refused.map(({ correlationId }) => correlationId));
   const rest =
-    refusal && refusal.action !== 'try later'
+    failure && refusal && refusal.action !== 'try later'
       ? failure.submitted.filter((correlationId) => !refusedIds.has(correlationId))
       : null;
   const nameOf = (correlationId: string) => {
@@ -143,7 +144,7 @@ export const SubmitReview = ({
           these identities
         </ModalHeader>
         <ModalBody>
-          {failure && (
+          {text && (
             <VStack
               alignItems="flex-start"
               gap="200"
@@ -154,11 +155,7 @@ export const SubmitReview = ({
               borderColor="pink.100"
             >
               <Box>
-                {refusal
-                  ? `Nothing was submitted. ${refusalReason(refusal)}`
-                  : failure.result.nothingSubmitted
-                  ? `Nothing was submitted: ${asSentence(failure.result.message)}`
-                  : `The page couldn't confirm whether these were submitted (${failure.result.message}). They may already be in a submission.`}
+                {text.title}. {text.detail}
               </Box>
               {refusal?.refused.map(({ correlationId }) => (
                 <HStack key={correlationId} gap="200">
@@ -169,17 +166,13 @@ export const SubmitReview = ({
                 </HStack>
               ))}
               <Box fontSize="0.9rem">
-                {failure.result.refreshed
-                  ? 'The list has been refreshed.'
-                  : "The list couldn't be refreshed: reload the page before going on."}{' '}
+                {text.caughtUp}{' '}
                 {refusal?.action === 'leave out' &&
                   'Submit the rest without them, or check them first.'}
                 {refusal?.action === 'leave out or exclude' &&
                   'Submit the rest without them, or open each to exclude it from the job.'}
-                {!refusal &&
-                  (failure.result.nothingSubmitted
-                    ? 'Check it, then submit again.'
-                    : 'Check it before submitting again.')}
+                {result?.kind === 'not submitted' && 'Check it, then submit again.'}
+                {result?.kind === 'unknown' && 'Check it before submitting again.'}
               </Box>
             </VStack>
           )}

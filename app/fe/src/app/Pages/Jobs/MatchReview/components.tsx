@@ -348,10 +348,6 @@ export const CopyButton = ({ value, label }: { value: string; label?: string }) 
   );
 };
 
-/** An API message as a sentence, whether or not it ends with a period. */
-export const asSentence = (message: string) =>
-  /[.!?]$/.test(message.trim()) ? message.trim() : `${message.trim()}.`;
-
 /** A date and time, short: a job's review can span days. */
 export const dateTime = (at: Date | number) =>
   new Date(at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });

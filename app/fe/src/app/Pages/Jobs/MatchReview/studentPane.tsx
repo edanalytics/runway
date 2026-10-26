@@ -17,7 +17,6 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Agreement, compare } from './compare';
 import {
   AgreementMark,
-  asSentence,
   PrimaryButton,
   NoSuggestionFits,
   SearchField,
@@ -183,7 +182,7 @@ export const Workspace = ({
         toast({
           status: 'error',
           title: 'A decision you made couldn’t be saved',
-          description: `${asSentence(result.message)} The list has been refreshed.`,
+          description: `${result.message} The list has been refreshed.`,
           isClosable: true,
         });
       return false;

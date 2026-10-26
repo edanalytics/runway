@@ -29,7 +29,7 @@ import { apiClient } from '../../../api/methods';
 import { getJobStudentMatchResults } from '../../../api/queries/job.queries';
 import { SearchHit, SearchTerms, searchDetailsFrom } from './search';
 import { studentsToResend } from './sendRun';
-import { SubmitRefusal, submitRefusal, wroteNothing } from './submitResult';
+import { SubmitFailure, submitRefusal, wroteNothing } from './submitResult';
 
 /*
  * One review session per job page, backed by the match-review API: the
@@ -92,23 +92,8 @@ export type DecisionResult = { ok: true; version: number | null } | { ok: false;
 /** A student as submit takes them: their correlation id and their match's version. */
 export type SubmitStudent = { correlationId: string; version: number };
 
-/**
- * A submit's outcome. A refusal says which students it refused and why.
- * `nothingSubmitted` says whether the failure certainly wrote nothing, as a
- * refusal or any other client error does; a 5xx after the submit committed,
- * or a lost response, leaves it unknown. Either way, `refreshed` says
- * whether the page has caught up since. A submit whose run couldn't start
- * still stands.
- */
-export type SubmitResult =
-  | { ok: true }
-  | {
-      ok: false;
-      refusal: SubmitRefusal | null;
-      nothingSubmitted: boolean;
-      message: string;
-      refreshed: boolean;
-    };
+/** A submit's outcome. A submit whose run couldn't start still stands. */
+export type SubmitResult = { ok: true } | ({ ok: false } & SubmitFailure);
 
 type Session = {
   job: GetJobDto;
@@ -159,9 +144,13 @@ export const useReviewSession = () => {
 
 /** An API error body: Nest's, or a coded one from the match-review routes. */
 type ApiError = { statusCode?: number; code?: string; message?: string | string[] };
+/** An API error's message, as a sentence for the reviewer. */
 const messageOf = (err: unknown) => {
   const { message } = (err ?? {}) as ApiError;
-  return Array.isArray(message) ? message.join('; ') : message ?? 'Something went wrong.';
+  const text = (
+    Array.isArray(message) ? message.join('; ') : message ?? 'Something went wrong'
+  ).trim();
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 };
 
 export const ReviewSessionProvider = ({
@@ -302,13 +291,10 @@ export const ReviewSessionProvider = ({
         // A refusal means the page is behind, and any other failure may have
         // submitted: catch up before saying what's known.
         const { isError } = await refetch();
-        return {
-          ok: false,
-          refusal: submitRefusal(err, students),
-          nothingSubmitted: wroteNothing(err),
-          message: messageOf(err),
-          refreshed: !isError,
-        };
+        const failure = { message: messageOf(err), refreshed: !isError };
+        const refusal = submitRefusal(err, students);
+        if (refusal) return { ok: false, kind: 'refused', refusal, ...failure };
+        return { ok: false, kind: wroteNothing(err) ? 'not submitted' : 'unknown', ...failure };
       }
     },
     [jobId, refetch, toast]

@@ -4,7 +4,7 @@ import { getResourceSummaries, GetSendRunDto } from '@edanalytics/models';
 import { useEffect, useState } from 'react';
 import { ContactSupport } from '../../../components/SupportButton';
 import { reportedSummaries } from '../JobViewComponents/ResourceSummary';
-import { asSentence, dateTime, QuietButton, studentName } from './components';
+import { dateTime, QuietButton, studentName } from './components';
 import { useReviewSession } from './reviewSession';
 import {
   needsAttention,
@@ -15,7 +15,7 @@ import {
   submissionReference,
   studentsToResend,
 } from './sendRun';
-import { refusalReason } from './submitResult';
+import { submitFailureText } from './submitResult';
 
 /** Every submission, newest first. */
 export const SubmissionList = () => {
@@ -133,22 +133,13 @@ const SubmissionSupport = ({
     const result = await resend(sendRun.id);
     setSending(false);
     if (result.ok) return;
-    const { refusal, nothingSubmitted, message, refreshed } = result;
-    const caughtUp = refreshed
-      ? 'The list has been refreshed'
-      : "The list couldn't be refreshed: reload the page before going on";
+    const { title, detail, caughtUp } = submitFailureText(result, 'sent again');
+    const sendsTheRest =
+      result.kind === 'refused' && result.refusal.action !== 'try later' && result.refreshed;
     toast({
       status: 'error',
-      title: nothingSubmitted
-        ? 'Nothing was sent again'
-        : 'Couldn’t confirm whether they were sent again',
-      description: !nothingSubmitted
-        ? `${asSentence(message)} They may already be in a submission. ${caughtUp}.`
-        : !refusal
-        ? `${asSentence(message)} ${caughtUp}.`
-        : refusal.action === 'try later'
-        ? refusalReason(refusal)
-        : `${refusalReason(refusal)} ${caughtUp}, and Send again now sends the rest.`,
+      title,
+      description: `${detail} ${caughtUp}${sendsTheRest ? ' Send again now sends the rest.' : ''}`,
       isClosable: true,
     });
   };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { submitRefusal, wroteNothing } from './submitResult';
+import { submitFailureText, submitRefusal, wroteNothing } from './submitResult';
 
 describe('submitRefusal', () => {
   const submitted = [
@@ -130,5 +130,54 @@ describe('wroteNothing', () => {
 
   it('is false for a failure with no response, such as a dropped connection', () => {
     expect(wroteNothing({ message: 'Network Error', code: 'ERR_NETWORK' })).toBe(false);
+  });
+});
+
+describe('submitFailureText', () => {
+  it('says nothing was sent again, and why, for a refusal', () => {
+    const text = submitFailureText(
+      {
+        kind: 'refused',
+        refusal: {
+          code: 'already_submitted',
+          action: 'leave out',
+          refused: [{ correlationId: 'corr-1', version: 2 }],
+        },
+        message: 'A student’s match is being or has been sent.',
+        refreshed: true,
+      },
+      'sent again'
+    );
+    expect(text).toEqual({
+      title: 'Nothing was sent again',
+      detail: '1 student is already in another submission.',
+      caughtUp: 'The list has been refreshed.',
+    });
+  });
+
+  it("says nothing was submitted, with the API's message, when the API certainly wrote nothing", () => {
+    const text = submitFailureText(
+      { kind: 'not submitted', message: 'A student isn’t in the job.', refreshed: true },
+      'submitted'
+    );
+    expect(text.title).toBe('Nothing was submitted');
+    expect(text.detail).toBe('A student isn’t in the job.');
+  });
+
+  it('does not say nothing was submitted when a server error leaves it unknown', () => {
+    const text = submitFailureText(
+      { kind: 'unknown', message: 'Failed to submit the matches.', refreshed: true },
+      'submitted'
+    );
+    expect(text.title).toBe('Couldn’t confirm whether they were submitted');
+    expect(text.detail).toBe('Failed to submit the matches. They may already be in a submission.');
+  });
+
+  it("asks for a reload when the list couldn't be refreshed", () => {
+    const text = submitFailureText(
+      { kind: 'unknown', message: 'Network Error.', refreshed: false },
+      'submitted'
+    );
+    expect(text.caughtUp).toBe('The list couldn’t be refreshed: reload the page before going on.');
   });
 });
