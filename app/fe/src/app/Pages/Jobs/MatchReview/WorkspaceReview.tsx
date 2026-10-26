@@ -151,6 +151,7 @@ export const WorkspaceReview = () => {
     <Input
       id="workspace-queue-search"
       size="sm"
+      autoComplete="off"
       placeholder="Search"
       value={query}
       onChange={(event) => setQuery(event.target.value)}

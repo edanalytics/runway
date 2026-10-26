@@ -667,7 +667,6 @@ const Search = ({
   };
   const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
     <SearchField
-      id={`search-${key}-${student.correlationId}`}
       label={label}
       value={terms[key]}
       placeholder={placeholder}

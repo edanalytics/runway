@@ -102,17 +102,17 @@ export const QuietButton = (props: React.ComponentProps<typeof Button>) => (
 /**
  * A roster-search field in the theme's input style. The theme's labels are
  * bold and bright; here the label is small and muted so the value, which
- * the reviewer is reading and correcting, stands out.
+ * the reviewer is reading and correcting, stands out. Autocomplete is off,
+ * so the student details typed here stay out of the browser's form history,
+ * and `FormControl` pairs the label with the input by an id it generates.
  */
 export const SearchField = ({
-  id,
   label,
   value,
   placeholder,
   onChange,
   onEnter,
 }: {
-  id: string;
   label: string;
   value: string;
   placeholder?: string;
@@ -121,7 +121,6 @@ export const SearchField = ({
 }) => (
   <FormControl>
     <FormLabel
-      htmlFor={id}
       textStyle="body"
       fontSize="0.75rem"
       fontWeight="normal"
@@ -132,8 +131,8 @@ export const SearchField = ({
       {label}
     </FormLabel>
     <Input
-      id={id}
       size="sm"
+      autoComplete="off"
       value={value}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
