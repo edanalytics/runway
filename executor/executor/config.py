@@ -6,6 +6,12 @@ ROSTER_DOWNLOAD_DIR = 'roster-download-dir'
 CROSS_YEAR_ROSTER_PATH = 'cross_year_roster.jsonl'
 # when matching candidates with the ID Resolution Service: location to move previous output sets to
 PRE_CANDIDATES_DIR = 'pre-candidates'
+# location for original studentAssessments.jsonl in the fuzzy matching workflow, before substitution
+ORIGINAL_DIR = 'original'
+# location for studentAssessments records that are still unmatched after fuzzy matching runs
+UNMATCHED_DIR = 'unmatched'
+# location for cross year records
+CROSS_YEAR_OUTPUT_DIR = 'cross-year-output-dir'
 
 REQUIRED_ID_MATCH_RATE = 0.5
 STUDENT_ASSESSMENT_FAIL_THRESHOLD = 0.75
@@ -24,3 +30,6 @@ IDRS_BATCH_SIZE = 5000
 
 # Set the auto matching threshold for IDRS matches
 IDRS_AUTO_MATCH_THRESHOLD = 1.0
+
+# Set the batch size for posting results back to the app
+MATCHES_BATCH_SIZE = 1000
