@@ -97,7 +97,7 @@ AUTO_MATCHES = JobArtifact(
 )
 STUDENT_ASSESSMENT_IDENTIFIER_LOOKUP = JobArtifact(
     "student_assessment_identifier_lookup",
-    os.path.join(config.ORIGINAL_DIR, "student_assessment_lookup.jsonl"),
+    os.path.join(config.ORIGINAL_DIR, "student_assessment_identifier_lookup.jsonl"),
     False
 )
 
