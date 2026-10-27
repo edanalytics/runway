@@ -356,6 +356,38 @@ describe('POST /earthbeam/jobs/:runId/student-match-results', () => {
     });
   });
 
+  describe('body size', () => {
+    /** A one-record batch padded to exactly `bytes` of JSON. */
+    const batchOf = (bytes: number) => {
+      const unpadded = JSON.stringify([record({ candidate: { ...candidate, padding: '' } })]);
+      return [
+        record({ candidate: { ...candidate, padding: 'x'.repeat(bytes - unpadded.length) } }),
+      ];
+    };
+
+    it('accepts a batch of up to 1 MiB', async () => {
+      const body = batchOf(1024 * 1024);
+      expect(JSON.stringify(body)).toHaveLength(1024 * 1024);
+
+      expect((await post(runA.id, body)).status).toBe(201);
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
+    });
+
+    it('rejects a larger batch with 413 without writing rows', async () => {
+      expect((await post(runA.id, batchOf(1024 * 1024 + 1))).status).toBe(413);
+      expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(0);
+    });
+
+    it("leaves the other callbacks at the parser's 100kb default", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/earthbeam/jobs/${runA.id}/summary`)
+        .set('Authorization', `Bearer ${await tokenFor(runA.id)}`)
+        .send({ padding: 'x'.repeat(200_000) });
+
+      expect(res.status).toBe(413);
+    });
+  });
+
   describe('retries and runs', () => {
     // The Executor re-sends exactly what it sent, though not necessarily in the
     // same batches.
