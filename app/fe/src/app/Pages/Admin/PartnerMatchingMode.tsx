@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  Badge,
   Box,
   Button,
   FormControl,
@@ -7,7 +8,6 @@ import {
   FormLabel,
   HStack,
   Select,
-  Text,
   VStack,
 } from '@chakra-ui/react';
 import { PutPartnerIdMatchingModeDto } from '@edanalytics/models';
@@ -104,7 +104,11 @@ export const PartnerMatchingMode = () => {
         {draft === null && (
           <Button
             variant="ghost"
-            color="green.100"
+            textStyle="button"
+            textColor="green.100"
+            px="200"
+            py="200"
+            _hover={{ bg: 'transparent' }}
             onClick={() => {
               setError(null);
               setDraft(config.idMatchingMode);
@@ -115,39 +119,75 @@ export const PartnerMatchingMode = () => {
         )}
       </HStack>
       {error && <RunwayErrorBox message={error} showButton={false} />}
-      <Box layerStyle="contentBox" padding="300">
+      <Box layerStyle="contentBox" padding="300" maxWidth="100%">
         <FormControl id="partner-matching-mode" variant="plain">
-          <FormLabel color="blue.50">Matching mode</FormLabel>
-          {draft === null ? (
-            <Text color="blue.50">{labels[config.idMatchingMode]}</Text>
-          ) : (
-            <Select
-              value={draft}
-              onChange={(event) => setDraft(event.target.value as Mode)}
-              isDisabled={update.isPending}
-              aria-describedby="partner-matching-help"
+          <HStack align="center" gap="500">
+            <FormLabel
+              mb="0"
+              textStyle="body"
+              fontWeight="semibold"
+              color="blue.50"
+              whiteSpace="nowrap"
             >
-              {Object.entries(labels).map(([mode, label]) => (
-                <option key={mode} value={mode}>
-                  {label}
-                </option>
-              ))}
-            </Select>
-          )}
-          <FormHelperText id="partner-matching-help" color="blue.50">
-            Applies to new jobs for all tenants in this partner. Existing jobs keep their matching
-            mode. Background fuzzy matching continues ID-based delivery while collecting fuzzy
-            suggestions. Fuzzy matching lets reviewers resolve uncertain matches before sending
-            those students. Enabling either fuzzy mode checks the partner's IDRS access when you
-            save.
-          </FormHelperText>
+              Matching mode
+            </FormLabel>
+            {draft === null ? (
+              <Badge
+                borderRadius="999px"
+                bg={config.idMatchingMode === 'id_based' ? 'blue.800' : 'green.100'}
+                color={config.idMatchingMode === 'id_based' ? 'green.50' : 'green.600'}
+                px="200"
+                py="100"
+                textTransform="none"
+                flexShrink={0}
+              >
+                {labels[config.idMatchingMode]}
+              </Badge>
+            ) : (
+              <Select
+                value={draft}
+                onChange={(event) => setDraft(event.target.value as Mode)}
+                isDisabled={update.isPending}
+                aria-describedby="partner-matching-help"
+                width="auto"
+                maxWidth="24rem"
+                flexShrink={0}
+              >
+                {Object.entries(labels).map(([mode, label]) => (
+                  <option key={mode} value={mode}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <VStack align="stretch" gap="100">
+              <FormHelperText
+                id="partner-matching-help"
+                mt="0"
+                textStyle="caption"
+                fontSize="xs"
+                fontWeight="normal"
+                color="blue.50"
+              >
+                Applies to new jobs for all tenants in this partner. Existing jobs keep their
+                matching mode. Background fuzzy matching continues ID-based delivery while
+                collecting fuzzy suggestions. Fuzzy matching lets reviewers resolve uncertain
+                matches before sending those students. Enabling either fuzzy mode checks the
+                partner's IDRS access when you save.
+              </FormHelperText>
+            </VStack>
+          </HStack>
         </FormControl>
       </Box>
       {draft !== null && (
-        <HStack justify="flex-end" gap="200">
+        <HStack mt="100" gap="200" justifyContent="flex-end" width="100%">
           <Button
             variant="ghost"
-            color="green.100"
+            textStyle="button"
+            textColor="green.100"
+            px="200"
+            py="200"
+            _hover={{ bg: 'transparent' }}
             isDisabled={update.isPending}
             onClick={() => (hasChanges ? setDialog('discard') : discard())}
           >
@@ -155,6 +195,9 @@ export const PartnerMatchingMode = () => {
           </Button>
           <Button
             layerStyle="buttonPrimary"
+            textStyle="button"
+            px="300"
+            py="300"
             bg="green.100"
             color="green.600"
             _hover={{ bg: 'green.50' }}
