@@ -43,7 +43,7 @@ export const ReviewNotice = () => {
         <Box textStyle="bodyLargeBold">
           {allDone
             ? `${total === 1 ? '' : 'All '}${plural(total, 'student', 'students')} processed`
-            : `${plural(total, 'student', 'students')} couldn't be matched automatically`}
+            : plural(total, 'unmatched student', 'unmatched students')}
         </Box>
       </HStack>
       <Box textStyle="body" marginBottom="300">
@@ -57,7 +57,7 @@ export const ReviewNotice = () => {
             : reprocessing > 0
             ? 'Your matches have been submitted.'
             : 'Your students have been reviewed.'
-          : "Their assessments weren't sent because no roster student was a close enough match. Review the suggestions, search the roster, or exclude a student, then submit your matches to send their assessments."}
+          : "Runway was unable to automatically match them to a student in your roster. Their assessments haven't been sent."}
       </Box>
       {!allDone && progress && (
         <Box textStyle="body" fontWeight="600" marginBottom="300">
