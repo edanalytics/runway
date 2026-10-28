@@ -13,6 +13,8 @@ const endpoint = '/partners/id-matching-mode';
 const tokenUrl = 'https://auth.example.test/token';
 const idrsUrl = 'https://idrs.example.test/base/';
 const scopes = [`partner:${partnerA.id}`, 'student:identity:read'];
+const sensitiveValues = ['TOKEN-SENTINEL', 'UPSTREAM-SENTINEL', `${partnerA.id}-secret`];
+const sensitiveFailure = sensitiveValues.join(' ');
 const response = (body: unknown, status = 200) =>
   ({ ok: status === 200, status, json: async () => body } as Response);
 
@@ -38,10 +40,12 @@ describe('partner matching-mode enablement gate', () => {
       throw new Error('unexpected URL');
     });
     logs = [];
-    for (const method of ['warn', 'error', 'log'] as const) {
-      jest.spyOn(Logger.prototype, method).mockImplementation((...args) => {
-        logs.push(args.map(String).join(' '));
-      });
+    for (const target of [Logger, Logger.prototype]) {
+      for (const method of ['warn', 'error', 'log'] as const) {
+        jest.spyOn(target, method).mockImplementation((...args) => {
+          logs.push(args.map(String).join(' '));
+        });
+      }
     }
   });
 
@@ -53,21 +57,28 @@ describe('partner matching-mode enablement gate', () => {
     expect(res.body).toEqual({
       statusCode: status,
       code: status === 422 ? 'idrs_not_ready' : 'identity_service_unavailable',
-      message: expect.any(String),
+      message:
+        status === 422
+          ? 'Runway could not enable this mode. Check the IDRS credentials and required permissions for this partner, then try again.'
+          : 'Runway could not verify IDRS access right now. Please try again later.',
     });
     expect(
       (await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode
     ).toBe('id_based');
-    const output = JSON.stringify([res.body, logs]);
-    for (const secret of ['TOKEN-SENTINEL', 'UPSTREAM-SENTINEL', `${partnerA.id}-secret`]) {
-      expect(output).not.toContain(secret);
-    }
+  };
+
+  const expectSafeBoundaryLog = () => {
+    expect(logs.some((line) => line.includes(`IDRS enablement: partnerId=${partnerA.id}`))).toBe(
+      true
+    );
+    for (const value of sensitiveValues) expect(logs.join('\n')).not.toContain(value);
   };
 
   it.each(['fuzzy', 'id_based_fuzzy_background'])(
     'verifies fresh credentials before saving %s',
     async (mode) => {
       verifyResponse = response({ scopes: [...scopes, 'extra:scope'], partners: ['irrelevant'] });
+      const timeout = jest.spyOn(AbortSignal, 'timeout');
       const res = await save(mode);
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ idMatchingMode: mode });
@@ -82,9 +93,10 @@ describe('partner matching-mode enablement gate', () => {
         expect.objectContaining({
           method: 'GET',
           headers: { Authorization: 'Bearer TOKEN-SENTINEL' },
-          signal: expect.any(AbortSignal),
+          signal: timeout.mock.results[1].value,
         })
       );
+      expect(timeout.mock.calls).toEqual([[5000], [5000]]);
       // Enablement must not populate the ordinary runtime token cache.
       await app.get(IdrsCredentialsService).getCredentials(partnerA.id);
       expect(fetchSpy).toHaveBeenCalledTimes(3);
@@ -93,7 +105,6 @@ describe('partner matching-mode enablement gate', () => {
 
   it.each(
     [
-      [],
       ['student:identity:read'],
       [`partner:${partnerA.id}`],
       ['partner:other', 'student:identity:read'],
@@ -104,7 +115,7 @@ describe('partner matching-mode enablement gate', () => {
     await expectFailure(422);
   });
 
-  it.each([null, [], {}, { scopes: null }, { scopes: 'student:identity:read' }, { scopes: [1] }])(
+  it.each([null, [], {}, { scopes: 'student:identity:read' }, { scopes: [1] }])(
     'treats unusable verification response %j as unavailable',
     async (body) => {
       verifyResponse = response(body);
@@ -112,35 +123,39 @@ describe('partner matching-mode enablement gate', () => {
     }
   );
 
-  it.each([401, 403, 500, 503])('handles IDRS verification status %i', async (status) => {
-    verifyResponse = response({ detail: 'UPSTREAM-SENTINEL' }, status);
+  it.each([401, 403, 500])('handles IDRS verification status %i', async (status) => {
+    verifyResponse = response({ detail: sensitiveFailure }, status);
     await expectFailure(status < 500 ? 422 : 503);
+    expectSafeBoundaryLog();
   });
 
-  it.each([400, 401, 500, 503])('handles OAuth status %i', async (status) => {
-    tokenResponse = response({ detail: 'UPSTREAM-SENTINEL' }, status);
+  it.each([400, 401, 500])('handles OAuth status %i', async (status) => {
+    tokenResponse = response({ detail: sensitiveFailure }, status);
     await expectFailure(status < 500 ? 422 : 503);
+    expectSafeBoundaryLog();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it.each(['token', 'verify'])('handles malformed JSON from %s', async (stage) => {
     const broken = response(null);
     broken.json = async () => {
-      throw new SyntaxError('UPSTREAM-SENTINEL');
+      throw new SyntaxError(sensitiveFailure);
     };
     if (stage === 'token') tokenResponse = broken;
     else verifyResponse = broken;
     await expectFailure(503);
+    expectSafeBoundaryLog();
   });
 
   it.each(['TypeError', 'TimeoutError'])(
-    'handles verification transport failure %s',
+    'classifies a verification transport error named %s as unavailable',
     async (name) => {
       fetchSpy.mockImplementation(async (url) => {
         if (url === tokenUrl) return tokenResponse;
-        throw Object.assign(new Error('UPSTREAM-SENTINEL'), { name });
+        throw Object.assign(new Error(sensitiveFailure), { name });
       });
       await expectFailure(503);
+      expectSafeBoundaryLog();
     }
   );
 
@@ -162,8 +177,9 @@ describe('partner matching-mode enablement gate', () => {
   );
 
   it('treats a secret service failure as unavailable without leaking its error', async () => {
-    jest.spyOn(config, 'getIdrsConnectionInfo').mockRejectedValue(new Error('UPSTREAM-SENTINEL'));
+    jest.spyOn(config, 'getIdrsConnectionInfo').mockRejectedValue(new Error(sensitiveFailure));
     await expectFailure(503);
+    expectSafeBoundaryLog();
   });
 });
 

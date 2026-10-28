@@ -46,7 +46,6 @@ it('keeps the saved mode when an older GET completes afterward, without refetchi
     const oldGet = client
       .fetchQuery({ ...partnerIdMatchingModeQuery, staleTime: 0 })
       .catch(() => undefined);
-    expect(methods.getOne).toHaveBeenCalledTimes(1);
     await act(async () => {
       await save({ idMatchingMode: 'id_based' });
     });

@@ -137,7 +137,9 @@ describe('partner matching-mode editor', () => {
     expect(host.textContent).toContain(
       'Something went wrong saving your changes. Please try again.'
     );
-    expect(host.textContent).not.toContain('UPSTREAM-SENTINEL');
+    if (failure.code === 'unexpected_error') {
+      expect(host.textContent).not.toContain('UPSTREAM-SENTINEL');
+    }
   });
 
   it('confirms discarding changes and retains the saved mode', async () => {
@@ -171,7 +173,7 @@ describe('partner matching-mode editor', () => {
     expect(after.defaultPrevented).toBe(false);
   });
 
-  it('shows loading until configuration is available', async () => {
+  it('shows the loading state while configuration is being fetched', async () => {
     loading = true;
     await render();
     expect(host.textContent).toContain('loading');

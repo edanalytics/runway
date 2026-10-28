@@ -782,9 +782,11 @@ describe('POST /jobs', () => {
           expect(next.status).toBe(201);
           const rows = await prisma.job.findMany({
             where: { id: { in: [original.body.id, next.body.id] } },
-            orderBy: { id: 'asc' },
           });
-          expect(rows.map((job) => job.idMatchingMode)).toEqual(['id_based', mode]);
+          expect(Object.fromEntries(rows.map((job) => [job.id, job.idMatchingMode]))).toEqual({
+            [original.body.id]: 'id_based',
+            [next.body.id]: mode,
+          });
 
           // A failed enablement cannot change the mode used by subsequent jobs.
           jest.spyOn(app.get(AppConfigService), 'getIdrsConnectionInfo').mockResolvedValue(null);
