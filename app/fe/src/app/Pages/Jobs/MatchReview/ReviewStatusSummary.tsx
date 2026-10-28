@@ -1,27 +1,45 @@
-import { Box, HStack, Progress, VStack } from '@chakra-ui/react';
+import { Box, HStack, Progress, Spinner, VStack } from '@chakra-ui/react';
 import { CheckIcon } from '@chakra-ui/icons';
-import { outstandingStudents } from '@edanalytics/models';
-import { countOf, statusLabel, useReviewSession } from './reviewSession';
-import { sections } from './queue';
+import { useReviewSession } from './reviewSession';
 
-/** Student status counts, with optional decision progress for the review workspace. */
-export const ReviewStatusSummary = ({
-  showDecisionProgress = true,
-}: {
-  showDecisionProgress?: boolean;
-}) => {
+/** Work to review, matches to submit, and students whose processing is finished. */
+export const ReviewStatusSummary = () => {
   const { counts } = useReviewSession();
-  // A count per status, in the list's order.
-  const tiles = sections.map(({ status }) => ({
-    label: statusLabel[status],
-    value: countOf(counts, status),
-  }));
+  const processed = counts.reprocessed + counts.excluded;
+  const done = counts.total > 0 && processed === counts.total;
+  const tiles = [
+    { label: 'Needs review', value: counts.toReview },
+    { label: 'Ready to submit', value: counts.ready },
+    ...(counts.runFailed > 0 ? [{ label: 'Send failed', value: counts.runFailed }] : []),
+    { label: 'Sent', value: counts.reprocessed },
+    { label: 'Excluded', value: counts.excluded },
+  ];
 
   return (
-    <VStack alignItems="stretch" gap="200" width="100%">
+    <VStack alignItems="stretch" gap="300" width="100%">
       <HStack gap="500" flexWrap="wrap">
         {tiles.map((tile) => (
-          <VStack key={tile.label} alignItems="flex-start" gap="0">
+          <VStack
+            key={tile.label}
+            alignItems="flex-start"
+            gap="0"
+            position="relative"
+            _before={
+              tile.label === 'Send failed' || tile.label === 'Sent'
+                ? {
+                    content: '""',
+                    position: 'absolute',
+                    left: '-1.5rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    height: '100%',
+                    borderLeft: '1px solid',
+                    borderColor: 'blue.50-40',
+                    display: { base: 'none', md: 'block' },
+                  }
+                : undefined
+            }
+          >
             <Box fontSize="1.3rem" fontWeight="600" lineHeight="1.2">
               {tile.value}
             </Box>
@@ -31,54 +49,37 @@ export const ReviewStatusSummary = ({
           </VStack>
         ))}
       </HStack>
-      {showDecisionProgress && <ReviewProgress />}
-    </VStack>
-  );
-};
-
-/**
- * Review is done when every student is excluded or has been reprocessed
- * with their match: nothing left to review, submit, run or retry. Done can
- * include delivery errors, as a job can complete with errors today.
- */
-const useReviewDone = () => {
-  const { counts } = useReviewSession();
-  return counts.total > 0 && !outstandingStudents(counts);
-};
-
-const ReviewComplete = () => (
-  <HStack gap="100" role="status" whiteSpace="nowrap">
-    <CheckIcon color="green.100" boxSize="0.8rem" />
-    <Box>Review complete</Box>
-  </HStack>
-);
-
-/**
- * Progress toward review done: students decided, whether or not submitted.
- * A run-failed student is decided: what's left is sending them again.
- */
-const ReviewProgress = () => {
-  const { counts } = useReviewSession();
-  const done = useReviewDone();
-  const decided = counts.total - counts.toReview;
-  return (
-    <HStack gap="300" fontSize="0.8rem">
-      <Progress
-        flex="1"
-        value={counts.total ? (decided / counts.total) * 100 : 0}
-        size="xs"
-        borderRadius="999px"
-        bg="blue.600"
-        sx={{ '& > div': { bg: 'green.100' } }}
-        aria-label="Students decided"
-      />
-      {done ? (
-        <ReviewComplete />
-      ) : (
-        <Box opacity="0.8" whiteSpace="nowrap">
-          {decided} of {counts.total} decided
-        </Box>
+      <HStack gap="300" fontSize="0.8rem">
+        <Progress
+          flex="1"
+          value={counts.total ? (processed / counts.total) * 100 : 0}
+          size="xs"
+          borderRadius="999px"
+          bg="blue.600"
+          sx={{ '& > div': { bg: 'green.100' } }}
+          aria-label="Students done"
+          aria-valuetext={`${processed} of ${counts.total} done`}
+        />
+        {done ? (
+          <HStack gap="100" role="status" whiteSpace="nowrap">
+            <CheckIcon color="green.100" boxSize="0.8rem" />
+            <Box>{counts.total === 1 ? '1 student done' : `All ${counts.total} students done`}</Box>
+          </HStack>
+        ) : (
+          <Box opacity="0.8" whiteSpace="nowrap">
+            {processed} of {counts.total} done
+          </Box>
+        )}
+      </HStack>
+      {counts.reprocessing > 0 && (
+        <HStack gap="200" textStyle="body" role="status">
+          <Spinner size="xs" aria-hidden="true" />
+          <Box>
+            Sending assessments for {counts.reprocessing}{' '}
+            {counts.reprocessing === 1 ? 'student' : 'students'}…
+          </Box>
+        </HStack>
       )}
-    </HStack>
+    </VStack>
   );
 };
