@@ -1,7 +1,7 @@
 import { CheckIcon } from '@chakra-ui/icons';
-import { Box, HStack } from '@chakra-ui/react';
+import { Box, HStack, Icon } from '@chakra-ui/react';
 import { useNavigate } from '@tanstack/react-router';
-import { IconExclamation } from '../../../../assets/icons';
+import { TbUserSearch } from 'react-icons/tb';
 import { PrimaryButton, USUAL_MAXIMUM } from './components';
 import { useReviewSession } from './reviewSession';
 
@@ -25,13 +25,17 @@ export const ReviewNotice = () => {
     <Box padding="300" borderRadius="8px" backgroundColor="blue.600" width="100%">
       <HStack gap="200" marginBottom="200">
         <Box
-          bg={allDone ? 'green.100' : 'pink.400'}
-          color={allDone ? 'green.600' : undefined}
+          bg={allDone ? 'green.100' : 'blue.500'}
+          color={allDone ? 'green.600' : 'blue.50'}
           padding="200"
           borderRadius="21px"
           flexShrink={0}
         >
-          {allDone ? <CheckIcon display="block" /> : <IconExclamation />}
+          {allDone ? (
+            <CheckIcon display="block" />
+          ) : (
+            <Icon as={TbUserSearch} boxSize="1.25rem" display="block" aria-hidden="true" />
+          )}
         </Box>
         <Box textStyle="bodyLargeBold">
           {plural(total, 'student', 'students')} couldn't be matched automatically
