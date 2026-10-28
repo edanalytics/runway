@@ -383,13 +383,12 @@ export const USUAL_MAXIMUM = 50;
 
 export const TooManyNote = ({ count, compact = false }: { count: number; compact?: boolean }) => (
   <Box
-    padding={compact ? undefined : '300'}
-    borderRadius={compact ? undefined : '6px'}
-    borderWidth={compact ? undefined : '1px'}
-    borderColor={compact ? undefined : 'purple.200'}
+    padding="300"
+    borderRadius="6px"
+    borderWidth="1px"
+    borderColor="purple.200"
     fontSize={compact ? undefined : '0.9rem'}
     textStyle={compact ? 'body' : undefined}
-    color={compact ? 'purple.200' : undefined}
     role="note"
   >
     {!compact && (
