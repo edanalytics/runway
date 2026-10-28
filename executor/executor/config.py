@@ -28,8 +28,10 @@ MAX_ENCODING_DETECTION_SECONDS = 300
 # Set the batch size for chunking calls to the IDRS
 IDRS_BATCH_SIZE = 5000
 
-# Set the auto matching threshold for IDRS matches
-IDRS_AUTO_MATCH_THRESHOLD = 1.0
+# Set key matching thresholds
+IDRS_MATCH_THRESHOLDS = {"HIGH_CONFIDENCE_MATCH_THRESHOLD": .99,
+"SECONDARY_LOW_CONFIDENCE_MATCH_THRESHOLD": .80,
+"NO_MATCH_THRESHOLD": .20}
 
 # Set the batch size for posting results back to the app
 MATCHES_BATCH_SIZE = 1000
