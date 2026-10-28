@@ -96,7 +96,7 @@ export const ReviewNotice = () => {
             </Box>
             <HStack gap="300" flexWrap="wrap" marginTop="300">
               <ContactSupport message={`Job ${job.id}: problem sending assessments`} />
-              <SecondaryButton variant="ghost" onClick={onView}>
+              <SecondaryButton borderWidth="0" onClick={onView}>
                 View unmatched students
               </SecondaryButton>
             </HStack>
