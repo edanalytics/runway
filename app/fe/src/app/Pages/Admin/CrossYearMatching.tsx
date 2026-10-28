@@ -143,9 +143,24 @@ export const CrossYearMatching = () => {
 
   return (
     <VStack as="section" aria-label="Cross-year roster for ID matching" align="stretch" gap="200">
+      <HStack justify="flex-end">
+        {!isEditing && (
+          <Button
+            variant="ghost"
+            textStyle="button"
+            textColor="green.100"
+            px="200"
+            py="200"
+            _hover={{ bg: 'transparent' }}
+            onClick={startEdit}
+          >
+            edit
+          </Button>
+        )}
+      </HStack>
       {generalError && <RunwayErrorBox message={generalError} showButton={false} mb="300" />}
 
-      <HStack align="center" gap="300">
+      <Box layerStyle="contentBox" padding="300" maxWidth="100%">
         <FormControl id="cross-year-toggle" variant="plain">
           <HStack align="center" gap="500">
             <FormLabel
@@ -258,7 +273,9 @@ export const CrossYearMatching = () => {
             </VStack>
           </HStack>
         </FormControl>
-        {!isEditing && (
+      </Box>
+      {isEditing && (
+        <HStack mt="100" gap="200" justifyContent="flex-end" width="100%">
           <Button
             variant="ghost"
             textStyle="button"
@@ -266,42 +283,27 @@ export const CrossYearMatching = () => {
             px="200"
             py="200"
             _hover={{ bg: 'transparent' }}
-            onClick={startEdit}
+            onClick={handleCancel}
+            isDisabled={update.isPending}
           >
-            edit
+            cancel
           </Button>
-        )}
-        {isEditing && (
-          <HStack gap="200" flexShrink={0}>
-            <Button
-              variant="ghost"
-              textStyle="button"
-              textColor="green.100"
-              px="200"
-              py="200"
-              _hover={{ bg: 'transparent' }}
-              onClick={handleCancel}
-              isDisabled={update.isPending}
-            >
-              cancel
-            </Button>
-            <Button
-              layerStyle="buttonPrimary"
-              textStyle="button"
-              px="300"
-              py="300"
-              bg="green.100"
-              color="green.600"
-              _hover={{ bg: 'green.50' }}
-              onClick={handleSave}
-              isDisabled={!hasChanges || update.isPending}
-              isLoading={update.isPending}
-            >
-              save
-            </Button>
-          </HStack>
-        )}
-      </HStack>
+          <Button
+            layerStyle="buttonPrimary"
+            textStyle="button"
+            px="300"
+            py="300"
+            bg="green.100"
+            color="green.600"
+            _hover={{ bg: 'green.50' }}
+            onClick={handleSave}
+            isDisabled={!hasChanges || update.isPending}
+            isLoading={update.isPending}
+          >
+            save
+          </Button>
+        </HStack>
+      )}
 
       <ConfirmChangesModal
         isOpen={isSaveOpen}

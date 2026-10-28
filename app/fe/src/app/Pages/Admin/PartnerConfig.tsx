@@ -1,4 +1,4 @@
-import { Box, StackDivider, VStack } from '@chakra-ui/react';
+import { Box, VStack } from '@chakra-ui/react';
 import { CrossYearMatching } from './CrossYearMatching';
 import { PartnerMatchingMode } from './PartnerMatchingMode';
 
@@ -7,13 +7,7 @@ export const PartnerConfig = () => (
     <Box as="h3" id="partner-config-heading" textStyle="h3">
       partner-wide configuration
     </Box>
-    <VStack
-      layerStyle="contentBox"
-      padding="300"
-      align="stretch"
-      gap="300"
-      divider={<StackDivider borderColor="blue.700" />}
-    >
+    <VStack align="stretch" gap="300">
       <CrossYearMatching />
       <PartnerMatchingMode />
     </VStack>

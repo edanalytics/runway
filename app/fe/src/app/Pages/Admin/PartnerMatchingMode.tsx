@@ -97,8 +97,26 @@ export const PartnerMatchingMode = () => {
 
   return (
     <VStack as="section" aria-label="Student identity matching mode" align="stretch" gap="200">
+      <HStack justify="flex-end">
+        {draft === null && (
+          <Button
+            variant="ghost"
+            textStyle="button"
+            textColor="green.100"
+            px="200"
+            py="200"
+            _hover={{ bg: 'transparent' }}
+            onClick={() => {
+              setError(null);
+              setDraft(config.idMatchingMode);
+            }}
+          >
+            edit
+          </Button>
+        )}
+      </HStack>
       {error && <RunwayErrorBox message={error} showButton={false} />}
-      <HStack align="center" gap="300">
+      <Box layerStyle="contentBox" padding="300" maxWidth="100%">
         <FormControl id="partner-matching-mode" variant="plain">
           <HStack align="center" gap="500">
             <FormLabel
@@ -197,7 +215,9 @@ export const PartnerMatchingMode = () => {
             </VStack>
           </HStack>
         </FormControl>
-        {draft === null && (
+      </Box>
+      {draft !== null && (
+        <HStack mt="100" gap="200" justifyContent="flex-end" width="100%">
           <Button
             variant="ghost"
             textStyle="button"
@@ -205,46 +225,28 @@ export const PartnerMatchingMode = () => {
             px="200"
             py="200"
             _hover={{ bg: 'transparent' }}
-            onClick={() => {
-              setError(null);
-              setDraft(config.idMatchingMode);
-            }}
+            isDisabled={update.isPending}
+            onClick={() => (hasChanges ? setDialog('discard') : discard())}
           >
-            edit
+            cancel
           </Button>
-        )}
-        {draft !== null && (
-          <HStack gap="200" flexShrink={0}>
-            <Button
-              variant="ghost"
-              textStyle="button"
-              textColor="green.100"
-              px="200"
-              py="200"
-              _hover={{ bg: 'transparent' }}
-              isDisabled={update.isPending}
-              onClick={() => (hasChanges ? setDialog('discard') : discard())}
-            >
-              cancel
-            </Button>
-            <Button
-              layerStyle="buttonPrimary"
-              textStyle="button"
-              px="300"
-              py="300"
-              bg="green.100"
-              color="green.600"
-              _hover={{ bg: 'green.50' }}
-              isDisabled={!hasChanges || update.isPending}
-              aria-label="save"
-              isLoading={update.isPending}
-              onClick={() => setDialog('save')}
-            >
-              save
-            </Button>
-          </HStack>
-        )}
-      </HStack>
+          <Button
+            layerStyle="buttonPrimary"
+            textStyle="button"
+            px="300"
+            py="300"
+            bg="green.100"
+            color="green.600"
+            _hover={{ bg: 'green.50' }}
+            isDisabled={!hasChanges || update.isPending}
+            aria-label="save"
+            isLoading={update.isPending}
+            onClick={() => setDialog('save')}
+          >
+            save
+          </Button>
+        </HStack>
+      )}
 
       <ConfirmChangesModal
         isOpen={dialog === 'save'}
