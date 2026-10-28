@@ -10,6 +10,13 @@ export class PartnerMatchingModeService {
     private readonly readiness: IdrsReadinessService
   ) {}
 
+  get(partnerId: string) {
+    return this.prisma.partner.findUniqueOrThrow({
+      where: { id: partnerId },
+      select: { idMatchingMode: true },
+    });
+  }
+
   async update(partnerId: string, idMatchingMode: IdMatchingMode) {
     if (idMatchingMode !== 'id_based') {
       const result = await this.readiness.checkPartner(partnerId);

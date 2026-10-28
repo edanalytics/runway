@@ -212,7 +212,7 @@ describe('partner matching-mode API contract', () => {
   it.each(['runway.test.user', 'runway.test.supportuser'])(
     'refuses %s for both routes',
     async (role) => {
-      const session = (await authHelper.login(idpA, userA, tenantA, role)).cookies;
+      const session = (await authHelper.login(idpA, userA, tenantA, ['runway.test.user', role])).cookies;
       for (const method of ['get', 'put'] as const) {
         const res = await request(app.getHttpServer())
           [method](endpoint)

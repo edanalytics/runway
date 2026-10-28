@@ -1,8 +1,26 @@
 import { PartnerMatchingModeService } from './partner-matching-mode.service';
-import { BadRequestException, Body, Controller, Get, HttpException, Inject, Logger, Post, Put } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  InternalServerErrorException,
+  Inject,
+  Logger,
+  Post,
+  Put,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaClient, Tenant } from '@prisma/client';
-import { PutPartnerConfigDto, PutPartnerIdMatchingModeDto, toGetPartnerConfigDto } from '@edanalytics/models';
+import {
+  PutPartnerConfigDto,
+  PutPartnerIdMatchingModeDto,
+  toGetPartnerConfigDto,
+  toGetPartnerIdMatchingModeDto,
+} from '@edanalytics/models';
 import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
@@ -17,14 +35,30 @@ export class PartnersController {
     private matchingMode: PartnerMatchingModeService
   ) {}
 
+  @Authorize('partner-id-matching-mode.read')
+  @Get('id-matching-mode')
+  async getMatchingMode(@TenantDecorator() tenant: Tenant) {
+    return toGetPartnerIdMatchingModeDto(await this.matchingMode.get(tenant.partnerId));
+  }
+
   @Authorize('partner-id-matching-mode.update')
   @Put('id-matching-mode')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async updateMatchingMode(
     @TenantDecorator() tenant: Tenant,
     @Body() body: PutPartnerIdMatchingModeDto
   ) {
     const started = Date.now();
-    const result = await this.matchingMode.update(tenant.partnerId, body.idMatchingMode);
+    let result: Awaited<ReturnType<PartnerMatchingModeService['update']>>;
+    try {
+      result = await this.matchingMode.update(tenant.partnerId, body.idMatchingMode);
+    } catch {
+      Logger.error(
+        `Matching-mode update failed: partnerId=${tenant.partnerId}`,
+        'PartnersController'
+      );
+      throw new InternalServerErrorException();
+    }
     if (result.status === 'ERROR') {
       Logger.warn(
         `IDRS enablement: partnerId=${tenant.partnerId} elapsedMs=${Date.now() - started} ${
@@ -45,7 +79,7 @@ export class PartnersController {
         statusCode
       );
     }
-    return result.data;
+    return toGetPartnerIdMatchingModeDto(result.data);
   }
 
   @Authorize('partner-earthmover-bundle.create')
