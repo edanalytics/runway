@@ -3,12 +3,15 @@ import {
   Badge,
   Box,
   Button,
+  Collapse,
   FormControl,
   FormHelperText,
   FormLabel,
   HStack,
   Select,
+  Text,
   VStack,
+  useDisclosure,
 } from '@chakra-ui/react';
 import { PutPartnerIdMatchingModeDto } from '@edanalytics/models';
 import { useQuery } from '@tanstack/react-query';
@@ -32,6 +35,7 @@ export const PartnerMatchingMode = () => {
   const { data: config, isLoading, isError } = useQuery(partnerIdMatchingModeQuery);
   const update = useUpdatePartnerIdMatchingMode();
   const [draft, setDraft] = useState<Mode | null>(null);
+  const { isOpen: isHelpOpen, onToggle: onToggleHelp } = useDisclosure();
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<'save' | 'discard' | 'leave' | null>(null);
   const hasChanges = !!config && draft !== null && draft !== config.idMatchingMode;
@@ -129,7 +133,7 @@ export const PartnerMatchingMode = () => {
               color="blue.50"
               whiteSpace="nowrap"
             >
-              Matching mode
+              Student identity matching mode
             </FormLabel>
             {draft === null ? (
               <Badge
@@ -169,12 +173,41 @@ export const PartnerMatchingMode = () => {
                 fontWeight="normal"
                 color="blue.50"
               >
-                Applies to new jobs for all tenants in this partner. Existing jobs keep their
-                matching mode. Background fuzzy matching continues ID-based delivery while
-                collecting fuzzy suggestions. Fuzzy matching lets reviewers resolve uncertain
-                matches before sending those students. Enabling either fuzzy mode checks the
-                partner's IDRS access when you save.
+                <VStack align="stretch" gap="100">
+                  <Text>
+                    Choose the student identity matching method for new jobs across all tenants in
+                    this partner.
+                  </Text>
+                  <Collapse in={isHelpOpen} animateOpacity>
+                    <VStack id="partner-matching-help-details" align="stretch" gap="100">
+                      <Text>
+                        ID-based matching uses student IDs to match against a roster. Background
+                        fuzzy matching continues ID-based delivery while collecting fuzzy
+                        suggestions. Fuzzy matching uses IDRS to identify students and lets
+                        reviewers resolve uncertain matches before those students' records are sent.
+                      </Text>
+                      <Text>
+                        Existing jobs keep their matching mode. Enabling either fuzzy mode checks
+                        the partner's IDRS access when you save.
+                      </Text>
+                    </VStack>
+                  </Collapse>
+                </VStack>
               </FormHelperText>
+              <Button
+                variant="link"
+                alignSelf="flex-start"
+                textStyle="caption"
+                fontSize="xs"
+                fontWeight="normal"
+                color="green.100"
+                _hover={{ color: 'green.50' }}
+                onClick={onToggleHelp}
+                aria-expanded={isHelpOpen}
+                aria-controls="partner-matching-help-details"
+              >
+                {isHelpOpen ? 'show less' : 'show more'}
+              </Button>
             </VStack>
           </HStack>
         </FormControl>
