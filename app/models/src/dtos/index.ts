@@ -22,3 +22,4 @@ export * from './student-match-submit.dto';
 export * from './tenant.dto';
 export * from './external-api/job.v1.dto';
 export * from './external-api/output-set.v1.dto';
+export * from './partner-id-matching-mode.dto';

@@ -9,6 +9,15 @@ export const TOKEN_REUSE_BUFFER_MS = 10 * 60 * 1000;
 
 export type IdrsCredentials = { token: string; url: string };
 
+export type IdrsReadinessErrorCode = 'idrs_not_ready' | 'identity_service_unavailable';
+
+/** A classified credential failure with a diagnostic safe for application logs. */
+export class IdrsCredentialsError extends Error {
+  constructor(message: string, readonly code: IdrsReadinessErrorCode) {
+    super(message);
+  }
+}
+
 type CacheEntry = { token: string; expiresAt: number };
 
 /**
@@ -27,31 +36,42 @@ export class IdrsCredentialsService {
 
   constructor(private readonly appConfig: AppConfigService) {}
 
-  async getCredentials(partnerId: string): Promise<IdrsCredentials> {
+  async getCredentials(
+    partnerId: string,
+    { useCache = true }: { useCache?: boolean } = {}
+  ): Promise<IdrsCredentials> {
     const url = this.appConfig.idrsUrl();
     if (!url) {
-      throw new Error('IDRS_URL is not configured or not https');
+      throw new IdrsCredentialsError('IDRS_URL is not configured or not https', 'idrs_not_ready');
     }
 
-    const cached = this.cache.get(partnerId);
+    const cached = useCache ? this.cache.get(partnerId) : undefined;
     if (cached && cached.expiresAt - Date.now() > TOKEN_REUSE_BUFFER_MS) {
       return { token: cached.token, url };
     }
 
     const tokenUrl = this.appConfig.idrsOauthTokenUrl();
     if (!tokenUrl) {
-      throw new Error('IDRS_OAUTH_TOKEN_URL is not configured or not https');
+      throw new IdrsCredentialsError(
+        'IDRS_OAUTH_TOKEN_URL is not configured or not https',
+        'idrs_not_ready'
+      );
     }
 
     const connectionInfo = await this.appConfig.getIdrsConnectionInfo(partnerId);
     if (!connectionInfo) {
-      throw new Error(`no IDRS connection info for partner ${partnerId}`);
+      throw new IdrsCredentialsError(
+        `no IDRS connection info for partner ${partnerId}`,
+        'idrs_not_ready'
+      );
     }
 
     const { token, expiresIn } = await this.requestToken(tokenUrl, partnerId, url, connectionInfo);
 
     const lifetimeMs =
       typeof expiresIn === 'number' && Number.isFinite(expiresIn) ? expiresIn * 1000 : 0;
+    if (!useCache) return { token, url };
+
     if (lifetimeMs > TOKEN_REUSE_BUFFER_MS) {
       this.cache.set(partnerId, { token, expiresAt: Date.now() + lifetimeMs });
     } else {
@@ -97,25 +117,37 @@ export class IdrsCredentialsService {
       });
     } catch (err) {
       // The transport error's own message is foreign text; name it only.
-      throw new Error(
-        `IDRS token request failed (${err instanceof Error ? err.name : 'unknown error'})`
+      throw new IdrsCredentialsError(
+        `IDRS token request failed (${err instanceof Error ? err.name : 'unknown error'})`,
+        'identity_service_unavailable'
       );
     }
 
     if (!response.ok) {
       // Status only — an OAuth error body can echo back credentials.
-      throw new Error(`IDRS token request rejected with status ${response.status}`);
+      throw new IdrsCredentialsError(
+        `IDRS token request rejected with status ${response.status}`,
+        [400, 401, 403].includes(response.status)
+          ? 'idrs_not_ready'
+          : 'identity_service_unavailable'
+      );
     }
 
     let parsed: unknown;
     try {
       parsed = await response.json();
     } catch {
-      throw new Error('IDRS token response was not JSON');
+      throw new IdrsCredentialsError(
+        'IDRS token response was not JSON',
+        'identity_service_unavailable'
+      );
     }
     // `null` and arrays are valid JSON and both pass `typeof === 'object'`.
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('IDRS token response was not a JSON object');
+      throw new IdrsCredentialsError(
+        'IDRS token response was not a JSON object',
+        'identity_service_unavailable'
+      );
     }
 
     const { access_token: token, expires_in: expiresIn } = parsed as {
@@ -123,7 +155,10 @@ export class IdrsCredentialsService {
       expires_in?: unknown;
     };
     if (typeof token !== 'string' || token.length === 0) {
-      throw new Error('IDRS token response had no access_token');
+      throw new IdrsCredentialsError(
+        'IDRS token response had no access_token',
+        'identity_service_unavailable'
+      );
     }
     return { token, expiresIn };
   }

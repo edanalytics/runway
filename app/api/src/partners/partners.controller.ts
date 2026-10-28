@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Get, Inject, Post, Put } from '@nestjs/common';
+import { PartnerMatchingModeService } from './partner-matching-mode.service';
+import { BadRequestException, Body, Controller, Get, HttpException, Inject, Logger, Post, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaClient, Tenant } from '@prisma/client';
-import { PutPartnerConfigDto, toGetPartnerConfigDto } from '@edanalytics/models';
+import { PutPartnerConfigDto, PutPartnerIdMatchingModeDto, toGetPartnerConfigDto } from '@edanalytics/models';
 import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
@@ -12,8 +13,40 @@ import { EduSnowflakePoolService } from '../earthbeam/api/edu-snowflake-pool.ser
 export class PartnersController {
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
-    private eduPool: EduSnowflakePoolService
+    private eduPool: EduSnowflakePoolService,
+    private matchingMode: PartnerMatchingModeService
   ) {}
+
+  @Authorize('partner-id-matching-mode.update')
+  @Put('id-matching-mode')
+  async updateMatchingMode(
+    @TenantDecorator() tenant: Tenant,
+    @Body() body: PutPartnerIdMatchingModeDto
+  ) {
+    const started = Date.now();
+    const result = await this.matchingMode.update(tenant.partnerId, body.idMatchingMode);
+    if (result.status === 'ERROR') {
+      Logger.warn(
+        `IDRS enablement: partnerId=${tenant.partnerId} elapsedMs=${Date.now() - started} ${
+          result.cause
+        }`,
+        'PartnersController'
+      );
+      const statusCode = result.code === 'idrs_not_ready' ? 422 : 503;
+      throw new HttpException(
+        {
+          statusCode,
+          code: result.code,
+          message:
+            statusCode === 422
+              ? 'Runway could not enable this mode. Check the IDRS credentials and required permissions for this partner, then try again.'
+              : 'Runway could not verify IDRS access right now. Please try again later.',
+        },
+        statusCode
+      );
+    }
+    return result.data;
+  }
 
   @Authorize('partner-earthmover-bundle.create')
   @Post(':type/:bundleKey')

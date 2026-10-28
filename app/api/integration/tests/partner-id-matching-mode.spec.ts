@@ -54,44 +54,62 @@ describe('partner matching-mode enablement gate', () => {
       code: status === 422 ? 'idrs_not_ready' : 'identity_service_unavailable',
       message: expect.any(String),
     });
-    expect((await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode)
-      .toBe('id_based');
+    expect(
+      (await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode
+    ).toBe('id_based');
     const output = JSON.stringify([res.body, logs]);
     for (const secret of ['TOKEN-SENTINEL', 'UPSTREAM-SENTINEL', `${partnerA.id}-secret`]) {
       expect(output).not.toContain(secret);
     }
   };
 
-  it.each(['fuzzy', 'id_based_fuzzy_background'])('verifies fresh credentials before saving %s', async (mode) => {
-    verifyResponse = response({ scopes: [...scopes, 'extra:scope'], partners: ['irrelevant'] });
-    const res = await save(mode);
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ idMatchingMode: mode });
-    expect((await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode).toBe(mode);
-    expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([tokenUrl, `${idrsUrl}token/verify`]);
-    const oauth = new URLSearchParams(fetchSpy.mock.calls[0][1].body.toString());
-    expect(oauth.get('audience')).toBe(idrsUrl);
-    expect(oauth.get('scope')).toBe(`student:identity:read partner:${partnerA.id}`);
-    expect(fetchSpy.mock.calls[1][1]).toEqual(expect.objectContaining({
-      method: 'GET', headers: { Authorization: 'Bearer TOKEN-SENTINEL' }, signal: expect.any(AbortSignal),
-    }));
-    // Enablement must not populate the ordinary runtime token cache.
-    await app.get(IdrsCredentialsService).getCredentials(partnerA.id);
-    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  it.each(['fuzzy', 'id_based_fuzzy_background'])(
+    'verifies fresh credentials before saving %s',
+    async (mode) => {
+      verifyResponse = response({ scopes: [...scopes, 'extra:scope'], partners: ['irrelevant'] });
+      const res = await save(mode);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ idMatchingMode: mode });
+      expect(
+        (await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode
+      ).toBe(mode);
+      expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([tokenUrl, `${idrsUrl}token/verify`]);
+      const oauth = new URLSearchParams(fetchSpy.mock.calls[0][1].body.toString());
+      expect(oauth.get('audience')).toBe(idrsUrl);
+      expect(oauth.get('scope')).toBe(`student:identity:read partner:${partnerA.id}`);
+      expect(fetchSpy.mock.calls[1][1]).toEqual(
+        expect.objectContaining({
+          method: 'GET',
+          headers: { Authorization: 'Bearer TOKEN-SENTINEL' },
+          signal: expect.any(AbortSignal),
+        })
+      );
+      // Enablement must not populate the ordinary runtime token cache.
+      await app.get(IdrsCredentialsService).getCredentials(partnerA.id);
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    }
+  );
+
+  it.each(
+    [
+      [],
+      ['student:identity:read'],
+      [`partner:${partnerA.id}`],
+      ['partner:other', 'student:identity:read'],
+      [`partner:${partnerA.id}`, 'STUDENT:IDENTITY:READ'],
+    ].map((values) => ({ values }))
+  )('rejects insufficient verified scopes %j', async ({ values }) => {
+    verifyResponse = response({ scopes: values });
+    await expectFailure(422);
   });
 
-  it.each([[], ['student:identity:read'], [`partner:${partnerA.id}`],
-    ['partner:other', 'student:identity:read'], [`partner:${partnerA.id}`, 'STUDENT:IDENTITY:READ']].map((values) => ({ values })))(
-    'rejects insufficient verified scopes %j', async ({ values }) => {
-      verifyResponse = response({ scopes: values });
-      await expectFailure(422);
-    });
-
   it.each([null, [], {}, { scopes: null }, { scopes: 'student:identity:read' }, { scopes: [1] }])(
-    'treats unusable verification response %j as unavailable', async (body) => {
+    'treats unusable verification response %j as unavailable',
+    async (body) => {
       verifyResponse = response(body);
       await expectFailure(503);
-    });
+    }
+  );
 
   it.each([401, 403, 500, 503])('handles IDRS verification status %i', async (status) => {
     verifyResponse = response({ detail: 'UPSTREAM-SENTINEL' }, status);
@@ -106,19 +124,24 @@ describe('partner matching-mode enablement gate', () => {
 
   it.each(['token', 'verify'])('handles malformed JSON from %s', async (stage) => {
     const broken = response(null);
-    broken.json = async () => { throw new SyntaxError('UPSTREAM-SENTINEL'); };
+    broken.json = async () => {
+      throw new SyntaxError('UPSTREAM-SENTINEL');
+    };
     if (stage === 'token') tokenResponse = broken;
     else verifyResponse = broken;
     await expectFailure(503);
   });
 
-  it.each(['TypeError', 'TimeoutError'])('handles verification transport failure %s', async (name) => {
-    fetchSpy.mockImplementation(async (url) => {
-      if (url === tokenUrl) return tokenResponse;
-      throw Object.assign(new Error('UPSTREAM-SENTINEL'), { name });
-    });
-    await expectFailure(503);
-  });
+  it.each(['TypeError', 'TimeoutError'])(
+    'handles verification transport failure %s',
+    async (name) => {
+      fetchSpy.mockImplementation(async (url) => {
+        if (url === tokenUrl) return tokenResponse;
+        throw Object.assign(new Error('UPSTREAM-SENTINEL'), { name });
+      });
+      await expectFailure(503);
+    }
+  );
 
   it('requires the fresh token even when a previous token is cached', async () => {
     await app.get(IdrsCredentialsService).getCredentials(partnerA.id);
@@ -128,12 +151,14 @@ describe('partner matching-mode enablement gate', () => {
   });
 
   it.each(['idrsUrl', 'idrsOauthTokenUrl', 'getIdrsConnectionInfo'] as const)(
-    'rejects missing %s', async (getter) => {
+    'rejects missing %s',
+    async (getter) => {
       if (getter === 'getIdrsConnectionInfo') jest.spyOn(config, getter).mockResolvedValue(null);
       else jest.spyOn(config, getter).mockReturnValue(null);
       await expectFailure(422);
       expect(fetchSpy).not.toHaveBeenCalled();
-    });
+    }
+  );
 
   it('treats a secret service failure as unavailable without leaking its error', async () => {
     jest.spyOn(config, 'getIdrsConnectionInfo').mockRejectedValue(new Error('UPSTREAM-SENTINEL'));
