@@ -43,13 +43,13 @@ export const ReviewNotice = () => {
           : "Their assessments weren't loaded because no roster student was a close enough match. Review each one to choose from the suggested students, search the roster, or exclude the record, then submit your matches for reprocessing."}
       </Box>
       {progress && (
-        <Box textStyle="bodyLargeBold" marginBottom="300">
+        <Box textStyle="body" fontWeight="600" marginBottom="300">
           {progress}
         </Box>
       )}
       {runFailed > 0 && (
         <Box marginBottom="300" textStyle="body" role="status">
-          <Box fontWeight="600" color="pink.50">
+          <Box fontWeight="600">
             Reprocessing failed for {plural(runFailed, 'student', 'students')}
           </Box>
           <Box opacity="0.85">
