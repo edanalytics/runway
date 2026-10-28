@@ -26,31 +26,33 @@ export const ReviewNotice = () => {
 
   return (
     <Box padding="300" borderRadius="8px" backgroundColor="blue.600" width="100%">
-      <HStack gap="200" marginBottom="200">
-        <Box
-          bg={allDone ? 'green.100' : 'pink.400'}
-          color={allDone ? 'green.600' : 'pink.50'}
-          padding="200"
-          borderRadius="21px"
-          flexShrink={0}
-        >
-          {allDone ? (
-            <CheckIcon display="block" />
-          ) : (
-            <Icon as={TbUserSearch} boxSize="1.25rem" display="block" aria-hidden="true" />
-          )}
-        </Box>
-        <Box textStyle="bodyLargeBold">
-          {allDone
-            ? `${total === 1 ? '' : 'All '}${plural(total, 'student', 'students')} processed`
-            : plural(total, 'unmatched student', 'unmatched students')}
-        </Box>
+      <HStack justifyContent="space-between" gap="300" flexWrap="wrap" marginBottom="200">
+        <HStack gap="200">
+          <Box
+            bg={allDone ? 'green.100' : 'pink.400'}
+            color={allDone ? 'green.600' : 'pink.50'}
+            padding="200"
+            borderRadius="21px"
+            flexShrink={0}
+          >
+            {allDone ? (
+              <CheckIcon display="block" />
+            ) : (
+              <Icon as={TbUserSearch} boxSize="1.25rem" display="block" aria-hidden="true" />
+            )}
+          </Box>
+          <Box textStyle="bodyLargeBold">
+            {allDone
+              ? `${total === 1 ? '' : 'All '}${plural(total, 'student', 'students')} processed`
+              : plural(total, 'unmatched student', 'unmatched students')}
+          </Box>
+        </HStack>
+        {!allDone && progress && (
+          <Box textStyle="body" fontWeight="600">
+            {progress}
+          </Box>
+        )}
       </HStack>
-      {!allDone && progress && (
-        <Box textStyle="body" fontWeight="600" marginBottom="300">
-          {progress}
-        </Box>
-      )}
       {runFailed === 0 && (
         <Box textStyle="body" marginBottom="300">
           {allDone
@@ -82,7 +84,10 @@ export const ReviewNotice = () => {
               .
             </Box>
           </HStack>
-          <Box opacity="0.85">Your matches are still available. Contact support for help.</Box>
+          <Box opacity="0.85">
+            You can continue reviewing students and saving matches. Please contact support to
+            resolve the sending issue before submitting more matches.
+          </Box>
         </Box>
       )}
       {!allDone && total > USUAL_MAXIMUM && (
