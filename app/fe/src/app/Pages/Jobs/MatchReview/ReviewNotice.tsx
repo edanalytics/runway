@@ -57,7 +57,7 @@ export const ReviewNotice = () => {
             : reprocessing > 0
             ? 'Your matches have been submitted.'
             : 'Your students have been reviewed.'
-          : "Runway was unable to automatically match them to a student in your roster. Their assessments haven't been sent."}
+          : "Their assessments haven't been sent because Runway was unable to automatically match them to a student in your roster. Review these students to match them and send their assessments, or exclude them from the job."}
       </Box>
       {!allDone && progress && (
         <Box textStyle="body" fontWeight="600" marginBottom="300">
