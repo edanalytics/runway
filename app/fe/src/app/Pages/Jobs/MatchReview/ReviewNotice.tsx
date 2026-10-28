@@ -51,19 +51,21 @@ export const ReviewNotice = () => {
           {progress}
         </Box>
       )}
-      <Box textStyle="body" marginBottom="300">
-        {allDone
-          ? 'Every student has been matched and processed, or excluded.'
-          : started
-          ? toReview > 0
-            ? 'Review the remaining students, then submit your matches.'
-            : ready > 0
-            ? 'Submit your matches to send their assessments.'
-            : reprocessing > 0
-            ? 'Your matches have been submitted.'
-            : 'Your students have been reviewed.'
-          : "Their assessments haven't been sent because Runway couldn't automatically match these students to your roster. Review them to find matches and send their assessments."}
-      </Box>
+      {runFailed === 0 && (
+        <Box textStyle="body" marginBottom="300">
+          {allDone
+            ? 'Every student has been matched and processed, or excluded.'
+            : started
+            ? toReview > 0
+              ? 'Review the remaining students, then submit your matches.'
+              : ready > 0
+              ? 'Submit your matches to send their assessments.'
+              : reprocessing > 0
+              ? 'Your matches have been submitted.'
+              : 'Your students have been reviewed.'
+            : "Their assessments haven't been sent because Runway couldn't automatically match these students to your roster. Review them to find matches and send their assessments."}
+        </Box>
+      )}
       {reprocessing > 0 && (
         <Box textStyle="body" opacity="0.85" marginBottom="300" role="status">
           Sending assessments…
@@ -72,14 +74,15 @@ export const ReviewNotice = () => {
       {runFailed > 0 && (
         <Box marginBottom="300" textStyle="body" role="status">
           <HStack gap="200" alignItems="flex-start">
-            <Box flexShrink={0} aria-hidden="true">
+            <Box bg="pink.400" padding="100" borderRadius="999px" flexShrink={0} aria-hidden="true">
               <IconExclamation />
             </Box>
             <Box fontWeight="600">
-              Assessments could not be sent for {plural(runFailed, 'student', 'students')}
+              There was a problem sending assessments for {plural(runFailed, 'student', 'students')}
+              .
             </Box>
           </HStack>
-          <Box opacity="0.85">Your saved matches have been preserved. Please contact support.</Box>
+          <Box opacity="0.85">Your matches are still available. Contact support for help.</Box>
         </Box>
       )}
       {!allDone && total > USUAL_MAXIMUM && (
@@ -91,7 +94,7 @@ export const ReviewNotice = () => {
       )}
       {runFailed > 0 ? (
         <HStack gap="300" flexWrap="wrap">
-          <ContactSupport message={`Job ${job.id}: assessments could not be sent`} />
+          <ContactSupport message={`Job ${job.id}: problem sending assessments`} />
           <SecondaryButton onClick={onView}>View unmatched students</SecondaryButton>
         </HStack>
       ) : (
