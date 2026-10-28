@@ -94,6 +94,12 @@ export const ReviewNotice = () => {
               You can continue reviewing students and saving matches. Please contact support to
               resolve the sending issue before submitting more matches.
             </Box>
+            <HStack gap="300" flexWrap="wrap" marginTop="300">
+              <ContactSupport message={`Job ${job.id}: problem sending assessments`} />
+              <SecondaryButton variant="ghost" onClick={onView}>
+                View unmatched students
+              </SecondaryButton>
+            </HStack>
           </Box>
         </HStack>
       )}
@@ -104,14 +110,7 @@ export const ReviewNotice = () => {
           quicker.
         </Box>
       )}
-      {runFailed > 0 ? (
-        <HStack gap="300" flexWrap="wrap">
-          <ContactSupport message={`Job ${job.id}: problem sending assessments`} />
-          <SecondaryButton variant="ghost" onClick={onView}>
-            View unmatched students
-          </SecondaryButton>
-        </HStack>
-      ) : (
+      {runFailed === 0 && (
         <PrimaryButton onClick={onView}>
           {allDone ? 'View students' : started ? 'Continue review' : 'Review unmatched students'}
         </PrimaryButton>
