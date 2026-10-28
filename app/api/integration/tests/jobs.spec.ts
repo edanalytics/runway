@@ -32,6 +32,8 @@ import { schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixture
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
+import { AppConfigService as AppConfigService } from '../../src/config/app-config.service';
+import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { holdJobRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
@@ -87,9 +89,7 @@ describe('GET /jobs', () => {
         tenant: tenantA,
       });
 
-      const res = await request(app.getHttpServer())
-        .get(endpoint)
-        .set('Cookie', [sessionA.cookie]);
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessionA.cookie]);
 
       const dto = res.body.find((j: GetJobDto) => j.id === noOdsJob.id);
       expect(dto).toBeDefined();
@@ -455,10 +455,14 @@ describe('GET /jobs/:id/output-files', () => {
     });
 
     it('should return the output files for a job owned by the tenant, for a SupportUser', async () => {
-      const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieA]);
+      const res = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [cookieA]);
       expect(res.status).toBe(200);
 
-      const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobA.id } } });
+      const expectedFiles = await prisma.runOutputFile.findMany({
+        where: { run: { jobId: jobA.id } },
+      });
       expect(res.body.map((f: { name: string }) => f.name)).toEqual(
         expect.arrayContaining(expectedFiles.map((f) => f.name))
       );
@@ -472,8 +476,12 @@ describe('GET /jobs/:id/output-files', () => {
     });
 
     it('should reject requests for jobs that are not associated with the tenant', async () => {
-      const resA = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieB]);
-      const resB = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookieA]);
+      const resA = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [cookieB]);
+      const resB = await request(app.getHttpServer())
+        .get(endpoint(jobB.id))
+        .set('Cookie', [cookieA]);
       expect(resA.status).toBe(403);
       expect(resB.status).toBe(403);
     });
@@ -532,10 +540,14 @@ describe('GET /jobs/:id/output-files', () => {
       it('should return the output files for a job owned by a different tenant when the user is a SupportUser logged into a global tenant in the same partner', async () => {
         const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
 
-        const res = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookie]);
+        const res = await request(app.getHttpServer())
+          .get(endpoint(jobB.id))
+          .set('Cookie', [cookie]);
 
         expect(res.status).toBe(200);
-        const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobB.id } } });
+        const expectedFiles = await prisma.runOutputFile.findMany({
+          where: { run: { jobId: jobB.id } },
+        });
         expect(res.body.map((f: { name: string }) => f.name)).toEqual(
           expect.arrayContaining(expectedFiles.map((f) => f.name))
         );
@@ -548,8 +560,10 @@ describe('GET /jobs/:id/output-files/*', () => {
   const USER_ROLE = 'runway.test.user';
   const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
   const OTHER_FILE_NAME = 'summary.csv';
-  const unmatchedEndpoint = (id: number) => `/jobs/${id}/output-files/input_no_student_id_match.csv`;
-  const otherFileEndpoint = (id: number, fileName: string) => `/jobs/${id}/output-files/${fileName}`;
+  const unmatchedEndpoint = (id: number) =>
+    `/jobs/${id}/output-files/input_no_student_id_match.csv`;
+  const otherFileEndpoint = (id: number, fileName: string) =>
+    `/jobs/${id}/output-files/${fileName}`;
 
   // jobA belongs to tenantA, jobB to tenantB -- both non-global children of tenantDGlobal
   let jobA: SeededJob;
@@ -582,7 +596,9 @@ describe('GET /jobs/:id/output-files/*', () => {
 
   it('should reject unauthenticated requests', async () => {
     const resUnmatched = await request(app.getHttpServer()).get(unmatchedEndpoint(jobA.id));
-    const resOther = await request(app.getHttpServer()).get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME));
+    const resOther = await request(app.getHttpServer()).get(
+      otherFileEndpoint(jobA.id, OTHER_FILE_NAME)
+    );
     expect(resUnmatched.status).toBe(401);
     expect(resOther.status).toBe(401);
   });
@@ -594,7 +610,9 @@ describe('GET /jobs/:id/output-files/*', () => {
         .get(unmatchedEndpoint(jobA.id))
         .set('Cookie', [cookie]);
       expect(res.status).toBe(200);
-      expect(res.text).toBe(`s3-test-download-url://output/${jobA.id}/input_no_student_id_match.csv`);
+      expect(res.text).toBe(
+        `s3-test-download-url://output/${jobA.id}/input_no_student_id_match.csv`
+      );
     });
 
     it('is not downloadable by a User logged into a global tenant for a job in a child tenant', async () => {
@@ -611,7 +629,9 @@ describe('GET /jobs/:id/output-files/*', () => {
         .get(unmatchedEndpoint(jobB.id))
         .set('Cookie', [cookie]);
       expect(res.status).toBe(200);
-      expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`);
+      expect(res.text).toBe(
+        `s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`
+      );
     });
   });
 
@@ -742,6 +762,66 @@ describe('POST /jobs', () => {
       const job = await prisma.job.findUnique({ where: { id: res.body.id } });
       expect(job?.idMatchingMode).toBe('fuzzy');
     });
+
+    it.each(['fuzzy', 'id_based_fuzzy_background'])(
+      'snapshots new jobs after an admin enables %s without changing existing jobs',
+      async (mode) => {
+        const admin = (await authHelper.login(idpA, userA, tenantA, 'runway.test.partneradmin'))
+          .cookies;
+        const create = () =>
+          request(app.getHttpServer())
+            .post(endpoint)
+            .set('Cookie', [sessionA.cookie])
+            .send(postJobDto);
+        const original = await create();
+        expect(original.status).toBe(201);
+        stubIdrsConfig({
+          idrsUrl: 'https://idrs.example.test',
+          tokenUrl: 'https://auth.example.test/token',
+        });
+        jest.spyOn(global, 'fetch').mockImplementation(
+          async (url) =>
+            ({
+              ok: true,
+              status: 200,
+              json: async () =>
+                url === 'https://auth.example.test/token'
+                  ? { access_token: 'token' }
+                  : { scopes: [`partner:${partnerA.id}`, 'student:identity:read'] },
+            } as Response)
+        );
+        try {
+          const saved = await request(app.getHttpServer())
+            .put('/partners/id-matching-mode')
+            .set('Cookie', [admin])
+            .send({ idMatchingMode: mode });
+          expect(saved.status).toBe(200);
+          const next = await create();
+          expect(next.status).toBe(201);
+          const rows = await prisma.job.findMany({
+            where: { id: { in: [original.body.id, next.body.id] } },
+            orderBy: { id: 'asc' },
+          });
+          expect(rows.map((job) => job.idMatchingMode)).toEqual(['id_based', mode]);
+
+          // A failed enablement cannot change the mode used by subsequent jobs.
+          jest.spyOn(app.get(AppConfigService), 'getIdrsConnectionInfo').mockResolvedValue(null);
+          const rejected = await request(app.getHttpServer())
+            .put('/partners/id-matching-mode')
+            .set('Cookie', [admin])
+            .send({ idMatchingMode: mode === 'fuzzy' ? 'id_based_fuzzy_background' : 'fuzzy' });
+          expect(rejected.status).toBe(422);
+          const afterFailure = await create();
+          expect(afterFailure.status).toBe(201);
+          expect(
+            (await prisma.job.findUniqueOrThrow({ where: { id: afterFailure.body.id } }))
+              .idMatchingMode
+          ).toBe(mode);
+        } finally {
+          jest.restoreAllMocks();
+        }
+      }
+    );
 
     it('should reject requests with an invalid PostJobDto', async () => {
       // confirm class validator is working
@@ -1146,9 +1226,7 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
       data: { runId: latest.id, action: 'done', status: 'success' },
     });
 
-    const read = await request(app.getHttpServer())
-      .get(`/jobs/${job.id}`)
-      .set('Cookie', [cookie]);
+    const read = await request(app.getHttpServer()).get(`/jobs/${job.id}`).set('Cookie', [cookie]);
     const readJob = plainToInstance(GetJobDto, read.body);
 
     expect({
