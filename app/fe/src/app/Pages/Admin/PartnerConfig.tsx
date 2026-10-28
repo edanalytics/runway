@@ -24,7 +24,6 @@ import { ConfirmChangesModal } from './ConfirmChangesModal';
 import { ConfirmModal } from './ConfirmModal';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { IconCheckmark, IconExclamation } from '../../../assets/icons';
-import { PartnerMatchingMode } from './PartnerMatchingMode';
 
 export const PartnerConfig = () => {
   const { data: config, isLoading } = useQuery(partnerConfigQuery);
@@ -310,8 +309,6 @@ export const PartnerConfig = () => {
           </Button>
         </HStack>
       )}
-
-      <PartnerMatchingMode />
 
       <ConfirmChangesModal
         isOpen={isSaveOpen}

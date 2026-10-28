@@ -82,7 +82,9 @@ export const PartnerMatchingMode = () => {
         onSuccess: () => setDraft(null),
         onError: () =>
           setError(
-            'Runway could not save this mode. Enabling either fuzzy mode requires verified IDRS access for this partner.'
+            draft === 'id_based'
+              ? 'Something went wrong saving your changes. Please try again.'
+              : "Runway could not verify this partner's IDRS access, so the mode wasn't changed. Check the partner's IDRS credentials and scopes, or try again if IDRS is unavailable."
           ),
       }
     );
@@ -181,9 +183,10 @@ export const PartnerMatchingMode = () => {
                           existing ID-based matches.
                         </ListItem>
                         <ListItem>
-                          <strong>Fuzzy matching:</strong> Use IDRS to match students using their
-                          identifying details. Students without a confident match require review
-                          before their records are sent.
+                          <strong>Fuzzy matching:</strong> Use IDRS to match students on their
+                          names, birth dates, schools and IDs together. Records for students without
+                          a confident match aren't sent until someone matches or excludes them on
+                          the job's Unmatched Students tab.
                         </ListItem>
                       </UnorderedList>
                       <Text>
