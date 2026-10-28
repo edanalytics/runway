@@ -109,18 +109,33 @@ describe('partner matching-mode editor', () => {
   });
 
   it.each([
-    ['idrs_not_ready', 'Check the IDRS credentials'],
-    ['identity_service_unavailable', 'try again later'],
+    ['idrs_not_ready', 'Server-provided configuration message'],
+    ['identity_service_unavailable', 'Server-provided availability message'],
   ])('keeps the draft and shows the appropriate %s failure', async (code, expected) => {
     await click('edit');
     await choose('id_based_fuzzy_background');
     await click('save');
     await click('confirm');
-    await act(async () => mutate.mock.calls[0][1].onError({ code }));
+    await act(async () => mutate.mock.calls[0][1].onError({ code, message: expected }));
     expect(host.querySelector('select')!.value).toBe('id_based_fuzzy_background');
     expect(host.textContent).toContain(expected);
     expect(warn).toBe(true);
     expect(button('save').disabled).toBe(false);
+  });
+
+  it.each([
+    { code: 'unexpected_error', message: 'UPSTREAM-SENTINEL' },
+    { code: 'idrs_not_ready' },
+    { code: 'identity_service_unavailable', message: 42 },
+    { code: 'idrs_not_ready', message: '' },
+  ])('uses a generic fallback for an unrecognized or malformed error %j', async (failure) => {
+    await click('edit');
+    await choose('fuzzy');
+    await click('save');
+    await click('confirm');
+    await act(async () => mutate.mock.calls[0][1].onError(failure));
+    expect(host.textContent).toContain('Something went wrong saving your changes. Please try again.');
+    expect(host.textContent).not.toContain('UPSTREAM-SENTINEL');
   });
 
   it('confirms discarding changes and retains the saved mode', async () => {
