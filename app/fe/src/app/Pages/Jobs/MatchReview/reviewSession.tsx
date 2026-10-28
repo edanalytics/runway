@@ -75,17 +75,6 @@ export const statusLabel: Record<StudentMatchStatus, string> = {
   'run-failed': 'Reprocessing failed',
 };
 
-/** Where each status's count is in the review read's `counts`. */
-export const countOf = (counts: GetStudentMatchCountsDto, status: StudentMatchStatus) =>
-  ({
-    'to-review': counts.toReview,
-    ready: counts.ready,
-    excluded: counts.excluded,
-    reprocessing: counts.reprocessing,
-    reprocessed: counts.reprocessed,
-    'run-failed': counts.runFailed,
-  }[status]);
-
 /**
  * Whether the job page has match review: a `fuzzy` job the Executor has sent
  * students to review for. Other jobs make no review request.
