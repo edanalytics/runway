@@ -25,8 +25,8 @@ export const ReviewNotice = () => {
     <Box padding="300" borderRadius="8px" backgroundColor="blue.600" width="100%">
       <HStack gap="200" marginBottom="200">
         <Box
-          bg={allDone ? 'green.100' : 'blue.500'}
-          color={allDone ? 'green.600' : 'blue.50'}
+          bg={allDone ? 'green.100' : 'pink.400'}
+          color={allDone ? 'green.600' : 'pink.50'}
           padding="200"
           borderRadius="21px"
           flexShrink={0}
