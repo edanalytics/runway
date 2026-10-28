@@ -1,7 +1,7 @@
 import { Box, HStack } from '@chakra-ui/react';
 import { useNavigate } from '@tanstack/react-router';
 import { IconExclamation } from '../../../../assets/icons';
-import { PrimaryButton, QuietButton, USUAL_MAXIMUM } from './components';
+import { PrimaryButton, USUAL_MAXIMUM } from './components';
 import { useReviewSession } from './reviewSession';
 
 /** Introduce unmatched-student review and point to the next action. */
@@ -9,27 +9,15 @@ export const ReviewNotice = () => {
   const { counts } = useReviewSession();
   const navigate = useNavigate({ from: '/assessments/$assessmentId/' });
   const onView = () => navigate({ search: { tab: 'students' }, resetScroll: false });
-  const { toReview, ready, runFailed, reprocessing } = counts;
+  const { total, toReview, ready, runFailed, reprocessed, excluded } = counts;
+  const processed = reprocessed + excluded;
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-  if (!toReview && !ready && !runFailed) {
-    return (
-      <HStack gap="200" fontSize="0.9rem" flexWrap="wrap">
-        <Box opacity="0.85">
-          {reprocessing
-            ? `Unmatched students: ${plural(
-                reprocessing,
-                'student is',
-                'students are'
-              )} being reprocessed.`
-            : 'Unmatched students: every student has been reviewed and either submitted or excluded.'}
-        </Box>
-        <QuietButton size="xs" onClick={onView}>
-          View
-        </QuietButton>
-      </HStack>
-    );
-  }
+  const progress = [
+    ready > 0 && `${ready} ready to submit`,
+    processed > 0 && `${processed} processed`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <Box padding="300" borderRadius="8px" backgroundColor="blue.600" width="100%">
@@ -38,23 +26,44 @@ export const ReviewNotice = () => {
           <IconExclamation />
         </Box>
         <Box textStyle="bodyLargeBold">
-          {toReview
-            ? `${plural(toReview, 'student', 'students')} couldn't be matched automatically`
-            : ready
-            ? `${plural(ready, 'saved match hasn’t', 'saved matches haven’t')} been submitted`
-            : `Reprocessing failed for ${plural(runFailed, 'student', 'students')}`}
+          {plural(total, 'student', 'students')} couldn't be matched automatically
         </Box>
       </HStack>
       <Box textStyle="body" marginBottom="300">
-        {toReview
-          ? "Their assessments weren't loaded because no roster student was a close enough match. Review each one to choose from the suggested students, search the roster, or exclude the record, then submit your matches for reprocessing."
-          : ready
-          ? 'Submit them for reprocessing so these students’ assessments can load.'
-          : 'Your match decisions have been preserved. Please contact support from the Unmatched Students tab.'}
-        {toReview > 0 &&
-          ready > 0 &&
-          ` ${plural(ready, 'match is', 'matches are')} saved and waiting to be submitted.`}
+        Their assessments weren't loaded because no roster student was a close enough match. Review
+        each one to choose from the suggested students, search the roster, or exclude the record,
+        then submit your matches for reprocessing.
       </Box>
+      {progress && (
+        <Box textStyle="bodyLargeBold" marginBottom="300">
+          {progress}
+        </Box>
+      )}
+      {runFailed > 0 && (
+        <HStack
+          alignItems="flex-start"
+          gap="200"
+          padding="300"
+          marginBottom="300"
+          borderRadius="6px"
+          borderWidth="1px"
+          borderColor="pink.100"
+          role="status"
+        >
+          <Box color="pink.100" flexShrink={0}>
+            <IconExclamation />
+          </Box>
+          <Box>
+            <Box textStyle="bodyLargeBold">
+              Reprocessing failed for {plural(runFailed, 'student', 'students')}
+            </Box>
+            <Box textStyle="body">
+              Your match decisions have been preserved. Please contact support from the Unmatched
+              Students tab.
+            </Box>
+          </Box>
+        </HStack>
+      )}
       {counts.total > USUAL_MAXIMUM && (
         <Box textStyle="body" marginBottom="300" color="purple.200">
           That's more than a file usually has, which often points to a problem with the file itself
@@ -64,7 +73,9 @@ export const ReviewNotice = () => {
       )}
       <PrimaryButton onClick={onView}>
         {toReview
-          ? 'Review unmatched students'
+          ? processed || ready || runFailed
+            ? 'Continue review'
+            : 'Review unmatched students'
           : ready
           ? 'Review and submit'
           : 'View unmatched students'}
