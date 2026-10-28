@@ -17,7 +17,6 @@ export const useUpdatePartnerIdMatchingMode = () => {
       methods.put(URL, PutPartnerIdMatchingModeDto, GetPartnerIdMatchingModeDto, body),
     onSuccess: (saved) => {
       queryClient.setQueryData(QUERY_KEY, saved);
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
   });
 };

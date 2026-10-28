@@ -134,7 +134,9 @@ describe('partner matching-mode editor', () => {
     await click('save');
     await click('confirm');
     await act(async () => mutate.mock.calls[0][1].onError(failure));
-    expect(host.textContent).toContain('Something went wrong saving your changes. Please try again.');
+    expect(host.textContent).toContain(
+      'Something went wrong saving your changes. Please try again.'
+    );
     expect(host.textContent).not.toContain('UPSTREAM-SENTINEL');
   });
 

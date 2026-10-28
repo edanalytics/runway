@@ -81,13 +81,13 @@ export const PartnerMatchingMode = () => {
       {
         onSuccess: () => setDraft(null),
         onError: (failure: unknown) => {
-          const code =
-            failure && typeof failure === 'object' && 'code' in failure ? failure.code : undefined;
+          const response =
+            failure && typeof failure === 'object' ? (failure as Record<string, unknown>) : {};
+          const recognized =
+            response.code === 'idrs_not_ready' || response.code === 'identity_service_unavailable';
           setError(
-            code === 'idrs_not_ready'
-              ? 'Runway could not enable this mode. Check the IDRS credentials and required permissions for this partner, then try again.'
-              : code === 'identity_service_unavailable'
-              ? 'Runway could not verify IDRS access right now. Please try again later.'
+            recognized && typeof response.message === 'string' && response.message.trim()
+              ? response.message
               : 'Something went wrong saving your changes. Please try again.'
           );
         },
