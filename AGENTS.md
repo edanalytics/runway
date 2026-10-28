@@ -363,9 +363,9 @@ __rosters/{partnerId}/{tenantCode}/{schoolYearEndYear}/*
 ## Development Conventions
 
 - **Commits**: lowercase subject + body explaining the "why"
-- **API**: NestJS controller → service. Services use Prisma directly, including for transactions and raw SQL; there is no separate repository layer
+- **API**: Controllers and services may use Prisma directly, including for transactions and raw SQL; there is no separate repository layer. Keep straightforward endpoint-specific reads, writes and orchestration in the controller. Extract a service when it owns substantial or reusable behavior, such as an external integration; avoid services that only wrap Prisma calls or mirror a controller.
 - **Transactions on the session client** (`PRISMA_APP_USER`): `$transaction(fn)` is one real transaction, attributed to the logged-in user for the audit triggers (`created_by_id`). Use it for locked writes and for writes that must commit together. The array form, `$transaction([...])`, is refused: each operation sets the user in its own transaction, so it couldn't be atomic
-- **Error handling**: Services return result objects (`{ status: 'SUCCESS', data }` / `{ status: 'ERROR', code }`) for expected failure modes; unexpected errors throw. Controllers map error results to HTTP exceptions. Services should not import or throw HTTP exceptions.
+- **Error handling**: When logic belongs in a service, return result objects (`{ status: 'SUCCESS', data }` / `{ status: 'ERROR', code }`) for expected failure modes; unexpected errors throw. Controllers map error results to HTTP exceptions. Services should not import or throw HTTP exceptions. Endpoint-specific logic can stay in the controller and use HTTP exceptions directly; this convention does not require adding a service.
 - **FE**: Chakra UI v2 with custom design tokens; prefer inline readable code over extracted helpers for short logic
 - **FE colors**: use the theme's color tokens (`app/fe/src/app/theme/index.ts`), not new hex values, and keep text at WCAG AA contrast (4.5:1) against its background. That rules out light accents like `blue.200` as text on white, and dark panels in the light UI
 - **Icons**: `app/fe/src/assets/icons/`
