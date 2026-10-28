@@ -74,21 +74,28 @@ export const ReviewNotice = () => {
         </Box>
       )}
       {runFailed > 0 && (
-        <Box marginBottom="300" textStyle="body" role="status">
-          <HStack gap="200" alignItems="flex-start">
-            <Box bg="pink.400" padding="100" borderRadius="999px" flexShrink={0} aria-hidden="true">
-              <IconExclamation />
-            </Box>
+        <HStack
+          gap="200"
+          alignItems="flex-start"
+          paddingTop="200"
+          marginBottom="300"
+          textStyle="body"
+          role="status"
+        >
+          <Box bg="pink.400" padding="100" borderRadius="999px" flexShrink={0} aria-hidden="true">
+            <IconExclamation />
+          </Box>
+          <Box>
             <Box fontWeight="600">
               There was a problem sending assessments for {plural(runFailed, 'student', 'students')}
               .
             </Box>
-          </HStack>
-          <Box opacity="0.85">
-            You can continue reviewing students and saving matches. Please contact support to
-            resolve the sending issue before submitting more matches.
+            <Box opacity="0.85">
+              You can continue reviewing students and saving matches. Please contact support to
+              resolve the sending issue before submitting more matches.
+            </Box>
           </Box>
-        </Box>
+        </HStack>
       )}
       {!allDone && total > USUAL_MAXIMUM && (
         <Box textStyle="body" marginBottom="300" color="purple.200">
@@ -100,7 +107,9 @@ export const ReviewNotice = () => {
       {runFailed > 0 ? (
         <HStack gap="300" flexWrap="wrap">
           <ContactSupport message={`Job ${job.id}: problem sending assessments`} />
-          <SecondaryButton onClick={onView}>View unmatched students</SecondaryButton>
+          <SecondaryButton variant="ghost" onClick={onView}>
+            View unmatched students
+          </SecondaryButton>
         </HStack>
       ) : (
         <PrimaryButton onClick={onView}>
