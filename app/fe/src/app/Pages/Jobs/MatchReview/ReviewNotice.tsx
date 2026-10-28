@@ -1,39 +1,118 @@
-import { Box, HStack, VStack } from '@chakra-ui/react';
+import { CheckIcon } from '@chakra-ui/icons';
+import { Box, HStack, Icon } from '@chakra-ui/react';
 import { useNavigate } from '@tanstack/react-router';
-import { PrimaryButton, TooManyNote, USUAL_MAXIMUM } from './components';
+import { TbUserSearch } from 'react-icons/tb';
+import { IconExclamation } from '../../../../assets/icons';
+import { ContactSupport } from '../../../components/SupportButton';
+import { PrimaryButton, SecondaryButton, TooManyNote, USUAL_MAXIMUM } from './components';
 import { useReviewSession } from './reviewSession';
-import { ReviewStatusSummary } from './ReviewStatusSummary';
 
-/** A preview of the Unmatched Students tab, including previously reviewed students. */
+/** Introduce unmatched-student review and point to the next action. */
 export const ReviewNotice = () => {
-  const { counts } = useReviewSession();
+  const { job, counts } = useReviewSession();
   const navigate = useNavigate({ from: '/assessments/$assessmentId/' });
   const onView = () => navigate({ search: { tab: 'students' }, resetScroll: false });
+  const { total, toReview, ready, runFailed, reprocessing, reprocessed, excluded } = counts;
+  const processed = reprocessed + excluded;
+  const allDone = total > 0 && processed === total;
+  const started = toReview < total;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const progress = [
+    ready > 0 && `${ready} ready to submit`,
+    processed > 0 && `${processed} processed`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
-    <VStack
-      alignItems="stretch"
-      gap="300"
-      padding="300"
-      borderRadius="8px"
-      bg="blue.600"
-      width="100%"
-    >
-      <HStack justifyContent="space-between" gap="300" flexWrap="wrap">
-        <Box as="h3" textStyle="bodyLargeBold">
-          Unmatched students{' '}
-          <Box as="span" fontSize="0.85rem" fontWeight="normal" opacity="0.85">
-            · {counts.total} total
+    <Box padding="300" borderRadius="8px" backgroundColor="blue.600" width="100%">
+      <HStack justifyContent="space-between" gap="300" flexWrap="wrap" marginBottom="200">
+        <HStack gap="200">
+          <Box
+            bg={allDone ? 'green.100' : 'pink.400'}
+            color={allDone ? 'green.600' : 'pink.50'}
+            padding="200"
+            borderRadius="21px"
+            flexShrink={0}
+          >
+            {allDone ? (
+              <CheckIcon display="block" />
+            ) : (
+              <Icon as={TbUserSearch} boxSize="1.25rem" display="block" aria-hidden="true" />
+            )}
           </Box>
-        </Box>
-        <PrimaryButton onClick={onView}>View unmatched students</PrimaryButton>
+          <Box textStyle="bodyLargeBold">
+            {allDone
+              ? `${total === 1 ? '' : 'All '}${plural(total, 'student', 'students')} processed`
+              : plural(total, 'unmatched student', 'unmatched students')}
+          </Box>
+        </HStack>
+        {!allDone && progress && (
+          <Box textStyle="body" fontWeight="600">
+            {progress}
+          </Box>
+        )}
       </HStack>
-      <Box textStyle="body">
-        These students could not be matched to the roster automatically. The counts below show their
-        current review and reprocessing status.
-      </Box>
-      <ReviewStatusSummary showDecisionProgress={false} />
-      {counts.total > USUAL_MAXIMUM && <TooManyNote count={counts.total} />}
-    </VStack>
+      {runFailed === 0 && (
+        <Box textStyle="body" marginBottom="300">
+          {allDone
+            ? 'Every student has been matched and processed, or excluded.'
+            : started
+            ? toReview > 0
+              ? 'Review the remaining students, then submit your matches.'
+              : ready > 0
+              ? 'Submit your matches to send their assessments.'
+              : reprocessing > 0
+              ? 'Your matches have been submitted.'
+              : 'Your students have been reviewed.'
+            : "Their assessments haven't been sent because Runway couldn't automatically match these students to your roster. Review them to find matches and send their assessments."}
+        </Box>
+      )}
+      {reprocessing > 0 && (
+        <Box textStyle="body" opacity="0.85" marginBottom="300" role="status">
+          Sending assessments…
+        </Box>
+      )}
+      {runFailed > 0 && (
+        <HStack
+          gap="200"
+          alignItems="flex-start"
+          paddingTop="200"
+          marginBottom="300"
+          textStyle="body"
+          role="status"
+        >
+          <Box bg="pink.400" padding="100" borderRadius="999px" flexShrink={0} aria-hidden="true">
+            <IconExclamation />
+          </Box>
+          <Box>
+            <Box fontWeight="600">
+              There was a problem sending assessments for {plural(runFailed, 'student', 'students')}
+              .
+            </Box>
+            <Box opacity="0.85">
+              You can continue reviewing students and saving matches. Please contact support to
+              resolve the sending issue before submitting more matches.
+            </Box>
+            <HStack gap="300" flexWrap="wrap" marginTop="300">
+              <ContactSupport message={`Job ${job.id}: problem sending assessments`} />
+              <SecondaryButton borderWidth="0" onClick={onView}>
+                View unmatched students
+              </SecondaryButton>
+            </HStack>
+          </Box>
+        </HStack>
+      )}
+      {!started && total > USUAL_MAXIMUM && (
+        <Box marginBottom="300">
+          <TooManyNote count={total} />
+        </Box>
+      )}
+      {runFailed === 0 && (
+        <PrimaryButton onClick={onView}>
+          {allDone ? 'View students' : started ? 'Continue review' : 'Review unmatched students'}
+        </PrimaryButton>
+      )}
+    </Box>
   );
 };

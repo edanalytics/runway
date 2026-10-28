@@ -376,10 +376,10 @@ export const CrossYearCue = ({
 };
 
 /**
- * A file usually has no more than 15-20 students to match. Many more points
- * at a problem with the file itself, better fixed there than one by one.
+ * Large review queues may point to a problem with the file itself,
+ * better fixed there than one student at a time.
  */
-export const USUAL_MAXIMUM = 20;
+export const USUAL_MAXIMUM = 50;
 
 export const TooManyNote = ({ count }: { count: number }) => (
   <Box
