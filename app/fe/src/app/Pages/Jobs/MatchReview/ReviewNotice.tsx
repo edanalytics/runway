@@ -36,8 +36,6 @@ export const ReviewNotice = () => {
         >
           {allDone ? (
             <CheckIcon display="block" />
-          ) : runFailed > 0 ? (
-            <IconExclamation />
           ) : (
             <Icon as={TbUserSearch} boxSize="1.25rem" display="block" aria-hidden="true" />
           )}
@@ -50,16 +48,16 @@ export const ReviewNotice = () => {
       </HStack>
       <Box textStyle="body" marginBottom="300">
         {allDone
-          ? 'Every student has been reprocessed or excluded.'
+          ? 'Every student has been matched and processed, or excluded.'
           : started
           ? toReview > 0
             ? 'Review the remaining students, then submit your matches.'
             : ready > 0
-            ? 'Submit your saved matches for reprocessing.'
+            ? 'Submit your saved matches to send their assessments.'
             : reprocessing > 0
-            ? 'Your matches have been submitted for reprocessing.'
+            ? 'Your matches have been submitted.'
             : 'Your students have been reviewed.'
-          : "Their assessments weren't loaded because no roster student was a close enough match. Review each one to choose from the suggested students, search the roster, or exclude the record, then submit your matches for reprocessing."}
+          : "Their assessments weren't sent because no roster student was a close enough match. Review the suggestions, search the roster, or exclude a student, then submit your matches to send their assessments."}
       </Box>
       {!allDone && progress && (
         <Box textStyle="body" fontWeight="600" marginBottom="300">
@@ -68,17 +66,20 @@ export const ReviewNotice = () => {
       )}
       {reprocessing > 0 && (
         <Box textStyle="body" opacity="0.85" marginBottom="300" role="status">
-          Reprocessing students…
+          Sending assessments…
         </Box>
       )}
       {runFailed > 0 && (
         <Box marginBottom="300" textStyle="body" role="status">
-          <Box fontWeight="600">
-            Reprocessing failed for {plural(runFailed, 'student', 'students')}
-          </Box>
-          <Box opacity="0.85">
-            Your match decisions have been preserved. Please contact support.
-          </Box>
+          <HStack gap="200" alignItems="flex-start">
+            <Box flexShrink={0} aria-hidden="true">
+              <IconExclamation />
+            </Box>
+            <Box fontWeight="600">
+              Assessments could not be sent for {plural(runFailed, 'student', 'students')}
+            </Box>
+          </HStack>
+          <Box opacity="0.85">Your saved matches have been preserved. Please contact support.</Box>
         </Box>
       )}
       {!allDone && total > USUAL_MAXIMUM && (
@@ -90,7 +91,7 @@ export const ReviewNotice = () => {
       )}
       {runFailed > 0 ? (
         <HStack gap="300" flexWrap="wrap">
-          <ContactSupport message={`Job ${job.id}: student reprocessing failed`} />
+          <ContactSupport message={`Job ${job.id}: assessments could not be sent`} />
           <SecondaryButton onClick={onView}>View unmatched students</SecondaryButton>
         </HStack>
       ) : (
