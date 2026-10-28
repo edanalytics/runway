@@ -15,7 +15,8 @@ export const useUpdatePartnerIdMatchingMode = () => {
   return useMutation({
     mutationFn: (body: PutPartnerIdMatchingModeDto) =>
       methods.put(URL, PutPartnerIdMatchingModeDto, GetPartnerIdMatchingModeDto, body),
-    onSuccess: (saved) => {
+    onSuccess: async (saved) => {
+      await queryClient.cancelQueries({ queryKey: QUERY_KEY });
       queryClient.setQueryData(QUERY_KEY, saved);
     },
   });
