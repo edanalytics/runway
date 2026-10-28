@@ -46,6 +46,11 @@ export const ReviewNotice = () => {
             : plural(total, 'unmatched student', 'unmatched students')}
         </Box>
       </HStack>
+      {!allDone && progress && (
+        <Box textStyle="body" fontWeight="600" marginBottom="300">
+          {progress}
+        </Box>
+      )}
       <Box textStyle="body" marginBottom="300">
         {allDone
           ? 'Every student has been matched and processed, or excluded.'
@@ -53,17 +58,12 @@ export const ReviewNotice = () => {
           ? toReview > 0
             ? 'Review the remaining students, then submit your matches.'
             : ready > 0
-            ? 'Submit your saved matches to send their assessments.'
+            ? 'Submit your matches to send their assessments.'
             : reprocessing > 0
             ? 'Your matches have been submitted.'
             : 'Your students have been reviewed.'
           : "Their assessments haven't been sent because Runway couldn't automatically match these students to your roster. Review them to find matches and send their assessments."}
       </Box>
-      {!allDone && progress && (
-        <Box textStyle="body" fontWeight="600" marginBottom="300">
-          {progress}
-        </Box>
-      )}
       {reprocessing > 0 && (
         <Box textStyle="body" opacity="0.85" marginBottom="300" role="status">
           Sending assessments…
