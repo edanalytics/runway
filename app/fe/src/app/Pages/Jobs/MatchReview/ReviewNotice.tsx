@@ -105,7 +105,7 @@ export const ReviewNotice = () => {
       )}
       {!started && total > USUAL_MAXIMUM && (
         <Box marginBottom="300">
-          <TooManyNote count={total} compact />
+          <TooManyNote count={total} />
         </Box>
       )}
       {runFailed === 0 && (
