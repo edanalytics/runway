@@ -165,3 +165,148 @@ describe('partner matching-mode enablement gate', () => {
     await expectFailure(503);
   });
 });
+
+describe('partner matching-mode API contract', () => {
+  let cookie: string;
+  let fetchSpy: jest.SpyInstance;
+  let config: ReturnType<typeof stubIdrsConfig>;
+
+  beforeEach(async () => {
+    cookie = (await authHelper.login(idpA, userA, tenantA, 'runway.test.partneradmin')).cookies;
+    config = stubIdrsConfig({ idrsUrl, tokenUrl });
+    fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockImplementation(async (url) =>
+        url === tokenUrl
+          ? response({ access_token: 'fresh', expires_in: 86400 })
+          : response({ scopes })
+      );
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const save = (body: unknown = { idMatchingMode: 'id_based' }) =>
+    request(app.getHttpServer())
+      .put(endpoint)
+      .set('Cookie', [cookie])
+      .send(body as object);
+
+  it.each(['id_based', 'fuzzy', 'id_based_fuzzy_background'] as const)(
+    'reads only the saved %s mode without contacting IDRS',
+    async (idMatchingMode) => {
+      await prisma.partner.update({ where: { id: partnerA.id }, data: { idMatchingMode } });
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ idMatchingMode });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(config.getIdrsConnectionInfo).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['get', 'put'] as const)('requires authentication for %s', async (method) => {
+    const res = await request(app.getHttpServer())
+      [method](endpoint)
+      .send({ idMatchingMode: 'id_based' });
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['runway.test.user', 'runway.test.supportuser'])(
+    'refuses %s for both routes',
+    async (role) => {
+      const session = (await authHelper.login(idpA, userA, tenantA, role)).cookies;
+      for (const method of ['get', 'put'] as const) {
+        const res = await request(app.getHttpServer())
+          [method](endpoint)
+          .set('Cookie', [session])
+          .send({ idMatchingMode: 'id_based' });
+        expect(res.status).toBe(403);
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['get', 'put'] as const)('checks the dedicated %s privilege', async (method) => {
+    const { withoutPrivilege } = await import('../helpers/without-privilege');
+    // The read privilege is introduced by this API increment.
+    const privilege = `partner-id-matching-mode.${method === 'get' ? 'read' : 'update'}`;
+    const res = await withoutPrivilege(
+      privilege as import('@edanalytics/models').PrivilegeKey,
+      () =>
+        request(app.getHttpServer())
+          [method](endpoint)
+          .set('Cookie', [cookie])
+          .send({ idMatchingMode: 'id_based' })
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it.each([
+    {},
+    { idMatchingMode: null },
+    { idMatchingMode: true },
+    { idMatchingMode: 'invalid' },
+    { idMatchingMode: 'fuzzy', partnerId: 'other' },
+    { idMatchingMode: 'fuzzy', crossYearMatchingEnabled: true },
+    { idMatchingMode: 'fuzzy', tenantCode: 'other' },
+    [],
+  ])('rejects invalid or mixed input %j before IDRS', async (body) => {
+    const res = await save(body);
+    expect(res.status).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(
+      (await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode
+    ).toBe('id_based');
+  });
+
+  it('disables without IDRS and leaves cross-year configuration intact', async () => {
+    await prisma.partner.update({
+      where: { id: partnerA.id },
+      data: { idMatchingMode: 'fuzzy', crossYearMatchingEnabled: true },
+    });
+    jest.spyOn(config, 'getIdrsConnectionInfo').mockRejectedValue(new Error('unavailable'));
+    const res = await save();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ idMatchingMode: 'id_based' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(config.getIdrsConnectionInfo).not.toHaveBeenCalled();
+    expect(
+      (await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } }))
+        .crossYearMatchingEnabled
+    ).toBe(true);
+  });
+
+  it('rechecks IDRS even for an already enabled mode', async () => {
+    await prisma.partner.update({ where: { id: partnerA.id }, data: { idMatchingMode: 'fuzzy' } });
+    jest.spyOn(config, 'getIdrsConnectionInfo').mockResolvedValue(null);
+    const res = await save({ idMatchingMode: 'fuzzy' });
+    expect(res.status).toBe(422);
+    expect(
+      (await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode
+    ).toBe('fuzzy');
+  });
+
+  it('scopes a second partner admin to their own row', async () => {
+    const { userX } = await import('../fixtures/user-fixtures');
+    const { tenantX } = await import('../fixtures/context-fixtures/tenant-fixtures');
+    const { idpX } = await import('../fixtures/context-fixtures/idp-fixtures');
+    const otherCookie = (await authHelper.login(idpX, userX, tenantX, 'Runway.PartnerAdmin'))
+      .cookies;
+    fetchSpy.mockImplementation(async (url) =>
+      url === tokenUrl
+        ? response({ access_token: 'other-token' })
+        : response({ scopes: [`partner:${tenantX.partnerId}`, 'student:identity:read'] })
+    );
+    const res = await request(app.getHttpServer())
+      .put(endpoint)
+      .set('Cookie', [otherCookie])
+      .send({ idMatchingMode: 'fuzzy' });
+    expect(res.status).toBe(200);
+    expect(
+      (await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode
+    ).toBe('id_based');
+    expect(
+      (await prisma.partner.findUniqueOrThrow({ where: { id: tenantX.partnerId } })).idMatchingMode
+    ).toBe('fuzzy');
+    const read = await request(app.getHttpServer()).get(endpoint).set('Cookie', [otherCookie]);
+    expect(read.body).toEqual({ idMatchingMode: 'fuzzy' });
+  });
+});
