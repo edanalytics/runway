@@ -11,8 +11,8 @@ export const ReviewStatusSummary = () => {
     { label: 'Needs review', value: counts.toReview },
     { label: 'Ready to submit', value: counts.ready },
     ...(counts.runFailed > 0 ? [{ label: 'Send failed', value: counts.runFailed }] : []),
-    { label: 'Excluded', value: counts.excluded },
     { label: 'Sent', value: counts.reprocessed },
+    { label: 'Excluded', value: counts.excluded },
   ];
 
   return (
@@ -25,7 +25,7 @@ export const ReviewStatusSummary = () => {
             gap="0"
             position="relative"
             _before={
-              tile.label === 'Send failed' || tile.label === 'Excluded'
+              tile.label === 'Send failed' || tile.label === 'Sent'
                 ? {
                     content: '""',
                     position: 'absolute',
