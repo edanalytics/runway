@@ -2,17 +2,20 @@ import { CheckIcon } from '@chakra-ui/icons';
 import { Box, HStack, Icon } from '@chakra-ui/react';
 import { useNavigate } from '@tanstack/react-router';
 import { TbUserSearch } from 'react-icons/tb';
-import { PrimaryButton, USUAL_MAXIMUM } from './components';
+import { IconExclamation } from '../../../../assets/icons';
+import { ContactSupport } from '../../../components/SupportButton';
+import { PrimaryButton, SecondaryButton, USUAL_MAXIMUM } from './components';
 import { useReviewSession } from './reviewSession';
 
 /** Introduce unmatched-student review and point to the next action. */
 export const ReviewNotice = () => {
-  const { counts } = useReviewSession();
+  const { job, counts } = useReviewSession();
   const navigate = useNavigate({ from: '/assessments/$assessmentId/' });
   const onView = () => navigate({ search: { tab: 'students' }, resetScroll: false });
-  const { total, toReview, ready, runFailed, reprocessed, excluded } = counts;
+  const { total, toReview, ready, runFailed, reprocessing, reprocessed, excluded } = counts;
   const processed = reprocessed + excluded;
   const allDone = total > 0 && processed === total;
+  const started = toReview < total;
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const progress = [
     ready > 0 && `${ready} ready to submit`,
@@ -33,22 +36,39 @@ export const ReviewNotice = () => {
         >
           {allDone ? (
             <CheckIcon display="block" />
+          ) : runFailed > 0 ? (
+            <IconExclamation />
           ) : (
             <Icon as={TbUserSearch} boxSize="1.25rem" display="block" aria-hidden="true" />
           )}
         </Box>
         <Box textStyle="bodyLargeBold">
-          {plural(total, 'student', 'students')} couldn't be matched automatically
+          {allDone
+            ? `${total === 1 ? '' : 'All '}${plural(total, 'student', 'students')} processed`
+            : `${plural(total, 'student', 'students')} couldn't be matched automatically`}
         </Box>
       </HStack>
       <Box textStyle="body" marginBottom="300">
         {allDone
-          ? 'All done! Every student has been reprocessed or excluded. No further action is needed.'
+          ? 'Every student has been reprocessed or excluded.'
+          : started
+          ? toReview > 0
+            ? 'Review the remaining students, then submit your matches.'
+            : ready > 0
+            ? 'Submit your saved matches for reprocessing.'
+            : reprocessing > 0
+            ? 'Your matches have been submitted for reprocessing.'
+            : 'Your students have been reviewed.'
           : "Their assessments weren't loaded because no roster student was a close enough match. Review each one to choose from the suggested students, search the roster, or exclude the record, then submit your matches for reprocessing."}
       </Box>
-      {progress && (
+      {!allDone && progress && (
         <Box textStyle="body" fontWeight="600" marginBottom="300">
           {progress}
+        </Box>
+      )}
+      {reprocessing > 0 && (
+        <Box textStyle="body" opacity="0.85" marginBottom="300" role="status">
+          Reprocessing students…
         </Box>
       )}
       {runFailed > 0 && (
@@ -57,8 +77,7 @@ export const ReviewNotice = () => {
             Reprocessing failed for {plural(runFailed, 'student', 'students')}
           </Box>
           <Box opacity="0.85">
-            Your match decisions have been preserved. Please contact support from the Unmatched
-            Students tab.
+            Your match decisions have been preserved. Please contact support.
           </Box>
         </Box>
       )}
@@ -69,15 +88,16 @@ export const ReviewNotice = () => {
           quicker.
         </Box>
       )}
-      <PrimaryButton onClick={onView}>
-        {toReview
-          ? processed || ready || runFailed
-            ? 'Continue review'
-            : 'Review unmatched students'
-          : ready
-          ? 'Review and submit'
-          : 'View unmatched students'}
-      </PrimaryButton>
+      {runFailed > 0 ? (
+        <HStack gap="300" flexWrap="wrap">
+          <ContactSupport message={`Job ${job.id}: student reprocessing failed`} />
+          <SecondaryButton onClick={onView}>View unmatched students</SecondaryButton>
+        </HStack>
+      ) : (
+        <PrimaryButton onClick={onView}>
+          {allDone ? 'View students' : started ? 'Continue review' : 'Review unmatched students'}
+        </PrimaryButton>
+      )}
     </Box>
   );
 };
