@@ -8,8 +8,10 @@ import {
   FormHelperText,
   FormLabel,
   HStack,
+  ListItem,
   Select,
   Text,
+  UnorderedList,
   VStack,
   useDisclosure,
 } from '@chakra-ui/react';
@@ -175,17 +177,27 @@ export const PartnerMatchingMode = () => {
               >
                 <VStack align="stretch" gap="100">
                   <Text>
-                    Choose the student identity matching method for new jobs across all tenants in
-                    this partner.
+                    Configure how Runway matches students in input files to student records in the
+                    roster. This setting applies to new jobs across all tenants in this partner.
                   </Text>
                   <Collapse in={isHelpOpen} animateOpacity>
                     <VStack id="partner-matching-help-details" align="stretch" gap="100">
-                      <Text>
-                        ID-based matching uses student IDs to match against a roster. Background
-                        fuzzy matching continues ID-based delivery while collecting fuzzy
-                        suggestions. Fuzzy matching uses IDRS to identify students and lets
-                        reviewers resolve uncertain matches before those students' records are sent.
-                      </Text>
+                      <UnorderedList spacing="100" margin="0" paddingLeft="300">
+                        <ListItem>
+                          <strong>ID-based:</strong> Match student IDs in input files to IDs in the
+                          roster.
+                        </ListItem>
+                        <ListItem>
+                          <strong>ID-based with background fuzzy matching:</strong> Use ID-based
+                          matches to process the job while collecting IDRS fuzzy matching
+                          suggestions in the background.
+                        </ListItem>
+                        <ListItem>
+                          <strong>Fuzzy matching:</strong> Use IDRS to match students using their
+                          identifying details. Students without a confident match require review
+                          before their records are sent.
+                        </ListItem>
+                      </UnorderedList>
                       <Text>
                         Existing jobs keep their matching mode. Enabling either fuzzy mode checks
                         the partner's IDRS access when you save.
