@@ -21,7 +21,7 @@ import { useBlocker } from '@tanstack/react-router';
 import {
   partnerIdMatchingModeQuery,
   useUpdatePartnerIdMatchingMode,
-} from '../../api/queries/partner-id-matching-mode.queries';
+} from '../../api/queries/partner-config.queries';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
 import { ConfirmModal } from './ConfirmModal';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
@@ -80,17 +80,10 @@ export const PartnerMatchingMode = () => {
       { idMatchingMode: draft },
       {
         onSuccess: () => setDraft(null),
-        onError: (failure: unknown) => {
-          const response =
-            failure && typeof failure === 'object' ? (failure as Record<string, unknown>) : {};
-          const recognized =
-            response.code === 'idrs_not_ready' || response.code === 'identity_service_unavailable';
+        onError: () =>
           setError(
-            recognized && typeof response.message === 'string' && response.message.trim()
-              ? response.message
-              : 'Something went wrong saving your changes. Please try again.'
-          );
-        },
+            'Runway could not save this mode. Enabling either fuzzy mode requires verified IDRS access for this partner.'
+          ),
       }
     );
   };
