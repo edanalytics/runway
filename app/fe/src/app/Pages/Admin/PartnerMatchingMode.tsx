@@ -28,9 +28,9 @@ import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 
 type Mode = PutPartnerIdMatchingModeDto['idMatchingMode'];
 const labels: Record<Mode, string> = {
-  id_based: 'ID-based',
-  id_based_fuzzy_background: 'ID-based with background fuzzy matching',
-  fuzzy: 'Fuzzy matching',
+  id_based: 'ID-based (legacy)',
+  id_based_fuzzy_background: 'ID-based with background fuzzy matching (transitional)',
+  fuzzy: 'Fuzzy matching (recommended)',
 };
 
 export const PartnerMatchingMode = () => {
@@ -96,36 +96,9 @@ export const PartnerMatchingMode = () => {
   };
 
   return (
-    <VStack
-      as="section"
-      aria-labelledby="student-matching-heading"
-      align="stretch"
-      gap="200"
-      mt="500"
-    >
-      <HStack justify="space-between" align="baseline">
-        <Box as="h3" id="student-matching-heading" textStyle="h3">
-          student matching
-        </Box>
-        {draft === null && (
-          <Button
-            variant="ghost"
-            textStyle="button"
-            textColor="green.100"
-            px="200"
-            py="200"
-            _hover={{ bg: 'transparent' }}
-            onClick={() => {
-              setError(null);
-              setDraft(config.idMatchingMode);
-            }}
-          >
-            edit
-          </Button>
-        )}
-      </HStack>
+    <VStack as="section" aria-label="Student identity matching mode" align="stretch" gap="200">
       {error && <RunwayErrorBox message={error} showButton={false} />}
-      <Box layerStyle="contentBox" padding="300" maxWidth="100%">
+      <HStack align="center" gap="300">
         <FormControl id="partner-matching-mode" variant="plain">
           <HStack align="center" gap="500">
             <FormLabel
@@ -184,18 +157,19 @@ export const PartnerMatchingMode = () => {
                     <VStack id="partner-matching-help-details" align="stretch" gap="100">
                       <UnorderedList spacing="100" margin="0" paddingLeft="300">
                         <ListItem>
-                          <strong>ID-based:</strong> Match student IDs in input files to IDs in the
-                          roster.
+                          <strong>ID-based (legacy):</strong> Match student IDs in input files to
+                          IDs in the roster using the existing ID-based matching method.
                         </ListItem>
                         <ListItem>
-                          <strong>ID-based with background fuzzy matching:</strong> Use ID-based
-                          matches to process the job while collecting IDRS fuzzy matching
-                          suggestions in the background.
+                          <strong>ID-based with background fuzzy matching (transitional):</strong>{' '}
+                          Test fuzzy matching in the background while continuing to process jobs
+                          with the existing ID-based matches.
                         </ListItem>
                         <ListItem>
-                          <strong>Fuzzy matching:</strong> Use IDRS to match students using their
-                          identifying details. Students without a confident match require review
-                          before their records are sent.
+                          <strong>Fuzzy matching (recommended):</strong> The recommended mode going
+                          forward. Use IDRS to match students using their identifying details.
+                          Students without a confident match require review before their records are
+                          sent.
                         </ListItem>
                       </UnorderedList>
                       <Text>
@@ -223,9 +197,7 @@ export const PartnerMatchingMode = () => {
             </VStack>
           </HStack>
         </FormControl>
-      </Box>
-      {draft !== null && (
-        <HStack mt="100" gap="200" justifyContent="flex-end" width="100%">
+        {draft === null && (
           <Button
             variant="ghost"
             textStyle="button"
@@ -233,35 +205,58 @@ export const PartnerMatchingMode = () => {
             px="200"
             py="200"
             _hover={{ bg: 'transparent' }}
-            isDisabled={update.isPending}
-            onClick={() => (hasChanges ? setDialog('discard') : discard())}
+            onClick={() => {
+              setError(null);
+              setDraft(config.idMatchingMode);
+            }}
           >
-            cancel
+            edit
           </Button>
-          <Button
-            layerStyle="buttonPrimary"
-            textStyle="button"
-            px="300"
-            py="300"
-            bg="green.100"
-            color="green.600"
-            _hover={{ bg: 'green.50' }}
-            isDisabled={!hasChanges || update.isPending}
-            aria-label="save"
-            isLoading={update.isPending}
-            onClick={() => setDialog('save')}
-          >
-            save
-          </Button>
-        </HStack>
-      )}
+        )}
+        {draft !== null && (
+          <HStack gap="200" flexShrink={0}>
+            <Button
+              variant="ghost"
+              textStyle="button"
+              textColor="green.100"
+              px="200"
+              py="200"
+              _hover={{ bg: 'transparent' }}
+              isDisabled={update.isPending}
+              onClick={() => (hasChanges ? setDialog('discard') : discard())}
+            >
+              cancel
+            </Button>
+            <Button
+              layerStyle="buttonPrimary"
+              textStyle="button"
+              px="300"
+              py="300"
+              bg="green.100"
+              color="green.600"
+              _hover={{ bg: 'green.50' }}
+              isDisabled={!hasChanges || update.isPending}
+              aria-label="save"
+              isLoading={update.isPending}
+              onClick={() => setDialog('save')}
+            >
+              save
+            </Button>
+          </HStack>
+        )}
+      </HStack>
+
       <ConfirmChangesModal
         isOpen={dialog === 'save'}
         onClose={() => setDialog(null)}
         onConfirm={save}
         changes={
           hasChanges
-            ? [`Student matching: ${labels[config.idMatchingMode]} → ${labels[draft!]}`]
+            ? [
+                `Student identity matching mode: ${labels[config.idMatchingMode]} → ${
+                  labels[draft!]
+                }`,
+              ]
             : []
         }
       />

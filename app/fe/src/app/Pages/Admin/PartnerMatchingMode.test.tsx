@@ -25,8 +25,7 @@ jest.mock(
   () => ({
     partnerIdMatchingModeQuery: {},
     useUpdatePartnerIdMatchingMode: () => ({ mutate, isPending: pending }),
-  }),
-  { virtual: true }
+  })
 );
 jest.mock('@tanstack/react-router', () => ({
   useBlocker: ({ condition }: { condition: boolean }) => {
@@ -93,7 +92,7 @@ describe('partner matching-mode editor', () => {
     expect(warn).toBe(true);
     await click('save');
     expect(mutate).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain('ID-based → Fuzzy matching');
+    expect(document.body.textContent).toContain('ID-based (legacy) → Fuzzy matching (recommended)');
     await click('confirm');
     expect(mutate).toHaveBeenCalledWith({ idMatchingMode: 'fuzzy' }, expect.any(Object));
     pending = true;

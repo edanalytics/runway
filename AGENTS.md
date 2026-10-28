@@ -221,7 +221,7 @@ All of this applies to the `id_based` and `id_based_fuzzy_background` modes. Pur
 
 ### ID matching modes
 
-How student identities are resolved is a per-partner setting, `id_matching_mode`, snapshotted onto each job at creation (`JobsService.createJob` writes it explicitly; the column default is migration safety only). Every run of a job uses that snapshot, so changing the partner setting affects only jobs created afterwards. Partner admins manage the mode in the admin page's separate Student matching editor. `GET` and `PUT /api/partners/id-matching-mode` use `partner-id-matching-mode.read` and `.update`, granted only to `PartnerAdmin`; the partner comes from the session tenant. Its saves are independent of cross-year configuration, and competing mode edits use the last successful write.
+How student identities are resolved is a per-partner setting, `id_matching_mode`, snapshotted onto each job at creation (`JobsService.createJob` writes it explicitly; the column default is migration safety only). Every run of a job uses that snapshot, so changing the partner setting affects only jobs created afterwards. Partner admins manage the mode in the Student identity matching mode row of the admin page's partner-wide configuration pane. Each setting has its own inline edit, cancel and save controls. `GET` and `PUT /api/partners/id-matching-mode` use `partner-id-matching-mode.read` and `.update`, granted only to `PartnerAdmin`; the partner comes from the session tenant. Its saves are independent of cross-year configuration, and competing mode edits use the last successful write.
 
 | Mode | Authoritative path | Roster matching | `appUrls.identityService` / `appUrls.studentMatchResults` |
 |---|---|---|---|
