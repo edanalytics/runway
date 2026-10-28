@@ -4,7 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { TbUserSearch } from 'react-icons/tb';
 import { IconExclamation } from '../../../../assets/icons';
 import { ContactSupport } from '../../../components/SupportButton';
-import { PrimaryButton, SecondaryButton, USUAL_MAXIMUM } from './components';
+import { PrimaryButton, SecondaryButton, TooManyNote, USUAL_MAXIMUM } from './components';
 import { useReviewSession } from './reviewSession';
 
 /** Introduce unmatched-student review and point to the next action. */
@@ -103,11 +103,9 @@ export const ReviewNotice = () => {
           </Box>
         </HStack>
       )}
-      {!allDone && total > USUAL_MAXIMUM && (
-        <Box textStyle="body" marginBottom="300" color="purple.200">
-          That's more than a file usually has, which often points to a problem with the file itself
-          (such as the wrong ID column or school year). Fixing and uploading it again may be
-          quicker.
+      {!started && total > USUAL_MAXIMUM && (
+        <Box marginBottom="300">
+          <TooManyNote count={total} compact />
         </Box>
       )}
       {runFailed === 0 && (
