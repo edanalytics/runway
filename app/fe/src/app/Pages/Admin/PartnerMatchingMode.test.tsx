@@ -12,13 +12,22 @@ let blocked = false;
 let warn = false;
 const proceed = jest.fn();
 const reset = jest.fn();
-const mutate = jest.fn<(body: unknown, options: { onSuccess: () => void; onError: (error: unknown) => void }) => void>();
+const mutate =
+  jest.fn<
+    (body: unknown, options: { onSuccess: () => void; onError: (error: unknown) => void }) => void
+  >();
 
-jest.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: config, isLoading: loading }) }));
-jest.mock('../../api/queries/partner-id-matching-mode.queries', () => ({
-  partnerIdMatchingModeQuery: {},
-  useUpdatePartnerIdMatchingMode: () => ({ mutate, isPending: pending }),
-}), { virtual: true });
+jest.mock('@tanstack/react-query', () => ({
+  useQuery: () => ({ data: config, isLoading: loading }),
+}));
+jest.mock(
+  '../../api/queries/partner-id-matching-mode.queries',
+  () => ({
+    partnerIdMatchingModeQuery: {},
+    useUpdatePartnerIdMatchingMode: () => ({ mutate, isPending: pending }),
+  }),
+  { virtual: true }
+);
 jest.mock('@tanstack/react-router', () => ({
   useBlocker: ({ condition }: { condition: boolean }) => {
     warn = condition;
@@ -31,18 +40,31 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 describe('partner matching-mode editor', () => {
   let host: HTMLDivElement;
   let root: Root;
-  const render = async () => act(async () => { root.render(<ChakraProvider><PartnerMatchingMode /></ChakraProvider>); });
+  const render = async () =>
+    act(async () => {
+      root.render(
+        <ChakraProvider>
+          <PartnerMatchingMode />
+        </ChakraProvider>
+      );
+    });
   const button = (label: string) => {
-    const found = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
+    const found = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === label || b.textContent?.trim() === label
+    );
     if (!found) throw new Error(`Missing button ${label}`);
     return found;
   };
-  const click = async (label: string) => act(async () => { button(label).click(); });
-  const choose = async (mode: string) => act(async () => {
-    const select = host.querySelector('select')!;
-    select.value = mode;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  const click = async (label: string) =>
+    act(async () => {
+      button(label).click();
+    });
+  const choose = async (mode: string) =>
+    act(async () => {
+      const select = host.querySelector('select')!;
+      select.value = mode;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
   beforeEach(async () => {
     config = { idMatchingMode: 'id_based' };
     loading = pending = blocked = warn = false;
@@ -61,7 +83,11 @@ describe('partner matching-mode editor', () => {
     expect(host.textContent).toContain('ID-based');
     expect(host.textContent).toContain('new jobs');
     await click('edit');
-    expect(Array.from(host.querySelectorAll('option')).map((o) => o.value)).toEqual(['id_based', 'id_based_fuzzy_background', 'fuzzy']);
+    expect(Array.from(host.querySelectorAll('option')).map((o) => o.value)).toEqual([
+      'id_based',
+      'id_based_fuzzy_background',
+      'fuzzy',
+    ]);
     expect(button('save').disabled).toBe(true);
     await choose('fuzzy');
     expect(warn).toBe(true);

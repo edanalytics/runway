@@ -1,6 +1,7 @@
 import { Box, VStack } from '@chakra-ui/react';
 import { useMe } from '../../api/queries/me.queries';
 import { SchoolYearConfigSection } from './SchoolYearConfigSection';
+import { PartnerMatchingMode } from './PartnerMatchingMode';
 import { PartnerConfig } from './PartnerConfig';
 
 export const AdminPage = () => {
@@ -14,6 +15,7 @@ export const AdminPage = () => {
       </Box>
       <SchoolYearConfigSection />
       <PartnerConfig />
+      <PartnerMatchingMode />
     </VStack>
   );
 };
