@@ -57,17 +57,17 @@ export const ReviewStatusSummary = () => {
           borderRadius="999px"
           bg="blue.600"
           sx={{ '& > div': { bg: 'green.100' } }}
-          aria-label="Students processed"
-          aria-valuetext={`${processed} of ${counts.total} processed`}
+          aria-label="Students done"
+          aria-valuetext={`${processed} of ${counts.total} done`}
         />
         {done ? (
           <HStack gap="100" role="status" whiteSpace="nowrap">
             <CheckIcon color="green.100" boxSize="0.8rem" />
-            <Box>All students processed</Box>
+            <Box>{counts.total === 1 ? '1 student done' : `All ${counts.total} students done`}</Box>
           </HStack>
         ) : (
           <Box opacity="0.8" whiteSpace="nowrap">
-            {processed} of {counts.total} processed
+            {processed} of {counts.total} done
           </Box>
         )}
       </HStack>
