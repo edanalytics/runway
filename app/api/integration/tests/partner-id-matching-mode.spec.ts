@@ -1,9 +1,10 @@
 import request from 'supertest';
 import { Logger } from '@nestjs/common';
-import { userA } from '../fixtures/user-fixtures';
-import { tenantA } from '../fixtures/context-fixtures/tenant-fixtures';
+import { withoutPrivilege } from '../helpers/without-privilege';
+import { userA, userX } from '../fixtures/user-fixtures';
+import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
-import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
+import { idpA, idpX } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { IdrsCredentialsService } from '../../src/idrs/idrs-credentials.service';
@@ -212,7 +213,8 @@ describe('partner matching-mode API contract', () => {
   it.each(['runway.test.user', 'runway.test.supportuser'])(
     'refuses %s for both routes',
     async (role) => {
-      const session = (await authHelper.login(idpA, userA, tenantA, ['runway.test.user', role])).cookies;
+      const session = (await authHelper.login(idpA, userA, tenantA, ['runway.test.user', role]))
+        .cookies;
       for (const method of ['get', 'put'] as const) {
         const res = await request(app.getHttpServer())
           [method](endpoint)
@@ -225,16 +227,13 @@ describe('partner matching-mode API contract', () => {
   );
 
   it.each(['get', 'put'] as const)('checks the dedicated %s privilege', async (method) => {
-    const { withoutPrivilege } = await import('../helpers/without-privilege');
-    // The read privilege is introduced by this API increment.
-    const privilege = `partner-id-matching-mode.${method === 'get' ? 'read' : 'update'}`;
-    const res = await withoutPrivilege(
-      privilege as import('@edanalytics/models').PrivilegeKey,
-      () =>
-        request(app.getHttpServer())
-          [method](endpoint)
-          .set('Cookie', [cookie])
-          .send({ idMatchingMode: 'id_based' })
+    const privilege =
+      method === 'get' ? 'partner-id-matching-mode.read' : 'partner-id-matching-mode.update';
+    const res = await withoutPrivilege(privilege, () =>
+      request(app.getHttpServer())
+        [method](endpoint)
+        .set('Cookie', [cookie])
+        .send({ idMatchingMode: 'id_based' })
     );
     expect(res.status).toBe(403);
   });
@@ -285,9 +284,6 @@ describe('partner matching-mode API contract', () => {
   });
 
   it('scopes a second partner admin to their own row', async () => {
-    const { userX } = await import('../fixtures/user-fixtures');
-    const { tenantX } = await import('../fixtures/context-fixtures/tenant-fixtures');
-    const { idpX } = await import('../fixtures/context-fixtures/idp-fixtures');
     const otherCookie = (await authHelper.login(idpX, userX, tenantX, 'Runway.PartnerAdmin'))
       .cookies;
     fetchSpy.mockImplementation(async (url) =>

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  IdrsCredentials,
   IdrsCredentialsError,
   IdrsCredentialsService,
   IdrsReadinessErrorCode,
@@ -17,7 +18,7 @@ export class IdrsReadinessService {
   > {
     const failure = (code: IdrsReadinessErrorCode, cause: string) =>
       ({ status: 'ERROR', code, cause } as const);
-    let credentials;
+    let credentials: IdrsCredentials;
     try {
       credentials = await this.credentials.getCredentials(partnerId, { useCache: false });
     } catch (err) {

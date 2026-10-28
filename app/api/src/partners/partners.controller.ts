@@ -1,4 +1,3 @@
-import { PartnerMatchingModeService } from './partner-matching-mode.service';
 import {
   BadRequestException,
   Body,
@@ -25,6 +24,7 @@ import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
 import { EduSnowflakePoolService } from '../earthbeam/api/edu-snowflake-pool.service';
+import { PartnerMatchingModeService } from './partner-matching-mode.service';
 
 @Controller()
 @ApiTags('Partners')
