@@ -9,15 +9,6 @@ export const TOKEN_REUSE_BUFFER_MS = 10 * 60 * 1000;
 
 export type IdrsCredentials = { token: string; url: string };
 
-export type IdrsReadinessErrorCode = 'idrs_not_ready' | 'identity_service_unavailable';
-
-/** A classified credential failure with a diagnostic safe for application logs. */
-export class IdrsCredentialsError extends Error {
-  constructor(message: string, readonly code: IdrsReadinessErrorCode) {
-    super(message);
-  }
-}
-
 type CacheEntry = { token: string; expiresAt: number };
 
 /**
@@ -36,42 +27,31 @@ export class IdrsCredentialsService {
 
   constructor(private readonly appConfig: AppConfigService) {}
 
-  async getCredentials(
-    partnerId: string,
-    { useCache = true }: { useCache?: boolean } = {}
-  ): Promise<IdrsCredentials> {
+  async getCredentials(partnerId: string): Promise<IdrsCredentials> {
     const url = this.appConfig.idrsUrl();
     if (!url) {
-      throw new IdrsCredentialsError('IDRS_URL is not configured or not https', 'idrs_not_ready');
+      throw new Error('IDRS_URL is not configured or not https');
     }
 
-    const cached = useCache ? this.cache.get(partnerId) : undefined;
+    const cached = this.cache.get(partnerId);
     if (cached && cached.expiresAt - Date.now() > TOKEN_REUSE_BUFFER_MS) {
       return { token: cached.token, url };
     }
 
     const tokenUrl = this.appConfig.idrsOauthTokenUrl();
     if (!tokenUrl) {
-      throw new IdrsCredentialsError(
-        'IDRS_OAUTH_TOKEN_URL is not configured or not https',
-        'idrs_not_ready'
-      );
+      throw new Error('IDRS_OAUTH_TOKEN_URL is not configured or not https');
     }
 
     const connectionInfo = await this.appConfig.getIdrsConnectionInfo(partnerId);
     if (!connectionInfo) {
-      throw new IdrsCredentialsError(
-        `no IDRS connection info for partner ${partnerId}`,
-        'idrs_not_ready'
-      );
+      throw new Error(`no IDRS connection info for partner ${partnerId}`);
     }
 
     const { token, expiresIn } = await this.requestToken(tokenUrl, partnerId, url, connectionInfo);
 
     const lifetimeMs =
       typeof expiresIn === 'number' && Number.isFinite(expiresIn) ? expiresIn * 1000 : 0;
-    if (!useCache) return { token, url };
-
     if (lifetimeMs > TOKEN_REUSE_BUFFER_MS) {
       this.cache.set(partnerId, { token, expiresAt: Date.now() + lifetimeMs });
     } else {
@@ -85,6 +65,47 @@ export class IdrsCredentialsService {
     }
 
     return { token, url };
+  }
+
+  /**
+   * Whether the partner's credentials yield a token IDRS accepts for student
+   * search. IDRS verifies any valid token, even one without scopes, so the
+   * scopes it reports decide. Logs why when the answer is no.
+   */
+  async verifyAccess(partnerId: string): Promise<boolean> {
+    const fail = (cause: string) => {
+      this.logger.warn(`IDRS access: partnerId=${partnerId} cause=${cause}`);
+      return false;
+    };
+
+    let credentials: IdrsCredentials;
+    try {
+      credentials = await this.getCredentials(partnerId);
+    } catch (err) {
+      return fail(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    }
+
+    let scopes: unknown;
+    try {
+      const response = await fetch(`${credentials.url.replace(/\/+$/, '')}/token/verify`, {
+        headers: { Authorization: `Bearer ${credentials.token}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) return fail(`verify status ${response.status}`);
+      scopes = (await response.json())?.scopes;
+    } catch (err) {
+      // The transport or parse error's own message is foreign text; name it only.
+      return fail(`verify failed (${err instanceof Error ? err.name : 'unknown error'})`);
+    }
+
+    if (
+      !Array.isArray(scopes) ||
+      !scopes.includes(`partner:${partnerId}`) ||
+      !scopes.includes('student:identity:read')
+    ) {
+      return fail('missing required scopes');
+    }
+    return true;
   }
 
   private async requestToken(
@@ -117,37 +138,25 @@ export class IdrsCredentialsService {
       });
     } catch (err) {
       // The transport error's own message is foreign text; name it only.
-      throw new IdrsCredentialsError(
-        `IDRS token request failed (${err instanceof Error ? err.name : 'unknown error'})`,
-        'identity_service_unavailable'
+      throw new Error(
+        `IDRS token request failed (${err instanceof Error ? err.name : 'unknown error'})`
       );
     }
 
     if (!response.ok) {
       // Status only — an OAuth error body can echo back credentials.
-      throw new IdrsCredentialsError(
-        `IDRS token request rejected with status ${response.status}`,
-        [400, 401, 403].includes(response.status)
-          ? 'idrs_not_ready'
-          : 'identity_service_unavailable'
-      );
+      throw new Error(`IDRS token request rejected with status ${response.status}`);
     }
 
     let parsed: unknown;
     try {
       parsed = await response.json();
     } catch {
-      throw new IdrsCredentialsError(
-        'IDRS token response was not JSON',
-        'identity_service_unavailable'
-      );
+      throw new Error('IDRS token response was not JSON');
     }
     // `null` and arrays are valid JSON and both pass `typeof === 'object'`.
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new IdrsCredentialsError(
-        'IDRS token response was not a JSON object',
-        'identity_service_unavailable'
-      );
+      throw new Error('IDRS token response was not a JSON object');
     }
 
     const { access_token: token, expires_in: expiresIn } = parsed as {
@@ -155,10 +164,7 @@ export class IdrsCredentialsService {
       expires_in?: unknown;
     };
     if (typeof token !== 'string' || token.length === 0) {
-      throw new IdrsCredentialsError(
-        'IDRS token response had no access_token',
-        'identity_service_unavailable'
-      );
+      throw new Error('IDRS token response had no access_token');
     }
     return { token, expiresIn };
   }

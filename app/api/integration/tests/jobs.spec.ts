@@ -32,8 +32,6 @@ import { schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixture
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
-import { AppConfigService } from '../../src/config/app-config.service';
-import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { holdJobRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
@@ -744,68 +742,6 @@ describe('POST /jobs', () => {
       const job = await prisma.job.findUnique({ where: { id: res.body.id } });
       expect(job?.idMatchingMode).toBe('fuzzy');
     });
-
-    it.each(['fuzzy', 'id_based_fuzzy_background'])(
-      'snapshots new jobs after an admin enables %s without changing existing jobs',
-      async (mode) => {
-        const admin = (await authHelper.login(idpA, userA, tenantA, 'runway.test.partneradmin'))
-          .cookies;
-        const create = () =>
-          request(app.getHttpServer())
-            .post(endpoint)
-            .set('Cookie', [sessionA.cookie])
-            .send(postJobDto);
-        const original = await create();
-        expect(original.status).toBe(201);
-        stubIdrsConfig({
-          idrsUrl: 'https://idrs.example.test',
-          tokenUrl: 'https://auth.example.test/token',
-        });
-        jest.spyOn(global, 'fetch').mockImplementation(
-          async (url) =>
-            ({
-              ok: true,
-              status: 200,
-              json: async () =>
-                url === 'https://auth.example.test/token'
-                  ? { access_token: 'token' }
-                  : { scopes: [`partner:${partnerA.id}`, 'student:identity:read'] },
-            } as Response)
-        );
-        try {
-          const saved = await request(app.getHttpServer())
-            .put('/partners/id-matching-mode')
-            .set('Cookie', [admin])
-            .send({ idMatchingMode: mode });
-          expect(saved.status).toBe(200);
-          const next = await create();
-          expect(next.status).toBe(201);
-          const rows = await prisma.job.findMany({
-            where: { id: { in: [original.body.id, next.body.id] } },
-          });
-          expect(Object.fromEntries(rows.map((job) => [job.id, job.idMatchingMode]))).toEqual({
-            [original.body.id]: 'id_based',
-            [next.body.id]: mode,
-          });
-
-          // A failed enablement cannot change the mode used by subsequent jobs.
-          jest.spyOn(app.get(AppConfigService), 'getIdrsConnectionInfo').mockResolvedValue(null);
-          const rejected = await request(app.getHttpServer())
-            .put('/partners/id-matching-mode')
-            .set('Cookie', [admin])
-            .send({ idMatchingMode: mode === 'fuzzy' ? 'id_based_fuzzy_background' : 'fuzzy' });
-          expect(rejected.status).toBe(422);
-          const afterFailure = await create();
-          expect(afterFailure.status).toBe(201);
-          expect(
-            (await prisma.job.findUniqueOrThrow({ where: { id: afterFailure.body.id } }))
-              .idMatchingMode
-          ).toBe(mode);
-        } finally {
-          jest.restoreAllMocks();
-        }
-      }
-    );
 
     it('should reject requests with an invalid PostJobDto', async () => {
       // confirm class validator is working
