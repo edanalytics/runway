@@ -13,6 +13,7 @@ const idrsUrl = 'https://idrs.example.test/base/';
 const verifyUrl = `${idrsUrl}token/verify`;
 const response = (body: unknown, status = 200) =>
   ({ ok: status === 200, status, json: async () => body } as Response);
+const scopes = [`partner:${partnerA.id}`, 'student:identity:read'];
 const savedMode = async () =>
   (await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } })).idMatchingMode;
 
@@ -20,17 +21,19 @@ describe('partner matching mode', () => {
   let cookie: string;
   let config: ReturnType<typeof stubIdrsConfig>;
   let fetchSpy: jest.SpyInstance;
-  let verifyResponse: Response;
+  // An Error is thrown in place of a response, as a network failure would be.
+  let verifyResponse: Response | Error;
 
   beforeEach(async () => {
     cookie = (await authHelper.login(idpA, userA, tenantA, 'runway.test.partneradmin')).cookies;
     config = stubIdrsConfig({ idrsUrl, tokenUrl });
-    verifyResponse = response({
-      scopes: [`partner:${partnerA.id}`, 'student:identity:read', 'extra:scope'],
-    });
+    verifyResponse = response({ scopes: [...scopes, 'extra:scope'] });
     fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
       if (url === tokenUrl) return response({ access_token: 'token', expires_in: 86400 });
-      if (url === verifyUrl) return verifyResponse;
+      if (url === verifyUrl) {
+        if (verifyResponse instanceof Error) throw verifyResponse;
+        return verifyResponse;
+      }
       throw new Error(`unexpected URL ${url}`);
     });
   });
@@ -56,20 +59,42 @@ describe('partner matching mode', () => {
   );
 
   it.each([
-    { cause: 'the partner scope', scopes: ['student:identity:read'] },
-    { cause: 'the search scope', scopes: [`partner:${partnerA.id}`] },
-    { cause: "the partner's own scope", scopes: ['partner:other', 'student:identity:read'] },
-  ])('refuses a token without $cause and keeps the saved mode', async ({ scopes }) => {
-    verifyResponse = response({ scopes });
-    const res = await save('fuzzy');
-    expect(res.status).toBe(400);
+    { case: 'a token without the partner scope', verify: response({ scopes: [scopes[1]] }) },
+    { case: 'a token without the search scope', verify: response({ scopes: [scopes[0]] }) },
+    {
+      case: "another partner's scope",
+      verify: response({ scopes: ['partner:other', 'student:identity:read'] }),
+    },
+    { case: 'space-delimited scopes', verify: response({ scopes: scopes.join(' ') }) },
+    { case: 'a rejected token', verify: response({}, 401) },
+    {
+      case: 'a malformed response',
+      verify: {
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('Unexpected token');
+        },
+      } as unknown as Response,
+    },
+    { case: 'a network failure', verify: new TypeError('fetch failed') },
+  ])('refuses $case and keeps the saved mode', async ({ verify }) => {
+    verifyResponse = verify;
+    expect((await save('fuzzy')).status).toBe(400);
     expect(await savedMode()).toBe('id_based');
   });
 
-  it('refuses when IDRS rejects the token', async () => {
-    verifyResponse = response({}, 401);
+  it('drops a refused token, so a retry after the fix mints a new one', async () => {
+    let minted = 0;
+    fetchSpy.mockImplementation(async (url, init) => {
+      if (url === tokenUrl)
+        return response({ access_token: `token-${++minted}`, expires_in: 86400 });
+      // Only the token minted after the partner's scope is fixed carries it.
+      const fixed = (init?.headers as Record<string, string>).Authorization === 'Bearer token-2';
+      return response({ scopes: fixed ? scopes : [scopes[1]] });
+    });
     expect((await save('fuzzy')).status).toBe(400);
-    expect(await savedMode()).toBe('id_based');
+    expect((await save('fuzzy')).status).toBe(200);
   });
 
   it('refuses without the partner’s IDRS connection info', async () => {

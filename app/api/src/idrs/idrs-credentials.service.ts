@@ -13,9 +13,9 @@ type CacheEntry = { token: string; expiresAt: number };
 
 /**
  * Resolves what's needed to reach IDRS on a partner's behalf, for the
- * Executor's identity-service callback and for match review's search: the
- * deployment's IDRS base url and an access token minted with that partner's
- * own OAuth client. Tokens are cached per app instance and per partner, so
+ * Executor's identity-service callback, match review's search and the partner
+ * matching-mode check: the deployment's IDRS base url and an access token
+ * minted with that partner's own OAuth client. Tokens are cached per app instance and per partner, so
  * scaled instances each mint their own and observe a credential rotation at
  * different times — an accepted tradeoff over shared cache infrastructure.
  */
@@ -70,10 +70,13 @@ export class IdrsCredentialsService {
   /**
    * Whether the partner's credentials yield a token IDRS accepts for student
    * search. IDRS verifies any valid token, even one without scopes, so the
-   * scopes it reports decide. Logs why when the answer is no.
+   * scopes it reports decide. Logs why when the answer is no. A cached token
+   * passes if IDRS still accepts it; a refused one is dropped, so a retry after
+   * fixing the partner's access mints a new token.
    */
   async verifyAccess(partnerId: string): Promise<boolean> {
     const fail = (cause: string) => {
+      this.cache.delete(partnerId);
       this.logger.warn(`IDRS access: partnerId=${partnerId} cause=${cause}`);
       return false;
     };
