@@ -28,9 +28,9 @@ import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 
 type Mode = PutPartnerIdMatchingModeDto['idMatchingMode'];
 const labels: Record<Mode, string> = {
-  id_based: 'ID-based (legacy)',
-  id_based_fuzzy_background: 'ID-based with background fuzzy matching (transitional)',
-  fuzzy: 'Fuzzy matching (recommended)',
+  id_based: 'ID-based',
+  id_based_fuzzy_background: 'ID-based with background fuzzy matching',
+  fuzzy: 'Fuzzy matching',
 };
 
 export const PartnerMatchingMode = () => {
@@ -143,6 +143,10 @@ export const PartnerMatchingMode = () => {
             ) : (
               <Select
                 value={draft}
+                color="blue.50"
+                bg="blue.800"
+                iconColor="blue.50"
+                sx={{ option: { color: 'blue.800', bg: 'white' } }}
                 onChange={(event) => setDraft(event.target.value as Mode)}
                 isDisabled={update.isPending}
                 aria-describedby="partner-matching-help"
@@ -175,19 +179,18 @@ export const PartnerMatchingMode = () => {
                     <VStack id="partner-matching-help-details" align="stretch" gap="100">
                       <UnorderedList spacing="100" margin="0" paddingLeft="300">
                         <ListItem>
-                          <strong>ID-based (legacy):</strong> Match student IDs in input files to
-                          IDs in the roster using the existing ID-based matching method.
+                          <strong>ID-based:</strong> Match student IDs in input files to IDs in the
+                          roster using the existing ID-based matching method.
                         </ListItem>
                         <ListItem>
-                          <strong>ID-based with background fuzzy matching (transitional):</strong>{' '}
-                          Test fuzzy matching in the background while continuing to process jobs
-                          with the existing ID-based matches.
+                          <strong>ID-based with background fuzzy matching:</strong> Test fuzzy
+                          matching in the background while continuing to process jobs with the
+                          existing ID-based matches.
                         </ListItem>
                         <ListItem>
-                          <strong>Fuzzy matching (recommended):</strong> The recommended mode going
-                          forward. Use IDRS to match students using their identifying details.
-                          Students without a confident match require review before their records are
-                          sent.
+                          <strong>Fuzzy matching:</strong> Use IDRS to match students using their
+                          identifying details. Students without a confident match require review
+                          before their records are sent.
                         </ListItem>
                       </UnorderedList>
                       <Text>

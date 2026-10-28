@@ -20,13 +20,10 @@ const mutate =
 jest.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: config, isLoading: loading }),
 }));
-jest.mock(
-  '../../api/queries/partner-id-matching-mode.queries',
-  () => ({
-    partnerIdMatchingModeQuery: {},
-    useUpdatePartnerIdMatchingMode: () => ({ mutate, isPending: pending }),
-  })
-);
+jest.mock('../../api/queries/partner-id-matching-mode.queries', () => ({
+  partnerIdMatchingModeQuery: {},
+  useUpdatePartnerIdMatchingMode: () => ({ mutate, isPending: pending }),
+}));
 jest.mock('@tanstack/react-router', () => ({
   useBlocker: ({ condition }: { condition: boolean }) => {
     warn = condition;
@@ -92,7 +89,7 @@ describe('partner matching-mode editor', () => {
     expect(warn).toBe(true);
     await click('save');
     expect(mutate).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain('ID-based (legacy) → Fuzzy matching (recommended)');
+    expect(document.body.textContent).toContain('ID-based → Fuzzy matching');
     await click('confirm');
     expect(mutate).toHaveBeenCalledWith({ idMatchingMode: 'fuzzy' }, expect.any(Object));
     pending = true;
