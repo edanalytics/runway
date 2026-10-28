@@ -101,6 +101,7 @@ export const PartnerMatchingMode = () => {
             px="200"
             py="200"
             _hover={{ bg: 'transparent' }}
+            aria-label="edit student identity matching mode"
             onClick={() => {
               setError(null);
               setDraft(config.idMatchingMode);
@@ -126,8 +127,8 @@ export const PartnerMatchingMode = () => {
             {draft === null ? (
               <Badge
                 borderRadius="999px"
-                bg={config.idMatchingMode === 'id_based' ? 'blue.800' : 'green.100'}
-                color={config.idMatchingMode === 'id_based' ? 'green.50' : 'green.600'}
+                bg="blue.800"
+                color="blue.50"
                 px="200"
                 py="100"
                 textTransform="none"
@@ -178,9 +179,10 @@ export const PartnerMatchingMode = () => {
                           roster using the existing ID-based matching method.
                         </ListItem>
                         <ListItem>
-                          <strong>ID-based with background fuzzy matching:</strong> Test fuzzy
-                          matching in the background while continuing to process jobs with the
-                          existing ID-based matches.
+                          <strong>ID-based with background fuzzy matching:</strong> Records are sent
+                          exactly as with ID-based, and no review is needed. IDRS also matches each
+                          new job's students in the background and stores its suggestions, for
+                          comparison before switching to fuzzy matching.
                         </ListItem>
                         <ListItem>
                           <strong>Fuzzy matching:</strong> Use IDRS to match students on their
@@ -226,6 +228,7 @@ export const PartnerMatchingMode = () => {
             _hover={{ bg: 'transparent' }}
             isDisabled={update.isPending}
             onClick={() => (hasChanges ? setDialog('discard') : discard())}
+            aria-label="cancel student identity matching mode changes"
           >
             cancel
           </Button>
@@ -238,7 +241,7 @@ export const PartnerMatchingMode = () => {
             color="green.600"
             _hover={{ bg: 'green.50' }}
             isDisabled={!hasChanges || update.isPending}
-            aria-label="save"
+            aria-label="save student identity matching mode"
             isLoading={update.isPending}
             onClick={() => setDialog('save')}
           >
