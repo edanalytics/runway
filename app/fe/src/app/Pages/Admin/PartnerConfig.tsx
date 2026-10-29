@@ -8,12 +8,15 @@ import {
   FormHelperText,
   FormLabel,
   HStack,
+  ListItem,
+  Select,
   Switch,
   Text,
+  UnorderedList,
   VStack,
   useDisclosure,
 } from '@chakra-ui/react';
-import { PutPartnerConfigDto } from '@edanalytics/models';
+import { PartnerConfigValuesDto } from '@edanalytics/models';
 import { useQuery } from '@tanstack/react-query';
 import { useBlocker } from '@tanstack/react-router';
 import {
@@ -25,6 +28,13 @@ import { ConfirmModal } from './ConfirmModal';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { IconCheckmark, IconExclamation } from '../../../assets/icons';
 
+type IdMatchingMode = PartnerConfigValuesDto['idMatchingMode'];
+const modeLabels: Record<IdMatchingMode, string> = {
+  id_based: 'ID-based',
+  id_based_fuzzy_background: 'ID-based with background fuzzy matching',
+  fuzzy: 'Fuzzy matching',
+};
+
 export const PartnerConfig = () => {
   const { data: config, isLoading } = useQuery(partnerConfigQuery);
   const update = useUpdatePartnerConfig();
@@ -32,7 +42,7 @@ export const PartnerConfig = () => {
   const [isEditing, setIsEditing] = useState(false);
   // null until the user starts editing (or config first loads); the saved
   // config is the source of truth otherwise.
-  const [draftConfig, setDraftConfig] = useState<PutPartnerConfigDto | null>(null);
+  const [draftConfig, setDraftConfig] = useState<PartnerConfigValuesDto | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
   // Two distinct exits: discarding edits (cancel button, stay on the page) vs.
@@ -40,11 +50,13 @@ export const PartnerConfig = () => {
   const { isOpen: isDiscardOpen, onOpen: onDiscardOpen, onClose: onDiscardClose } = useDisclosure();
   const { isOpen: isLeaveOpen, onOpen: onLeaveOpen, onClose: onLeaveClose } = useDisclosure();
   const { isOpen: isHelpOpen, onToggle: onToggleHelp } = useDisclosure();
+  const { isOpen: isModeHelpOpen, onToggle: onToggleModeHelp } = useDisclosure();
 
   const hasChanges =
     !!config &&
     !!draftConfig &&
-    draftConfig.crossYearMatchingEnabled !== config.crossYearMatchingEnabled;
+    (draftConfig.crossYearMatchingEnabled !== config.crossYearMatchingEnabled ||
+      draftConfig.idMatchingMode !== config.idMatchingMode);
   const shouldWarnAboutUnsavedChanges = isEditing && hasChanges && !update.isPending;
   const blocker = useBlocker({ condition: shouldWarnAboutUnsavedChanges });
 
@@ -72,7 +84,11 @@ export const PartnerConfig = () => {
 
   // draftConfig is null outside of editing; fall back to the saved config so
   // the edit controls always have a concrete value to render and submit.
-  const draft = draftConfig ?? { crossYearMatchingEnabled: config.crossYearMatchingEnabled };
+  const saved: PartnerConfigValuesDto = {
+    crossYearMatchingEnabled: config.crossYearMatchingEnabled,
+    idMatchingMode: config.idMatchingMode,
+  };
+  const draft = draftConfig ?? saved;
 
   // Backend rejects enable-when-no-creds; mirror that on the FE so the
   // affordance disappears before the user can hit a 400.
@@ -81,7 +97,7 @@ export const PartnerConfig = () => {
 
   const startEdit = () => {
     setGeneralError(null);
-    setDraftConfig({ crossYearMatchingEnabled: config.crossYearMatchingEnabled });
+    setDraftConfig(saved);
     setIsEditing(true);
   };
 
@@ -110,17 +126,26 @@ export const PartnerConfig = () => {
 
   const handleSaveConfirm = () => {
     setGeneralError(null);
-    update.mutate(draft, {
-      onSuccess: () => {
-        onSaveClose();
-        setDraftConfig(null);
-        setIsEditing(false);
-      },
-      onError: () => {
-        onSaveClose();
-        setGeneralError('Something went wrong saving your changes. Please try again.');
-      },
-    });
+    update.mutate(
+      { ...draft, expected: saved },
+      {
+        onSuccess: () => {
+          onSaveClose();
+          setDraftConfig(null);
+          setIsEditing(false);
+        },
+        onError: (error: any) => {
+          onSaveClose();
+          // The 400s from the EDU and IDRS checks and the stale-settings 409 carry
+          // messages written for the admin.
+          setGeneralError(
+            [400, 409].includes(error?.statusCode) && typeof error.message === 'string'
+              ? error.message
+              : 'Something went wrong saving your changes. Please try again.'
+          );
+        },
+      }
+    );
   };
 
   const handleLeaveConfirm = () => {
@@ -133,13 +158,22 @@ export const PartnerConfig = () => {
     if (blocker.status === 'blocked') blocker.reset();
   };
 
-  const changes = hasChanges
-    ? [
-        `Cross-year roster for ID matching: ${config.crossYearMatchingEnabled ? 'yes' : 'no'} → ${
-          draft.crossYearMatchingEnabled ? 'yes' : 'no'
-        }`,
-      ]
-    : [];
+  const changes = [
+    ...(draft.crossYearMatchingEnabled !== config.crossYearMatchingEnabled
+      ? [
+          `Cross-year roster for ID matching: ${config.crossYearMatchingEnabled ? 'yes' : 'no'} → ${
+            draft.crossYearMatchingEnabled ? 'yes' : 'no'
+          }`,
+        ]
+      : []),
+    ...(draft.idMatchingMode !== config.idMatchingMode
+      ? [
+          `Student identity matching mode: ${modeLabels[config.idMatchingMode]} → ${
+            modeLabels[draft.idMatchingMode]
+          }`,
+        ]
+      : []),
+  ];
 
   return (
     <VStack align="stretch" gap="200" mt="500">
@@ -164,7 +198,7 @@ export const PartnerConfig = () => {
 
       {generalError && <RunwayErrorBox message={generalError} showButton={false} mb="300" />}
 
-      <Box layerStyle="contentBox" padding="300" maxWidth="100%">
+      <VStack layerStyle="contentBox" padding="300" maxWidth="100%" align="stretch" gap="400">
         <FormControl id="cross-year-toggle" variant="plain">
           <HStack align="center" gap="500">
             <FormLabel
@@ -277,7 +311,112 @@ export const PartnerConfig = () => {
             </VStack>
           </HStack>
         </FormControl>
-      </Box>
+        <FormControl id="id-matching-mode" variant="plain">
+          <HStack align="center" gap="500">
+            <FormLabel
+              mb="0"
+              textStyle="body"
+              fontWeight="semibold"
+              color="blue.50"
+              whiteSpace="nowrap"
+            >
+              Student identity matching mode
+            </FormLabel>
+            {isEditing ? (
+              <Select
+                value={draft.idMatchingMode}
+                color="blue.50"
+                bg="blue.800"
+                iconColor="blue.50"
+                sx={{ option: { color: 'blue.800', bg: 'white' } }}
+                onChange={(e) =>
+                  setDraftConfig({ ...draft, idMatchingMode: e.target.value as IdMatchingMode })
+                }
+                isDisabled={update.isPending}
+                aria-describedby="id-matching-mode-help"
+                width="auto"
+                maxWidth="24rem"
+                flexShrink={0}
+              >
+                {Object.entries(modeLabels).map(([mode, label]) => (
+                  <option key={mode} value={mode}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Badge
+                borderRadius="999px"
+                bg="blue.800"
+                color="blue.50"
+                px="200"
+                py="100"
+                textTransform="none"
+                flexShrink={0}
+              >
+                {modeLabels[config.idMatchingMode]}
+              </Badge>
+            )}
+            <VStack align="stretch" gap="100">
+              <FormHelperText
+                id="id-matching-mode-help"
+                mt="0"
+                textStyle="caption"
+                fontSize="xs"
+                fontWeight="normal"
+                color="blue.50"
+              >
+                <VStack align="stretch" gap="100">
+                  <Text>
+                    Configure how Runway matches students in input files to student records in the
+                    roster. This setting applies to new jobs across all tenants in this partner.
+                  </Text>
+                  <Collapse in={isModeHelpOpen} animateOpacity>
+                    <VStack id="id-matching-mode-help-details" align="stretch" gap="100">
+                      <UnorderedList spacing="100" margin="0" paddingLeft="300">
+                        <ListItem>
+                          <strong>ID-based:</strong> Match student IDs in input files to IDs in the
+                          roster using the existing ID-based matching method.
+                        </ListItem>
+                        <ListItem>
+                          <strong>ID-based with background fuzzy matching:</strong> Records are sent
+                          exactly as with ID-based, and no review is needed. IDRS also matches each
+                          new job's students in the background and stores its suggestions, for
+                          comparison before switching to fuzzy matching.
+                        </ListItem>
+                        <ListItem>
+                          <strong>Fuzzy matching:</strong> Use IDRS to match students on their
+                          names, birth dates, schools and IDs together. Records for students without
+                          a confident match aren't sent until someone matches or excludes them on
+                          the job's Unmatched Students tab.
+                        </ListItem>
+                      </UnorderedList>
+                      <Text>
+                        Existing jobs keep their matching mode. Enabling either fuzzy mode checks
+                        the partner's IDRS access when you save.
+                      </Text>
+                    </VStack>
+                  </Collapse>
+                </VStack>
+              </FormHelperText>
+              <Button
+                variant="link"
+                alignSelf="flex-start"
+                textStyle="caption"
+                fontSize="xs"
+                fontWeight="normal"
+                color="green.100"
+                _hover={{ color: 'green.50' }}
+                onClick={onToggleModeHelp}
+                aria-expanded={isModeHelpOpen}
+                aria-controls="id-matching-mode-help-details"
+              >
+                {isModeHelpOpen ? 'show less' : 'show more'}
+              </Button>
+            </VStack>
+          </HStack>
+        </FormControl>
+      </VStack>
 
       {isEditing && (
         <HStack mt="100" gap="200" justifyContent="flex-end" width="100%">

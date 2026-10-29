@@ -1,12 +1,16 @@
-import { BadRequestException, Body, Controller, Get, Inject, Post, Put } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  Get,
+  Inject,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaClient, Tenant } from '@prisma/client';
-import {
-  PutPartnerConfigDto,
-  PutPartnerIdMatchingModeDto,
-  toGetPartnerConfigDto,
-  toGetPartnerIdMatchingModeDto,
-} from '@edanalytics/models';
+import { PutPartnerConfigDto, toGetPartnerConfigDto } from '@edanalytics/models';
 import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
@@ -22,33 +26,6 @@ export class PartnersController {
     private idrs: IdrsCredentialsService
   ) {}
 
-  @Authorize('partner-id-matching-mode.read')
-  @Get('id-matching-mode')
-  async getMatchingMode(@TenantDecorator() tenant: Tenant) {
-    const partner = await this.prisma.partner.findUniqueOrThrow({
-      where: { id: tenant.partnerId },
-      select: { idMatchingMode: true },
-    });
-    return toGetPartnerIdMatchingModeDto(partner);
-  }
-
-  @Authorize('partner-id-matching-mode.update')
-  @Put('id-matching-mode')
-  async updateMatchingMode(
-    @TenantDecorator() tenant: Tenant,
-    @Body() body: PutPartnerIdMatchingModeDto
-  ) {
-    if (body.idMatchingMode !== 'id_based' && !(await this.idrs.verifyAccess(tenant.partnerId))) {
-      throw new BadRequestException('Runway could not verify IDRS access for this partner.');
-    }
-    const partner = await this.prisma.partner.update({
-      where: { id: tenant.partnerId },
-      data: { idMatchingMode: body.idMatchingMode },
-      select: { idMatchingMode: true },
-    });
-    return toGetPartnerIdMatchingModeDto(partner);
-  }
-
   @Authorize('partner-earthmover-bundle.create')
   @Post(':type/:bundleKey')
   async enableBundle() {}
@@ -58,29 +35,52 @@ export class PartnersController {
   async getConfig(@TenantDecorator() tenant: Tenant) {
     const partner = await this.prisma.partner.findUniqueOrThrow({
       where: { id: tenant.partnerId },
-      select: { crossYearMatchingEnabled: true },
+      select: { crossYearMatchingEnabled: true, idMatchingMode: true },
     });
     const canConnectToEdu = await this.eduPool.canConnect(tenant.partnerId);
-    return toGetPartnerConfigDto({
-      crossYearMatchingEnabled: partner.crossYearMatchingEnabled,
-      canConnectToEdu,
-    });
+    return toGetPartnerConfigDto({ ...partner, canConnectToEdu });
   }
 
-  // TODO: add an optimistic-concurrency / stale-write check before this
-  // section grows beyond the single cross-year toggle. With one boolean a
-  // last-write-wins clobber is harmless, but once multiple settings share this
-  // endpoint, concurrent admin edits could silently overwrite each other.
   @Authorize('partner-config.update')
   @Put('config')
   async updateConfig(@TenantDecorator() tenant: Tenant, @Body() body: PutPartnerConfigDto) {
-    if (body.crossYearMatchingEnabled && !(await this.eduPool.canConnect(tenant.partnerId))) {
+    const { expected } = body;
+    // Each check runs only when its own setting changes, so an outage of one
+    // service doesn't block saving the other setting.
+    if (
+      body.crossYearMatchingEnabled &&
+      !expected.crossYearMatchingEnabled &&
+      !(await this.eduPool.canConnect(tenant.partnerId))
+    ) {
       throw new BadRequestException('EDU credentials are not configured for this partner.');
     }
-    await this.prisma.partner.update({
-      where: { id: tenant.partnerId },
-      data: { crossYearMatchingEnabled: body.crossYearMatchingEnabled },
+    if (
+      body.idMatchingMode !== expected.idMatchingMode &&
+      body.idMatchingMode !== 'id_based' &&
+      !(await this.idrs.verifyAccess(tenant.partnerId))
+    ) {
+      throw new BadRequestException(
+        "Runway could not verify this partner's IDRS access, so nothing was saved. Check the partner's IDRS credentials and scopes, or try again if IDRS is unavailable."
+      );
+    }
+    // Write only if the saved values are still the ones the edit started from,
+    // so concurrent admin edits can't silently overwrite each other.
+    const { count } = await this.prisma.partner.updateMany({
+      where: {
+        id: tenant.partnerId,
+        crossYearMatchingEnabled: expected.crossYearMatchingEnabled,
+        idMatchingMode: expected.idMatchingMode,
+      },
+      data: {
+        crossYearMatchingEnabled: body.crossYearMatchingEnabled,
+        idMatchingMode: body.idMatchingMode,
+      },
     });
+    if (count === 0) {
+      throw new ConflictException(
+        'Partner configuration has changed since you loaded it. Reload the page and make your changes again.'
+      );
+    }
     return { status: 'ok' };
   }
 }
