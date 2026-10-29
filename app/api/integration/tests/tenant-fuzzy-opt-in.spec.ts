@@ -44,10 +44,10 @@ describe('GET /partners/tenant-fuzzy-opt-ins', () => {
   });
 
   it("lists every tenant of the session's partner by code, with its opt-in", async () => {
-    // Created after the seed, as at a first login, so it sorts first by code
-    // but comes last in insertion order.
+    // Created after the seed, so it sorts first by code but comes last in
+    // insertion order. Soft-deleted, since those can still get jobs.
     const newTenant = await global.prisma.tenant.create({
-      data: { code: 'tenant-0', partnerId: partnerA.id },
+      data: { code: 'tenant-0', partnerId: partnerA.id, deletedOn: new Date() },
     });
     // Opt-ins under other partners, including one sharing partner A's IdP.
     await global.prisma.tenantFuzzyOptIn.createMany({
