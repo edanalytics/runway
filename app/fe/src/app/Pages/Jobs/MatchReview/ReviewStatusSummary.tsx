@@ -1,4 +1,4 @@
-import { Box, HStack, Progress, Spinner, VStack } from '@chakra-ui/react';
+import { Box, HStack, Progress, VStack } from '@chakra-ui/react';
 import { CheckIcon } from '@chakra-ui/icons';
 import { useReviewSession } from './reviewSession';
 
@@ -71,15 +71,6 @@ export const ReviewStatusSummary = () => {
           </Box>
         )}
       </HStack>
-      {counts.reprocessing > 0 && (
-        <HStack gap="200" textStyle="body" role="status">
-          <Spinner size="xs" aria-hidden="true" />
-          <Box>
-            Sending assessments for {counts.reprocessing}{' '}
-            {counts.reprocessing === 1 ? 'student' : 'students'}…
-          </Box>
-        </HStack>
-      )}
     </VStack>
   );
 };
