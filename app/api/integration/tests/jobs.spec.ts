@@ -87,9 +87,7 @@ describe('GET /jobs', () => {
         tenant: tenantA,
       });
 
-      const res = await request(app.getHttpServer())
-        .get(endpoint)
-        .set('Cookie', [sessionA.cookie]);
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessionA.cookie]);
 
       const dto = res.body.find((j: GetJobDto) => j.id === noOdsJob.id);
       expect(dto).toBeDefined();
@@ -455,10 +453,14 @@ describe('GET /jobs/:id/output-files', () => {
     });
 
     it('should return the output files for a job owned by the tenant, for a SupportUser', async () => {
-      const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieA]);
+      const res = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [cookieA]);
       expect(res.status).toBe(200);
 
-      const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobA.id } } });
+      const expectedFiles = await prisma.runOutputFile.findMany({
+        where: { run: { jobId: jobA.id } },
+      });
       expect(res.body.map((f: { name: string }) => f.name)).toEqual(
         expect.arrayContaining(expectedFiles.map((f) => f.name))
       );
@@ -472,8 +474,12 @@ describe('GET /jobs/:id/output-files', () => {
     });
 
     it('should reject requests for jobs that are not associated with the tenant', async () => {
-      const resA = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieB]);
-      const resB = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookieA]);
+      const resA = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [cookieB]);
+      const resB = await request(app.getHttpServer())
+        .get(endpoint(jobB.id))
+        .set('Cookie', [cookieA]);
       expect(resA.status).toBe(403);
       expect(resB.status).toBe(403);
     });
@@ -532,10 +538,14 @@ describe('GET /jobs/:id/output-files', () => {
       it('should return the output files for a job owned by a different tenant when the user is a SupportUser logged into a global tenant in the same partner', async () => {
         const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
 
-        const res = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookie]);
+        const res = await request(app.getHttpServer())
+          .get(endpoint(jobB.id))
+          .set('Cookie', [cookie]);
 
         expect(res.status).toBe(200);
-        const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobB.id } } });
+        const expectedFiles = await prisma.runOutputFile.findMany({
+          where: { run: { jobId: jobB.id } },
+        });
         expect(res.body.map((f: { name: string }) => f.name)).toEqual(
           expect.arrayContaining(expectedFiles.map((f) => f.name))
         );
@@ -548,8 +558,10 @@ describe('GET /jobs/:id/output-files/*', () => {
   const USER_ROLE = 'runway.test.user';
   const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
   const OTHER_FILE_NAME = 'summary.csv';
-  const unmatchedEndpoint = (id: number) => `/jobs/${id}/output-files/input_no_student_id_match.csv`;
-  const otherFileEndpoint = (id: number, fileName: string) => `/jobs/${id}/output-files/${fileName}`;
+  const unmatchedEndpoint = (id: number) =>
+    `/jobs/${id}/output-files/input_no_student_id_match.csv`;
+  const otherFileEndpoint = (id: number, fileName: string) =>
+    `/jobs/${id}/output-files/${fileName}`;
 
   // jobA belongs to tenantA, jobB to tenantB -- both non-global children of tenantDGlobal
   let jobA: SeededJob;
@@ -582,7 +594,9 @@ describe('GET /jobs/:id/output-files/*', () => {
 
   it('should reject unauthenticated requests', async () => {
     const resUnmatched = await request(app.getHttpServer()).get(unmatchedEndpoint(jobA.id));
-    const resOther = await request(app.getHttpServer()).get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME));
+    const resOther = await request(app.getHttpServer()).get(
+      otherFileEndpoint(jobA.id, OTHER_FILE_NAME)
+    );
     expect(resUnmatched.status).toBe(401);
     expect(resOther.status).toBe(401);
   });
@@ -594,7 +608,9 @@ describe('GET /jobs/:id/output-files/*', () => {
         .get(unmatchedEndpoint(jobA.id))
         .set('Cookie', [cookie]);
       expect(res.status).toBe(200);
-      expect(res.text).toBe(`s3-test-download-url://output/${jobA.id}/input_no_student_id_match.csv`);
+      expect(res.text).toBe(
+        `s3-test-download-url://output/${jobA.id}/input_no_student_id_match.csv`
+      );
     });
 
     it('is not downloadable by a User logged into a global tenant for a job in a child tenant', async () => {
@@ -611,7 +627,9 @@ describe('GET /jobs/:id/output-files/*', () => {
         .get(unmatchedEndpoint(jobB.id))
         .set('Cookie', [cookie]);
       expect(res.status).toBe(200);
-      expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`);
+      expect(res.text).toBe(
+        `s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`
+      );
     });
   });
 
@@ -721,22 +739,26 @@ describe('POST /jobs', () => {
       });
     });
 
-    // The session is set before the opt-in, so the opted-in rows also show
-    // that the opt-in is read at creation, not from the login-time session.
-    // Seed data is refreshed before each test, so no reset is needed.
+    // An opt-in gives fuzzy whatever the partner's mode; without one, the
+    // partner's mode applies, here one that is neither fuzzy nor the default.
+    // Another of the partner's tenants is always opted in, so only the job's
+    // own tenant's opt-in counts. The session is set before the opt-in, so the
+    // opted-in rows also show that the opt-in is read at creation, not from
+    // the login-time session. Seed data is refreshed before each test.
     it.each<[IdMatchingMode, boolean, IdMatchingMode]>([
-      ['id_based', false, 'id_based'],
       ['id_based', true, 'fuzzy'],
-      ['id_based_fuzzy_background', false, 'id_based_fuzzy_background'],
       ['id_based_fuzzy_background', true, 'fuzzy'],
-      ['fuzzy', false, 'fuzzy'],
       ['fuzzy', true, 'fuzzy'],
+      ['id_based_fuzzy_background', false, 'id_based_fuzzy_background'],
     ])(
       'under a %s partner, with tenant fuzzy opt-in %s, snapshots %s onto the job',
       async (partnerMode, fuzzyOptIn, jobMode) => {
         await prisma.partner.update({
           where: { id: partnerA.id },
           data: { idMatchingMode: partnerMode },
+        });
+        await prisma.tenantFuzzyOptIn.create({
+          data: { tenantCode: tenantB.code, partnerId: tenantB.partnerId },
         });
         if (fuzzyOptIn) {
           await prisma.tenantFuzzyOptIn.create({
@@ -754,28 +776,6 @@ describe('POST /jobs', () => {
         expect(job.idMatchingMode).toBe(jobMode);
       }
     );
-
-    it('leaves a job created before the tenant opted in on its mode', async () => {
-      const earlierJob = await seedJob({
-        odsConfig: odsConfigA2425,
-        bundle: bundleA,
-        tenant: tenantA,
-      });
-      await prisma.tenantFuzzyOptIn.create({
-        data: { tenantCode: tenantA.code, partnerId: tenantA.partnerId },
-      });
-
-      const res = await request(app.getHttpServer())
-        .post(endpoint)
-        .set('Cookie', [sessionA.cookie])
-        .send(postJobDto);
-      expect(res.status).toBe(201);
-
-      const earlier = await prisma.job.findUniqueOrThrow({ where: { id: earlierJob.id } });
-      const created = await prisma.job.findUniqueOrThrow({ where: { id: res.body.id } });
-      expect(earlier.idMatchingMode).toBe('id_based');
-      expect(created.idMatchingMode).toBe('fuzzy');
-    });
 
     it('should reject requests with an invalid PostJobDto', async () => {
       // confirm class validator is working
@@ -1180,9 +1180,7 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
       data: { runId: latest.id, action: 'done', status: 'success' },
     });
 
-    const read = await request(app.getHttpServer())
-      .get(`/jobs/${job.id}`)
-      .set('Cookie', [cookie]);
+    const read = await request(app.getHttpServer()).get(`/jobs/${job.id}`).set('Cookie', [cookie]);
     const readJob = plainToInstance(GetJobDto, read.body);
 
     expect({

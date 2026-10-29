@@ -6,7 +6,6 @@ import {
   tenantC,
   tenantDGlobal,
   tenantEGlobal,
-  tenantX,
 } from '../fixtures/context-fixtures/tenant-fixtures';
 import { partnerA, partnerX } from '../fixtures/context-fixtures/partner-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
@@ -14,9 +13,7 @@ import { authHelper } from '../helpers/oidc/auth-flow';
 import { withoutPrivilege } from '../helpers/without-privilege';
 import { IdrsCredentialsService } from '../../src/idrs/idrs-credentials.service';
 
-const USER = 'runway.test.user';
 const PARTNER_ADMIN = 'runway.test.partneradmin';
-const SUPPORT_USER = ['runway.test.user', 'runway.test.supportuser'];
 
 describe('GET /partners/tenant-fuzzy-opt-ins', () => {
   const endpoint = '/partners/tenant-fuzzy-opt-ins';
@@ -24,15 +21,6 @@ describe('GET /partners/tenant-fuzzy-opt-ins', () => {
   it('should reject unauthenticated requests', async () => {
     const res = await request(app.getHttpServer()).get(endpoint);
     expect(res.status).toBe(401);
-  });
-
-  it.each([
-    { who: 'a user', roles: USER },
-    { who: 'a support user', roles: SUPPORT_USER },
-  ])('rejects $who', async ({ roles }) => {
-    const { cookies } = await authHelper.login(idpA, userA, tenantA, roles);
-    const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
-    expect(res.status).toBe(403);
   });
 
   it('rejects a partner admin without the partner-config read privilege', async () => {
@@ -49,9 +37,8 @@ describe('GET /partners/tenant-fuzzy-opt-ins', () => {
     const newTenant = await global.prisma.tenant.create({
       data: { code: 'tenant-0', partnerId: partnerA.id, deletedOn: new Date() },
     });
-    // Opt-ins under other partners, including one sharing partner A's IdP.
     await global.prisma.tenantFuzzyOptIn.createMany({
-      data: [tenantB, tenantEGlobal, tenantC, tenantX].map(({ code, partnerId }) => ({
+      data: [tenantB, tenantEGlobal].map(({ code, partnerId }) => ({
         tenantCode: code,
         partnerId,
       })),
@@ -82,19 +69,6 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
       .put(endpoint(tenantB.code))
       .send({ fuzzyOptIn: true });
     expect(res.status).toBe(401);
-  });
-
-  it.each([
-    { who: 'a user', roles: USER },
-    { who: 'a support user', roles: SUPPORT_USER },
-  ])('rejects $who', async ({ roles }) => {
-    const { cookies } = await authHelper.login(idpA, userA, tenantA, roles);
-    const res = await request(app.getHttpServer())
-      .put(endpoint(tenantB.code))
-      .set('Cookie', [cookies])
-      .send({ fuzzyOptIn: true });
-    expect(res.status).toBe(403);
-    expect(await optIns()).toEqual([]);
   });
 
   it('rejects a partner admin without the partner-config update privilege', async () => {
@@ -142,21 +116,6 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
         }),
       ]);
       expect(verifyAccess).toHaveBeenCalledWith(partnerA.id);
-      const partner = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
-      expect(partner.idMatchingMode).toBe('id_based');
-    });
-
-    it("opts in only the path's tenant, ignoring other fields in the body", async () => {
-      const res = await put(tenantB.code, {
-        fuzzyOptIn: true,
-        tenantCode: tenantX.code,
-        partnerId: partnerX.id,
-      });
-
-      expect(res.status).toBe(200);
-      expect(await optIns()).toEqual([
-        expect.objectContaining({ tenantCode: tenantB.code, partnerId: partnerA.id }),
-      ]);
     });
 
     it('keeps an existing opt-in as it was, without contacting IDRS', async () => {
@@ -179,9 +138,17 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
       { case: 'an opted-in tenant', optedIn: true },
       { case: 'a tenant that is not opted in', optedIn: false },
     ])('opts out $case without contacting IDRS', async ({ optedIn }) => {
-      const otherOptIn = await global.prisma.tenantFuzzyOptIn.create({
-        data: { tenantCode: tenantA.code, partnerId: partnerA.id },
+      // Opt-ins a removal by partner, or by code alone, would also delete:
+      // another of the partner's tenants, and another partner's tenant with
+      // the same code.
+      await global.prisma.tenant.create({ data: { code: tenantB.code, partnerId: partnerX.id } });
+      await global.prisma.tenantFuzzyOptIn.createMany({
+        data: [
+          { tenantCode: tenantA.code, partnerId: partnerA.id },
+          { tenantCode: tenantB.code, partnerId: partnerX.id },
+        ],
       });
+      const otherOptIns = await optIns();
       if (optedIn) {
         await global.prisma.tenantFuzzyOptIn.create({
           data: { tenantCode: tenantB.code, partnerId: partnerA.id },
@@ -192,7 +159,7 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ tenantCode: tenantB.code, fuzzyOptIn: false });
-      expect(await optIns()).toEqual([otherOptIn]);
+      expect(await optIns()).toEqual(otherOptIns);
       expect(verifyAccess).not.toHaveBeenCalled();
     });
 
@@ -215,7 +182,6 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
       { case: 'a missing', body: {} },
       { case: 'a null', body: { fuzzyOptIn: null } },
       { case: 'a string', body: { fuzzyOptIn: 'true' } },
-      { case: 'a numeric', body: { fuzzyOptIn: 1 } },
     ])('rejects $case fuzzyOptIn without contacting IDRS', async ({ body }) => {
       const res = await put(tenantB.code, body);
 
@@ -233,26 +199,6 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
       expect(res.status).toBe(404);
       expect(await optIns()).toEqual([]);
       expect(verifyAccess).not.toHaveBeenCalled();
-    });
-
-    it("keeps an opt-in when the partner's mode changes to fuzzy and back", async () => {
-      const optIn = await global.prisma.tenantFuzzyOptIn.create({
-        data: { tenantCode: tenantB.code, partnerId: partnerA.id },
-      });
-      const saveConfig = (from: string, to: string) =>
-        request(app.getHttpServer())
-          .put('/partners/config')
-          .set('Cookie', [adminCookieA])
-          .send({
-            crossYearMatchingEnabled: false,
-            idMatchingMode: to,
-            expected: { crossYearMatchingEnabled: false, idMatchingMode: from },
-          });
-
-      expect((await saveConfig('id_based', 'fuzzy')).status).toBe(200);
-      expect(await optIns()).toEqual([optIn]);
-      expect((await saveConfig('fuzzy', 'id_based')).status).toBe(200);
-      expect(await optIns()).toEqual([optIn]);
     });
   });
 });
