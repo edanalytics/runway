@@ -228,10 +228,10 @@ class IDRSMatchResult:
         if not any(score >= match_thresholds['NO_MATCH_THRESHOLD'] for score in match_scores):
             match_type = 'none'
         # Auto match if we only have 1 score above our high confidence threshold
-        elif (sum(1 for score in match_scores if score >= match_thresholds['HIGH_CONFIDENCE_MATCH_THRESHOLD']) == 1 and sum(1 for score in match_scores if score < match_thresholds['SECONDARY_LOW_CONFIDENCE_MATCH_THRESHOLD']) == (len(match_scores)-1)):
+        elif ((sum(1 for score in match_scores if score >= match_thresholds['HIGH_CONFIDENCE_MATCH_THRESHOLD']) == 1) and (sum(1 for score in match_scores if score >= match_thresholds['SECONDARY_LOW_CONFIDENCE_MATCH_THRESHOLD']) == 1)) :
             match_type = 'auto'
         # Mark for user review if all our scores are below the high confidence threshold or at least 2 exceed the secondary low confidence threshold
-        elif all(score < match_thresholds['HIGH_CONFIDENCE_MATCH_THRESHOLD'] for score in match_scores) or (sum(1 for score in match_scores if score >= match_thresholds['SECONDARY_LOW_CONFIDENCE_MATCH_THRESHOLD']) >= 2):
+        else:
             match_type = 'user_input'
 
         return cls(
