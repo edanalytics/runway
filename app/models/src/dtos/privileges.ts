@@ -6,8 +6,6 @@ export type PrivilegeKey =
   | 'school-year-config.update'
   | 'partner-config.read'
   | 'partner-config.update'
-  | 'tenant-fuzzy-opt-in.read'
-  | 'tenant-fuzzy-opt-in.update'
   | 'job.output-files.read'
   | 'job.metatenant.read'
   | 'job.metatenant.update'

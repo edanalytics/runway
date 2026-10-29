@@ -35,9 +35,9 @@ describe('GET /partners/tenant-fuzzy-opt-ins', () => {
     expect(res.status).toBe(403);
   });
 
-  it('rejects a partner admin without the read privilege', async () => {
+  it('rejects a partner admin without the partner-config read privilege', async () => {
     const { cookies } = await authHelper.login(idpA, userA, tenantA, PARTNER_ADMIN);
-    const res = await withoutPrivilege('tenant-fuzzy-opt-in.read', () =>
+    const res = await withoutPrivilege('partner-config.read', () =>
       request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies])
     );
     expect(res.status).toBe(403);
@@ -97,9 +97,9 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
     expect(await optIns()).toEqual([]);
   });
 
-  it('rejects a partner admin without the update privilege', async () => {
+  it('rejects a partner admin without the partner-config update privilege', async () => {
     const { cookies } = await authHelper.login(idpA, userA, tenantA, PARTNER_ADMIN);
-    const res = await withoutPrivilege('tenant-fuzzy-opt-in.update', () =>
+    const res = await withoutPrivilege('partner-config.update', () =>
       request(app.getHttpServer())
         .put(endpoint(tenantB.code))
         .set('Cookie', [cookies])

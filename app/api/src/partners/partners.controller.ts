@@ -95,7 +95,7 @@ export class PartnersController {
     }
     return { status: 'ok' };
   }
-  @Authorize('tenant-fuzzy-opt-in.read')
+  @Authorize('partner-config.read')
   @Get('tenant-fuzzy-opt-ins')
   async getTenantFuzzyOptIns(@TenantDecorator() tenant: Tenant) {
     const partner = await this.prisma.partner.findUniqueOrThrow({
@@ -115,7 +115,7 @@ export class PartnersController {
     });
   }
 
-  @Authorize('tenant-fuzzy-opt-in.update')
+  @Authorize('partner-config.update')
   @Put('tenant-fuzzy-opt-ins/:tenantCode')
   async updateTenantFuzzyOptIn(
     @TenantDecorator() tenant: Tenant,

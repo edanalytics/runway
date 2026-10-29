@@ -12,8 +12,6 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
       'school-year-config.update',
       'partner-config.read',
       'partner-config.update',
-      'tenant-fuzzy-opt-in.read',
-      'tenant-fuzzy-opt-in.update',
       'job.match-results.read',
       'job.match-results.background.read',
       'job.match-results.update',
