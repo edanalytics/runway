@@ -20,5 +20,6 @@ export * from './job-note.dto';
 export * from './student-match-results.dto';
 export * from './student-match-submit.dto';
 export * from './tenant.dto';
+export * from './tenant-fuzzy-opt-in.dto';
 export * from './external-api/job.v1.dto';
 export * from './external-api/output-set.v1.dto';
