@@ -721,16 +721,11 @@ describe('POST /jobs', () => {
       });
     });
 
-    // Without an opt-in, the partner's mode is neither fuzzy nor the default,
-    // so the job's mode can only have come from the partner. Another of the
-    // partner's tenants is always opted in, so only the job's own tenant's
-    // opt-in counts. The session is set before the opt-in, so the opted-in
-    // rows also show that the opt-in is read at creation, not from the
-    // login-time session. Seed data is refreshed before each test.
     it.each<[IdMatchingMode, boolean, IdMatchingMode]>([
       ['id_based', true, 'fuzzy'],
       ['id_based_fuzzy_background', true, 'fuzzy'],
       ['fuzzy', true, 'fuzzy'],
+      // Not id_based, the column default, so the mode must come from the partner
       ['id_based_fuzzy_background', false, 'id_based_fuzzy_background'],
     ])(
       'under a %s partner, with tenant fuzzy opt-in %s, snapshots %s onto the job',
@@ -739,9 +734,11 @@ describe('POST /jobs', () => {
           where: { id: partnerA.id },
           data: { idMatchingMode: partnerMode },
         });
+        // Another tenant's opt-in must not count
         await prisma.tenantFuzzyOptIn.create({
           data: { tenantCode: tenantB.code, partnerId: tenantB.partnerId },
         });
+        // sessionA logged in before this, so the opt-in can't come from the session
         if (fuzzyOptIn) {
           await prisma.tenantFuzzyOptIn.create({
             data: { tenantCode: tenantA.code, partnerId: tenantA.partnerId },
