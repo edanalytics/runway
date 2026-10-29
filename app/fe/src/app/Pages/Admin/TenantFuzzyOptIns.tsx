@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   Box,
   Button,
+  Divider,
   FormLabel,
   HStack,
   List,
@@ -79,24 +80,12 @@ export const TenantFuzzyOptIns = () => {
       {generalError && <RunwayErrorBox message={generalError} showButton={false} mb="300" />}
 
       <VStack layerStyle="contentBox" padding="300" align="stretch" gap="300">
-        <VStack
-          align="stretch"
-          gap="100"
-          maxWidth="48rem"
-          textStyle="caption"
-          fontSize="xs"
-          color="blue.50"
-        >
-          <Text>
-            Add tenants here to try fuzzy matching in them before switching the whole partner over.
-          </Text>
-        </VStack>
-
         {optedIn.length > 0 ? (
-          <List spacing="100">
+          // A fixed width, so remove lines up whatever the codes' lengths.
+          <List spacing="100" maxWidth="32rem">
             {optedIn.map(({ tenantCode }) => (
               <ListItem key={tenantCode}>
-                <HStack gap="300">
+                <HStack justify="space-between" gap="300">
                   <Text textStyle="body" color="blue.50">
                     {tenantCode}
                   </Text>
@@ -121,6 +110,21 @@ export const TenantFuzzyOptIns = () => {
             No tenants have been added.
           </Text>
         )}
+
+        <Divider borderColor="blue.50-40" />
+
+        <VStack
+          align="stretch"
+          gap="100"
+          maxWidth="48rem"
+          textStyle="caption"
+          fontSize="xs"
+          color="blue.50"
+        >
+          <Text>
+            Add tenants here to try fuzzy matching in them before switching the whole partner over.
+          </Text>
+        </VStack>
 
         <HStack gap="200" align="center">
           <FormLabel
