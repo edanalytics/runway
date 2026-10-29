@@ -10,18 +10,16 @@ import {
   VStack,
   useDisclosure,
 } from '@chakra-ui/react';
-import { PutTenantFuzzyOptInDto } from '@edanalytics/models';
 import { useQuery } from '@tanstack/react-query';
 import { Select } from 'chakra-react-select';
 import { partnerConfigQuery } from '../../api/queries/partner-config.queries';
 import {
+  TenantFuzzyOptInChange,
   tenantFuzzyOptInsQuery,
   useUpdateTenantFuzzyOptIn,
 } from '../../api/queries/tenant-fuzzy-opt-in.queries';
 import { ConfirmModal } from './ConfirmModal';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
-
-type OptInChange = { tenantCode: string } & PutTenantFuzzyOptInDto;
 
 /**
  * The tenants whose new jobs use fuzzy matching whatever the partner's mode.
@@ -35,7 +33,7 @@ export const TenantFuzzyOptIns = () => {
 
   const [selectedTenantCode, setSelectedTenantCode] = useState<string | null>(null);
   // Kept after the modal closes, so its copy doesn't change while it animates out.
-  const [change, setChange] = useState<OptInChange | null>(null);
+  const [change, setChange] = useState<TenantFuzzyOptInChange | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const { isOpen: isConfirmOpen, onOpen: onConfirmOpen, onClose: onConfirmClose } = useDisclosure();
 
@@ -50,7 +48,7 @@ export const TenantFuzzyOptIns = () => {
     .filter((tenant) => !tenant.fuzzyOptIn)
     .map(({ tenantCode }) => ({ value: tenantCode, label: tenantCode }));
 
-  const confirmChange = (next: OptInChange) => {
+  const confirmChange = (next: TenantFuzzyOptInChange) => {
     setGeneralError(null);
     setChange(next);
     onConfirmOpen();
