@@ -159,6 +159,7 @@ class IDRSCandidate:
         values = {f.name: candidate.get(f.name) for f in fields(cls)}
 
         # Coerce as needed
+        values['first_name'], values['last_name'] = cls.coerce_names(candidate)
         values['birth_date'] = cls.coerce_date(candidate.get('birth_date'), candidate.get('birth_date_format'))
         values['school_ids'] = list(filter(None, map(cls.coerce_school_id, candidate.get('school_ids', []))))
         values['student_ids'] = list(filter(None, map(cls.coerce_student_id, candidate.get('student_ids', []))))
@@ -180,6 +181,24 @@ class IDRSCandidate:
         if not student_id:
             return None
         return str(student_id)
+
+    @staticmethod
+    def coerce_names(candidate: dict) -> tuple[str | None, str | None]:
+        '''coerce names with structured rules depending on names sent.
+        Tries some common scenarios to split full name, if provided.
+        Full name is mutually exclusive with first and last, so if there is no full name, just send the first and last.'''
+        first_name, last_name = candidate.get('first_name'), candidate.get('last_name')
+        full_name = candidate.get('full_name')
+        if first_name or last_name or not isinstance(full_name, str) or not full_name.strip():
+            return first_name, last_name
+        if "," in full_name:
+            last, rest = full_name.split(",", 1)
+            given = rest.split()
+            return (given[0] if given else None), (last.strip() or None)
+        name_parts = full_name.split()
+        first_name = name_parts[0]
+        last_name = name_parts[-1]
+        return first_name, last_name
 
     @staticmethod
     def coerce_school_id(school_id: object) -> int | None:
