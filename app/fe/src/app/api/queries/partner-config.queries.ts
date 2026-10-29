@@ -27,6 +27,11 @@ export const useUpdatePartnerConfig = () => {
   });
 };
 
+// Tech debt: /partners/config holds only cross-year matching, so the matching
+// mode has its own resource rather than a second field there, where saving one
+// setting would overwrite the other. Rationalize these into specifically named
+// resources, or into one config with the 409 stale-write check the school-year
+// config has.
 const ID_MATCHING_MODE_QUERY_KEY = ['partner-id-matching-mode'];
 
 export const partnerIdMatchingModeQuery = {
