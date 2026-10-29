@@ -291,7 +291,7 @@ export class JobsService {
     const { tenantFuzzyOptIn, partner } = await prisma.tenant.findUniqueOrThrow({
       where: { code_partnerId: { code: tenant.code, partnerId: tenant.partnerId } },
       select: {
-        tenantFuzzyOptIn: { select: { createdOn: true } },
+        tenantFuzzyOptIn: true,
         partner: { select: { idMatchingMode: true } },
       },
     });

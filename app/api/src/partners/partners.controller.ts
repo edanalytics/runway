@@ -104,7 +104,7 @@ export class PartnersController {
       select: {
         tenant: {
           orderBy: { code: 'asc' },
-          select: { code: true, tenantFuzzyOptIn: { select: { createdOn: true } } },
+          select: { code: true, tenantFuzzyOptIn: true },
         },
       },
     });
@@ -126,7 +126,7 @@ export class PartnersController {
     const key = { tenantCode, partnerId: tenant.partnerId };
     const target = await this.prisma.tenant.findUnique({
       where: { code_partnerId: { code: tenantCode, partnerId: tenant.partnerId } },
-      select: { tenantFuzzyOptIn: { select: { createdOn: true } } },
+      select: { tenantFuzzyOptIn: true },
     });
     if (!target) {
       throw new NotFoundException(`Tenant not found: ${tenantCode}`);
