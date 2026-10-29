@@ -165,24 +165,31 @@ describe('PUT /partners/config', () => {
       expect(await savedRow()).toEqual(saved);
     });
 
+    // This admin loads the settings, another admin saves a change, then this
+    // admin saves a change to the other setting. The body still carries the
+    // old value of the setting the other admin changed, so without the stale
+    // check this save would succeed and silently revert their change.
     it.each([
       {
-        stale: 'cross-year matching',
-        current: { ...saved, crossYearMatchingEnabled: true },
-        edit: { idMatchingMode: 'fuzzy' as const },
+        otherAdminChanged: 'cross-year matching',
+        otherAdminSaves: { crossYearMatchingEnabled: true },
+        thisAdminChanges: { idMatchingMode: 'fuzzy' as const },
       },
       {
-        stale: 'the matching mode',
-        current: { ...saved, idMatchingMode: 'fuzzy' as const },
-        edit: { crossYearMatchingEnabled: true },
+        otherAdminChanged: 'the matching mode',
+        otherAdminSaves: { idMatchingMode: 'fuzzy' as const },
+        thisAdminChanges: { crossYearMatchingEnabled: true },
       },
     ])(
-      'refuses a save that started from stale $stale, without writing',
-      async ({ current, edit }) => {
-        await global.prisma.partner.update({ where: { id: partnerA.id }, data: current });
-        const res = await put(change(edit));
+      'refuses a save that started before another admin changed $otherAdminChanged',
+      async ({ otherAdminSaves, thisAdminChanges }) => {
+        const loaded = await savedRow();
+        await global.prisma.partner.update({ where: { id: partnerA.id }, data: otherAdminSaves });
+
+        const res = await put({ ...loaded, ...thisAdminChanges, expected: loaded });
+
         expect(res.status).toBe(409);
-        expect(await savedRow()).toEqual(current);
+        expect(await savedRow()).toEqual({ ...loaded, ...otherAdminSaves });
       }
     );
 
