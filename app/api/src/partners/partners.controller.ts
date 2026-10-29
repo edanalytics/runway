@@ -137,7 +137,8 @@ export class PartnersController {
       try {
         await this.prisma.tenantFuzzyOptIn.delete({ where: { tenantCode_partnerId: key } });
       } catch (e) {
-        // Guard: a concurrent request already removed it.
+        // Guard: P2025 means a concurrent request removed the row after the
+        // read above, which is the outcome this request wanted.
         if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025')) throw e;
       }
     } else if (body.fuzzyOptIn && !target.tenantFuzzyOptIn) {
@@ -146,7 +147,10 @@ export class PartnersController {
           "Runway could not verify this partner's IDRS access, so the tenant wasn't opted in. Check the partner's IDRS credentials and scopes, or try again if IDRS is unavailable."
         );
       }
-      // Guard: skipping a duplicate keeps a concurrent request's row and its creator.
+      // Guard: `createMany` for one row because only it has `skipDuplicates`
+      // (ON CONFLICT DO NOTHING). If a concurrent request inserted the row
+      // after the read above, `create` would fail on the primary key; this
+      // leaves that request's row, and its creator, in place.
       await this.prisma.tenantFuzzyOptIn.createMany({ data: [key], skipDuplicates: true });
     }
     return toGetTenantFuzzyOptInDto({ tenantCode, fuzzyOptIn: body.fuzzyOptIn });
