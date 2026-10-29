@@ -481,6 +481,7 @@ export const PartnerConfig = () => {
         isOpen={isSaveOpen}
         onClose={onSaveClose}
         onConfirm={handleSaveConfirm}
+        isLoading={update.isPending}
         changes={changes}
       />
       <ConfirmModal
