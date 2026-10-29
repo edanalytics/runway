@@ -305,7 +305,6 @@ export class JobsService {
         template: toGetJobTemplateDto(bundle),
         inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
-        // A tenant opted into fuzzy matching gets fuzzy, whatever the partner's mode.
         idMatchingMode: tenantFuzzyOptIn ? 'fuzzy' : partner.idMatchingMode,
         tenantCode: tenant.code,
         partnerId: tenant.partnerId,

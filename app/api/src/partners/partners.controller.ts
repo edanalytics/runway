@@ -131,10 +131,8 @@ export class PartnersController {
     if (!target) {
       throw new NotFoundException(`Tenant not found: ${tenantCode}`);
     }
-    // `delete` and `createMany` on the full key, not `deleteMany`, so an
-    // undefined partner id throws rather than widening the write to every
-    // partner's tenant with this code. The gate runs only when a tenant is
-    // newly opted in.
+    // `delete` on the compound key, not `deleteMany`, so an undefined partner
+    // id throws rather than removing this code's opt-in under every partner.
     if (!body.fuzzyOptIn && target.tenantFuzzyOptIn) {
       try {
         await this.prisma.tenantFuzzyOptIn.delete({ where: { tenantCode_partnerId: key } });
@@ -148,7 +146,7 @@ export class PartnersController {
           "Runway could not verify this partner's IDRS access, so the tenant wasn't opted in. Check the partner's IDRS credentials and scopes, or try again if IDRS is unavailable."
         );
       }
-      // Skipping a duplicate keeps a concurrent request's row and its creator.
+      // Guard: skipping a duplicate keeps a concurrent request's row and its creator.
       await this.prisma.tenantFuzzyOptIn.createMany({ data: [key], skipDuplicates: true });
     }
     return toGetTenantFuzzyOptInDto({ tenantCode, fuzzyOptIn: body.fuzzyOptIn });

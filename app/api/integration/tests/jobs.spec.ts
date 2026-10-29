@@ -739,12 +739,12 @@ describe('POST /jobs', () => {
       });
     });
 
-    // An opt-in gives fuzzy whatever the partner's mode; without one, the
-    // partner's mode applies, here one that is neither fuzzy nor the default.
-    // Another of the partner's tenants is always opted in, so only the job's
-    // own tenant's opt-in counts. The session is set before the opt-in, so the
-    // opted-in rows also show that the opt-in is read at creation, not from
-    // the login-time session. Seed data is refreshed before each test.
+    // Without an opt-in, the partner's mode is neither fuzzy nor the default,
+    // so the job's mode can only have come from the partner. Another of the
+    // partner's tenants is always opted in, so only the job's own tenant's
+    // opt-in counts. The session is set before the opt-in, so the opted-in
+    // rows also show that the opt-in is read at creation, not from the
+    // login-time session. Seed data is refreshed before each test.
     it.each<[IdMatchingMode, boolean, IdMatchingMode]>([
       ['id_based', true, 'fuzzy'],
       ['id_based_fuzzy_background', true, 'fuzzy'],
