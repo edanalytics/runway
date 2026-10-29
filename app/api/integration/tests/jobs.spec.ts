@@ -721,16 +721,48 @@ describe('POST /jobs', () => {
       });
     });
 
-    it("snapshots the partner's matching mode onto the job", async () => {
-      // The seeded partner is id_based, so the fuzzy value asserted below can
-      // only have come from the update. Seed data is refreshed before each
-      // test, so no reset is needed afterwards.
-      const seeded = await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
-      expect(seeded.idMatchingMode).toBe('id_based');
+    // The session is set before the opt-in, so the opted-in rows also show
+    // that the opt-in is read at creation, not from the login-time session.
+    // Seed data is refreshed before each test, so no reset is needed.
+    it.each<[IdMatchingMode, boolean, IdMatchingMode]>([
+      ['id_based', false, 'id_based'],
+      ['id_based', true, 'fuzzy'],
+      ['id_based_fuzzy_background', false, 'id_based_fuzzy_background'],
+      ['id_based_fuzzy_background', true, 'fuzzy'],
+      ['fuzzy', false, 'fuzzy'],
+      ['fuzzy', true, 'fuzzy'],
+    ])(
+      'under a %s partner, with tenant fuzzy opt-in %s, snapshots %s onto the job',
+      async (partnerMode, fuzzyOptIn, jobMode) => {
+        await prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { idMatchingMode: partnerMode },
+        });
+        if (fuzzyOptIn) {
+          await prisma.tenantFuzzyOptIn.create({
+            data: { tenantCode: tenantA.code, partnerId: tenantA.partnerId },
+          });
+        }
 
-      await prisma.partner.update({
-        where: { id: partnerA.id },
-        data: { idMatchingMode: 'fuzzy' },
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send(postJobDto);
+        expect(res.status).toBe(201);
+
+        const job = await prisma.job.findUniqueOrThrow({ where: { id: res.body.id } });
+        expect(job.idMatchingMode).toBe(jobMode);
+      }
+    );
+
+    it('leaves a job created before the tenant opted in on its mode', async () => {
+      const earlierJob = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+      });
+      await prisma.tenantFuzzyOptIn.create({
+        data: { tenantCode: tenantA.code, partnerId: tenantA.partnerId },
       });
 
       const res = await request(app.getHttpServer())
@@ -739,8 +771,10 @@ describe('POST /jobs', () => {
         .send(postJobDto);
       expect(res.status).toBe(201);
 
-      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
-      expect(job?.idMatchingMode).toBe('fuzzy');
+      const earlier = await prisma.job.findUniqueOrThrow({ where: { id: earlierJob.id } });
+      const created = await prisma.job.findUniqueOrThrow({ where: { id: res.body.id } });
+      expect(earlier.idMatchingMode).toBe('id_based');
+      expect(created.idMatchingMode).toBe('fuzzy');
     });
 
     it('should reject requests with an invalid PostJobDto', async () => {
