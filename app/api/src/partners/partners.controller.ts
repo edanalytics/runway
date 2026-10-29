@@ -9,7 +9,7 @@ import {
   Put,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { PrismaClient, Tenant } from '@prisma/client';
+import { Prisma, PrismaClient, Tenant } from '@prisma/client';
 import { PutPartnerConfigDto, toGetPartnerConfigDto } from '@edanalytics/models';
 import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
@@ -64,20 +64,26 @@ export class PartnersController {
       );
     }
     // Write only if the saved values are still the ones the edit started from,
-    // so concurrent admin edits can't silently overwrite each other.
-    const { count } = await this.prisma.partner.updateMany({
-      where: {
-        id: tenant.partnerId,
-        crossYearMatchingEnabled: expected.crossYearMatchingEnabled,
-        idMatchingMode: expected.idMatchingMode,
-      },
-      data: {
-        crossYearMatchingEnabled: body.crossYearMatchingEnabled,
-        idMatchingMode: body.idMatchingMode,
-      },
-    });
-    if (count === 0) {
-      throw new ConflictException('Partner configuration has changed since you loaded it.');
+    // so concurrent admin edits can't silently overwrite each other. `update`,
+    // not `updateMany`, so an undefined partner id throws rather than widening
+    // the update to every partner holding the expected values.
+    try {
+      await this.prisma.partner.update({
+        where: {
+          id: tenant.partnerId,
+          crossYearMatchingEnabled: expected.crossYearMatchingEnabled,
+          idMatchingMode: expected.idMatchingMode,
+        },
+        data: {
+          crossYearMatchingEnabled: body.crossYearMatchingEnabled,
+          idMatchingMode: body.idMatchingMode,
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw new ConflictException('Partner configuration has changed since you loaded it.');
+      }
+      throw e;
     }
     return { status: 'ok' };
   }
