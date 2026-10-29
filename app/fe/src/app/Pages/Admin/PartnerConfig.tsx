@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Collapse,
+  Divider,
   FormControl,
   FormHelperText,
   FormLabel,
@@ -299,7 +300,7 @@ export const PartnerConfig = () => {
               </Text>
             )}
           </VStack>
-          <VStack gridColumn="1 / -1" maxWidth="48rem" align="stretch" gap="100" mb="300">
+          <VStack gridColumn="1 / -1" maxWidth="48rem" align="stretch" gap="100">
             <FormHelperText
               mt="0"
               textStyle="caption"
@@ -347,6 +348,7 @@ export const PartnerConfig = () => {
             </Button>
           </VStack>
         </FormControl>
+        <Divider gridColumn="1 / -1" justifySelf="stretch" my="200" borderColor="blue.50-40" />
         <FormControl id="id-matching-mode" variant="plain" display="contents">
           <FormLabel mb="0" textStyle="body" fontWeight="semibold" color="blue.50">
             Student identity matching mode
