@@ -375,8 +375,8 @@ export const PartnerConfig = () => {
             ) : (
               <Badge
                 borderRadius="999px"
-                bg="blue.800"
-                color="blue.50"
+                bg="green.100"
+                color="green.600"
                 px="200"
                 py="100"
                 textTransform="none"
