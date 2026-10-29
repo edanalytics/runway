@@ -1,5 +1,5 @@
 import { Expose, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsObject, ValidateNested } from 'class-validator';
+import { IsBoolean, IsIn, IsObject, ValidateNested } from 'class-validator';
 import { IdMatchingMode } from '@prisma/client';
 import { makeSerializer } from '../utils/make-serializer';
 
@@ -16,11 +16,14 @@ export class GetPartnerConfigDto {
 
 export const toGetPartnerConfigDto = makeSerializer<GetPartnerConfigDto>(GetPartnerConfigDto);
 
+// Spelled out rather than Prisma's runtime enum, which would pull @prisma/client into the frontend bundle.
+const ID_MATCHING_MODES: IdMatchingMode[] = ['id_based', 'fuzzy', 'id_based_fuzzy_background'];
+
 export class PartnerConfigValuesDto {
   @IsBoolean()
   crossYearMatchingEnabled: boolean;
 
-  @IsEnum(IdMatchingMode)
+  @IsIn(ID_MATCHING_MODES)
   idMatchingMode: IdMatchingMode;
 }
 
