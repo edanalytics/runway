@@ -95,6 +95,7 @@ export class PartnersController {
     }
     return { status: 'ok' };
   }
+
   @Authorize('partner-config.read')
   @Get('tenant-fuzzy-opt-ins')
   async getTenantFuzzyOptIns(@TenantDecorator() tenant: Tenant) {
