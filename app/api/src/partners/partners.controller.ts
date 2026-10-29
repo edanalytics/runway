@@ -131,27 +131,21 @@ export class PartnersController {
     if (!target) {
       throw new NotFoundException(`Tenant not found: ${tenantCode}`);
     }
+    // Unlike the config PUT, no 409 for concurrent requests: an opt-in is only
+    // present or absent, so a race is two requests making the same change,
+    // never one overwriting a change the other didn't see. The loser's insert
+    // or delete fails with a 500, and the tenant is already as it asked.
     // `delete` on the compound key, not `deleteMany`, so an undefined partner
     // id throws rather than removing this code's opt-in under every partner.
     if (!body.fuzzyOptIn && target.tenantFuzzyOptIn) {
-      try {
-        await this.prisma.tenantFuzzyOptIn.delete({ where: { tenantCode_partnerId: key } });
-      } catch (e) {
-        // Guard: P2025 means a concurrent request removed the row after the
-        // read above, which is the outcome this request wanted.
-        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025')) throw e;
-      }
+      await this.prisma.tenantFuzzyOptIn.delete({ where: { tenantCode_partnerId: key } });
     } else if (body.fuzzyOptIn && !target.tenantFuzzyOptIn) {
       if (!(await this.idrs.verifyAccess(tenant.partnerId))) {
         throw new BadRequestException(
           "Runway could not verify this partner's IDRS access, so the tenant wasn't opted in. Check the partner's IDRS credentials and scopes, or try again if IDRS is unavailable."
         );
       }
-      // Guard: `createMany` for one row because only it has `skipDuplicates`
-      // (ON CONFLICT DO NOTHING). If a concurrent request inserted the row
-      // after the read above, `create` would fail on the primary key; this
-      // leaves that request's row, and its creator, in place.
-      await this.prisma.tenantFuzzyOptIn.createMany({ data: [key], skipDuplicates: true });
+      await this.prisma.tenantFuzzyOptIn.create({ data: key });
     }
     return toGetTenantFuzzyOptInDto({ tenantCode, fuzzyOptIn: body.fuzzyOptIn });
   }
