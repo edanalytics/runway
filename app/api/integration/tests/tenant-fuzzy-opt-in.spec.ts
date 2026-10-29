@@ -11,8 +11,8 @@ import {
 import { partnerA, partnerX } from '../fixtures/context-fixtures/partner-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
-import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { withoutPrivilege } from '../helpers/without-privilege';
+import { IdrsCredentialsService } from '../../src/idrs/idrs-credentials.service';
 
 const USER = 'runway.test.user';
 const PARTNER_ADMIN = 'runway.test.partneradmin';
@@ -111,16 +111,7 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
 
   describe('as PartnerAdmin', () => {
     let adminCookieA: string;
-    let config: ReturnType<typeof stubIdrsConfig>;
-    let fetchSpy: jest.SpyInstance;
-    // An Error is thrown in place of a response, as a network failure would be.
-    let verifyResponse: Response | Error;
-
-    const tokenUrl = 'https://auth.example.test/token';
-    const idrsUrl = 'https://idrs.example.test/';
-    const scopes = [`partner:${partnerA.id}`, 'student:identity:read'];
-    const response = (body: unknown, status = 200) =>
-      ({ ok: status === 200, status, json: async () => body } as Response);
+    let verifyAccess: jest.SpyInstance;
 
     const put = (tenantCode: string, body: object) =>
       request(app.getHttpServer())
@@ -130,16 +121,10 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
 
     beforeEach(async () => {
       adminCookieA = (await authHelper.login(idpA, userA, tenantA, PARTNER_ADMIN)).cookies;
-      config = stubIdrsConfig({ idrsUrl, tokenUrl });
-      verifyResponse = response({ scopes });
-      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
-        if (url === tokenUrl) return response({ access_token: 'token', expires_in: 86400 });
-        if (url === `${idrsUrl}token/verify`) {
-          if (verifyResponse instanceof Error) throw verifyResponse;
-          return verifyResponse;
-        }
-        throw new Error(`unexpected URL ${url}`);
-      });
+      // The gate's own cases are in partners-config.spec.ts.
+      verifyAccess = jest
+        .spyOn(app.get(IdrsCredentialsService), 'verifyAccess')
+        .mockResolvedValue(true);
     });
 
     afterEach(() => jest.restoreAllMocks());
@@ -156,7 +141,7 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
           createdById: userA.id,
         }),
       ]);
-      expect(fetchSpy).toHaveBeenLastCalledWith(`${idrsUrl}token/verify`, expect.anything());
+      expect(verifyAccess).toHaveBeenCalledWith(partnerA.id);
       const partner = await global.prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
       expect(partner.idMatchingMode).toBe('id_based');
     });
@@ -186,7 +171,7 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ tenantCode: tenantB.code, fuzzyOptIn: true });
       expect(await optIns()).toEqual([existing]);
-      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(verifyAccess).not.toHaveBeenCalled();
     });
 
     // Opting out never contacts IDRS, so it works while IDRS is unreachable.
@@ -208,18 +193,11 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ tenantCode: tenantB.code, fuzzyOptIn: false });
       expect(await optIns()).toEqual([otherOptIn]);
-      expect(fetchSpy).not.toHaveBeenCalled();
-      expect(config.getIdrsConnectionInfo).not.toHaveBeenCalled();
+      expect(verifyAccess).not.toHaveBeenCalled();
     });
 
-    // The gate's own cases are in partners-config.spec.ts; these show that any
-    // refusal leaves the tenant out, and the response carries no upstream detail.
-    it.each([
-      { case: 'a token without the partner scope', verify: response({ scopes: [scopes[1]] }) },
-      { case: 'a rejected token', verify: response({ error: 'invalid_token' }, 401) },
-      { case: 'a network failure', verify: new TypeError('fetch failed') },
-    ])('refuses to opt in after $case', async ({ verify }) => {
-      verifyResponse = verify;
+    it('refuses to opt in when IDRS access is not verified', async () => {
+      verifyAccess.mockResolvedValue(false);
 
       const res = await put(tenantB.code, { fuzzyOptIn: true });
 
@@ -243,7 +221,7 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
 
       expect(res.status).toBe(400);
       expect(await optIns()).toEqual([]);
-      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(verifyAccess).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -254,7 +232,7 @@ describe('PUT /partners/tenant-fuzzy-opt-ins/:tenantCode', () => {
 
       expect(res.status).toBe(404);
       expect(await optIns()).toEqual([]);
-      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(verifyAccess).not.toHaveBeenCalled();
     });
 
     it("keeps an opt-in when the partner's mode changes to fuzzy and back", async () => {
