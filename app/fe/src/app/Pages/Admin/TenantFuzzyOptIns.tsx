@@ -19,6 +19,7 @@ import {
   useUpdateTenantFuzzyOptIn,
 } from '../../api/queries/tenant-fuzzy-opt-in.queries';
 import { ConfirmModal } from './ConfirmModal';
+import { adminSelectStyles } from './adminSelectStyles';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 
 /**
@@ -138,7 +139,6 @@ export const TenantFuzzyOptIns = () => {
             Add tenant
           </FormLabel>
           <Box minWidth="22rem">
-            {/* The menu matches PartnerConfig's mode menu: dark text on a light menu. */}
             <Select
               inputId="tenant-fuzzy-opt-in-add"
               value={
@@ -149,23 +149,7 @@ export const TenantFuzzyOptIns = () => {
               placeholder="type a tenant code"
               isDisabled={update.isPending}
               menuPortalTarget={document.body}
-              chakraStyles={{
-                control: (baseStyles) => ({ ...baseStyles, bg: 'blue.800', color: 'blue.50' }),
-                placeholder: (baseStyles) => ({ ...baseStyles, color: 'blue.100' }),
-                dropdownIndicator: (baseStyles) => ({
-                  ...baseStyles,
-                  bg: 'transparent',
-                  color: 'blue.50',
-                }),
-                menu: (baseStyles) => ({
-                  ...baseStyles,
-                  textStyle: 'body',
-                  textColor: 'blue.700',
-                  bg: 'blue.50',
-                }),
-                menuList: (baseStyles) => ({ ...baseStyles, border: 'none' }),
-                option: (baseStyles) => ({ ...baseStyles, padding: '200' }),
-              }}
+              chakraStyles={adminSelectStyles<(typeof tenantOptions)[number]>()}
             />
           </Box>
           <Button

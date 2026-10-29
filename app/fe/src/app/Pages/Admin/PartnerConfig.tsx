@@ -28,6 +28,7 @@ import {
 import { tenantFuzzyOptInsQuery } from '../../api/queries/tenant-fuzzy-opt-in.queries';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
 import { ConfirmModal } from './ConfirmModal';
+import { adminSelectStyles } from './adminSelectStyles';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { IconCheckmark, IconExclamation } from '../../../assets/icons';
 
@@ -355,7 +356,6 @@ export const PartnerConfig = () => {
           </FormLabel>
           {isEditing ? (
             <Box minWidth="22rem" flexShrink={0}>
-              {/* The menu matches RunwaySelect's: dark text on a light menu. */}
               <Select
                 value={modeOptions.find((option) => option.value === draft.idMatchingMode)}
                 options={modeOptions}
@@ -365,22 +365,7 @@ export const PartnerConfig = () => {
                 isDisabled={update.isPending}
                 isSearchable={false}
                 menuPortalTarget={document.body}
-                chakraStyles={{
-                  control: (baseStyles) => ({ ...baseStyles, bg: 'blue.800', color: 'blue.50' }),
-                  dropdownIndicator: (baseStyles) => ({
-                    ...baseStyles,
-                    bg: 'transparent',
-                    color: 'blue.50',
-                  }),
-                  menu: (baseStyles) => ({
-                    ...baseStyles,
-                    textStyle: 'body',
-                    textColor: 'blue.700',
-                    bg: 'blue.50',
-                  }),
-                  menuList: (baseStyles) => ({ ...baseStyles, border: 'none' }),
-                  option: (baseStyles) => ({ ...baseStyles, padding: '200' }),
-                }}
+                chakraStyles={adminSelectStyles<(typeof modeOptions)[number]>()}
               />
             </Box>
           ) : (
