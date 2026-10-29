@@ -431,8 +431,7 @@ export const PartnerConfig = () => {
                       </ListItem>
                     </UnorderedList>
                     <Text>
-                      Existing jobs keep their matching mode. Enabling either fuzzy mode checks the
-                      partner's IDRS access when you save.
+                      Updating this setting impacts new jobs only. Existing jobs keep their matching mode. IDRS access is required to enable either fuzzy mode.
                     </Text>
                   </VStack>
                 </Collapse>
