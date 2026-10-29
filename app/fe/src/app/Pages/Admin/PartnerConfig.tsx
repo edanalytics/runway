@@ -418,7 +418,8 @@ export const PartnerConfig = () => {
               <VStack align="stretch" gap="100">
                 <Text>
                   Configure how Runway matches students in input files to student records in the
-                  roster. This setting applies to new jobs across all tenants in this partner.
+                  roster. This setting applies to new jobs across all tenants in this partner,
+                  except tenants in the fuzzy matching pilot below.
                 </Text>
                 <Collapse in={isModeHelpOpen} animateOpacity>
                   <VStack id="id-matching-mode-help-details" align="stretch" gap="100">
