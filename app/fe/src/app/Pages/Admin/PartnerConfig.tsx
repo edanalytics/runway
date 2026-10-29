@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Collapse,
+  Divider,
   FormControl,
   FormHelperText,
   FormLabel,
@@ -24,8 +25,10 @@ import {
   partnerConfigQuery,
   useUpdatePartnerConfig,
 } from '../../api/queries/partner-config.queries';
+import { tenantFuzzyOptInsQuery } from '../../api/queries/tenant-fuzzy-opt-in.queries';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
 import { ConfirmModal } from './ConfirmModal';
+import { adminSelectStyles } from './adminSelectStyles';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
 import { IconCheckmark, IconExclamation } from '../../../assets/icons';
 
@@ -42,6 +45,7 @@ const modeOptions = Object.entries(modeLabels).map(([value, label]) => ({
 
 export const PartnerConfig = () => {
   const { data: config, isLoading } = useQuery(partnerConfigQuery);
+  const { data: optIns } = useQuery(tenantFuzzyOptInsQuery);
   const update = useUpdatePartnerConfig();
   const queryClient = useQueryClient();
 
@@ -179,6 +183,9 @@ export const PartnerConfig = () => {
     if (blocker.status === 'blocked') blocker.reset();
   };
 
+  const optedInTenantCodes = (optIns?.tenants ?? [])
+    .filter((tenant) => tenant.fuzzyOptIn)
+    .map((tenant) => tenant.tenantCode);
   const changes = [
     ...(draft.crossYearMatchingEnabled !== base.crossYearMatchingEnabled
       ? [
@@ -193,6 +200,11 @@ export const PartnerConfig = () => {
             modeLabels[draft.idMatchingMode]
           }`,
         ]
+      : []),
+    ...(base.idMatchingMode === 'fuzzy' &&
+    draft.idMatchingMode !== 'fuzzy' &&
+    optedInTenantCodes.length > 0
+      ? [`New jobs in these tenants stay on fuzzy matching: ${optedInTenantCodes.join(', ')}`]
       : []),
   ];
 
@@ -219,26 +231,22 @@ export const PartnerConfig = () => {
 
       {generalError && <RunwayErrorBox message={generalError} showButton={false} mb="300" />}
 
-      {/* One grid for both settings, so their controls and help text line up:
-          label, control, connection status, help. */}
+      {/* One grid for both settings, so their controls line up: label, control,
+          connection status, then the help text on its own row below. Labels wrap
+          when space is short, and the last column takes the slack, so the help
+          rows, which span every column, don't widen the others. */}
       <Grid
         layerStyle="contentBox"
         padding="300"
         maxWidth="100%"
-        templateColumns="repeat(3, max-content) minmax(0, 1fr)"
+        templateColumns="minmax(min-content, max-content) max-content minmax(max-content, 1fr)"
         columnGap="500"
-        rowGap="400"
+        rowGap="200"
         alignItems="center"
         justifyItems="start"
       >
         <FormControl id="cross-year-toggle" variant="plain" display="contents">
-          <FormLabel
-            mb="0"
-            textStyle="body"
-            fontWeight="semibold"
-            color="blue.50"
-            whiteSpace="nowrap"
-          >
+          <FormLabel mb="0" textStyle="body" fontWeight="semibold" color="blue.50">
             Cross-year roster for ID matching
           </FormLabel>
           {isEditing ? (
@@ -293,7 +301,7 @@ export const PartnerConfig = () => {
               </Text>
             )}
           </VStack>
-          <VStack align="stretch" gap="100">
+          <VStack gridColumn="1 / -1" maxWidth="48rem" align="stretch" gap="100">
             <FormHelperText
               mt="0"
               textStyle="caption"
@@ -341,19 +349,13 @@ export const PartnerConfig = () => {
             </Button>
           </VStack>
         </FormControl>
+        <Divider gridColumn="1 / -1" justifySelf="stretch" my="200" borderColor="blue.50-40" />
         <FormControl id="id-matching-mode" variant="plain" display="contents">
-          <FormLabel
-            mb="0"
-            textStyle="body"
-            fontWeight="semibold"
-            color="blue.50"
-            whiteSpace="nowrap"
-          >
+          <FormLabel mb="0" textStyle="body" fontWeight="semibold" color="blue.50">
             Student identity matching mode
           </FormLabel>
           {isEditing ? (
             <Box minWidth="22rem" flexShrink={0}>
-              {/* The menu matches RunwaySelect's: dark text on a light menu. */}
               <Select
                 value={modeOptions.find((option) => option.value === draft.idMatchingMode)}
                 options={modeOptions}
@@ -363,22 +365,7 @@ export const PartnerConfig = () => {
                 isDisabled={update.isPending}
                 isSearchable={false}
                 menuPortalTarget={document.body}
-                chakraStyles={{
-                  control: (baseStyles) => ({ ...baseStyles, bg: 'blue.800', color: 'blue.50' }),
-                  dropdownIndicator: (baseStyles) => ({
-                    ...baseStyles,
-                    bg: 'transparent',
-                    color: 'blue.50',
-                  }),
-                  menu: (baseStyles) => ({
-                    ...baseStyles,
-                    textStyle: 'body',
-                    textColor: 'blue.700',
-                    bg: 'blue.50',
-                  }),
-                  menuList: (baseStyles) => ({ ...baseStyles, border: 'none' }),
-                  option: (baseStyles) => ({ ...baseStyles, padding: '200' }),
-                }}
+                chakraStyles={adminSelectStyles<(typeof modeOptions)[number]>()}
               />
             </Box>
           ) : (
@@ -396,7 +383,7 @@ export const PartnerConfig = () => {
           )}
           {/* This setting has no connection status. */}
           <Box />
-          <VStack align="stretch" gap="100">
+          <VStack gridColumn="1 / -1" maxWidth="48rem" align="stretch" gap="100">
             <FormHelperText
               id="id-matching-mode-help"
               mt="0"
@@ -408,7 +395,8 @@ export const PartnerConfig = () => {
               <VStack align="stretch" gap="100">
                 <Text>
                   Configure how Runway matches students in input files to student records in the
-                  roster. This setting applies to new jobs across all tenants in this partner.
+                  roster. This setting applies to new jobs across all tenants in this partner,
+                  except tenants in the fuzzy matching pilot below.
                 </Text>
                 <Collapse in={isModeHelpOpen} animateOpacity>
                   <VStack id="id-matching-mode-help-details" align="stretch" gap="100">
@@ -431,7 +419,8 @@ export const PartnerConfig = () => {
                       </ListItem>
                     </UnorderedList>
                     <Text>
-                      Updating this setting impacts new jobs only. Existing jobs keep their matching mode. IDRS access is required to enable either fuzzy mode.
+                      Updating this setting impacts new jobs only. Existing jobs keep their matching
+                      mode. IDRS access is required to enable either fuzzy mode.
                     </Text>
                   </VStack>
                 </Collapse>

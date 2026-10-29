@@ -5,12 +5,20 @@ import {
   Controller,
   Get,
   Inject,
+  NotFoundException,
+  Param,
   Post,
   Put,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Prisma, PrismaClient, Tenant } from '@prisma/client';
-import { PutPartnerConfigDto, toGetPartnerConfigDto } from '@edanalytics/models';
+import {
+  PutPartnerConfigDto,
+  PutTenantFuzzyOptInDto,
+  toGetPartnerConfigDto,
+  toGetTenantFuzzyOptInDto,
+  toGetTenantFuzzyOptInsDto,
+} from '@edanalytics/models';
 import { PRISMA_APP_USER } from '../database';
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { Tenant as TenantDecorator } from '../auth/helpers/tenant.decorator';
@@ -86,5 +94,59 @@ export class PartnersController {
       throw e;
     }
     return { status: 'ok' };
+  }
+
+  @Authorize('partner-config.read')
+  @Get('tenant-fuzzy-opt-ins')
+  async getTenantFuzzyOptIns(@TenantDecorator() tenant: Tenant) {
+    const partner = await this.prisma.partner.findUniqueOrThrow({
+      where: { id: tenant.partnerId },
+      select: {
+        tenant: {
+          orderBy: { code: 'asc' },
+          select: { code: true, tenantFuzzyOptIn: true },
+        },
+      },
+    });
+    return toGetTenantFuzzyOptInsDto({
+      tenants: partner.tenant.map(({ code, tenantFuzzyOptIn }) => ({
+        tenantCode: code,
+        fuzzyOptIn: tenantFuzzyOptIn !== null,
+      })),
+    });
+  }
+
+  @Authorize('partner-config.update')
+  @Put('tenant-fuzzy-opt-ins/:tenantCode')
+  async updateTenantFuzzyOptIn(
+    @TenantDecorator() tenant: Tenant,
+    @Param('tenantCode') tenantCode: string,
+    @Body() body: PutTenantFuzzyOptInDto
+  ) {
+    const key = { tenantCode, partnerId: tenant.partnerId };
+    const target = await this.prisma.tenant.findUnique({
+      where: { code_partnerId: { code: tenantCode, partnerId: tenant.partnerId } },
+      select: { tenantFuzzyOptIn: true },
+    });
+    if (!target) {
+      throw new NotFoundException(`Tenant not found: ${tenantCode}`);
+    }
+    // Unlike the config PUT, no 409 for concurrent requests: an opt-in is only
+    // present or absent, so a race is two requests making the same change,
+    // never one overwriting a change the other didn't see. The loser's insert
+    // or delete fails with a 500, and the tenant is already as it asked.
+    // `delete` on the compound key, not `deleteMany`, so an undefined partner
+    // id throws rather than removing this code's opt-in under every partner.
+    if (!body.fuzzyOptIn && target.tenantFuzzyOptIn) {
+      await this.prisma.tenantFuzzyOptIn.delete({ where: { tenantCode_partnerId: key } });
+    } else if (body.fuzzyOptIn && !target.tenantFuzzyOptIn) {
+      if (!(await this.idrs.verifyAccess(tenant.partnerId))) {
+        throw new BadRequestException(
+          "Runway could not verify this partner's IDRS access, so the tenant wasn't opted in. Check the partner's IDRS credentials and scopes, or try again if IDRS is unavailable."
+        );
+      }
+      await this.prisma.tenantFuzzyOptIn.create({ data: key });
+    }
+    return toGetTenantFuzzyOptInDto({ tenantCode, fuzzyOptIn: body.fuzzyOptIn });
   }
 }

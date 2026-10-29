@@ -46,19 +46,20 @@ model Partner {
 }
 
 model Tenant {
-  code                         String       @db.VarChar
-  partnerId                    String       @map("partner_id") @db.VarChar
-  createdById                  Int?         @map("created_by_id")
-  createdOn                    DateTime     @default(now()) @map("created_on") @db.Timestamp(6)
-  modifiedById                 Int?         @map("modified_by_id")
-  modifiedOn                   DateTime     @default(now()) @map("modified_on") @db.Timestamp(6)
-  deletedOn                    DateTime?    @map("deleted_on") @db.Timestamp(6)
-  isGlobal                     Boolean      @default(false) @map("is_global")
+  code                         String            @db.VarChar
+  partnerId                    String            @map("partner_id") @db.VarChar
+  createdById                  Int?              @map("created_by_id")
+  createdOn                    DateTime          @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                 Int?              @map("modified_by_id")
+  modifiedOn                   DateTime          @default(now()) @map("modified_on") @db.Timestamp(6)
+  deletedOn                    DateTime?         @map("deleted_on") @db.Timestamp(6)
+  isGlobal                     Boolean           @default(false) @map("is_global")
   job                          Job[]
   odsConfig                    OdsConfig[]
-  userTenantCreatedByIdTouser  User?        @relation("tenant_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
-  userTenantModifiedByIdTouser User?        @relation("tenant_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
-  partner                      Partner      @relation(fields: [partnerId], references: [id], onUpdate: NoAction)
+  userTenantCreatedByIdTouser  User?             @relation("tenant_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userTenantModifiedByIdTouser User?             @relation("tenant_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  partner                      Partner           @relation(fields: [partnerId], references: [id], onUpdate: NoAction)
+  tenantFuzzyOptIn             TenantFuzzyOptIn?
   userTenant                   UserTenant[]
 
   @@id([code, partnerId])
@@ -103,6 +104,7 @@ model User {
   studentMatchDecision                                             StudentMatchDecision[]
   tenantTenantCreatedByIdTouser                                    Tenant[]                  @relation("tenant_created_by_idTouser")
   tenantTenantModifiedByIdTouser                                   Tenant[]                  @relation("tenant_modified_by_idTouser")
+  tenantFuzzyOptIn                                                 TenantFuzzyOptIn[]
   userUserCreatedByIdTouser                                        User?                     @relation("user_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   otherUserUserCreatedByIdTouser                                   User[]                    @relation("user_created_by_idTouser")
   eaAppsOidcUserIdpIdToeaAppsOidc                                  IdentityProvider          @relation("user_idp_idToea_apps_oidc", fields: [idpId], references: [id], onUpdate: NoAction)
@@ -555,6 +557,18 @@ model SendRunDecision {
   @@id([runId, jobId, correlationId])
   @@index([jobId, correlationId, seq, runId], map: "send_run_decision_decision_idx")
   @@map("send_run_decision")
+}
+
+model TenantFuzzyOptIn {
+  tenantCode  String   @map("tenant_code") @db.VarChar
+  partnerId   String   @map("partner_id") @db.VarChar
+  createdById Int?     @map("created_by_id")
+  createdOn   DateTime @default(now()) @map("created_on") @db.Timestamp(6)
+  user        User?    @relation(fields: [createdById], references: [id], onUpdate: NoAction)
+  tenant      Tenant   @relation(fields: [tenantCode, partnerId], references: [code, partnerId], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([tenantCode, partnerId])
+  @@map("tenant_fuzzy_opt_in")
 }
 
 enum OdsAuthResponse {

@@ -721,27 +721,40 @@ describe('POST /jobs', () => {
       });
     });
 
-    it("snapshots the partner's matching mode onto the job", async () => {
-      // The seeded partner is id_based, so the fuzzy value asserted below can
-      // only have come from the update. Seed data is refreshed before each
-      // test, so no reset is needed afterwards.
-      const seeded = await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
-      expect(seeded.idMatchingMode).toBe('id_based');
+    it.each<[IdMatchingMode, boolean, IdMatchingMode]>([
+      ['id_based', true, 'fuzzy'],
+      ['id_based_fuzzy_background', true, 'fuzzy'],
+      ['fuzzy', true, 'fuzzy'],
+      // Not id_based, the column default, so the mode must come from the partner
+      ['id_based_fuzzy_background', false, 'id_based_fuzzy_background'],
+    ])(
+      'under a %s partner, with tenant fuzzy opt-in %s, snapshots %s onto the job',
+      async (partnerMode, fuzzyOptIn, jobMode) => {
+        await prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { idMatchingMode: partnerMode },
+        });
+        // Another tenant's opt-in must not count
+        await prisma.tenantFuzzyOptIn.create({
+          data: { tenantCode: tenantB.code, partnerId: tenantB.partnerId },
+        });
+        // sessionA logged in before this, so the opt-in can't come from the session
+        if (fuzzyOptIn) {
+          await prisma.tenantFuzzyOptIn.create({
+            data: { tenantCode: tenantA.code, partnerId: tenantA.partnerId },
+          });
+        }
 
-      await prisma.partner.update({
-        where: { id: partnerA.id },
-        data: { idMatchingMode: 'fuzzy' },
-      });
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send(postJobDto);
+        expect(res.status).toBe(201);
 
-      const res = await request(app.getHttpServer())
-        .post(endpoint)
-        .set('Cookie', [sessionA.cookie])
-        .send(postJobDto);
-      expect(res.status).toBe(201);
-
-      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
-      expect(job?.idMatchingMode).toBe('fuzzy');
-    });
+        const job = await prisma.job.findUniqueOrThrow({ where: { id: res.body.id } });
+        expect(job.idMatchingMode).toBe(jobMode);
+      }
+    );
 
     it('should reject requests with an invalid PostJobDto', async () => {
       // confirm class validator is working

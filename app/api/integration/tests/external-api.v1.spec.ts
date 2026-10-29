@@ -345,6 +345,23 @@ describe('ExternalApiV1', () => {
             doesFileExistMock.mockResolvedValue(true);
           }
         });
+
+        // The full table of effective modes is in jobs.spec.ts; this shows the
+        // external API's jobs resolve it the same way.
+        it('should create a fuzzy job in a tenant opted into fuzzy matching under an id_based partner', async () => {
+          await prisma.tenantFuzzyOptIn.create({
+            data: { tenantCode: tenantA.code, partnerId: tenantA.partnerId },
+          });
+
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+
+          expect(res.status).toBe(201);
+          const job = await prisma.job.findUniqueOrThrow({ where: { uid: res.body.uid } });
+          expect(job.idMatchingMode).toBe('fuzzy');
+        });
       });
 
       describe('API Client Info', () => {
