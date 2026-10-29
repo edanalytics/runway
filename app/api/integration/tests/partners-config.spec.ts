@@ -149,30 +149,42 @@ describe('PUT /partners/config', () => {
 
     afterEach(() => jest.restoreAllMocks());
 
-    it('rejects invalid bodies', async () => {
-      for (const body of [
-        { ...saved, crossYearMatchingEnabled: 'nope', expected: saved },
-        { ...saved, idMatchingMode: 'nope', expected: saved },
-        { ...saved, crossYearMatchingEnabled: true },
-        { ...saved, expected: { crossYearMatchingEnabled: false } },
-      ]) {
-        expect((await put(body)).status).toBe(400);
-      }
+    it.each([
+      {
+        case: 'an invalid cross-year value',
+        body: { ...saved, crossYearMatchingEnabled: 'nope', expected: saved },
+      },
+      { case: 'an invalid mode', body: { ...saved, idMatchingMode: 'nope', expected: saved } },
+      { case: 'no expected values', body: { ...saved, crossYearMatchingEnabled: true } },
+      {
+        case: 'partial expected values',
+        body: { ...saved, expected: { crossYearMatchingEnabled: false } },
+      },
+    ])('rejects $case', async ({ body }) => {
+      expect((await put(body)).status).toBe(400);
       expect(await savedRow()).toEqual(saved);
     });
 
-    it('refuses a save that started from stale settings, without writing', async () => {
-      await global.prisma.partner.update({
-        where: { id: partnerA.id },
-        data: { idMatchingMode: 'fuzzy' },
-      });
-      const res = await put(change({ crossYearMatchingEnabled: true }));
-      expect(res.status).toBe(409);
-      expect(await savedRow()).toEqual({
-        crossYearMatchingEnabled: false,
-        idMatchingMode: 'fuzzy',
-      });
-    });
+    it.each([
+      {
+        stale: 'cross-year matching',
+        current: { ...saved, crossYearMatchingEnabled: true },
+        edit: { idMatchingMode: 'fuzzy' as const },
+      },
+      {
+        stale: 'the matching mode',
+        current: { ...saved, idMatchingMode: 'fuzzy' as const },
+        edit: { crossYearMatchingEnabled: true },
+      },
+    ])(
+      'refuses a save that started from stale $stale, without writing',
+      async ({ current, edit }) => {
+        await global.prisma.partner.update({ where: { id: partnerA.id }, data: current });
+        const res = await put(change(edit));
+        expect(res.status).toBe(409);
+        expect(await savedRow()).toEqual(current);
+      }
+    );
 
     it("updates only the session partner's row", async () => {
       const adminCookieX = (await authHelper.login(idpX, userX, tenantX, partnerAdminRoleX))
@@ -224,6 +236,7 @@ describe('PUT /partners/config', () => {
 
         const res = await put(change({ idMatchingMode: 'fuzzy' }, enabled));
         expect(res.status).toBe(200);
+        expect(await savedRow()).toEqual({ ...enabled, idMatchingMode: 'fuzzy' });
         expect(canConnectSpy).not.toHaveBeenCalled();
       });
     });
@@ -304,7 +317,17 @@ describe('PUT /partners/config', () => {
         await global.prisma.partner.update({ where: { id: partnerA.id }, data: fuzzy });
         const res = await put(change({ crossYearMatchingEnabled: true }, fuzzy));
         expect(res.status).toBe(200);
+        expect(await savedRow()).toEqual({ ...fuzzy, crossYearMatchingEnabled: true });
         expect(fetchSpy).not.toHaveBeenCalled();
+      });
+
+      it('checks IDRS when switching between the fuzzy modes', async () => {
+        const fuzzy: Settings = { ...saved, idMatchingMode: 'fuzzy' };
+        await global.prisma.partner.update({ where: { id: partnerA.id }, data: fuzzy });
+        verifyResponse = response({}, 401);
+        const res = await put(change({ idMatchingMode: 'id_based_fuzzy_background' }, fuzzy));
+        expect(res.status).toBe(400);
+        expect(await savedRow()).toEqual(fuzzy);
       });
     });
   });
