@@ -202,6 +202,7 @@ class JobExecutor:
             self.id_matching_mode = job.get("idMatchingMode", "id_based")
             self.run_type: str = job.get('runType', '')
             self.send: dict = job.get('send', {})
+            self.run_subfolder:str = f"send_run_{self.send['runId']}/" if self.run_type == 'send' else ""
             self.send_to_ods = job.get("sendToOds", True)
             self.cross_year_match_available = job.get("crossYearMatchAvailable", False)
             if self.cross_year_match_available and self.id_matching_mode != "fuzzy":
@@ -701,7 +702,7 @@ class JobExecutor:
         """Creates and returns an IDRSMatchResultSet object"""
 
         # Create our IDRS Match Results
-        result_set = IDRSMatchResultSet.construct_match_result_set(artifact.CANDIDATES.path, artifact.IDRS_MATCHES.path, config.IDRS_AUTO_MATCH_THRESHOLD, self.logger)
+        result_set = IDRSMatchResultSet.construct_match_result_set(artifact.CANDIDATES.path, artifact.IDRS_MATCHES.path, config.IDRS_MATCH_THRESHOLDS, self.logger)
 
         with open(artifact.IDRS_MATCH_RESULTS.path, 'w', encoding='utf-8') as file:
             json.dump(result_set.to_list(), file)
@@ -774,7 +775,7 @@ class JobExecutor:
 
         ods_output_set = OutputSet(
                     local_dir=self.output_dir,
-                    s3_subdir="ods" if self.send_to_ods else "non-ods",
+                    s3_subdir=f"{self.run_subfolder}{'ods' if self.send_to_ods else 'non-ods'}",
                     sent_to_ods=self.send_to_ods,
                     em_results_path=artifact.CANDIDATES_EM_RESULTS.path,
                     lb_send_results_path=artifact.LB_SEND_RESULTS.path if self.send_to_ods else None,
@@ -784,7 +785,7 @@ class JobExecutor:
         if self.send_to_ods and os.path.isdir(self.cross_year_dir):
 
             cross_year_output_set = OutputSet(
-                            local_dir=self.cross_year_dir, s3_subdir="non-ods", sent_to_ods=False,
+                            local_dir=self.cross_year_dir, s3_subdir=f"{self.run_subfolder}non-ods", sent_to_ods=False,
                             em_results_path=artifact.CANDIDATES_EM_RESULTS.path,
                         )
             self.output_sets.append(cross_year_output_set)
@@ -863,8 +864,8 @@ class JobExecutor:
                 # Report
                 self.logger.info(f"{len(ods_substituted)} ODS matching records and {len(cross_year_substituted)} cross-year matching records substituted for resource {resource}.")
             except botocore.exceptions.ClientError as e:
-                if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
-                    self.logger.info(f"could not download resource {resource} -- {e}. Continuing...")
+                if e.response["Error"]["Code"] in ("404", "NoSuchKey", "403", "AccessDenied"):
+                    self.logger.info(f"could not download resource {resource} -- {e.response}. Continuing...")
                     continue
                 raise
         self.build_output_sets()
@@ -1077,6 +1078,13 @@ class JobExecutor:
         if not self.send_to_ods:
             return
 
+        # Return if we have no ODS-year results
+        if not self.output_sets[0].has_output():
+            self.logger.info("No ODS output, skipping lightbeam send")
+            with open(artifact.LB_SEND_RESULTS.path, 'w') as f:
+                json.dump({"resources": {}}, f)
+            return            
+
         self.set_action(action.LIGHTBEAM_SEND)
         # If we ran Earthmover twice, we're only ever sending the first output set
         os.environ["DATA_DIR"] = self.output_sets[0].local_dir
@@ -1183,16 +1191,17 @@ class JobExecutor:
             self.error = error.ArtifactEmptyError(artifact_to_upload.name, fpath)
             raise FileNotFoundError(fpath)
 
+        upload_path = f"{self.s3_out_path}/{self.run_subfolder}{os.path.basename(fpath)}"
         try:
             self.s3.upload_file(
-                fpath, self.app_bucket, f"{self.s3_out_path}/{os.path.basename(fpath)}"
+                fpath, self.app_bucket, upload_path
             )
         except botocore.exceptions.ClientError:
             if fail_ok:
                 self.logger.debug(f"upload failed during shutdown. continuing...")
                 return
             self.error = error.ArtifactS3UploadError(
-                artifact_to_upload.name, f"{self.s3_out_path}/{os.path.basename(fpath)}"
+                artifact_to_upload.name, upload_path
             )
             raise
 
@@ -1326,6 +1335,8 @@ def batch_inputs(input_list: list[dict], batch_size: int) -> Iterator[list[dict]
         yield input_list[position:position+batch_size]  
 
 def output_json_lines(path: str, records: list[dict]):
+    if not records:
+        return
     with open(path, 'w', encoding='utf-8') as file:
         for record in records:
             file.write(json.dumps(record) + "\n")

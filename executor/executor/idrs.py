@@ -219,18 +219,18 @@ class IDRSMatchResult:
     match_type: Literal['auto', 'user_input', 'none']
 
     @classmethod
-    def build_match_result(cls, match_result: dict, candidate: dict, match_threshold: float) -> 'IDRSMatchResult':
+    def build_match_result(cls, match_result: dict, candidate: dict, match_thresholds: dict[str, float]) -> 'IDRSMatchResult':
         '''build an IDRSMatchResult record with a correlation_id, matches, candidates and a match_type designation'''
 
         match_scores = [match['score'] for match in match_result['matches']]
 
-        # If we have no match results
-        if not match_scores:
+        # If we have no match results that clear our no match threshold
+        if not any(score >= match_thresholds['NO_MATCH_THRESHOLD'] for score in match_scores):
             match_type = 'none'
-        # If we have a solo match above our threshold
-        elif len(match_scores) == 1 and match_scores[0] >= match_threshold:
+        # Auto match if we only have 1 score above our high confidence threshold
+        elif ((sum(1 for score in match_scores if score >= match_thresholds['HIGH_CONFIDENCE_MATCH_THRESHOLD']) == 1) and (sum(1 for score in match_scores if score > match_thresholds['SECONDARY_LOW_CONFIDENCE_MATCH_THRESHOLD']) == 1)) :
             match_type = 'auto'
-        # If we have multiple match results or one result below our threshold
+        # Mark for user review if all our scores are below the high confidence threshold or at least 2 exceed the secondary low confidence threshold
         else:
             match_type = 'user_input'
 
@@ -253,7 +253,7 @@ class IDRSMatchResultSet:
     records: dict[str, 'IDRSMatchResult']
 
     @classmethod
-    def construct_match_result_set(cls, candidates_path: str, matches_path: str, match_threshold: float, logger: logging.Logger) -> 'IDRSMatchResultSet':
+    def construct_match_result_set(cls, candidates_path: str, matches_path: str, match_thresholds: dict[str, float], logger: logging.Logger) -> 'IDRSMatchResultSet':
         '''given matches and candidates file paths, return a set of IDRSMatchResult objects'''   
         try:    
             candidates = IDRSCandidate.construct_candidates(candidates_path, logger)
@@ -266,7 +266,7 @@ class IDRSMatchResultSet:
             records = {}
             for match in matches:
                 records[match['correlation_id']] = IDRSMatchResult.build_match_result(
-                    match, candidates_lookup[match['correlation_id']].to_dict(), match_threshold
+                    match, candidates_lookup[match['correlation_id']].to_dict(), match_thresholds
                 )
                 
 
@@ -280,7 +280,7 @@ class IDRSMatchResultSet:
     def auto_matched(self) -> dict[str, dict]:
         '''return a correlation_id <-> student_unique_id lookup for auto-matched records'''
         current_year = int(os.environ['API_YEAR'])
-        auto_matches = {record.correlation_id: {"student_unique_id": record.matches[0]['student_unique_id'], "cross_year_flag": current_year not in (record.matches[0].get('school_years') or [])} for record in self.records.values() if record.match_type == 'auto'}
+        auto_matches = {record.correlation_id: {"student_unique_id": max(record.matches, key=lambda m: m['score'])['student_unique_id'], "cross_year_flag": current_year not in (max(record.matches, key=lambda m: m['score']).get('school_years') or [])} for record in self.records.values() if record.match_type == 'auto'}
         return auto_matches    
 
     def needs_review(self) -> list[dict]:
