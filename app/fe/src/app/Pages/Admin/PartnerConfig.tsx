@@ -229,26 +229,22 @@ export const PartnerConfig = () => {
 
       {generalError && <RunwayErrorBox message={generalError} showButton={false} mb="300" />}
 
-      {/* One grid for both settings, so their controls and help text line up:
-          label, control, connection status, help. */}
+      {/* One grid for both settings, so their controls line up: label, control,
+          connection status, then the help text on its own row below. Labels wrap
+          when space is short, and the last column takes the slack, so the help
+          rows, which span every column, don't widen the others. */}
       <Grid
         layerStyle="contentBox"
         padding="300"
         maxWidth="100%"
-        templateColumns="repeat(3, max-content) minmax(0, 1fr)"
+        templateColumns="minmax(min-content, max-content) max-content minmax(max-content, 1fr)"
         columnGap="500"
-        rowGap="400"
+        rowGap="200"
         alignItems="center"
         justifyItems="start"
       >
         <FormControl id="cross-year-toggle" variant="plain" display="contents">
-          <FormLabel
-            mb="0"
-            textStyle="body"
-            fontWeight="semibold"
-            color="blue.50"
-            whiteSpace="nowrap"
-          >
+          <FormLabel mb="0" textStyle="body" fontWeight="semibold" color="blue.50">
             Cross-year roster for ID matching
           </FormLabel>
           {isEditing ? (
@@ -303,7 +299,7 @@ export const PartnerConfig = () => {
               </Text>
             )}
           </VStack>
-          <VStack align="stretch" gap="100">
+          <VStack gridColumn="1 / -1" maxWidth="48rem" align="stretch" gap="100" mb="300">
             <FormHelperText
               mt="0"
               textStyle="caption"
@@ -352,13 +348,7 @@ export const PartnerConfig = () => {
           </VStack>
         </FormControl>
         <FormControl id="id-matching-mode" variant="plain" display="contents">
-          <FormLabel
-            mb="0"
-            textStyle="body"
-            fontWeight="semibold"
-            color="blue.50"
-            whiteSpace="nowrap"
-          >
+          <FormLabel mb="0" textStyle="body" fontWeight="semibold" color="blue.50">
             Student identity matching mode
           </FormLabel>
           {isEditing ? (
@@ -406,7 +396,7 @@ export const PartnerConfig = () => {
           )}
           {/* This setting has no connection status. */}
           <Box />
-          <VStack align="stretch" gap="100">
+          <VStack gridColumn="1 / -1" maxWidth="48rem" align="stretch" gap="100">
             <FormHelperText
               id="id-matching-mode-help"
               mt="0"
@@ -442,7 +432,8 @@ export const PartnerConfig = () => {
                       </ListItem>
                     </UnorderedList>
                     <Text>
-                      Updating this setting impacts new jobs only. Existing jobs keep their matching mode. IDRS access is required to enable either fuzzy mode.
+                      Updating this setting impacts new jobs only. Existing jobs keep their matching
+                      mode. IDRS access is required to enable either fuzzy mode.
                     </Text>
                   </VStack>
                 </Collapse>

@@ -86,7 +86,14 @@ export const TenantFuzzyOptIns = () => {
       {generalError && <RunwayErrorBox message={generalError} showButton={false} mb="300" />}
 
       <VStack layerStyle="contentBox" padding="300" align="stretch" gap="300">
-        <VStack align="stretch" gap="100" textStyle="caption" fontSize="xs" color="blue.50">
+        <VStack
+          align="stretch"
+          gap="100"
+          maxWidth="48rem"
+          textStyle="caption"
+          fontSize="xs"
+          color="blue.50"
+        >
           <Text>
             New jobs in these tenants use fuzzy matching, whatever the partner's mode. Existing jobs
             keep their matching mode.
