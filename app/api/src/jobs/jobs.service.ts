@@ -284,12 +284,16 @@ export class JobsService {
     });
 
     // ─── Create job ─────────────────────────────────────────────────────────
-    // Snapshot the partner's matching mode so every run of this job uses the
+    // Snapshot the effective matching mode so every run of this job uses the
     // mode in effect at creation. Read explicitly — the column default is
-    // migration safety, not the creation path.
-    const partner = await prisma.partner.findUniqueOrThrow({
-      where: { id: tenant.partnerId },
-      select: { idMatchingMode: true },
+    // migration safety, not the creation path — and from the database, since
+    // the session's tenant dates from login.
+    const { tenantFuzzyOptIn, partner } = await prisma.tenant.findUniqueOrThrow({
+      where: { code_partnerId: { code: tenant.code, partnerId: tenant.partnerId } },
+      select: {
+        tenantFuzzyOptIn: { select: { createdOn: true } },
+        partner: { select: { idMatchingMode: true } },
+      },
     });
 
     const job = await prisma.job.create({
@@ -301,7 +305,8 @@ export class JobsService {
         template: toGetJobTemplateDto(bundle),
         inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
-        idMatchingMode: partner.idMatchingMode,
+        // A tenant opted into fuzzy matching gets fuzzy, whatever the partner's mode.
+        idMatchingMode: tenantFuzzyOptIn ? 'fuzzy' : partner.idMatchingMode,
         tenantCode: tenant.code,
         partnerId: tenant.partnerId,
         apiIssuer: apiClient?.issuer,
