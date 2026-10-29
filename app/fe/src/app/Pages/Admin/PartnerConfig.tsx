@@ -24,6 +24,7 @@ import {
   partnerConfigQuery,
   useUpdatePartnerConfig,
 } from '../../api/queries/partner-config.queries';
+import { tenantFuzzyOptInsQuery } from '../../api/queries/tenant-fuzzy-opt-in.queries';
 import { ConfirmChangesModal } from './ConfirmChangesModal';
 import { ConfirmModal } from './ConfirmModal';
 import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
@@ -42,6 +43,7 @@ const modeOptions = Object.entries(modeLabels).map(([value, label]) => ({
 
 export const PartnerConfig = () => {
   const { data: config, isLoading } = useQuery(partnerConfigQuery);
+  const { data: optIns } = useQuery(tenantFuzzyOptInsQuery);
   const update = useUpdatePartnerConfig();
   const queryClient = useQueryClient();
 
@@ -179,6 +181,9 @@ export const PartnerConfig = () => {
     if (blocker.status === 'blocked') blocker.reset();
   };
 
+  const optedInTenantCodes = (optIns?.tenants ?? [])
+    .filter((tenant) => tenant.fuzzyOptIn)
+    .map((tenant) => tenant.tenantCode);
   const changes = [
     ...(draft.crossYearMatchingEnabled !== base.crossYearMatchingEnabled
       ? [
@@ -193,6 +198,11 @@ export const PartnerConfig = () => {
             modeLabels[draft.idMatchingMode]
           }`,
         ]
+      : []),
+    ...(base.idMatchingMode === 'fuzzy' &&
+    draft.idMatchingMode !== 'fuzzy' &&
+    optedInTenantCodes.length > 0
+      ? [`New jobs in these tenants stay on fuzzy matching: ${optedInTenantCodes.join(', ')}`]
       : []),
   ];
 

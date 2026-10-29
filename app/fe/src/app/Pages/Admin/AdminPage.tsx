@@ -2,6 +2,7 @@ import { Box, VStack } from '@chakra-ui/react';
 import { useMe } from '../../api/queries/me.queries';
 import { SchoolYearConfigSection } from './SchoolYearConfigSection';
 import { PartnerConfig } from './PartnerConfig';
+import { TenantFuzzyOptIns } from './TenantFuzzyOptIns';
 
 export const AdminPage = () => {
   const { data: me } = useMe();
@@ -14,6 +15,7 @@ export const AdminPage = () => {
       </Box>
       <SchoolYearConfigSection />
       <PartnerConfig />
+      <TenantFuzzyOptIns />
     </VStack>
   );
 };
