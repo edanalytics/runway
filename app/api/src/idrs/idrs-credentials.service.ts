@@ -13,9 +13,9 @@ type CacheEntry = { token: string; expiresAt: number };
 
 /**
  * Resolves what's needed to reach IDRS on a partner's behalf, for the
- * Executor's identity-service callback and for match review's search: the
- * deployment's IDRS base url and an access token minted with that partner's
- * own OAuth client. Tokens are cached per app instance and per partner, so
+ * Executor's identity-service callback, match review's search and the partner
+ * matching-mode check: the deployment's IDRS base url and an access token
+ * minted with that partner's own OAuth client. Tokens are cached per app instance and per partner, so
  * scaled instances each mint their own and observe a credential rotation at
  * different times — an accepted tradeoff over shared cache infrastructure.
  */
@@ -65,6 +65,50 @@ export class IdrsCredentialsService {
     }
 
     return { token, url };
+  }
+
+  /**
+   * Whether the partner's credentials yield a token IDRS accepts for student
+   * search. IDRS verifies any valid token, even one without scopes, so the
+   * scopes it reports decide. Logs why when the answer is no. A cached token
+   * passes if IDRS still accepts it; a refused one is dropped, so a retry after
+   * fixing the partner's access mints a new token.
+   */
+  async verifyAccess(partnerId: string): Promise<boolean> {
+    const fail = (cause: string) => {
+      this.cache.delete(partnerId);
+      this.logger.warn(`IDRS access: partnerId=${partnerId} cause=${cause}`);
+      return false;
+    };
+
+    let credentials: IdrsCredentials;
+    try {
+      credentials = await this.getCredentials(partnerId);
+    } catch (err) {
+      return fail(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    }
+
+    let scopes: unknown;
+    try {
+      const response = await fetch(`${credentials.url.replace(/\/+$/, '')}/token/verify`, {
+        headers: { Authorization: `Bearer ${credentials.token}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) return fail(`verify status ${response.status}`);
+      scopes = (await response.json())?.scopes;
+    } catch (err) {
+      // The transport or parse error's own message is foreign text; name it only.
+      return fail(`verify failed (${err instanceof Error ? err.name : 'unknown error'})`);
+    }
+
+    if (
+      !Array.isArray(scopes) ||
+      !scopes.includes(`partner:${partnerId}`) ||
+      !scopes.includes('student:identity:read')
+    ) {
+      return fail('missing required scopes');
+    }
+    return true;
   }
 
   private async requestToken(
