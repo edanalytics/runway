@@ -12,7 +12,6 @@ import {
 } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { Select } from 'chakra-react-select';
-import { partnerConfigQuery } from '../../api/queries/partner-config.queries';
 import {
   TenantFuzzyOptInChange,
   tenantFuzzyOptInsQuery,
@@ -28,7 +27,6 @@ import { RunwayErrorBox } from '../../components/Form/RunwayFormErrorBox';
  */
 export const TenantFuzzyOptIns = () => {
   const { data: optIns, isLoading } = useQuery(tenantFuzzyOptInsQuery);
-  const { data: config } = useQuery(partnerConfigQuery);
   const update = useUpdateTenantFuzzyOptIn();
 
   const [selectedTenantCode, setSelectedTenantCode] = useState<string | null>(null);
@@ -41,7 +39,6 @@ export const TenantFuzzyOptIns = () => {
     return <Box textStyle="body">loading...</Box>;
   }
 
-  const partnerIsFuzzy = config?.idMatchingMode === 'fuzzy';
   const optedIn = optIns.tenants.filter((tenant) => tenant.fuzzyOptIn);
   // Options stay client-side: even the largest partner's ~1,000 tenants are one small read.
   const tenantOptions = optIns.tenants
@@ -73,10 +70,6 @@ export const TenantFuzzyOptIns = () => {
     });
   };
 
-  const removalEffect = partnerIsFuzzy
-    ? "That's fuzzy matching now, so this changes nothing until the partner's mode changes."
-    : 'Existing jobs keep their matching mode.';
-
   return (
     <VStack align="stretch" gap="200" mt="500">
       <Box as="h3" textStyle="h3">
@@ -95,15 +88,7 @@ export const TenantFuzzyOptIns = () => {
           color="blue.50"
         >
           <Text>
-            New jobs in these tenants use fuzzy matching, whatever the partner's mode. Existing jobs
-            keep their matching mode.
-          </Text>
-          {partnerIsFuzzy && (
-            <Text>These tenants keep fuzzy matching if the partner's mode changes.</Text>
-          )}
-          <Text>
-            A tenant can be added once someone has logged in to it or it has been synced from user
-            management.
+            Add tenants here to try fuzzy matching in them before switching the whole partner over.
           </Text>
         </VStack>
 
@@ -206,8 +191,8 @@ export const TenantFuzzyOptIns = () => {
         title={change?.fuzzyOptIn ? 'add tenant' : 'remove tenant'}
         description={
           change?.fuzzyOptIn
-            ? `New jobs in ${change.tenantCode} will use fuzzy matching. Runway checks the partner's IDRS access first.`
-            : `New jobs in ${change?.tenantCode} will use the partner's matching mode. ${removalEffect}`
+            ? `New jobs in ${change.tenantCode} will use fuzzy matching.`
+            : `New jobs in ${change?.tenantCode} will use the partner-wide matching mode.`
         }
         confirmLabel={change?.fuzzyOptIn ? 'add' : 'remove'}
       />
