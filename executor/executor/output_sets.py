@@ -39,9 +39,8 @@ class OutputSet:
             if not (dir_entry.is_file() and dir_entry.name.endswith(".jsonl")):
                 continue
             with open(dir_entry.path) as file:
-                for line in file:
-                    count += 1 if line.strip() else 0
-            name = dir_entry.name[:-len(".jsonl")]
+                count += sum(1 for line in file if line.strip())
+            name = dir_entry.name.removesuffix(".jsonl")
             resources[name] = {"records_processed": count}
         return resources
 
