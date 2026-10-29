@@ -9,7 +9,6 @@ import {
   FormLabel,
   HStack,
   ListItem,
-  Select,
   Switch,
   Text,
   UnorderedList,
@@ -18,6 +17,7 @@ import {
 } from '@chakra-ui/react';
 import { PartnerConfigValuesDto } from '@edanalytics/models';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Select } from 'chakra-react-select';
 import { useBlocker } from '@tanstack/react-router';
 import {
   partnerConfigQuery,
@@ -34,6 +34,10 @@ const modeLabels: Record<IdMatchingMode, string> = {
   id_based_fuzzy_background: 'ID-based with background fuzzy matching',
   fuzzy: 'Fuzzy matching',
 };
+const modeOptions = Object.entries(modeLabels).map(([value, label]) => ({
+  value: value as IdMatchingMode,
+  label,
+}));
 
 export const PartnerConfig = () => {
   const { data: config, isLoading } = useQuery(partnerConfigQuery);
@@ -339,27 +343,35 @@ export const PartnerConfig = () => {
               Student identity matching mode
             </FormLabel>
             {isEditing ? (
-              <Select
-                value={draft.idMatchingMode}
-                color="blue.50"
-                bg="blue.800"
-                iconColor="blue.50"
-                sx={{ option: { color: 'blue.800', bg: 'white' } }}
-                onChange={(e) =>
-                  setDraftConfig({ ...draft, idMatchingMode: e.target.value as IdMatchingMode })
-                }
-                isDisabled={update.isPending}
-                aria-describedby="id-matching-mode-help"
-                width="auto"
-                maxWidth="24rem"
-                flexShrink={0}
-              >
-                {Object.entries(modeLabels).map(([mode, label]) => (
-                  <option key={mode} value={mode}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
+              <Box minWidth="22rem" flexShrink={0}>
+                {/* The menu matches RunwaySelect's: dark text on a light menu. */}
+                <Select
+                  value={modeOptions.find((option) => option.value === draft.idMatchingMode)}
+                  options={modeOptions}
+                  onChange={(option) =>
+                    option && setDraftConfig({ ...draft, idMatchingMode: option.value })
+                  }
+                  isDisabled={update.isPending}
+                  isSearchable={false}
+                  menuPortalTarget={document.body}
+                  chakraStyles={{
+                    control: (baseStyles) => ({ ...baseStyles, bg: 'blue.800', color: 'blue.50' }),
+                    dropdownIndicator: (baseStyles) => ({
+                      ...baseStyles,
+                      bg: 'transparent',
+                      color: 'blue.50',
+                    }),
+                    menu: (baseStyles) => ({
+                      ...baseStyles,
+                      textStyle: 'body',
+                      textColor: 'blue.700',
+                      bg: 'blue.50',
+                    }),
+                    menuList: (baseStyles) => ({ ...baseStyles, border: 'none' }),
+                    option: (baseStyles) => ({ ...baseStyles, padding: '200' }),
+                  }}
+                />
+              </Box>
             ) : (
               <Badge
                 borderRadius="999px"
