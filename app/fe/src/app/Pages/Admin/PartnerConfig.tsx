@@ -17,7 +17,7 @@ import {
   useDisclosure,
 } from '@chakra-ui/react';
 import { PartnerConfigValuesDto } from '@edanalytics/models';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBlocker } from '@tanstack/react-router';
 import {
   partnerConfigQuery,
@@ -38,11 +38,16 @@ const modeLabels: Record<IdMatchingMode, string> = {
 export const PartnerConfig = () => {
   const { data: config, isLoading } = useQuery(partnerConfigQuery);
   const update = useUpdatePartnerConfig();
+  const queryClient = useQueryClient();
 
   const [isEditing, setIsEditing] = useState(false);
   // null until the user starts editing (or config first loads); the saved
   // config is the source of truth otherwise.
   const [draftConfig, setDraftConfig] = useState<PartnerConfigValuesDto | null>(null);
+  // The saved config when editing started. The save sends it as `expected`, so
+  // the server refuses it if another admin has saved since, even when a
+  // background refetch has already brought their change into `config`.
+  const [baseConfig, setBaseConfig] = useState<PartnerConfigValuesDto | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
   // Two distinct exits: discarding edits (cancel button, stay on the page) vs.
@@ -53,10 +58,10 @@ export const PartnerConfig = () => {
   const { isOpen: isModeHelpOpen, onToggle: onToggleModeHelp } = useDisclosure();
 
   const hasChanges =
-    !!config &&
+    !!baseConfig &&
     !!draftConfig &&
-    (draftConfig.crossYearMatchingEnabled !== config.crossYearMatchingEnabled ||
-      draftConfig.idMatchingMode !== config.idMatchingMode);
+    (draftConfig.crossYearMatchingEnabled !== baseConfig.crossYearMatchingEnabled ||
+      draftConfig.idMatchingMode !== baseConfig.idMatchingMode);
   const shouldWarnAboutUnsavedChanges = isEditing && hasChanges && !update.isPending;
   const blocker = useBlocker({ condition: shouldWarnAboutUnsavedChanges });
 
@@ -89,6 +94,7 @@ export const PartnerConfig = () => {
     idMatchingMode: config.idMatchingMode,
   };
   const draft = draftConfig ?? saved;
+  const base = baseConfig ?? saved;
 
   // Backend rejects enable-when-no-creds; mirror that on the FE so the
   // affordance disappears before the user can hit a 400.
@@ -97,11 +103,14 @@ export const PartnerConfig = () => {
 
   const startEdit = () => {
     setGeneralError(null);
+    setBaseConfig(saved);
     setDraftConfig(saved);
     setIsEditing(true);
   };
 
   const discardEdits = () => {
+    setGeneralError(null);
+    setBaseConfig(null);
     setDraftConfig(null);
     setIsEditing(false);
   };
@@ -127,19 +136,26 @@ export const PartnerConfig = () => {
   const handleSaveConfirm = () => {
     setGeneralError(null);
     update.mutate(
-      { ...draft, expected: saved },
+      { ...draft, expected: base },
       {
         onSuccess: () => {
           onSaveClose();
-          setDraftConfig(null);
-          setIsEditing(false);
+          discardEdits();
         },
         onError: (error: any) => {
           onSaveClose();
-          // The 400s from the EDU and IDRS checks and the stale-settings 409 carry
-          // messages written for the admin.
+          if (error?.statusCode === 409) {
+            // Show the settings as they now are, for the admin to edit again.
+            discardEdits();
+            queryClient.invalidateQueries({ queryKey: partnerConfigQuery.queryKey });
+            setGeneralError(
+              'Another admin changed these settings while you were editing. The current settings are shown below; edit them again to make your changes.'
+            );
+            return;
+          }
+          // The 400s from the EDU and IDRS checks carry messages written for the admin.
           setGeneralError(
-            [400, 409].includes(error?.statusCode) && typeof error.message === 'string'
+            error?.statusCode === 400 && typeof error.message === 'string'
               ? error.message
               : 'Something went wrong saving your changes. Please try again.'
           );
@@ -159,16 +175,16 @@ export const PartnerConfig = () => {
   };
 
   const changes = [
-    ...(draft.crossYearMatchingEnabled !== config.crossYearMatchingEnabled
+    ...(draft.crossYearMatchingEnabled !== base.crossYearMatchingEnabled
       ? [
-          `Cross-year roster for ID matching: ${config.crossYearMatchingEnabled ? 'yes' : 'no'} → ${
+          `Cross-year roster for ID matching: ${base.crossYearMatchingEnabled ? 'yes' : 'no'} → ${
             draft.crossYearMatchingEnabled ? 'yes' : 'no'
           }`,
         ]
       : []),
-    ...(draft.idMatchingMode !== config.idMatchingMode
+    ...(draft.idMatchingMode !== base.idMatchingMode
       ? [
-          `Student identity matching mode: ${modeLabels[config.idMatchingMode]} → ${
+          `Student identity matching mode: ${modeLabels[base.idMatchingMode]} → ${
             modeLabels[draft.idMatchingMode]
           }`,
         ]

@@ -77,9 +77,7 @@ export class PartnersController {
       },
     });
     if (count === 0) {
-      throw new ConflictException(
-        'Partner configuration has changed since you loaded it. Reload the page and make your changes again.'
-      );
+      throw new ConflictException('Partner configuration has changed since you loaded it.');
     }
     return { status: 'ok' };
   }
