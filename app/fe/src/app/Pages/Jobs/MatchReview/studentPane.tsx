@@ -584,7 +584,7 @@ const EvidenceTable = ({
                   <Box fontWeight="normal" opacity="0.8">
                     {[
                       c.source === 'search' && 'Found by your search',
-                      c.score !== null && `match score ${c.score}`,
+                      c.score !== null && `match score ${c.score.toFixed(5)}`,
                     ]
                       .filter(Boolean)
                       .join(' · ')
