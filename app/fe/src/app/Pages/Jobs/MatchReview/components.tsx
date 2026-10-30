@@ -1,13 +1,4 @@
-import {
-  Box,
-  Button,
-  FormControl,
-  FormLabel,
-  HStack,
-  Input,
-  Tooltip,
-  VStack,
-} from '@chakra-ui/react';
+import { Box, Button, FormControl, FormLabel, HStack, Input, VStack } from '@chakra-ui/react';
 import {
   GetStudentInputDetailsDto,
   GetStudentMatchDecisionDto,
@@ -333,10 +324,10 @@ export const dateTime = (at: Date | number) =>
   new Date(at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
 
 /**
- * A warning on a roster student outside the job's school year, who'd be sent
- * as a cross-year match, or with no school years to tell, whom submit
- * refuses. Nothing for a student in the job's year. It doesn't block saving
- * the match. Its own background keeps its text readable on any surface.
+ * A cue on a roster student outside the job's school year, for the reviewer
+ * to weigh when judging the match, or with no school years to tell, whom
+ * submit refuses. Nothing for a student in the job's year. It doesn't block
+ * saving the match. Its own background keeps its text readable on any surface.
  */
 export const CrossYearCue = ({
   rosterDetails,
@@ -347,31 +338,21 @@ export const CrossYearCue = ({
   const crossYear = crossYearOf(rosterDetails, job.schoolYear.endYear);
   if (crossYear === 'in-year') return null;
   return (
-    <Tooltip
-      hasArrow
-      label={
-        crossYear === 'cross-year'
-          ? `Their school years don't include ${job.schoolYear.displayName}. A cross-year match is loaded outside the ODS.`
-          : "Their roster record has no valid school years, so this match can't be submitted."
-      }
+    <Box
+      as="span"
+      display="inline-block"
+      paddingX="200"
+      borderRadius="999px"
+      bg="pink.400"
+      color="pink.50"
+      fontSize="0.75rem"
+      fontWeight="600"
+      whiteSpace="nowrap"
     >
-      <Box
-        as="span"
-        tabIndex={0}
-        display="inline-block"
-        paddingX="200"
-        borderRadius="999px"
-        bg="pink.400"
-        color="pink.50"
-        fontSize="0.75rem"
-        fontWeight="600"
-        whiteSpace="nowrap"
-      >
-        {crossYear === 'cross-year'
-          ? `Not enrolled in ${job.schoolYear.displayName}`
-          : 'School years unknown'}
-      </Box>
-    </Tooltip>
+      {crossYear === 'cross-year'
+        ? `Not enrolled in ${job.schoolYear.endYear}`
+        : 'School years unknown'}
+    </Box>
   );
 };
 
