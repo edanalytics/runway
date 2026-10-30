@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
   ConflictException,
@@ -6,6 +7,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
   Inject,
   InternalServerErrorException,
   Logger,
@@ -22,6 +24,8 @@ import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { JobsService } from './jobs.service';
+import { noStudentsToMatch, StudentMatchReviewService } from './student-match-review.service';
+import { StudentMatchSubmitService } from './student-match-submit.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
 import type { Tenant as TTenant, User } from '@prisma/client';
@@ -33,13 +37,18 @@ import {
   PostJobDto,
   PostJobResponseDto,
   PostStudentMatchDecisionDto,
+  PostStudentMatchSubmitDto,
   PutJobResolveDto,
+  StudentCorrelationIdDto,
+  StudentSearchDetailsDto,
   toGetJobDto,
   toGetOutputFileDto,
   toGetRunUpdateDto,
   toGetStudentMatchResultsDto,
+  toGetIdrsStudentDto,
   toJobErrorWrapperDto,
   toPostStudentMatchDecisionResponseDto,
+  toPostStudentMatchSubmitResponseDto,
 } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
 import { TenantOwnershipGuard } from '../auth/authorization/tenant-ownership.guard';
@@ -49,6 +58,35 @@ import { AllowMetatenant } from '../auth/authorization/allow-metatenant.decorato
 import { Authorize } from '../auth/helpers/authorize.decorator';
 import { ReqSession } from '../auth/helpers/session.decorator';
 
+/**
+ * An unexpected failure's error name, and its SQLSTATE when Prisma reports
+ * one, for a log line. Never the message, which for a database error can
+ * quote row values.
+ */
+const failureCause = (err: unknown) => {
+  const sqlstate =
+    err instanceof Prisma.PrismaClientKnownRequestError && typeof err.meta?.code === 'string'
+      ? ` sqlstate=${err.meta.code}`
+      : '';
+  return `${err instanceof Error ? err.name : 'unknown'}${sqlstate}`;
+};
+
+/**
+ * The request's job if it's in fuzzy mode, or a 403. Only a fuzzy job's
+ * students are decided, searched for or submitted: in background mode the
+ * ID-based run has already delivered, so there is nothing left to act on.
+ */
+const fuzzyJobOrThrow = (req: Request) => {
+  if (!req.job) {
+    // Set by the job middleware; fail closed if it ever isn't.
+    throw new InternalServerErrorException('No job on the request');
+  }
+  if (req.job.idMatchingMode !== 'fuzzy') {
+    throw new ForbiddenException('Forbidden');
+  }
+  return req.job;
+};
+
 @Controller()
 @ApiTags('Job')
 @TenantResourceKey('job')
@@ -57,7 +95,9 @@ export class JobsController {
   private logger = new Logger(JobsController.name);
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
-    private jobService: JobsService
+    private jobService: JobsService,
+    private studentMatchReview: StudentMatchReviewService,
+    private studentMatchSubmit: StudentMatchSubmitService
   ) {}
 
   @Get()
@@ -72,7 +112,7 @@ export class JobsController {
         createdBy: true,
       },
     });
-    return toGetJobDto(await this.jobService.withStudentMatchCounts(jobs));
+    return toGetJobDto(await this.studentMatchReview.withStudentMatchCounts(jobs));
   }
 
   @Get(':jobId')
@@ -84,6 +124,7 @@ export class JobsController {
     const job = await this.prisma.job.findUnique({
       where: { id: jobId },
       include: {
+        schoolYear: true,
         files: true,
         runs: {
           include: {
@@ -98,7 +139,7 @@ export class JobsController {
       return new NotFoundException(`Job not found: ${jobId}`);
     }
 
-    const [counted] = await this.jobService.withStudentMatchCounts([job]);
+    const [counted] = await this.studentMatchReview.withStudentMatchCounts([job]);
     return toGetJobDto(counted);
   }
 
@@ -265,24 +306,22 @@ export class JobsController {
     );
 
     const res = await this.jobService.startJob(updatedJob, this.prisma);
-    if (res.result === 'JOB_STARTED') {
+    if (res.status === 'SUCCESS') {
       // The frontend's put helpers require a response DTO, though nothing reads
       // this one, so the counts are placeholders. Returning nothing here, from
       // resolve and from note updates needs those helpers to allow empty
       // responses: a separate cleanup.
-      return toGetJobDto({
-        ...updatedJob,
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
-      });
-    } else if (res.result === 'JOB_CONFIG_INCOMPLETE') {
+      return toGetJobDto({ ...updatedJob, studentMatchCounts: noStudentsToMatch });
+    } else if (res.code === 'job_config_incomplete') {
       throw new BadRequestException(`Job config incomplete: ${jobId}`);
-    } else if (res.result === 'JOB_IN_PROGRESS') {
-      throw new BadRequestException(`Job already in progress: ${jobId}`);
-    } else if (res.result === 'JOB_START_FAILED') {
+    } else if (res.code === 'job_already_started') {
+      throw new BadRequestException(`Job already started: ${jobId}`);
+    } else if (res.code === 'failed_to_start_executor') {
       throw new InternalServerErrorException(`Failed to start job ${jobId}`);
     } else {
+      const unhandled: never = res.code;
       this.logger.error(`Unknown return value from starting job ${jobId}. 
-        Result: ${res.result}
+        Result: ${unhandled}
         Job: ${JSON.stringify(updatedJob, null, 2)}`);
       throw new InternalServerErrorException(`Unknown error starting job ${jobId}`);
     }
@@ -306,7 +345,7 @@ export class JobsController {
         // not founds should be thrown before we get to the handler, but just in case
         throw new NotFoundException(`Job not found: ${jobId}`);
       });
-    const [counted] = await this.jobService.withStudentMatchCounts([found]);
+    const [counted] = await this.studentMatchReview.withStudentMatchCounts([found]);
     const job = toGetJobDto(counted);
 
     if (!job.isStatusChangeable) {
@@ -336,7 +375,7 @@ export class JobsController {
     if (isFuzzyBackground && !session.privileges.has('job.match-results.background.read')) {
       throw new ForbiddenException('Forbidden');
     }
-    return toGetStudentMatchResultsDto(await this.jobService.getStudentMatchResults(jobId));
+    return toGetStudentMatchResultsDto(await this.studentMatchReview.getStudentMatchResults(jobId));
   }
 
   @Post(':jobId/student-match-results/:correlationId/decisions')
@@ -344,37 +383,22 @@ export class JobsController {
   @Authorize('job.match-results.update')
   async decideStudentMatch(
     @Param('jobId', ParseIntPipe) jobId: number,
-    @Param('correlationId') correlationId: string,
+    @Param() { correlationId }: StudentCorrelationIdDto,
     @Body() decision: PostStudentMatchDecisionDto,
     @ReqSession() session: IPassportSession,
     @Req() req: Request
   ) {
-    if (!req.job) {
-      // Set by the job middleware; fail closed if it ever isn't.
-      throw new InternalServerErrorException('No job on the request');
-    }
-    // Only fuzzy mode's review is actionable. In background mode the ID-based
-    // run has already delivered, so its suggestions are read-only, for anyone.
-    if (req.job.idMatchingMode !== 'fuzzy') {
-      throw new ForbiddenException('Forbidden');
-    }
+    fuzzyJobOrThrow(req);
 
-    let result: Awaited<ReturnType<JobsService['decideStudentMatch']>>;
+    let result: Awaited<ReturnType<StudentMatchReviewService['decideStudentMatch']>>;
     try {
-      result = await this.jobService.decideStudentMatch(
+      result = await this.studentMatchReview.decideStudentMatch(
         { jobId, correlationId, userId: session.user.id, decision },
         this.prisma
       );
     } catch (err) {
-      // Ids and codes only: a database error's message can quote row values.
-      const sqlstate =
-        err instanceof Prisma.PrismaClientKnownRequestError && typeof err.meta?.code === 'string'
-          ? ` sqlstate=${err.meta.code}`
-          : '';
       this.logger.error(
-        `student match decision: jobId=${jobId} outcome=FAILED cause=${
-          err instanceof Error ? err.name : 'unknown'
-        }${sqlstate}`
+        `student match decision: jobId=${jobId} outcome=FAILED cause=${failureCause(err)}`
       );
       throw new InternalServerErrorException('Failed to save the decision');
     }
@@ -408,6 +432,12 @@ export class JobsController {
             code,
             message: 'This student has newer suggestions than the page shows.',
           });
+        case 'already_submitted':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'This student’s match has been submitted.',
+          });
         default: {
           const unhandled: never = code;
           throw new InternalServerErrorException(`Unhandled decision outcome: ${unhandled}`);
@@ -415,6 +445,143 @@ export class JobsController {
       }
     }
     return toPostStudentMatchDecisionResponseDto(result.data);
+  }
+
+  /** Submits saved matches for sending, in a new send run. See AGENTS.md. */
+  @Post(':jobId/student-match-results/submit')
+  @AllowMetatenant('job.metatenant.match-results.submit')
+  @Authorize('job.match-results.submit')
+  async submitStudentMatches(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Body() { students }: PostStudentMatchSubmitDto,
+    @Req() req: Request
+  ) {
+    fuzzyJobOrThrow(req);
+
+    let result: Awaited<ReturnType<StudentMatchSubmitService['submit']>>;
+    try {
+      result = await this.studentMatchSubmit.submit({ jobId, students }, this.prisma);
+    } catch (err) {
+      this.logger.error(
+        `student match submit: jobId=${jobId} outcome=FAILED cause=${failureCause(err)}`
+      );
+      throw new InternalServerErrorException('Failed to submit the matches');
+    }
+
+    if (result.status === 'ERROR') {
+      // No student data in these bodies, as for decisions.
+      const { code } = result;
+      switch (code) {
+        case 'full_run_not_done':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'The job’s full run hasn’t succeeded.',
+          });
+        case 'not_found':
+          throw new NotFoundException({
+            statusCode: 404,
+            code,
+            message: 'A student isn’t in the job.',
+          });
+        // These four add the failing students' positions in the request, so
+        // the page can leave those students out and submit the rest. For
+        // decision_changed, it shows the reviewer those students again, as
+        // refetched. For not_a_match and invalid_school_years, it can also
+        // exclude them.
+        case 'decision_changed':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student’s decision has changed since the page loaded.',
+            indices: result.indices,
+          });
+        case 'already_submitted':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student’s match is being or has been sent.',
+            indices: result.indices,
+          });
+        case 'not_a_match':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student’s decision isn’t a match.',
+            indices: result.indices,
+          });
+        case 'invalid_school_years':
+          throw new ConflictException({
+            statusCode: 409,
+            code,
+            message: 'A student’s match has no valid school years.',
+            indices: result.indices,
+          });
+        default: {
+          const unhandled: never = code;
+          throw new InternalServerErrorException(`Unhandled submit outcome: ${unhandled}`);
+        }
+      }
+    }
+    return toPostStudentMatchSubmitResponseDto(result.data);
+  }
+
+  /** Searches IDRS with a reviewer's details. See AGENTS.md. */
+  @Post(':jobId/student-match-results/:correlationId/search')
+  // A POST because the details are student data, which must stay out of URLs
+  // and logs. Nothing is created.
+  @HttpCode(200)
+  @AllowMetatenant('job.metatenant.match-results.search')
+  @Authorize('job.match-results.search')
+  async searchStudentMatch(
+    @Param('jobId', ParseIntPipe) jobId: number,
+    @Param() { correlationId }: StudentCorrelationIdDto,
+    @Body() details: StudentSearchDetailsDto,
+    @ReqSession() session: IPassportSession,
+    @Req() req: Request
+  ) {
+    const job = fuzzyJobOrThrow(req);
+
+    const startedAt = Date.now();
+    const result = await this.studentMatchReview.searchStudentMatch({
+      job,
+      correlationId,
+      details,
+    });
+    // Ids, counts and safe causes only: no search terms, students or correlation id.
+    // The user id records who looked students up.
+    const logLine = `student match search: jobId=${jobId} partnerId=${job.partnerId} userId=${
+      session.user.id
+    } outcome=${result.status === 'SUCCESS' ? 'SUCCESS' : result.code}`;
+    const durationMs = Date.now() - startedAt;
+
+    if (result.status === 'SUCCESS') {
+      this.logger.log(
+        `${logLine} found=${result.data.found} kept=${result.data.students.length} durationMs=${durationMs}`
+      );
+      return toGetIdrsStudentDto(result.data.students);
+    }
+    const { code } = result;
+    switch (code) {
+      case 'not_found':
+        this.logger.log(`${logLine} durationMs=${durationMs}`);
+        throw new NotFoundException({
+          statusCode: 404,
+          code,
+          message: 'This student isn’t in the job.',
+        });
+      case 'identity_service_unavailable':
+        this.logger.error(`${logLine} durationMs=${durationMs} cause=${result.cause}`);
+        throw new BadGatewayException({
+          statusCode: 502,
+          code,
+          message: 'Student search is unavailable. Try again later.',
+        });
+      default: {
+        const unhandled: never = code;
+        throw new InternalServerErrorException(`Unhandled search outcome: ${unhandled}`);
+      }
+    }
   }
 
   @Get(':jobId/notes')

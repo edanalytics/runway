@@ -70,5 +70,38 @@ IDRS_MATCH_RESULTS = JobArtifact(
     os.path.join(config.OUTPUT_DIR, "idrs_match_results.json"),
     False
 )
+ORIGINAL_STUDENT_ASSESSMENTS = JobArtifact(
+    "original_student_assessments",
+    os.path.join(config.ORIGINAL_DIR, "original_studentAssessments.jsonl"),
+    False
+)
+ORIGINAL_STUDENT_ASSESSMENT_EDUCATION_ORGANIZATION_ASSOCIATIONS = JobArtifact(
+    "original_student_assessments_education_organization_associations",
+    os.path.join(config.ORIGINAL_DIR, "original_studentAssessmentEducationOrganizationAssociations.jsonl"),
+    False
+)
+UNMATCHED_STUDENT_ASSESSMENTS = JobArtifact(
+    "unmatched_student_assessments",
+    os.path.join(config.UNMATCHED_DIR, "unmatched_studentAssessments.jsonl"),
+    False
+)
+UNMATCHED_STUDENT_ASSESSMENT_EDUCATION_ORGANIZATION_ASSOCIATIONS = JobArtifact(
+    "unmatched_student_assessment_education_organization_associations",
+    os.path.join(config.UNMATCHED_DIR, "unmatched_studentAssessmentEducationOrganizationAssociations.jsonl"),
+    False
+)
+AUTO_MATCHES = JobArtifact(
+    "auto_matches",
+    os.path.join(config.ORIGINAL_DIR, "auto_matches.csv"),
+    False
+)
+STUDENT_ASSESSMENT_IDENTIFIER_LOOKUP = JobArtifact(
+    "student_assessment_identifier_lookup",
+    os.path.join(config.ORIGINAL_DIR, "student_assessment_identifier_lookup.jsonl"),
+    False
+)
 
-ALL = [ROSTER, CROSS_YEAR_ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS, CANDIDATES, IDRS_MATCHES, IDRS_MATCH_RESULTS]
+FUZZY_MATCHING = {'studentAssessments': (ORIGINAL_STUDENT_ASSESSMENTS, UNMATCHED_STUDENT_ASSESSMENTS, 'studentReference'),
+                  'studentAssessmentEducationOrganizationAssociations': (ORIGINAL_STUDENT_ASSESSMENT_EDUCATION_ORGANIZATION_ASSOCIATIONS, UNMATCHED_STUDENT_ASSESSMENT_EDUCATION_ORGANIZATION_ASSOCIATIONS, 'studentAssessmentReference')}
+
+ALL = [ROSTER, CROSS_YEAR_ROSTER, EM_RESULTS, EM_RESULTS_X_YEAR, MATCH_RATES, UNMATCHED_STUDENTS, LB_SEND_RESULTS, CANDIDATES, IDRS_MATCHES, IDRS_MATCH_RESULTS, ORIGINAL_STUDENT_ASSESSMENTS, UNMATCHED_STUDENT_ASSESSMENTS, ORIGINAL_STUDENT_ASSESSMENT_EDUCATION_ORGANIZATION_ASSOCIATIONS, UNMATCHED_STUDENT_ASSESSMENT_EDUCATION_ORGANIZATION_ASSOCIATIONS, STUDENT_ASSESSMENT_IDENTIFIER_LOOKUP]

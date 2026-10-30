@@ -201,9 +201,9 @@ export class SchoolYearConfigController {
     }
 
     // Bulk upsert — audit columns (modified_on, modified_by_id) are set by DB triggers
-    await this.prisma.$transaction(
-      body.map((row) =>
-        this.prisma.schoolYearConfig.upsert({
+    await this.prisma.$transaction(async (tx) => {
+      for (const row of body) {
+        await tx.schoolYearConfig.upsert({
           where: {
             partnerId_schoolYearId: { partnerId, schoolYearId: row.schoolYearId },
           },
@@ -217,9 +217,9 @@ export class SchoolYearConfigController {
             isEnabled: row.isEnabled,
             sendToOds: row.sendToOds,
           },
-        })
-      )
-    );
+        });
+      }
+    });
 
     return { status: 'ok' };
   }

@@ -345,6 +345,23 @@ describe('ExternalApiV1', () => {
             doesFileExistMock.mockResolvedValue(true);
           }
         });
+
+        // The full table of effective modes is in jobs.spec.ts; this shows the
+        // external API's jobs resolve it the same way.
+        it('should create a fuzzy job in a tenant opted into fuzzy matching under an id_based partner', async () => {
+          await prisma.tenantFuzzyOptIn.create({
+            data: { tenantCode: tenantA.code, partnerId: tenantA.partnerId },
+          });
+
+          const res = await request(app.getHttpServer())
+            .post(endpoint)
+            .set('Authorization', `Bearer ${token}`)
+            .send(jobInput);
+
+          expect(res.status).toBe(201);
+          const job = await prisma.job.findUniqueOrThrow({ where: { uid: res.body.uid } });
+          expect(job.idMatchingMode).toBe('fuzzy');
+        });
       });
 
       describe('API Client Info', () => {
@@ -802,6 +819,20 @@ describe('ExternalApiV1', () => {
           expect(run?.ecsTaskArn).toBe(ecsTaskArn);
           expect(run?.taskSize).toBe('medium');
         });
+      });
+
+      // A job is started once, so a failed run isn't re-run.
+      it('should return a 400 for a job already started, creating no run', async () => {
+        const job = await prisma.job.findUniqueOrThrow({ where: { uid: jobUid } });
+        await prisma.run.create({ data: { jobId: job.id, kind: 'full', status: 'error' } });
+
+        const res = await request(app.getHttpServer())
+          .post(`/v1/jobs/${jobUid}/start`)
+          .set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe(`Job already started: ${jobUid}`);
+        expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(1);
       });
 
       describe('Invalid Request', () => {

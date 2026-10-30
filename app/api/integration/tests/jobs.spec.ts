@@ -21,13 +21,19 @@ import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
 import { FileService } from 'api/src/files/file.service';
+import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
+import { noStudentsToMatch } from 'api/src/jobs/student-match-review.service';
 import { seedJob } from '../factories/job-factory';
 import { plainToInstance } from 'class-transformer';
-import { Job, JobNote } from '@prisma/client';
+import { sortBy } from 'lodash';
+import { IdMatchingMode, Job, JobNote, RunKind, RunStatus } from '@prisma/client';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
+import { schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixtures';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
+import { holdJobRow } from '../helpers/db/hold-job-row';
+import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 type SeededJob = Awaited<ReturnType<typeof seedJob>>;
 
@@ -181,7 +187,7 @@ describe('GET /jobs', () => {
 describe('GET /jobs/:id', () => {
   let endpointA: string;
   let endpointB: string;
-  let jobA: Job;
+  let jobA: SeededJob;
   let jobB: Job;
   let jobDGlobal: Job;
   let jobEGlobal: Job;
@@ -230,6 +236,42 @@ describe('GET /jobs/:id', () => {
       const resA = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       expect(resA.status).toBe(200);
       expect(resA.body.id).toEqual(jobA.id);
+      expect(resA.body.schoolYear).toEqual(schoolYear2425);
+    });
+
+    // The frontend picks the full run by its kind, to compute the job's status,
+    // and reads each run's summary.
+    it('returns each run’s kind and summary', async () => {
+      // Only a fuzzy job has send runs, and only after a successful full run.
+      const job = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        idMatchingMode: 'fuzzy',
+        runStatus: 'success',
+      });
+      const summary = {
+        studentAssessments: { records_processed: 4, records_skipped: 0, records_failed: 1 },
+      };
+      const sendRun = await prisma.run.create({
+        data: { jobId: job.id, kind: 'send', status: 'error', summary },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/jobs/${job.id}`)
+        .set('Cookie', [cookieA]);
+
+      const runs = res.body.runs.map(
+        ({ id, kind, summary }: { id: number; kind: RunKind; summary: unknown }) => ({
+          id,
+          kind,
+          summary,
+        })
+      );
+      expect(sortBy(runs, 'id')).toEqual([
+        { id: job.runs[0].id, kind: 'full', summary: null },
+        { id: sendRun.id, kind: 'send', summary },
+      ]);
     });
 
     it('shows failed resources the bundle reports on as complete with errors', async () => {
@@ -252,7 +294,7 @@ describe('GET /jobs/:id', () => {
       expect(job.status).toBe('complete with errors');
     });
 
-    it('has no resource summaries when the last run has no summary', async () => {
+    it('has no resource summaries when its run has no summary', async () => {
       const res = await request(app.getHttpServer()).get(endpointA).set('Cookie', [cookieA]);
       const job = plainToInstance(GetJobDto, res.body);
 
@@ -679,27 +721,40 @@ describe('POST /jobs', () => {
       });
     });
 
-    it("snapshots the partner's matching mode onto the job", async () => {
-      // The seeded partner is id_based, so the fuzzy value asserted below can
-      // only have come from the update. Seed data is refreshed before each
-      // test, so no reset is needed afterwards.
-      const seeded = await prisma.partner.findUniqueOrThrow({ where: { id: partnerA.id } });
-      expect(seeded.idMatchingMode).toBe('id_based');
+    it.each<[IdMatchingMode, boolean, IdMatchingMode]>([
+      ['id_based', true, 'fuzzy'],
+      ['id_based_fuzzy_background', true, 'fuzzy'],
+      ['fuzzy', true, 'fuzzy'],
+      // Not id_based, the column default, so the mode must come from the partner
+      ['id_based_fuzzy_background', false, 'id_based_fuzzy_background'],
+    ])(
+      'under a %s partner, with tenant fuzzy opt-in %s, snapshots %s onto the job',
+      async (partnerMode, fuzzyOptIn, jobMode) => {
+        await prisma.partner.update({
+          where: { id: partnerA.id },
+          data: { idMatchingMode: partnerMode },
+        });
+        // Another tenant's opt-in must not count
+        await prisma.tenantFuzzyOptIn.create({
+          data: { tenantCode: tenantB.code, partnerId: tenantB.partnerId },
+        });
+        // sessionA logged in before this, so the opt-in can't come from the session
+        if (fuzzyOptIn) {
+          await prisma.tenantFuzzyOptIn.create({
+            data: { tenantCode: tenantA.code, partnerId: tenantA.partnerId },
+          });
+        }
 
-      await prisma.partner.update({
-        where: { id: partnerA.id },
-        data: { idMatchingMode: 'fuzzy' },
-      });
+        const res = await request(app.getHttpServer())
+          .post(endpoint)
+          .set('Cookie', [sessionA.cookie])
+          .send(postJobDto);
+        expect(res.status).toBe(201);
 
-      const res = await request(app.getHttpServer())
-        .post(endpoint)
-        .set('Cookie', [sessionA.cookie])
-        .send(postJobDto);
-      expect(res.status).toBe(201);
-
-      const job = await prisma.job.findUnique({ where: { id: res.body.id } });
-      expect(job?.idMatchingMode).toBe('fuzzy');
-    });
+        const job = await prisma.job.findUniqueOrThrow({ where: { id: res.body.id } });
+        expect(job.idMatchingMode).toBe(jobMode);
+      }
+    );
 
     it('should reject requests with an invalid PostJobDto', async () => {
       // confirm class validator is working
@@ -922,6 +977,206 @@ describe('POST /jobs', () => {
   });
 });
 
+describe('PUT /jobs/:id/start', () => {
+  const endpoint = (id: number) => `/jobs/${id}/start`;
+  const ecsTaskArn = 'arn:aws:ecs:us-east-1:123456789012:task/cluster/abc123';
+  let executorStart: jest.SpyInstance;
+  let cookieA: string;
+
+  beforeEach(async () => {
+    executorStart = jest
+      .spyOn(ExecutorAwsService.prototype, 'start')
+      .mockResolvedValue({ ecsTaskArn, taskSize: 'medium' });
+    cookieA = (await authHelper.login(idpA, userA, tenantA)).cookies;
+  });
+
+  afterEach(() => {
+    executorStart.mockRestore();
+  });
+
+  it('starts a job with no run, launching one full run', async () => {
+    const job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+      runStatus: null,
+    });
+
+    const res = await request(app.getHttpServer()).put(endpoint(job.id)).set('Cookie', [cookieA]);
+
+    expect(res.status).toBe(200);
+    expect(await prisma.run.findMany({ where: { jobId: job.id } })).toEqual([
+      expect.objectContaining({ kind: 'full', status: 'new', ecsTaskArn }),
+    ]);
+    expect(executorStart).toHaveBeenCalledTimes(1);
+  });
+
+  // A job is started once, in every mode.
+  it.each<[IdMatchingMode, string, { kind: RunKind; status: RunStatus }[]]>([
+    ['fuzzy', 'whose full run failed', [{ kind: 'full', status: 'error' }]],
+    ['fuzzy', 'whose full run is running', [{ kind: 'full', status: 'running' }]],
+    [
+      'fuzzy',
+      'with a send run',
+      [
+        { kind: 'full', status: 'success' },
+        { kind: 'send', status: 'success' },
+      ],
+    ],
+    ['id_based', 'whose full run failed', [{ kind: 'full', status: 'error' }]],
+  ])(
+    'refuses a job in %s mode %s, creating and launching no run',
+    async (idMatchingMode, _, runs) => {
+      const job = await seedJob({
+        odsConfig: odsConfigA2425,
+        bundle: bundleA,
+        tenant: tenantA,
+        idMatchingMode,
+        runStatus: null,
+      });
+      await prisma.run.createMany({ data: runs.map((run) => ({ jobId: job.id, ...run })) });
+
+      const res = await request(app.getHttpServer()).put(endpoint(job.id)).set('Cookie', [cookieA]);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(`Job already started: ${job.id}`);
+      expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(runs.length);
+      expect(executorStart).not.toHaveBeenCalled();
+    }
+  );
+
+  it('refuses a start that waited at the lock for another start, leaving one run', async () => {
+    const job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      runStatus: null,
+    });
+    // Holds the job row as the other start does, until it commits its run.
+    const holder = await holdJobRow(job.id);
+    try {
+      // then() sends the request now, rather than when it's awaited.
+      const pending = request(app.getHttpServer())
+        .put(endpoint(job.id))
+        .set('Cookie', [cookieA])
+        .then((res) => res);
+      await waitUntilBlockedBy(holder.pid);
+      // The request is now queued at startJob's lock (this throws if it
+      // isn't), so it can only see the run below once the holder commits.
+      await holder.client.query(
+        "INSERT INTO public.run (job_id, kind, status) VALUES ($1, 'full', 'new')",
+        [job.id]
+      );
+      await holder.client.query('COMMIT');
+      const res = await pending;
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(`Job already started: ${job.id}`);
+    } finally {
+      await holder.release();
+    }
+    expect(await prisma.run.count({ where: { jobId: job.id } })).toBe(1);
+    expect(executorStart).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /jobs/:id/status-updates and /errors', () => {
+  let cookie: string;
+
+  beforeEach(async () => {
+    cookie = (await authHelper.login(idpA, userA, tenantA)).cookies;
+  });
+
+  /** The job's status updates' actions and its errors' codes. */
+  const updatesAndErrorsOf = async (jobId: number, userCookie: string) => {
+    const updates = await request(app.getHttpServer())
+      .get(`/jobs/${jobId}/status-updates`)
+      .set('Cookie', [userCookie]);
+    const errors = await request(app.getHttpServer())
+      .get(`/jobs/${jobId}/errors`)
+      .set('Cookie', [userCookie]);
+    return {
+      updates: updates.body.map(({ action }: { action: string }) => action),
+      errors: errors.body.map(({ error }: { error: { code: string } }) => error.code),
+    };
+  };
+
+  it('returns the full run’s, not a later send run’s', async () => {
+    // A send run follows only a successful full run.
+    const job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+      runStatus: 'success',
+    });
+    await prisma.runUpdate.create({
+      data: { runId: job.runs[0].id, action: 'done', status: 'success' },
+    });
+    const sendRun = await prisma.run.create({
+      data: { jobId: job.id, kind: 'send', status: 'error' },
+    });
+    await prisma.runUpdate.create({
+      data: { runId: sendRun.id, action: 'lightbeam_send', status: 'failure' },
+    });
+    await prisma.runError.create({ data: { runId: sendRun.id, code: 'lightbeam_send' } });
+
+    expect(await updatesAndErrorsOf(job.id, cookie)).toEqual({ updates: ['done'], errors: [] });
+  });
+
+  // A job is started once, so this guards a state that shouldn't occur.
+  it('reads the latest full run, should a job ever have several', async () => {
+    const job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      runStatus: 'success',
+    });
+    await prisma.run.update({
+      where: { id: job.runs[0].id },
+      data: {
+        summary: {
+          studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 2 },
+        },
+      },
+    });
+    await prisma.runUpdate.create({
+      data: { runId: job.runs[0].id, action: 'earthmover_run', status: 'failure' },
+    });
+    await prisma.runError.create({ data: { runId: job.runs[0].id, code: 'earthmover_run' } });
+    const latest = await prisma.run.create({
+      data: {
+        jobId: job.id,
+        kind: 'full',
+        status: 'success',
+        summary: {
+          studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 0 },
+        },
+      },
+    });
+    await prisma.runUpdate.create({
+      data: { runId: latest.id, action: 'done', status: 'success' },
+    });
+
+    const read = await request(app.getHttpServer())
+      .get(`/jobs/${job.id}`)
+      .set('Cookie', [cookie]);
+    const readJob = plainToInstance(GetJobDto, read.body);
+
+    expect({
+      fullRunId: readJob.fullRun?.id,
+      status: readJob.status,
+      resourceSummaries: readJob.resourceSummaries,
+    }).toEqual({
+      fullRunId: latest.id,
+      status: 'success',
+      resourceSummaries: { studentAssessments: { success: 10, skipped: 0, failed: 0 } },
+    });
+    expect(await updatesAndErrorsOf(job.id, cookie)).toEqual({ updates: ['done'], errors: [] });
+  });
+});
+
 describe('PUT /jobs/:id/resolve', () => {
   const endpoint = (id: number) => `/jobs/${id}/resolve`;
   let jobA: SeededJob;
@@ -1043,7 +1298,7 @@ describe('PUT /jobs/:id/resolve', () => {
           where: { id: jobA.id },
           include: { runs: true, files: true },
         })),
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
+        studentMatchCounts: noStudentsToMatch,
       }).status;
       if (!statusBefore) {
         // sanity check
@@ -1071,7 +1326,7 @@ describe('PUT /jobs/:id/resolve', () => {
 
       const statusAfter = toGetJobDto({
         ...revertedJob,
-        studentMatchCounts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
+        studentMatchCounts: noStudentsToMatch,
       }).status;
       expect(statusAfter).toBe(statusBefore);
     });

@@ -1,4 +1,16 @@
-import { Box, Collapse, HStack, Spinner, StackDivider, VStack } from '@chakra-ui/react';
+import {
+  Box,
+  Collapse,
+  HStack,
+  Spinner,
+  StackDivider,
+  Tab,
+  TabList,
+  TabPanel,
+  TabPanels,
+  Tabs,
+  VStack,
+} from '@chakra-ui/react';
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import {
   getJobErrors,
@@ -6,7 +18,7 @@ import {
   jobQueries,
   useInvalidateJobQueries,
 } from '../../api/queries/job.queries';
-import { useParams } from '@tanstack/react-router';
+import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { schoolYearQueries } from '../../api';
 import { JobStatus } from './SharedJobComponents/JobStatus';
 import { useEffect, useState } from 'react';
@@ -21,6 +33,13 @@ import { JobConfiguration } from './JobViewComponents/JobConfiguration';
 import { JobOutputFiles } from './JobViewComponents/JobOutputFiles';
 import { JobNotes } from './JobNotes/JobNotes';
 import { useMe } from '../../api/queries/me.queries';
+import { hasMatchReview, ReviewSessionProvider } from './MatchReview/reviewSession';
+import { MatchReview } from './MatchReview/MatchReview';
+import { ReviewNotice } from './MatchReview/ReviewNotice';
+
+// Chakra's default selected tab uses blue.600, which this theme makes a
+// background color.
+const selectedTab = { color: 'blue.50', borderColor: 'blue.50' };
 
 type JobStages = 'not started' | 'in progress' | 'done' | 'error';
 const getStageFromUpdates = (updates: GetRunUpdateDto[] | undefined): JobStages => {
@@ -47,6 +66,13 @@ export const JobViewPage = () => {
   const canViewOutputFiles = me?.privileges?.has('job.output-files.read') ?? false;
   const canViewCrossTenantJobs = me?.privileges?.has('job.metatenant.read') ?? false;
   const invalidateJobQueries = useInvalidateJobQueries(assessmentId);
+
+  const showsMatchReview = hasMatchReview(job);
+  // The open tab is in the URL, so a link can open the review. A job without
+  // match review has no such tab, so it falls back to the Overview.
+  const { tab } = useSearch({ from: '/assessments/$assessmentId/' });
+  const tabIndex = showsMatchReview && tab === 'students' ? 1 : 0;
+  const navigate = useNavigate({ from: '/assessments/$assessmentId/' });
 
   /**
    * The job progress through a series of stages. We determine which stage
@@ -79,6 +105,55 @@ export const JobViewPage = () => {
 
   const { data: schoolYears } = useQuery(schoolYearQueries.getAll({}));
   const schoolYear = schoolYears?.find((year) => year.id === job.schoolYearId);
+
+  // The job's own sections; with match review, the first of its tabs.
+  const overview = (
+    <VStack
+      width="100%"
+      alignItems="flex-start"
+      layerStyle="contentBox"
+      padding="400"
+      gap="400"
+      divider={<StackDivider borderColor="blue.50-40" />}
+    >
+      <JobViewSection title="Progress">
+        {currentStage === 'not started' ? (
+          <HStack gap="300">
+            <Spinner size="md" color="blue.50" speed="0.75s" />
+            <Box textStyle="body">queued for processing...</Box>
+          </HStack>
+        ) : (
+          <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
+            <JobProgressTracker
+              statusUpdates={statusUpdates}
+              sendToOds={job.sendToOds}
+              idMatchingMode={job.idMatchingMode}
+            />
+          </Box>
+        )}
+        {errors?.map(({ error }) => (
+          // In theory, a job could have multiple errors, but in practice, any
+          // error flagged by the executor is fatal and so there will be only one.
+          <JobError key={error.id} err={error} />
+        ))}
+        {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
+        {showsMatchReview && <ReviewNotice />}
+      </JobViewSection>
+      {!!job.resourceSummaries && (
+        <JobViewSection title="Summary">
+          <ResourceSummary job={job} />
+        </JobViewSection>
+      )}
+      <JobViewSection title="Configuration">
+        <JobConfiguration job={job} />
+      </JobViewSection>
+      {canViewOutputFiles && (
+        <JobViewSection title="Output Files">
+          <JobOutputFiles job={job} />
+        </JobViewSection>
+      )}
+    </VStack>
+  );
 
   return (
     <VStack
@@ -132,47 +207,46 @@ export const JobViewPage = () => {
           </Box>
         )}
       </Box>
-      <JobNotes job={job} />
-      <VStack
-        width="100%"
-        alignItems="flex-start"
-        layerStyle="contentBox"
-        padding="400"
-        gap="400"
-        divider={<StackDivider borderColor="blue.50-40" />}
+      {/* One element either way, so a note being typed survives the page
+          gaining match review as results arrive. With it, the notes sit
+          above the tabs, so they're in view whichever tab is open, and close
+          under the job's summary rather than a full gap below it. Without,
+          the wrapper takes no box of its own, and the notes lay out as they
+          always have. */}
+      <Box
+        {...(showsMatchReview ? { width: '100%', marginTop: '-2rem' } : { display: 'contents' })}
       >
-        <JobViewSection title="Progress">
-          {currentStage === 'not started' ? (
-            <HStack gap="300">
-              <Spinner size="md" color="blue.50" speed="0.75s" />
-              <Box textStyle="body">queued for processing...</Box>
-            </HStack>
-          ) : (
-            <Box as={Collapse} animateOpacity in width="100%" marginBottom="400">
-              <JobProgressTracker statusUpdates={statusUpdates} sendToOds={job.sendToOds} />
-            </Box>
-          )}
-          {errors?.map(({ error }) => (
-            // In theory, a job could have multiple errors, but in practice, any
-            // error flagged by the executor is fatal and so there will be only one.
-            <JobError key={error.id} err={error} />
-          ))}
-          {!!job.hasIdBasedUnmatchedStudents && <UnmatchedStudents job={job} />}
-        </JobViewSection>
-        {!!job.resourceSummaries && (
-          <JobViewSection title="Summary">
-            <ResourceSummary job={job} />
-          </JobViewSection>
-        )}
-        <JobViewSection title="Configuration">
-          <JobConfiguration job={job} />
-        </JobViewSection>
-        {canViewOutputFiles && (
-          <JobViewSection title="Output Files">
-            <JobOutputFiles job={job} />
-          </JobViewSection>
-        )}
-      </VStack>
+        <JobNotes job={job} />
+      </Box>
+      {showsMatchReview ? (
+        // Keyed by job, so nothing from one job's review outlives it.
+        <ReviewSessionProvider key={job.id} job={job}>
+          <Tabs
+            isLazy
+            lazyBehavior="keepMounted"
+            width="100%"
+            index={tabIndex}
+            onChange={(index) =>
+              navigate({ search: index === 1 ? { tab: 'students' } : {}, resetScroll: false })
+            }
+          >
+            <TabList borderColor="blue.50-40">
+              <Tab _selected={selectedTab}>Overview</Tab>
+              <Tab _selected={selectedTab}>Unmatched Students</Tab>
+            </TabList>
+            <TabPanels>
+              <TabPanel paddingX="0" paddingY="400">
+                {overview}
+              </TabPanel>
+              <TabPanel paddingX="0" paddingY="400">
+                <MatchReview />
+              </TabPanel>
+            </TabPanels>
+          </Tabs>
+        </ReviewSessionProvider>
+      ) : (
+        overview
+      )}
     </VStack>
   );
 };

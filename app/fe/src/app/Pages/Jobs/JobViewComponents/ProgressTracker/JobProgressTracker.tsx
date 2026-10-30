@@ -1,5 +1,5 @@
 import { HStack } from '@chakra-ui/react';
-import { GetRunUpdateDto } from '@edanalytics/models';
+import { GetJobDto, GetRunUpdateDto } from '@edanalytics/models';
 import { ProgressLine } from './ProgressLine';
 import { ProgressStep } from './ProgressStep';
 
@@ -44,14 +44,21 @@ const getStageStatus = (
 export const JobProgressTracker = ({
   statusUpdates,
   sendToOds,
+  idMatchingMode,
 }: {
   statusUpdates: GetRunUpdateDto[] | undefined;
   sendToOds: boolean;
+  idMatchingMode: GetJobDto['idMatchingMode'];
 }) => {
+  const isFuzzy = idMatchingMode === 'fuzzy';
+  const preprocessingSteps = isFuzzy
+    ? stepsByStage.preprocessing.filter((action) => action !== 'get_student_roster')
+    : stepsByStage.preprocessing;
+  const transformingSteps = isFuzzy ? ['fuzzy_matching'] : stepsByStage.transforming;
   const doneUpdate = statusUpdates?.find((update) => update.action === 'done');
   const statuses: Record<string, ProgressStepStatus> = {
-    preprocessing: getStageStatus(stepsByStage.preprocessing, statusUpdates),
-    transforming: getStageStatus(stepsByStage.transforming, statusUpdates),
+    preprocessing: getStageStatus(preprocessingSteps, statusUpdates),
+    transforming: getStageStatus(transformingSteps, statusUpdates),
     sending: getStageStatus(stepsByStage.sending, statusUpdates),
     done: doneUpdate && doneUpdate?.status !== 'failure' ? 'done' : 'not started', // if we have an error, that would have occured at an earlier step
   };
@@ -66,20 +73,14 @@ export const JobProgressTracker = ({
       <ProgressStep title="Transforming" stepNumber="2" status={statuses.transforming} />
       {sendToOds ? (
         <>
-          <ProgressLine
-            prevStepStatus={statuses.transforming}
-            nextStepStatus={statuses.sending}
-          />
+          <ProgressLine prevStepStatus={statuses.transforming} nextStepStatus={statuses.sending} />
           <ProgressStep title="Sending" stepNumber="3" status={statuses.sending} />
           <ProgressLine prevStepStatus={statuses.sending} nextStepStatus={statuses.done} />
           <ProgressStep title="Complete" stepNumber="4" status={statuses.done} />
         </>
       ) : (
         <>
-          <ProgressLine
-            prevStepStatus={statuses.transforming}
-            nextStepStatus={statuses.done}
-          />
+          <ProgressLine prevStepStatus={statuses.transforming} nextStepStatus={statuses.done} />
           <ProgressStep title="Complete" stepNumber="3" status={statuses.done} />
         </>
       )}

@@ -46,19 +46,20 @@ model Partner {
 }
 
 model Tenant {
-  code                         String       @db.VarChar
-  partnerId                    String       @map("partner_id") @db.VarChar
-  createdById                  Int?         @map("created_by_id")
-  createdOn                    DateTime     @default(now()) @map("created_on") @db.Timestamp(6)
-  modifiedById                 Int?         @map("modified_by_id")
-  modifiedOn                   DateTime     @default(now()) @map("modified_on") @db.Timestamp(6)
-  deletedOn                    DateTime?    @map("deleted_on") @db.Timestamp(6)
-  isGlobal                     Boolean      @default(false) @map("is_global")
+  code                         String            @db.VarChar
+  partnerId                    String            @map("partner_id") @db.VarChar
+  createdById                  Int?              @map("created_by_id")
+  createdOn                    DateTime          @default(now()) @map("created_on") @db.Timestamp(6)
+  modifiedById                 Int?              @map("modified_by_id")
+  modifiedOn                   DateTime          @default(now()) @map("modified_on") @db.Timestamp(6)
+  deletedOn                    DateTime?         @map("deleted_on") @db.Timestamp(6)
+  isGlobal                     Boolean           @default(false) @map("is_global")
   job                          Job[]
   odsConfig                    OdsConfig[]
-  userTenantCreatedByIdTouser  User?        @relation("tenant_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
-  userTenantModifiedByIdTouser User?        @relation("tenant_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
-  partner                      Partner      @relation(fields: [partnerId], references: [id], onUpdate: NoAction)
+  userTenantCreatedByIdTouser  User?             @relation("tenant_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
+  userTenantModifiedByIdTouser User?             @relation("tenant_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
+  partner                      Partner           @relation(fields: [partnerId], references: [id], onUpdate: NoAction)
+  tenantFuzzyOptIn             TenantFuzzyOptIn?
   userTenant                   UserTenant[]
 
   @@id([code, partnerId])
@@ -103,6 +104,7 @@ model User {
   studentMatchDecision                                             StudentMatchDecision[]
   tenantTenantCreatedByIdTouser                                    Tenant[]                  @relation("tenant_created_by_idTouser")
   tenantTenantModifiedByIdTouser                                   Tenant[]                  @relation("tenant_modified_by_idTouser")
+  tenantFuzzyOptIn                                                 TenantFuzzyOptIn[]
   userUserCreatedByIdTouser                                        User?                     @relation("user_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   otherUserUserCreatedByIdTouser                                   User[]                    @relation("user_created_by_idTouser")
   eaAppsOidcUserIdpIdToeaAppsOidc                                  IdentityProvider          @relation("user_idp_idToea_apps_oidc", fields: [idpId], references: [id], onUpdate: NoAction)
@@ -269,6 +271,7 @@ model Job {
   files               JobFile[]             @relation("fileToJob")
   notes               JobNote[]             @relation("noteToJob")
   runs                Run[]                 @relation("jobRun")
+  sendRunDecision     SendRunDecision[]
   studentInputDetails StudentInputDetails[]
 
   @@map("job")
@@ -289,6 +292,7 @@ model Run {
   unmatchedStudentsInfo     Json?                 @map("unmatched_students_info")
   ecsTaskArn                String?               @map("ecs_task_arn")
   taskSize                  String?               @map("task_size")
+  kind                      RunKind
   userRunCreatedByIdTouser  User?                 @relation("run_created_by_idTouser", fields: [createdById], references: [id], onUpdate: NoAction)
   job                       Job                   @relation("jobRun", fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   userRunModifiedByIdTouser User?                 @relation("run_modified_by_idTouser", fields: [modifiedById], references: [id], onUpdate: NoAction)
@@ -296,6 +300,7 @@ model Run {
   runOutputFile             RunOutputFile[]
   runOutputFileSet          RunOutputFileSet[]
   runUpdate                 RunUpdate[]
+  sendRunDecision           SendRunDecision[]
   studentInputDetails       StudentInputDetails[]
   studentMatchResult        StudentMatchResult[]
 
@@ -510,6 +515,7 @@ model StudentMatchSuggestion {
   studentMatchResult   StudentMatchResult     @relation(fields: [resultId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([resultId, ordinal])
+  @@unique([resultId, ordinal, studentUniqueId], map: "student_match_suggestion_result_ordinal_student_unique")
   @@index([studentUniqueId])
   @@map("student_match_suggestion")
 }
@@ -524,13 +530,45 @@ model StudentMatchDecision {
   ordinal                Int?
   decidedById            Int?                     @map("decided_by_id")
   decidedOn              DateTime                 @default(now()) @map("decided_on") @db.Timestamp(6)
+  studentUniqueId        String?                  @map("student_unique_id")
+  /// [StudentInputDetailsJson]
+  searchDetails          Json?                    @map("search_details")
+  /// [StudentRosterDetailsJson]
+  rosterDetails          Json?                    @map("roster_details")
+  sendRunDecision        SendRunDecision[]
   user                   User?                    @relation(fields: [decidedById], references: [id], onUpdate: NoAction)
   studentInputDetails    StudentInputDetails      @relation(fields: [jobId, correlationId], references: [jobId, correlationId], onDelete: Cascade, onUpdate: NoAction)
   studentMatchResult     StudentMatchResult?      @relation(fields: [resultId, jobId, correlationId], references: [id, jobId, correlationId], onDelete: NoAction, onUpdate: NoAction)
-  studentMatchSuggestion StudentMatchSuggestion?  @relation(fields: [resultId, ordinal], references: [resultId, ordinal], onDelete: NoAction, onUpdate: NoAction)
+  studentMatchSuggestion StudentMatchSuggestion?  @relation(fields: [resultId, ordinal, studentUniqueId], references: [resultId, ordinal, studentUniqueId], onDelete: NoAction, onUpdate: NoAction, map: "student_match_decision_suggestion_fkey")
 
   @@id([jobId, correlationId, seq])
   @@map("student_match_decision")
+}
+
+model SendRunDecision {
+  runId                Int                  @map("run_id")
+  jobId                Int                  @map("job_id")
+  correlationId        String               @map("correlation_id")
+  seq                  Int
+  studentMatchDecision StudentMatchDecision @relation(fields: [jobId, correlationId, seq], references: [jobId, correlationId, seq], onDelete: NoAction, onUpdate: NoAction)
+  job                  Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  run                  Run                  @relation(fields: [runId, jobId], references: [id, jobId], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([runId, jobId, correlationId])
+  @@index([jobId, correlationId, seq, runId], map: "send_run_decision_decision_idx")
+  @@map("send_run_decision")
+}
+
+model TenantFuzzyOptIn {
+  tenantCode  String   @map("tenant_code") @db.VarChar
+  partnerId   String   @map("partner_id") @db.VarChar
+  createdById Int?     @map("created_by_id")
+  createdOn   DateTime @default(now()) @map("created_on") @db.Timestamp(6)
+  user        User?    @relation(fields: [createdById], references: [id], onUpdate: NoAction)
+  tenant      Tenant   @relation(fields: [tenantCode, partnerId], references: [code, partnerId], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([tenantCode, partnerId])
+  @@map("tenant_fuzzy_opt_in")
 }
 
 enum OdsAuthResponse {
@@ -594,4 +632,11 @@ enum StudentMatchDecisionKind {
   clear
 
   @@map("student_match_decision_kind")
+}
+
+enum RunKind {
+  full
+  send
+
+  @@map("run_kind")
 }

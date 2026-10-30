@@ -598,22 +598,30 @@ describe('Authentication', () => {
       });
 
       const loggerSpy = jest.spyOn(Logger.prototype, 'error');
-      await idpService.refreshRegistrations();
-      expect(Logger.prototype.error).toHaveBeenCalledWith(
-        `${idpA.id} does not have a partner claim but is used by ${partnerA.id}, ${partnerC.id}. Users for these partners will not be able to log in until this is fixed.`
-      );
-      expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined();
-      loggerSpy.mockClear();
-
-      await prisma.oidcConfig.update({
-        where: {
-          id: originalConfig.id,
-        },
-        data: {
-          partnerClaim: originalConfig.partnerClaim,
-        },
-      });
-      await idpService.refreshRegistrations();
+      try {
+        await idpService.refreshRegistrations();
+        // The partners are listed in whatever order the database returns them
+        expect(Logger.prototype.error).toHaveBeenCalledWith(
+          expect.stringMatching(
+            new RegExp(
+              `^${idpA.id} does not have a partner claim but is used by (${partnerA.id}, ${partnerC.id}|${partnerC.id}, ${partnerA.id})\\. Users for these partners will not be able to log in until this is fixed\\.$`
+            )
+          )
+        );
+        expect(idpService.idpRegistrationForId(idpA.id)).toBeUndefined();
+        loggerSpy.mockClear();
+      } finally {
+        // Restore idpA registration for subsequent tests
+        await prisma.oidcConfig.update({
+          where: {
+            id: originalConfig.id,
+          },
+          data: {
+            partnerClaim: originalConfig.partnerClaim,
+          },
+        });
+        await idpService.refreshRegistrations();
+      }
       expect(idpService.idpRegistrationForId(idpA.id)).toBeDefined();
     });
   });

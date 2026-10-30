@@ -7,9 +7,9 @@ import { getOutputFileDownloadUrl } from '../../../api/queries/job.queries';
 import { IconExclamation } from '../../../../assets/icons';
 
 export const UnmatchedStudents = ({ job }: { job: GetJobDto }) => {
-  const columnName = job.lastRun?.unmatchedStudentsInfo?.name;
-  let displayIDType = job.lastRun?.unmatchedStudentsInfo?.type;
-  const unmatchedStudentsCount = job.lastRun?.unmatchedStudentsInfo?.count;
+  const columnName = job.fullRun?.unmatchedStudentsInfo?.name;
+  let displayIDType = job.fullRun?.unmatchedStudentsInfo?.type;
+  const unmatchedStudentsCount = job.fullRun?.unmatchedStudentsInfo?.count;
   if (displayIDType && !displayIDType.toLowerCase().endsWith('id')) {
     displayIDType = `${displayIDType} ID`; // make it easier to construct text below
   }
