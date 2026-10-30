@@ -602,7 +602,9 @@ const EvidenceTable = ({
               <Td paddingY="100" colSpan={2}>
                 <QuietButton
                   size="xs"
-                  paddingX="0"
+                  // Padded for the hover background, and pulled back so the text keeps its place.
+                  paddingX="200"
+                  marginLeft="-200"
                   onClick={() => setShowRosterOnly(!showRosterOnly)}
                   aria-expanded={showRosterOnly}
                 >
