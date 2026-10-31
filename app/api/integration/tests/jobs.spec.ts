@@ -302,6 +302,14 @@ describe('GET /jobs/:id', () => {
       // Read as the frontend reads it, which re-runs the DTO's transforms.
       expect(plainToInstance(GetJobDto, resWith.body).fullRun?.hasAutoMatches).toBe(true);
       expect(plainToInstance(GetJobDto, resOther.body).fullRun?.hasAutoMatches).toBe(false);
+
+      // The list says the same, rather than false for every run.
+      const resList = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookieA]);
+      const listed = plainToInstance(GetJobDto, resList.body as object[]);
+      const hasAutoMatches = (id: number) =>
+        listed.find((job) => job.id === id)?.fullRun?.hasAutoMatches;
+      expect(hasAutoMatches(withFile.id)).toBe(true);
+      expect(hasAutoMatches(withOtherFile.id)).toBe(false);
     });
 
     it('shows failed resources the bundle reports on as complete with errors', async () => {
@@ -695,6 +703,14 @@ describe('GET /jobs/:id/output-files/*', () => {
         .set('Cookie', [cookie]);
       expect(res.status).toBe(200);
       expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/${AUTO_MATCHES_FILE_NAME}`);
+    });
+
+    it('is not downloadable across tenants without job.metatenant.match-results.read', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+      const res = await withoutPrivilege('job.metatenant.match-results.read', () =>
+        request(app.getHttpServer()).get(autoMatchesEndpoint(jobB.id)).set('Cookie', [cookie])
+      );
+      expect(res.status).toBe(403);
     });
 
     it('is a 404 when the job’s run recorded no auto-matches file', async () => {

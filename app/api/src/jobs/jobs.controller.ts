@@ -193,7 +193,8 @@ export class JobsController {
     return url;
   }
 
-  // Every role may download it, unlike the run's other output files.
+  // Under the match-results privileges, like the review read, since it holds
+  // students' details, rather than job.output-files.read.
   @Get(`:jobId/output-files/${AUTO_MATCHES_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.match-results.read')
   @Authorize('job.match-results.read')
