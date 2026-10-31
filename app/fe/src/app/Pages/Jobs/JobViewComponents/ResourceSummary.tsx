@@ -1,7 +1,10 @@
 import { Box, HStack, VStack, Grid, GridItem, Link } from '@chakra-ui/react';
-import { GetJobDto } from '@edanalytics/models';
+import { AUTO_MATCHES_FILE_NAME, GetJobDto } from '@edanalytics/models';
+import { DownloadFileButton } from '../SharedJobComponents/DownloadFileLink';
+import { getOutputFileDownloadUrl } from '../../../api/queries/job.queries';
 import { ContactSupport, getSupportLink } from '../../../components/SupportButton';
 import { IconCheckmark, IconExclamation } from '../../../../assets/icons';
+import { useState } from 'react';
 
 const countOfString = (
   result: 'failed' | 'success',
@@ -151,6 +154,38 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
             </GridItem>,
           ])}
       </Grid>
+      {!!job.fullRun?.hasAutoMatches && <AutoMatchesDownload jobId={job.id} />}
     </>
+  );
+};
+
+const AutoMatchesDownload = ({ jobId }: { jobId: GetJobDto['id'] }) => {
+  const [hasDownloadError, setHasDownloadError] = useState<boolean>(false);
+  return (
+    <VStack gap="200" alignItems="flex-start" marginTop="400">
+      <Box textStyle="bodyBold">Auto-matched students</Box>
+      <VStack gap="0" alignItems="flex-end">
+        <HStack gap="400">
+          <Box textStyle="body">Runway automatically matched some students to your roster.</Box>
+          <DownloadFileButton
+            textStyle="button"
+            textColor="green.100"
+            fontFamily="IBM Plex Sans Condensed, sans-serif"
+            fileName={AUTO_MATCHES_FILE_NAME}
+            label="download list"
+            getPresignedUrl={() =>
+              getOutputFileDownloadUrl({ jobId, fileName: AUTO_MATCHES_FILE_NAME })
+            }
+            onError={() => setHasDownloadError(true)}
+            onSuccess={() => setHasDownloadError(false)}
+          />
+        </HStack>
+        {hasDownloadError && (
+          <Box textStyle="body" textColor="pink.100" marginTop="-0.5rem">
+            error downloading file
+          </Box>
+        )}
+      </VStack>
+    </VStack>
   );
 };

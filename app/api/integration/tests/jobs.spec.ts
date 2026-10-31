@@ -20,6 +20,8 @@ import { makePostJobDto } from '../factories/job-input-factory';
 import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
 import { GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
+import { AUTO_MATCHES_FILE_NAME } from 'models/src/dtos/run.dto';
+import { withoutPrivilege } from '../helpers/without-privilege';
 import { FileService } from 'api/src/files/file.service';
 import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
 import { noStudentsToMatch } from 'api/src/jobs/student-match-review.service';
@@ -272,6 +274,34 @@ describe('GET /jobs/:id', () => {
         { id: job.runs[0].id, kind: 'full', summary: null },
         { id: sendRun.id, kind: 'send', summary },
       ]);
+    });
+
+    it('says whether the full run recorded the auto-matches file', async () => {
+      const [withFile, withOtherFile] = await Promise.all(
+        [AUTO_MATCHES_FILE_NAME, 'summary.csv'].map(async (name) => {
+          const job = await seedJob({
+            odsConfig: odsConfigA2425,
+            bundle: bundleA,
+            tenant: tenantA,
+            idMatchingMode: 'fuzzy',
+            runStatus: 'success',
+          });
+          await prisma.runOutputFile.create({
+            data: { runId: job.runs[0].id, name, path: `output/${job.id}/${name}` },
+          });
+          return job;
+        })
+      );
+
+      const [resWith, resOther] = await Promise.all(
+        [withFile, withOtherFile].map((job) =>
+          request(app.getHttpServer()).get(`/jobs/${job.id}`).set('Cookie', [cookieA])
+        )
+      );
+
+      // Read as the frontend reads it, which re-runs the DTO's transforms.
+      expect(plainToInstance(GetJobDto, resWith.body).fullRun?.hasAutoMatches).toBe(true);
+      expect(plainToInstance(GetJobDto, resOther.body).fullRun?.hasAutoMatches).toBe(false);
     });
 
     it('shows failed resources the bundle reports on as complete with errors', async () => {
@@ -612,6 +642,68 @@ describe('GET /jobs/:id/output-files/*', () => {
         .set('Cookie', [cookie]);
       expect(res.status).toBe(200);
       expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`);
+    });
+  });
+
+  describe('the auto-matches file', () => {
+    const autoMatchesEndpoint = (id: number) =>
+      `/jobs/${id}/output-files/${AUTO_MATCHES_FILE_NAME}`;
+
+    beforeEach(async () => {
+      await Promise.all(
+        [jobA, jobB].map((job) =>
+          prisma.runOutputFile.create({
+            data: {
+              runId: job.runs[0].id,
+              name: AUTO_MATCHES_FILE_NAME,
+              path: `output/${job.id}/${AUTO_MATCHES_FILE_NAME}`,
+            },
+          })
+        )
+      );
+    });
+
+    it('is downloadable by a User in their login tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(autoMatchesEndpoint(jobA.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobA.id}/${AUTO_MATCHES_FILE_NAME}`);
+    });
+
+    it('is not downloadable without job.match-results.read', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+      const res = await withoutPrivilege('job.match-results.read', () =>
+        request(app.getHttpServer()).get(autoMatchesEndpoint(jobA.id)).set('Cookie', [cookie])
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it('is not downloadable by a User logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(autoMatchesEndpoint(jobB.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(403);
+    });
+
+    it('is downloadable by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(autoMatchesEndpoint(jobB.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/${AUTO_MATCHES_FILE_NAME}`);
+    });
+
+    it('is a 404 when the job’s run recorded no auto-matches file', async () => {
+      const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+      const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+      const res = await request(app.getHttpServer())
+        .get(autoMatchesEndpoint(job.id))
+        .set('Cookie', [cookie]);
+      expect(res.status).toBe(404);
     });
   });
 

@@ -30,6 +30,7 @@ import { Tenant } from '../auth/helpers/tenant.decorator';
 import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership.decorator';
 import type { Tenant as TTenant, User } from '@prisma/client';
 import {
+  AUTO_MATCHES_FILE_NAME,
   GetJobDto,
   GetSessionDataDto,
   IPassportSession,
@@ -87,6 +88,12 @@ const fuzzyJobOrThrow = (req: Request) => {
   return req.job;
 };
 
+/** A run's auto-matches output file, if it recorded one, for `GetRunDto.hasAutoMatches`. */
+const autoMatchesFile = {
+  where: { name: AUTO_MATCHES_FILE_NAME },
+  select: { name: true },
+} satisfies Prisma.Run$runOutputFileArgs;
+
 @Controller()
 @ApiTags('Job')
 @TenantResourceKey('job')
@@ -107,7 +114,7 @@ export class JobsController {
       where: { tenantCode: tenant.code, partnerId: tenant.partnerId, runs: { some: {} } },
       include: {
         schoolYear: true,
-        runs: true,
+        runs: { include: { runOutputFile: autoMatchesFile } },
         files: true,
         createdBy: true,
       },
@@ -130,6 +137,7 @@ export class JobsController {
           include: {
             runError: true,
             runUpdate: true,
+            runOutputFile: autoMatchesFile,
           },
         },
       },
@@ -180,6 +188,20 @@ export class JobsController {
     if (!url) {
       return new NotFoundException(
         `File not found for job ${jobId} and file input_no_student_id_match.csv`
+      );
+    }
+    return url;
+  }
+
+  // Every role may download it, unlike the run's other output files.
+  @Get(`:jobId/output-files/${AUTO_MATCHES_FILE_NAME}`)
+  @AllowMetatenant('job.metatenant.match-results.read')
+  @Authorize('job.match-results.read')
+  async downloadUrlForAutoMatchesOutputFile(@Param('jobId', new ParseIntPipe()) jobId: number) {
+    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, AUTO_MATCHES_FILE_NAME);
+    if (!url) {
+      throw new NotFoundException(
+        `File not found for job ${jobId} and file ${AUTO_MATCHES_FILE_NAME}`
       );
     }
     return url;
