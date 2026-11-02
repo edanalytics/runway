@@ -432,6 +432,11 @@ const rows: Row[] = [
 
 const MAX_COMPARED = 3;
 
+/** The space between the evidence table's columns. */
+const COLUMN_GAP = '0.5rem';
+/** Fixed, so the pinned file column knows where to sit. Fits the longest label. */
+const LABEL_WIDTH = '7rem';
+
 const rosterDetailsKey = 'runway.match-review.roster-details';
 
 /**
@@ -487,13 +492,25 @@ const EvidenceTable = ({
         ? 'inset 2px 0 0 var(--chakra-colors-green-100), inset -2px 0 0 var(--chakra-colors-green-100)'
         : undefined,
   });
+  // The label and file columns stay put while the candidates scroll beneath
+  // them. Each is pinned where it starts, after the gaps before it, and covers
+  // the gaps on either side, so nothing shows through them.
+  const pinned = (left: string) => ({
+    position: 'sticky' as const,
+    left,
+    zIndex: 1,
+    bg: 'blue.700',
+    boxShadow: `-${COLUMN_GAP} 0 0 var(--chakra-colors-blue-700), ${COLUMN_GAP} 0 0 var(--chakra-colors-blue-700)`,
+  });
+  const labelCell = { ...pinned(COLUMN_GAP), width: LABEL_WIDTH, minWidth: LABEL_WIDTH };
+  const fileCell = pinned(`calc(${COLUMN_GAP} + ${LABEL_WIDTH} + ${COLUMN_GAP})`);
 
   const renderRow = (row: Row) => (
     <Tr key={row.field}>
-      <Td whiteSpace="nowrap" opacity="0.85">
-        {row.label}
+      <Td {...labelCell} whiteSpace="nowrap">
+        <Box opacity="0.85">{row.label}</Box>
       </Td>
-      <Td>
+      <Td {...fileCell}>
         {(row.rosterOnly ? null : valueText(student.inputDetails[row.field])) ?? (
           <Missing compared={!row.rosterOnly} />
         )}
@@ -551,15 +568,15 @@ const EvidenceTable = ({
           sx={{
             // Separate cells, so each candidate's band has space around it.
             borderCollapse: 'separate',
-            borderSpacing: '0.5rem 0',
+            borderSpacing: `${COLUMN_GAP} 0`,
             td: { paddingX: '200', verticalAlign: 'top', borderColor: 'blue.50-40' },
             th: { paddingX: '200' },
           }}
         >
           <Thead>
             <Tr>
-              <Th />
-              <Th color="blue.50" textTransform="none" fontSize="0.8rem">
+              <Th {...labelCell} />
+              <Th {...fileCell} color="blue.50" textTransform="none" fontSize="0.8rem">
                 In your file
               </Th>
               {shown.map((c) => (
@@ -584,7 +601,7 @@ const EvidenceTable = ({
                   <Box fontWeight="normal" opacity="0.8">
                     {[
                       c.source === 'search' && 'Found by your search',
-                      c.score !== null && `match score ${c.score}`,
+                      c.score !== null && `match score ${c.score.toFixed(5)}`,
                     ]
                       .filter(Boolean)
                       .join(' · ')
@@ -599,10 +616,12 @@ const EvidenceTable = ({
             {rows.filter((row) => !row.rosterOnly).map(renderRow)}
             {/* The toggle stays put; roster details open beneath it. */}
             <Tr>
-              <Td paddingY="100" colSpan={2}>
+              <Td {...pinned(COLUMN_GAP)} paddingY="100" colSpan={2}>
                 <QuietButton
                   size="xs"
-                  paddingX="0"
+                  // Padded for the hover background, and pulled back so the text keeps its place.
+                  paddingX="200"
+                  marginLeft="-200"
                   onClick={() => setShowRosterOnly(!showRosterOnly)}
                   aria-expanded={showRosterOnly}
                 >
@@ -615,8 +634,8 @@ const EvidenceTable = ({
             </Tr>
             {showRosterOnly && rows.filter((row) => row.rosterOnly).map(renderRow)}
             <Tr>
-              <Td />
-              <Td />
+              <Td {...labelCell} />
+              <Td {...fileCell} />
               {shown.map((c) => (
                 <Td
                   key={c.studentUniqueId}

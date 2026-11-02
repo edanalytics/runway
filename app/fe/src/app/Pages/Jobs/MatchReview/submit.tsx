@@ -209,13 +209,13 @@ export const SubmitReview = ({
                       <RecordLines details={student.inputDetails} />
                     </Td>
                     <Td>
+                      {candidate && <CrossYearCue rosterDetails={candidate.rosterDetails} />}
                       {candidate && (
                         <RecordLines
                           details={candidate.rosterDetails}
                           against={student.inputDetails}
                         />
                       )}
-                      {candidate && <CrossYearCue rosterDetails={candidate.rosterDetails} />}
                       {candidate?.source === 'search' && (
                         <Box fontSize="0.75rem" opacity="0.8">
                           Found by search
