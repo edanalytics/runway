@@ -122,8 +122,10 @@ class JobExecutor:
 
             self.unpack_job(job)
             self.refresh_bundle_code()
+            self.earthmover_deps(self.student_id_wrapper_earthmover)
+
             if self.send_to_ods and self.local_mode:
-                self.modify_local_lightbeam()
+                self.modify_local_lightbeam() # LightbeamRunner
 
             if self.run_type == 'send':
                 self.send_manual_matches(artifact.FUZZY_MATCHING, self.send['students'])
@@ -133,15 +135,14 @@ class JobExecutor:
                 self.get_input_files()
                 self.map_descriptors()
 
-                # Conditionally run matching processes based on the job matching mode
-                # id_based is the default matching mode, set in unpack_job
-                if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
-                    self.get_student_roster()
-                    # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
-                    self.orchestrate_earthmover()
-                if self.id_matching_mode == 'fuzzy':
-                    # when the matching_mode is fuzzy, we run earthmover with a separate wrapper in the match_candidates method
-                    self.run_fuzzy_matching()
+            # Conditionally run matching processes based on the job matching mode
+            # id_based is the default matching mode, set in unpack_job
+            if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
+                # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
+                self.orchestrate_earthmover()
+            # if self.id_matching_mode == 'fuzzy':
+            #     # when the matching_mode is fuzzy, we run earthmover with a separate wrapper in the match_candidates method
+            #     self.run_fuzzy_matching()
             
             self.lightbeam_send()
             if self.id_matching_mode in ["id_based", "id_based_fuzzy_background"]:
