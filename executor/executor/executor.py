@@ -816,18 +816,16 @@ class JobExecutor:
 
             self.logger.info(f"{len(ods_substituted)} ODS matching records and {len(cross_year_substituted)} cross-year matching records substituted for resource {resource}. {len(unsubstituted)} records still need review")
 
-    def write_auto_matches_csv(self, matches_artifact: artifact.JobArtifact, matches: dict[str, dict]) -> None:
-        """Given a matches dictionary, write the matches to a given path and upload"""
+    def write_auto_matches_csv(self, matches_artifact: artifact.JobArtifact, match_list: list[dict]) -> None:
+        """Given a list of auto matches, write the matches to a given path and upload"""
 
-        if not matches:
+        if not match_list:
             return
-
-        match_list = [{'correlation_id': k, **v} for k, v in matches.items()]
 
         # Write auto matches to csv
         os.makedirs(config.ORIGINAL_DIR, exist_ok=True)
         with open(matches_artifact.path, 'w', newline = "") as file:
-            writer = csv.DictWriter(file, fieldnames = match_list[0].keys())
+            writer = csv.DictWriter(file, fieldnames=list(dict.fromkeys(k for row in match_list for k in row)))
             writer.writeheader()
             writer.writerows(match_list)
 
@@ -886,7 +884,7 @@ class JobExecutor:
         # Handle results
         self.send_student_match_results(needs_review)
         self.send_auto_matches(artifact.FUZZY_MATCHING, auto_matches)
-        self.write_auto_matches_csv(artifact.AUTO_MATCHES, auto_matches)
+        self.write_auto_matches_csv(artifact.AUTO_MATCHES, result_set.auto_match_csv())
         self.build_output_sets()
 
     def check_input_encoding(self):
