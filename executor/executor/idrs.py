@@ -300,7 +300,31 @@ class IDRSMatchResultSet:
         '''return a correlation_id <-> student_unique_id lookup for auto-matched records'''
         current_year = int(os.environ['API_YEAR'])
         auto_matches = {record.correlation_id: {"student_unique_id": max(record.matches, key=lambda m: m['score'])['student_unique_id'], "cross_year_flag": current_year not in (max(record.matches, key=lambda m: m['score']).get('school_years') or [])} for record in self.records.values() if record.match_type == 'auto'}
-        return auto_matches    
+        return auto_matches
+
+    @staticmethod
+    def _csv_cell(v):
+        '''helper method to format list inputs of auto matches'''
+        if isinstance(v, list):
+            return "|".join(f"{i.get('id_type') or 'unknown'}:{i.get('id_value')}" if isinstance(i, dict) else str(i) for i in v)
+        return v
+
+    def auto_match_csv(self) -> list[dict]:
+        '''return the matched student id, candidate info and matched candidate info associated with the auto matches in a result set. This will be returned as a CSV downstream.'''
+        
+        auto_match_list = []
+        for record in self.records.values():
+            if record.match_type != 'auto':
+                continue
+            match = max(record.matches, key=lambda m: m['score'])
+            auto_match_list.append({
+                **{k: self._csv_cell(v) for k, v in record.candidate.items() if k != 'correlation_id'},
+                'student_unique_id': match['student_unique_id'],
+                **{f'matched_{k}': self._csv_cell(v) for k, v in match.items() if k != 'student_unique_id'},
+                'correlation_id': record.correlation_id,
+            })
+
+        return auto_match_list
 
     def needs_review(self) -> list[dict]:
         '''return a subset of the IDRSMatchResultSet containing records that need review (user input or 'none')'''
