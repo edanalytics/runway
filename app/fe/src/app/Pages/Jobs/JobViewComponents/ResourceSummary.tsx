@@ -171,6 +171,9 @@ const AutoMatchesDownload = ({ jobId }: { jobId: GetJobDto['id'] }) => {
             textStyle="button"
             textColor="green.100"
             fontFamily="IBM Plex Sans Condensed, sans-serif"
+            // Chakra's 40px button would push the sentence below the heading
+            // further than the summary table's rows.
+            height="auto"
             fileName={AUTO_MATCHES_FILE_NAME}
             label="download list"
             getPresignedUrl={() =>
@@ -181,7 +184,7 @@ const AutoMatchesDownload = ({ jobId }: { jobId: GetJobDto['id'] }) => {
           />
         </HStack>
         {hasDownloadError && (
-          <Box textStyle="body" textColor="pink.100" marginTop="-0.5rem">
+          <Box textStyle="body" textColor="pink.100">
             error downloading file
           </Box>
         )}
