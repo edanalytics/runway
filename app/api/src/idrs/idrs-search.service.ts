@@ -5,9 +5,11 @@ import { idrsStudentSearchUrl } from './idrs-student-search-url';
 
 /**
  * The search request's own bound. Getting credentials is bounded separately,
- * at 5 s for the secret and 5 s for the token.
+ * at 5 s for the secret and 5 s for the token. Together they stay under the
+ * 60 s at which the ALB's idle timeout and nginx's proxy_read_timeout cut the
+ * request, so a slow search gets this route's 502 rather than their bare 504.
  */
-const IDRS_SEARCH_TIMEOUT_MS = 20_000;
+const IDRS_SEARCH_TIMEOUT_MS = 45_000;
 
 /** One of IDRS's matches, as returned, including fields not named here. */
 type IdrsStudentMatch = StudentRosterDetailsJson & {
