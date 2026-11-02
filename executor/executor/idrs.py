@@ -318,8 +318,8 @@ class IDRSMatchResultSet:
                 continue
             match = max(record.matches, key=lambda m: m['score'])
             auto_match_list.append({
-                'student_unique_id': match['student_unique_id'],
                 **{k: self._csv_cell(v) for k, v in record.candidate.items() if k != 'correlation_id'},
+                'student_unique_id': match['student_unique_id'],
                 **{f'matched_{k}': self._csv_cell(v) for k, v in match.items() if k != 'student_unique_id'},
                 'correlation_id': record.correlation_id,
             })
