@@ -193,8 +193,8 @@ export class JobsController {
     return url;
   }
 
-  // Under the match-results privileges, like the review read, since it holds
-  // students' details, rather than job.output-files.read.
+  // Like the review read, this is under the match-results privileges 
+  // rather than job.output-files.read, since it holds students' details
   @Get(`:jobId/output-files/${AUTO_MATCHES_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.match-results.read')
   @Authorize('job.match-results.read')
