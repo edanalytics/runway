@@ -4,3 +4,4 @@ export * from './put-base.dto';
 export * from './post-base.dto';
 export * from './make-serializer';
 export * from './prisma-json-types';
+export * from './school-years';

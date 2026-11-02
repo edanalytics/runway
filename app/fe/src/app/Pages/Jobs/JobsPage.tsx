@@ -10,8 +10,8 @@ export const JobsPage = () => {
   const { data: jobs } = useSuspenseQuery(jobQueries.getAll({}));
   jobs.sort(
     (a, b) =>
-      (b.lastRun?.createdOn ? b.lastRun.createdOn.getTime() : 0) - // TODO: separate DTO for configured job where run is required
-      (a.lastRun?.createdOn ? a.lastRun.createdOn?.getTime() : 0)
+      (b.fullRun?.createdOn ? b.fullRun.createdOn.getTime() : 0) - // TODO: separate DTO for configured job where run is required
+      (a.fullRun?.createdOn ? a.fullRun.createdOn?.getTime() : 0)
   );
 
   return (

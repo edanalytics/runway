@@ -9,7 +9,8 @@ export const seedJob = async (
   params: {
     bundle: IEarthmoverBundle;
     tenant: WithoutAudit<Tenant>;
-    runStatus?: RunStatus;
+    /** The full run's status, or null for a job not yet started. */
+    runStatus?: RunStatus | null;
     // Snapshotted onto the job at creation in real life; set it directly here
     // so a test can exercise a fuzzy mode without changing global fixtures.
     idMatchingMode?: IdMatchingMode;
@@ -47,6 +48,7 @@ export const seedJob = async (
       odsId,
       sendToOds,
       idMatchingMode,
+      configStatus: 'input_complete', // as createJob writes it, so a seeded job can start
       inputParams: postJobDto.inputParams,
       template: postJobDto.template,
       tenantCode: tenant.code,
@@ -64,7 +66,8 @@ export const seedJob = async (
         },
       },
       runs: {
-        create: {
+        create: runStatus === null ? [] : {
+          kind: 'full',
           status: runStatus,
           ...(summary && {
             summary: { testSummary: randomString('test-summary') },

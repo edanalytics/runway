@@ -8,10 +8,12 @@ import expressSession from 'express-session';
 import passport from 'passport';
 import sessionStore from '../../session/session-store';
 import { Reflector } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { FileService } from 'api/src/files/file.service';
 import { prepareMockOIDC } from '../../oidc/openid-client-mock';
 import { initExternalApiTokenMock, getLocalJWKS } from '../../external-api/token-helper';
 import { ExternalApiAuthService } from '../../../../src/external-api/auth/external-api.auth.service';
+import { useJsonBodyParsers } from '../../../../src/earthbeam/api/json-body-parsers';
 
 // For the most part, this mimics the bootstrapping done in src/main.ts,
 // with some modifications to accommodate the fact that this app is used
@@ -52,7 +54,7 @@ export const initApp = async function () {
     // any test runs, but it is the same trap.
     externalApiAuthService.getKeySet = jest.fn().mockResolvedValue(getLocalJWKS());
 
-    const app = moduleFixture.createNestApplication();
+    const app = moduleFixture.createNestApplication<NestExpressApplication>();
 
     app.use(
       expressSession({
@@ -72,6 +74,7 @@ export const initApp = async function () {
       done(null, user);
     });
 
+    useJsonBodyParsers(app);
     app.useGlobalPipes(new ValidationPipe({ transform: true, stopAtFirstError: false }));
     app.useGlobalInterceptors(
       new ClassSerializerInterceptor(app.get(Reflector), {

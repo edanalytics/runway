@@ -4,16 +4,21 @@ import { EduSnowflakePoolService } from 'api/src/earthbeam/api/edu-snowflake-poo
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { Readable } from 'node:stream';
 import request from 'supertest';
+import { omit } from 'lodash';
 import { seedJob } from '../factories/job-factory';
 import { bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods-fixture';
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
-import { Run } from '@prisma/client';
+import { Run, RunStatus } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
-import { IdrsCredentialsService } from 'api/src/earthbeam/api/idrs-credentials.service';
+import { stubIdrsConfig } from '../helpers/stub-idrs';
+import { reportMatchResults } from '../helpers/report-match-results';
+import { StudentRosterDetailsJson } from '@edanalytics/models';
+import { holdRunRow } from '../helpers/db/hold-job-row';
+import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 describe('Earthbeam API', () => {
   describe('GET /:runId', () => {
@@ -261,6 +266,223 @@ describe('Earthbeam API', () => {
       });
     });
 
+    describe('run kinds', () => {
+      /** The job's school year, 2024–25, by its end year. */
+      const JOB_YEAR = 2025;
+
+      type SavedMatch = {
+        correlationId: string;
+        basis: 'suggestion' | 'search';
+        /** The basis's roster details' school_years, as IDRS returned them. */
+        schoolYears: StudentRosterDetailsJson['school_years'];
+      };
+
+      const payloadOf = async (runId: number) => {
+        const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
+        return request(app.getHttpServer())
+          .get(`/earthbeam/jobs/${runId}`)
+          .set('Authorization', `Bearer ${token}`);
+      };
+
+      const callbackBaseOf = (runId: number) =>
+        `${app.get(AppConfigService).executorCallbackBaseUrl()}/api/earthbeam/jobs/${runId}`;
+
+      /** The callbacks every run gets. */
+      const callbackUrlsOf = (runId: number) => {
+        const base = callbackBaseOf(runId);
+        return {
+          status: `${base}/status`,
+          error: `${base}/error`,
+          summary: `${base}/summary`,
+          unmatchedIds: `${base}/unmatched-ids`,
+          outputFiles: `${base}/output-files`,
+        };
+      };
+
+      /**
+       * A fuzzy job whose full run succeeded, with a saved match for each
+       * student: to the one suggestion the full run reported for them, or,
+       * where it reported none, to a student the reviewer found by searching.
+       */
+      const seedMatchedJob = async (matches: SavedMatch[]) => {
+        const job = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          idMatchingMode: 'fuzzy',
+          runStatus: 'success',
+        });
+        const fullRun = job.runs[0];
+        await reportMatchResults(
+          fullRun.id,
+          matches.map(({ correlationId, basis, schoolYears }) => ({
+            correlation_id: correlationId,
+            candidate: { first_name: 'Ada' },
+            matches:
+              basis === 'suggestion'
+                ? [
+                    {
+                      student_unique_id: `SUID-${correlationId}`,
+                      score: 0.9,
+                      school_years: schoolYears,
+                    },
+                  ]
+                : [],
+          }))
+        );
+        for (const { correlationId, basis, schoolYears } of matches) {
+          const decision = { jobId: job.id, correlationId, seq: 1, kind: 'match' } as const;
+          if (basis === 'suggestion') {
+            const { id: resultId } = await prisma.studentMatchResult.findUniqueOrThrow({
+              where: {
+                jobId_correlationId_runId: { jobId: job.id, correlationId, runId: fullRun.id },
+              },
+            });
+            await prisma.studentMatchDecision.create({
+              data: { ...decision, resultId, ordinal: 0, studentUniqueId: `SUID-${correlationId}` },
+            });
+          } else {
+            await prisma.studentMatchDecision.create({
+              data: {
+                ...decision,
+                studentUniqueId: `SUID-FOUND-${correlationId}`,
+                searchDetails: { first_name: 'Ada' },
+                rosterDetails: { school_years: schoolYears },
+              },
+            });
+          }
+        }
+        return job;
+      };
+
+      /** A send run of these students' saved matches, recorded in the order given. */
+      const seedSendRun = async (jobId: number, correlationIds: string[]) => {
+        const run = await prisma.run.create({ data: { jobId, kind: 'send', status: 'new' } });
+        for (const correlationId of correlationIds) {
+          await prisma.sendRunDecision.create({
+            data: { runId: run.id, jobId, correlationId, seq: 1 },
+          });
+        }
+        return run;
+      };
+
+      it('gives a full run every step’s inputs, marked as a full run', async () => {
+        const job = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          idMatchingMode: 'fuzzy',
+        });
+        const fullRun = job.runs[0];
+
+        const res = await payloadOf(fullRun.id);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+          runType: 'full',
+          appDataBasePath: 's3://test-bucket/test-base-path',
+          inputFiles: { INPUT_FILE: job.files[0].nameInternal },
+          inputParams: {
+            API_YEAR: String(JOB_YEAR),
+            DESCRIPTOR_NAMESPACE: partnerA.descriptorNamespace,
+            FORMAT: 'Standard',
+          },
+          customDescriptorMappings: null,
+          bundle: { path: bundleA.path, branch: 'main' },
+          appUrls: {
+            ...callbackUrlsOf(fullRun.id),
+            identityService: `${callbackBaseOf(fullRun.id)}/identity-service`,
+            studentMatchResults: `${callbackBaseOf(fullRun.id)}/student-match-results`,
+          },
+          crossYearMatchAvailable: false,
+          idMatchingMode: 'fuzzy',
+          sendToOds: true,
+          assessmentDatastore: {
+            apiYear: String(JOB_YEAR),
+            url: '',
+            clientId: 'test',
+            clientSecret: expect.any(String),
+          },
+        });
+      });
+
+      it('gives a send run its job’s inputs, its run id and its decisions’ answers, and no matching callbacks', async () => {
+        const job = await seedMatchedJob([
+          { correlationId: 'corr-1', basis: 'suggestion', schoolYears: [JOB_YEAR] },
+          { correlationId: 'corr-2', basis: 'search', schoolYears: [JOB_YEAR] },
+          { correlationId: 'corr-3', basis: 'suggestion', schoolYears: [JOB_YEAR] },
+        ]);
+        // corr-3 went in an earlier submit's send run. This one's students are
+        // recorded out of correlation-id order.
+        await seedSendRun(job.id, ['corr-3']);
+        const sendRun = await seedSendRun(job.id, ['corr-2', 'corr-1']);
+
+        const full = await payloadOf(job.runs[0].id);
+        const res = await payloadOf(sendRun.id);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+          ...omit(full.body, 'runType', 'appUrls'),
+          runType: 'send',
+          appUrls: callbackUrlsOf(sendRun.id),
+          send: {
+            runId: sendRun.id,
+            students: [
+              { correlationId: 'corr-1', studentUniqueId: 'SUID-corr-1', isCrossYear: false },
+              { correlationId: 'corr-2', studentUniqueId: 'SUID-FOUND-corr-2', isCrossYear: false },
+            ],
+          },
+        });
+      });
+
+      it.each([true, false])(
+        'tells a send run which answers are outside the job’s year, from the basis’s school years, with crossYearMatchingEnabled %s',
+        async (crossYearMatchingEnabled) => {
+          await prisma.partner.update({
+            where: { id: partnerA.id },
+            data: { crossYearMatchingEnabled },
+          });
+          const job = await seedMatchedJob([
+            { correlationId: 'corr-1', basis: 'suggestion', schoolYears: [JOB_YEAR - 1, JOB_YEAR] },
+            { correlationId: 'corr-2', basis: 'suggestion', schoolYears: [JOB_YEAR - 1] },
+            { correlationId: 'corr-3', basis: 'search', schoolYears: [JOB_YEAR] },
+            { correlationId: 'corr-4', basis: 'search', schoolYears: [JOB_YEAR + 1] },
+          ]);
+          const sendRun = await seedSendRun(job.id, ['corr-1', 'corr-2', 'corr-3', 'corr-4']);
+
+          const res = await payloadOf(sendRun.id);
+
+          expect(
+            res.body.send.students.map(
+              ({ correlationId, isCrossYear }: Record<string, unknown>) => [
+                correlationId,
+                isCrossYear,
+              ]
+            )
+          ).toEqual([
+            ['corr-1', false],
+            ['corr-2', true],
+            ['corr-3', false],
+            ['corr-4', true],
+          ]);
+        }
+      );
+
+      // Submit refuses such a match, so the test seeds one directly to pin the
+      // backstop.
+      it('fails a send run’s payload when a match’s school years are missing', async () => {
+        const job = await seedMatchedJob([
+          { correlationId: 'corr-1', basis: 'suggestion', schoolYears: undefined },
+        ]);
+        const sendRun = await seedSendRun(job.id, ['corr-1']);
+
+        const res = await payloadOf(sendRun.id);
+
+        expect(res.status).toBe(500);
+        expect(res.body).toEqual({ statusCode: 500, message: 'Internal server error' });
+      });
+    });
+
     // TODO: add tests for things other than descriptor mappings
     describe('Authenticated requests: Descriptor Mappings', () => {
       const testDescriptorTypeA = 'testDescriptorTypeA';
@@ -387,6 +609,61 @@ describe('Earthbeam API', () => {
       });
     });
 
+  });
+
+  describe('GET auth/:runId/init', () => {
+    /** The Executor's init call, with the run's init token. */
+    const init = async (runId: number) => {
+      const token = await app.get(EarthbeamApiAuthService).createInitToken({ runId });
+      return request(app.getHttpServer())
+        .get(`/earthbeam/auth/${runId}/init`)
+        .set('Authorization', `Bearer ${token}`);
+    };
+
+    it('starts a new run', async () => {
+      const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+
+      const res = await init(job.runs[0].id);
+
+      expect(res.status).toBe(200);
+      const run = await prisma.run.findUniqueOrThrow({ where: { id: job.runs[0].id } });
+      expect(run.status).toBe('running');
+    });
+
+    // Its init token has been used, or the run failed to launch.
+    it.each<RunStatus>(['running', 'error'])(
+      'refuses a run that is %s, leaving it as it was',
+      async (runStatus) => {
+        const job = await seedJob({
+          odsConfig: odsConfigA2425,
+          bundle: bundleA,
+          tenant: tenantA,
+          runStatus,
+        });
+
+        const res = await init(job.runs[0].id);
+
+        expect(res.status).toBe(401);
+        const run = await prisma.run.findUniqueOrThrow({ where: { id: job.runs[0].id } });
+        expect(run.status).toBe(runStatus);
+      }
+    );
+
+    // An init token is single-use: of two racing inits, only the first starts the run.
+    it('starts a run once when two inits race', async () => {
+      const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+      const holder = await holdRunRow(job.runs[0].id);
+      try {
+        const pending = [1, 2].map(() => init(job.runs[0].id));
+        await waitUntilBlockedBy(holder.pid, 2);
+        await holder.client.query('ROLLBACK');
+        const responses = await Promise.all(pending);
+
+        expect(responses.map(({ status }) => status).sort()).toEqual([200, 401]);
+      } finally {
+        await holder.release();
+      }
+    });
   });
 
   describe('GET /:runId/roster', () => {
@@ -592,23 +869,11 @@ describe('Earthbeam API', () => {
       runX = jobX.runs[0];
       tokenX = await authService.createAccessToken({ runId: runX.id });
 
-      // Tokens are cached per app instance, and the app is shared across tests.
-      const idrsCredentials = app.get(IdrsCredentialsService);
-      (idrsCredentials as unknown as { cache: Map<string, unknown> }).cache.clear();
-
-      // Stub at the config boundary so the real token service, controller and
-      // error mapping all run; only AWS and the OAuth server are faked.
-      configService = app.get(AppConfigService);
-      jest
-        .spyOn(configService, 'idrsOauthTokenUrl')
-        .mockReturnValue('https://auth.example.test/oauth/token');
-      jest.spyOn(configService, 'idrsUrl').mockReturnValue(idrsBaseUrl);
-      jest
-        .spyOn(configService, 'getIdrsConnectionInfo')
-        .mockImplementation(async (partnerId: string) => ({
-          clientId: `${partnerId}-client`,
-          clientSecret: `${partnerId}-secret`,
-        }));
+      // The real token service, controller and error mapping all run.
+      configService = stubIdrsConfig({
+        idrsUrl: idrsBaseUrl,
+        tokenUrl: 'https://auth.example.test/oauth/token',
+      });
       fetchSpy = jest
         .spyOn(global, 'fetch')
         .mockResolvedValue(
@@ -801,6 +1066,128 @@ describe('Earthbeam API', () => {
         });
       });
 
+      it('records the files in output/ for a full run, and none for a send run', async () => {
+        const sendRun = await prisma.run.create({
+          data: { jobId: runA.jobId, kind: 'send', status: 'running' },
+        });
+        const sendToken = await app
+          .get(EarthbeamApiAuthService)
+          .createAccessToken({ runId: sendRun.id });
+        fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+          { key: 'test-base-path/output/results.jsonl', name: 'results.jsonl' },
+        ]);
+
+        // The send run completes first, so if it listed output/ it would take these files.
+        const sendRes = await request(app.getHttpServer())
+          .post(`/earthbeam/jobs/${sendRun.id}/status`)
+          .set('Authorization', `Bearer ${sendToken}`)
+          .send({ action: 'done', status: 'success' });
+        expect(sendRes.status).toBe(201);
+        const fullRes = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ action: 'done', status: 'success' });
+        expect(fullRes.status).toBe(201);
+
+        expect(await prisma.runOutputFile.findMany({ where: { runId: runA.id } })).toMatchObject([
+          { name: 'results.jsonl', path: 'test-base-path/output/results.jsonl' },
+        ]);
+        expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
+      });
+
+      // The job page polls until the run's `done` update appears, and a retried
+      // `done` is refused once the run is final, so the update must be
+      // recorded with the status, before anything that can fail.
+      it('records a done with its status even when listing the output files fails', async () => {
+        fileServiceMock.listFilesAtPath.mockRejectedValueOnce(new Error('S3 is unavailable'));
+
+        const res = await request(app.getHttpServer())
+          .post(endpointA)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ action: 'done', status: 'success' });
+
+        expect(res.status).toBe(500);
+        expect(await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).toMatchObject({
+          status: 'success',
+        });
+        expect(
+          (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
+            ({ action, status }) => [action, status]
+          )
+        ).toEqual([['done', 'success']]);
+      });
+
+      // A run's `success` or `error` is final. A late `done` that contradicts
+      // it would let a run counted as failed, and so resent, count as
+      // delivered too.
+      it.each([
+        ['failure', 'error', 'success'],
+        ['success', 'success', 'failure'],
+      ])(
+        'refuses a done after done/%s, leaving the run %s, with no event, listing or update',
+        async (first, runStatus, second) => {
+          const done = (status: string) =>
+            request(app.getHttpServer())
+              .post(endpointA)
+              .set('Authorization', `Bearer ${tokenA}`)
+              .send({ action: 'done', status });
+
+          // The file service mock is shared, so its calls accumulate across tests.
+          const listings = () => fileServiceMock.listFilesAtPath.mock.calls.length;
+
+          expect((await done(first)).status).toBe(201);
+          const listingsAfterFirst = listings();
+          const res = await done(second);
+
+          expect(res.status).toBe(409);
+          expect(await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).toMatchObject({
+            status: runStatus,
+          });
+          // The first done's event only.
+          expect(
+            eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete')
+          ).toHaveLength(1);
+          expect(listings()).toBe(listingsAfterFirst);
+          expect(
+            (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
+              ({ action, status }) => [action, status]
+            )
+          ).toEqual([['done', first]]);
+        }
+      );
+
+      // Of two racing dones, only the first completes the run, and the second
+      // is refused as if it came later.
+      it('completes a run once when two dones race', async () => {
+        const holder = await holdRunRow(runA.id);
+        try {
+          // then() sends each request now, rather than when it's awaited.
+          const pending = ['success', 'failure'].map((status) =>
+            request(app.getHttpServer())
+              .post(endpointA)
+              .set('Authorization', `Bearer ${tokenA}`)
+              .send({ action: 'done', status })
+              .then((res) => res)
+          );
+          await waitUntilBlockedBy(holder.pid, 2);
+          await holder.client.query('ROLLBACK');
+          const responses = await Promise.all(pending);
+
+          expect(responses.map(({ status }) => status).sort()).toEqual([201, 409]);
+          const updates = await prisma.runUpdate.findMany({ where: { runId: runA.id } });
+          expect(updates.map(({ action }) => action)).toEqual(['done']);
+          // The run took the outcome of the done that was recorded.
+          expect((await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).status).toBe(
+            updates[0].status === 'success' ? 'success' : 'error'
+          );
+          expect(
+            eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete')
+          ).toHaveLength(1);
+        } finally {
+          await holder.release();
+        }
+      });
+
       describe('Slack Notifiction', () => {
         it('should send a slack notification when the run is complete', async () => {
           const res = await request(app.getHttpServer())
@@ -818,6 +1205,52 @@ describe('Earthbeam API', () => {
               status: 'success',
             })
           );
+        });
+
+        // A run can fail without reporting an error, such as when the Executor
+        // dies before it can.
+        it('sends a notification for a failed run with no errors reported', async () => {
+          const res = await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'failure' });
+
+          expect(res.status).toBe(201);
+          expect(eventEmitterMock).toHaveBeenCalledWith(
+            'run_complete',
+            expect.objectContaining({ runId: runA.id, status: 'error' })
+          );
+        });
+
+        it('marks a full run’s event with its kind, leaving its summary as it was', async () => {
+          const job = await prisma.job.findUniqueOrThrow({ where: { id: runA.jobId } });
+
+          await request(app.getHttpServer())
+            .post(endpointA)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload.runType).toBe('full');
+          expect(payload.summary.startsWith(`${job.name} (`)).toBe(true);
+        });
+
+        it('marks a send run’s event with its kind, and says so in its summary', async () => {
+          const sendRun = await prisma.run.create({
+            data: { jobId: runA.jobId, kind: 'send', status: 'running' },
+          });
+          const sendToken = await app
+            .get(EarthbeamApiAuthService)
+            .createAccessToken({ runId: sendRun.id });
+
+          await request(app.getHttpServer())
+            .post(`/earthbeam/jobs/${sendRun.id}/status`)
+            .set('Authorization', `Bearer ${sendToken}`)
+            .send({ action: 'done', status: 'success' });
+
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          expect(payload).toMatchObject({ runId: sendRun.id, runType: 'send' });
+          expect(payload.summary).toMatch(/^send run: /);
         });
 
         it('should report reportable resource errors and the input params', async () => {

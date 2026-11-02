@@ -77,7 +77,7 @@ export const JobsTable = ({ jobs }: { jobs: GetJobDto[] }) => {
         },
         {
           header: 'Date',
-          accessorFn: (row) => (row.lastRun?.createdOn ? row.lastRun.createdOn.getTime() : null),
+          accessorFn: (row) => (row.fullRun?.createdOn ? row.fullRun.createdOn.getTime() : null),
           sortingFn: 'datetime',
           cell: ({ row }: { row: Row<GetJobDto> }) => row.original.displayStartedOn,
           meta: {

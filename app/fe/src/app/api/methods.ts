@@ -84,5 +84,18 @@ export const methods = {
     const res = await apiClient.post<R>(url, instanceToPlain(plainToInstance(dtoReq, data)));
     return plainToInstance(dtoRes, res);
   },
+  /** A POST whose response is an array, such as a search's. */
+  postMany: async <R extends object, P extends object>(
+    url: string,
+    dtoReq: ClassConstructor<R>,
+    dtoRes: ClassConstructor<P>,
+    data: R
+  ) => {
+    const res = (await apiClient.post<R>(
+      url,
+      instanceToPlain(plainToInstance(dtoReq, data))
+    )) as unknown as P[];
+    return (res ?? []).map((o) => plainToInstance(dtoRes, o));
+  },
   delete: (url: string) => apiClient.delete<unknown>(url),
 };

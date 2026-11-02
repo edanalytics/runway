@@ -15,6 +15,8 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
       'job.match-results.read',
       'job.match-results.background.read',
       'job.match-results.update',
+      'job.match-results.search',
+      'job.match-results.submit',
     ])
   ),
   User: Object.freeze(
@@ -22,6 +24,8 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
       'school-year-config.read',
       'job.match-results.read',
       'job.match-results.update',
+      'job.match-results.search',
+      'job.match-results.submit',
     ])
   ),
   SupportUser: Object.freeze(
@@ -32,10 +36,14 @@ export const rolePrivileges: Record<AppRoles, Set<PrivilegeKey>> = Object.freeze
       'job.metatenant.output-files.read',
       'job.metatenant.match-results.read',
       'job.metatenant.match-results.update',
+      'job.metatenant.match-results.search',
+      'job.metatenant.match-results.submit',
       'job.output-files.read',
       'job.match-results.read',
       'job.match-results.background.read',
       'job.match-results.update',
+      'job.match-results.search',
+      'job.match-results.submit',
     ])
   ),
 });

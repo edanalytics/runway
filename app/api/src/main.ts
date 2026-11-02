@@ -1,5 +1,6 @@
 import { ClassSerializerInterceptor, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import pg from 'pg';
 import pgSession from 'connect-pg-simple';
@@ -10,9 +11,10 @@ import { AppModule } from './app/app.module';
 import { IdentityProviderService } from './auth/login/identity-provider.service';
 import { AppConfigService } from './config/app-config.service';
 import { migrate } from './database';
+import { useJsonBodyParsers } from './earthbeam/api/json-body-parsers';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const globalPrefix = 'api';
   const configService = app.get(AppConfigService);
 
@@ -59,6 +61,7 @@ async function bootstrap() {
   }) satisfies RequestHandler);
 
   app.setGlobalPrefix(globalPrefix);
+  useJsonBodyParsers(app);
   app.useGlobalPipes(new ValidationPipe({ transform: true, stopAtFirstError: false }));
 
   const idpRows = await pgPool.query(

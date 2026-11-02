@@ -19,6 +19,9 @@ interface Props {
   title: string;
   description: string;
   confirmLabel: string;
+  // While true, the confirm button shows a spinner and ignores clicks, so a
+  // pending action can't be sent twice.
+  isLoading?: boolean;
   // Optional extra body content rendered below the description (e.g. a list of
   // pending changes).
   children?: ReactNode;
@@ -35,6 +38,7 @@ export const ConfirmModal = ({
   title,
   description,
   confirmLabel,
+  isLoading,
   children,
 }: Props) => {
   return (
@@ -60,6 +64,7 @@ export const ConfirmModal = ({
               bg="green.600"
               color="green.50"
               _hover={{ bg: 'green.400' }}
+              isLoading={isLoading}
               onClick={onConfirm}
             >
               {confirmLabel}

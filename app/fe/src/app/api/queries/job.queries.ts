@@ -8,10 +8,18 @@ import {
   JobErrorWrapperDto,
   PutJobResolveDto,
   GetOutputFileDto,
+  GetStudentMatchResultsDto,
+  GetIdrsStudentDto,
+  PostStudentMatchDecisionDto,
+  PostStudentMatchDecisionResponseDto,
+  PostStudentMatchSubmitDto,
+  PostStudentMatchSubmitResponseDto,
+  StudentSearchDetailsDto,
 } from '@edanalytics/models';
 import { EntityQueryBuilder } from './builder';
 import { apiClient, methods } from '../methods';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 
 export const jobQueries = new EntityQueryBuilder({ classNamePlural: 'Jobs' })
   .getAll({ ResDto: GetJobDto })
@@ -28,13 +36,13 @@ export const jobQueries = new EntityQueryBuilder({ classNamePlural: 'Jobs' })
   )
   .build();
 
-export const putJobResolve = (job: GetJobDto, queryClient = useQueryClient()) => ({
+export const putJobResolve = (
+  job: GetJobDto,
+  invalidateJobSummary = useInvalidateJobSummary(job.id)
+) => ({
   mutationFn: (putResolveDto: PutJobResolveDto) =>
     methods.put(`/jobs/${job.id}/resolve`, PutJobResolveDto, GetJobDto, putResolveDto),
-  onSuccess: async () => {
-    await queryClient.invalidateQueries({ queryKey: ['jobs', 'list'] });
-    await queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${job.id}`] });
-  },
+  onSuccess: invalidateJobSummary,
 });
 
 export const getJobStatusUpdates = (jobId: string) => ({
@@ -74,6 +82,47 @@ export const getOutputFileDownloadUrl = async ({
   return url;
 };
 
+export const getJobStudentMatchResults = (jobId: string) => ({
+  queryKey: ['jobs', jobId, 'student-match-results'],
+  queryFn: () => methods.getOne(`/jobs/${jobId}/student-match-results`, GetStudentMatchResultsDto),
+});
+
+/** The route for one of a job's students to match. Correlation ids are opaque, so encoded. */
+const studentMatchUrl = (jobId: string, correlationId: string) =>
+  `/jobs/${jobId}/student-match-results/${encodeURIComponent(correlationId)}`;
+
+export const postStudentMatchDecision = (
+  jobId: string,
+  correlationId: string,
+  dto: PostStudentMatchDecisionDto
+) =>
+  methods.post(
+    `${studentMatchUrl(jobId, correlationId)}/decisions`,
+    PostStudentMatchDecisionDto,
+    PostStudentMatchDecisionResponseDto,
+    dto
+  );
+
+export const postStudentMatchSearch = (
+  jobId: string,
+  correlationId: string,
+  dto: StudentSearchDetailsDto
+) =>
+  methods.postMany(
+    `${studentMatchUrl(jobId, correlationId)}/search`,
+    StudentSearchDetailsDto,
+    GetIdrsStudentDto,
+    dto
+  );
+
+export const postStudentMatchSubmit = (jobId: string, dto: PostStudentMatchSubmitDto) =>
+  methods.post(
+    `/jobs/${jobId}/student-match-results/submit`,
+    PostStudentMatchSubmitDto,
+    PostStudentMatchSubmitResponseDto,
+    dto
+  );
+
 export const getJobOutputFiles = (jobId: string) => ({
   queryKey: ['jobs', jobId, 'output-files'],
   queryFn: () => methods.getMany(`/jobs/${jobId}/output-files`, GetOutputFileDto),
@@ -85,4 +134,21 @@ export const useInvalidateJobQueries = (jobId: string | number) => {
     queryClient.invalidateQueries({ queryKey: ['jobs', jobId.toString()] });
     queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${jobId}`] });
   };
+};
+
+/**
+ * Refreshes where a job's status, counts and combined summary show: its page
+ * and the jobs table. Unlike `useInvalidateJobQueries`, not the job's other
+ * reads, such as its match results, which a caller may be refreshing itself.
+ */
+export const useInvalidateJobSummary = (jobId: string | number) => {
+  const queryClient = useQueryClient();
+  return useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['jobs', 'list'] }),
+        queryClient.invalidateQueries({ queryKey: ['jobs', `detail-${jobId}`] }),
+      ]),
+    [jobId, queryClient]
+  );
 };

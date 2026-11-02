@@ -1,14 +1,10 @@
 import {
   EarthmoverBundleTypes,
-  GetStudentMatchCountsDto,
   JobInputParamDto,
   JsonArray,
-  PostStudentMatchDecisionDto,
-  StudentMatchDecisionWithUser,
-  studentMatchStatus,
   toGetJobTemplateDto,
 } from '@edanalytics/models';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { FileStatus, Job, JobFile, PrismaClient, Tenant } from '@prisma/client';
 import { FileService } from '../files/file.service';
@@ -16,268 +12,39 @@ import { rosterFileKey } from '../earthbeam/roster-path';
 import { PRISMA_READ_ONLY } from '../database';
 import { EarthbeamBundlesService } from '../earthbeam/earthbeam-bundles.service';
 import { AppConfigService } from '../config/app-config.service';
-import {
-  ExecutorService,
-  ExecutorStartResult,
-  EXECUTOR_SERVICE,
-} from '../earthbeam/executor/executor.service';
 import { ApiTokenClient } from '../external-api/external-api-token-client.decorator';
-
-/**
- * Far more than a reviewer will work through (typically under 10, at most a
- * few hundred). Past it, the file itself needs fixing. At the limit, with ten
- * suggestions each, the response is about 3.5 MB.
- */
-export const MATCH_REVIEW_STUDENT_LIMIT = 1000;
-
-const noStudentsToMatch: GetStudentMatchCountsDto = {
-  total: 0,
-  toReview: 0,
-  ready: 0,
-  excluded: 0,
-};
+import { lockJobRow } from './job-row-lock';
+import { RunsService } from './runs.service';
 
 @Injectable()
 export class JobsService {
-  private readonly logger = new Logger(JobsService.name);
   constructor(
     @Inject(PRISMA_READ_ONLY) private prisma: PrismaClient,
     private fileService: FileService,
-    @Inject(EXECUTOR_SERVICE) private executor: ExecutorService,
     private bundleService: EarthbeamBundlesService,
-    private appConfig: AppConfigService
+    private appConfig: AppConfigService,
+    private runService: RunsService
   ) {}
 
+  private findFullRun<TInclude extends Prisma.RunInclude>(jobId: Job['id'], include: TInclude) {
+    return this.prisma.run.findFirst({
+      where: { jobId, kind: 'full' },
+      // A job has one full run; the latest, should it ever have more.
+      orderBy: { id: 'desc' },
+      include,
+    });
+  }
+
+  /** The full run's. A send run's surface through its students. */
   async getStatusUpdates(jobId: Job['id']) {
-    const lastRun = await this.prisma.run.findFirst({
-      where: { jobId },
-      orderBy: { createdOn: 'desc' },
-      include: { runUpdate: true },
-    });
-    return lastRun?.runUpdate;
+    const fullRun = await this.findFullRun(jobId, { runUpdate: true });
+    return fullRun?.runUpdate;
   }
 
+  /** The full run's. A send run's surface through its students. */
   async getErrors(jobId: Job['id']) {
-    const lastRun = await this.prisma.run.findFirst({
-      where: { jobId },
-      orderBy: { createdOn: 'desc' },
-      include: { runError: true },
-    });
-    return lastRun?.runError;
-  }
-
-  /** Overridable so tests can reach the limit without seeding 1,000 students. */
-  studentMatchReviewLimit = MATCH_REVIEW_STUDENT_LIMIT;
-
-  /**
-   * Each job's student match counts. Job reads and the review read both use
-   * this, so they count the same way. Jobs with no students are absent.
-   *
-   * Takes a Prisma client, though it only reads, so the review read can run it
-   * in its transaction. Other callers use the service's read-only client.
-   */
-  async getStudentMatchCounts(
-    jobIds: Job['id'][],
-    prisma: PrismaClient = this.prisma
-  ): Promise<Map<Job['id'], GetStudentMatchCountsDto>> {
-    // Keep the statuses in step with studentMatchStatus.
-    const rows = await prisma.$queryRaw<
-      { job_id: number; total: bigint; to_review: bigint; ready: bigint; excluded: bigint }[]
-    >`
-      SELECT i.job_id,
-             count(*) AS total,
-             count(*) FILTER (WHERE d.kind IS NULL OR d.kind = 'clear') AS to_review,
-             count(*) FILTER (WHERE d.kind = 'match') AS ready,
-             count(*) FILTER (WHERE d.kind = 'exclude') AS excluded
-      FROM public.student_input_details i
-      LEFT JOIN LATERAL (
-        SELECT kind FROM public.student_match_decision d
-        WHERE d.job_id = i.job_id AND d.correlation_id = i.correlation_id
-        ORDER BY d.seq DESC
-        LIMIT 1
-      ) d ON true
-      WHERE i.job_id = ANY(${jobIds}::int[])
-      GROUP BY i.job_id
-    `;
-    return new Map(
-      rows.map((row) => [
-        row.job_id,
-        {
-          total: Number(row.total),
-          toReview: Number(row.to_review),
-          ready: Number(row.ready),
-          excluded: Number(row.excluded),
-        },
-      ])
-    );
-  }
-
-  /** Adds the counts every job read that shows a status needs. */
-  async withStudentMatchCounts<T extends Pick<Job, 'id'>>(jobs: T[]) {
-    const counts = await this.getStudentMatchCounts(jobs.map((job) => job.id));
-    return jobs.map((job) => {
-      return { ...job, studentMatchCounts: counts.get(job.id) ?? noStudentsToMatch };
-    });
-  }
-
-  /**
-   * The job's students to match, each with their current decision and every
-   * run's result for it, and each result's suggestions in order.
-   */
-  async getStudentMatchResults(jobId: Job['id']) {
-    // One snapshot, so the counts and the students agree with each other even
-    // while students are reported or decided.
-    return this.prisma.$transaction(
-      async (tx) => {
-        const counts =
-          (await this.getStudentMatchCounts([jobId], tx as PrismaClient)).get(jobId) ??
-          noStudentsToMatch;
-        if (counts.total > this.studentMatchReviewLimit) {
-          return { counts, students: null };
-        }
-
-        const inputs = await tx.studentInputDetails.findMany({
-          where: { jobId },
-          // Only for a stable order: correlation ids are opaque hashes, so it
-          // means nothing to a reviewer.
-          orderBy: { correlationId: 'asc' },
-          include: {
-            studentMatchDecision: { orderBy: { seq: 'desc' }, take: 1, include: { user: true } },
-            studentMatchResult: {
-              orderBy: { runId: 'asc' },
-              include: { studentMatchSuggestion: { orderBy: { ordinal: 'asc' } } },
-            },
-          },
-        });
-        return {
-          counts,
-          // Prisma names each relation after its table; the API calls them
-          // results and suggestions.
-          students: inputs.map(({ studentMatchDecision, studentMatchResult, ...input }) => {
-            const latest = studentMatchDecision[0] as (typeof studentMatchDecision)[0] | undefined;
-            return {
-              ...input,
-              status: studentMatchStatus(latest?.kind),
-              decision:
-                latest && latest.kind !== 'clear'
-                  ? { ...latest, version: latest.seq, decidedBy: latest.user }
-                  : null,
-              results: studentMatchResult.map(({ studentMatchSuggestion, ...result }) => ({
-                ...result,
-                suggestions: studentMatchSuggestion,
-              })),
-            };
-          }),
-        };
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead }
-    );
-  }
-
-  /** Appends a decision to the student's history. See AGENTS.md. */
-  async decideStudentMatch(
-    input: {
-      jobId: Job['id'];
-      correlationId: string;
-      userId: number;
-      decision: PostStudentMatchDecisionDto;
-    },
-    prisma: PrismaClient
-  ): Promise<
-    | {
-        status: 'SUCCESS';
-        data: { decision: StudentMatchDecisionWithUser | null };
-      }
-    | {
-        status: 'ERROR';
-        code: 'not_found' | 'decision_changed' | 'results_changed' | 'invalid_target';
-      }
-  > {
-    const { jobId, correlationId, userId } = input;
-    const { replacesVersion, kind } = input.decision;
-    // Only a match names a suggestion; a target sent with anything else is ignored.
-    const { resultId = null, ordinal = null } = kind === 'match' ? input.decision : {};
-
-    // PostgreSQL text can't hold a NUL, so no student has one, and the lookup
-    // would fail on it with a 500.
-    if (correlationId.includes('\0')) {
-      return { status: 'ERROR', code: 'not_found' };
-    }
-
-    const student = await prisma.studentInputDetails.findUnique({
-      where: { jobId_correlationId: { jobId, correlationId } },
-      select: { studentMatchResult: { select: { id: true }, orderBy: { runId: 'desc' } } },
-    });
-    if (!student) {
-      return { status: 'ERROR', code: 'not_found' };
-    }
-
-    if (kind === 'match') {
-      const resultIds = student.studentMatchResult.map(({ id }) => id.toString());
-      if (!resultIds.includes(resultId!)) {
-        return { status: 'ERROR', code: 'invalid_target' };
-      }
-      // Reviewers pick from the latest search. A pick from an earlier one
-      // means the page predates it. Checked before the insert rather than in
-      // it: a search landing in between is harmless, since new results never
-      // invalidate a decision already made.
-      if (resultIds[0] !== resultId) {
-        return { status: 'ERROR', code: 'results_changed' };
-      }
-    }
-
-    let inserted: { seq: number }[];
-    try {
-      // Writes the row after the student's latest, if the caller saw what's
-      // current: that latest row for a version, or no decision (no rows, or a
-      // clear) for null. A clear needs a decision to clear.
-      // Two racing writes compute the same seq, so the loser collides with
-      // the winner on the primary key and does nothing.
-      inserted = await prisma.$queryRaw<{ seq: number }[]>`
-        INSERT INTO public.student_match_decision
-          (job_id, correlation_id, seq, kind, result_id, ordinal, decided_by_id)
-        SELECT ${jobId}::int, ${correlationId}, coalesce(latest.seq, 0) + 1,
-               ${kind}::public.student_match_decision_kind,
-               ${resultId}::bigint, ${ordinal}::int, ${userId}::int
-        FROM (SELECT 1) AS one
-        LEFT JOIN LATERAL (
-          SELECT seq, kind FROM public.student_match_decision
-          WHERE job_id = ${jobId}::int AND correlation_id = ${correlationId}
-          ORDER BY seq DESC
-          LIMIT 1
-        ) latest ON true
-        WHERE CASE
-          WHEN ${replacesVersion}::int IS NULL
-            THEN (latest.kind IS NULL OR latest.kind = 'clear') AND ${kind} <> 'clear'
-          ELSE latest.seq = ${replacesVersion}::int AND latest.kind <> 'clear'
-        END
-        ON CONFLICT (job_id, correlation_id, seq) DO NOTHING
-        RETURNING seq
-      `;
-    } catch (err) {
-      // The student and the result were checked above, so a foreign key
-      // violation means the ordinal isn't in the result. Matched by SQLSTATE
-      // alone: messages quote row values.
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.meta?.code === '23503') {
-        return { status: 'ERROR', code: 'invalid_target' };
-      }
-      throw err;
-    }
-    if (inserted.length === 0) {
-      return { status: 'ERROR', code: 'decision_changed' };
-    }
-
-    const row = await prisma.studentMatchDecision.findUniqueOrThrow({
-      where: { jobId_correlationId_seq: { jobId, correlationId, seq: inserted[0].seq } },
-      include: { user: true },
-    });
-    const { user, ...decision } = row;
-    return {
-      status: 'SUCCESS',
-      data: {
-        decision: row.kind === 'clear' ? null : { ...decision, version: row.seq, decidedBy: user },
-      },
-    };
+    const fullRun = await this.findFullRun(jobId, { runError: true });
+    return fullRun?.runError;
   }
 
   async resolveJobDestination(input: { schoolYearId: string; tenant: Tenant }): Promise<
@@ -517,12 +284,16 @@ export class JobsService {
     });
 
     // ─── Create job ─────────────────────────────────────────────────────────
-    // Snapshot the partner's matching mode so every run of this job uses the
+    // Snapshot the effective matching mode so every run of this job uses the
     // mode in effect at creation. Read explicitly — the column default is
-    // migration safety, not the creation path.
-    const partner = await prisma.partner.findUniqueOrThrow({
-      where: { id: tenant.partnerId },
-      select: { idMatchingMode: true },
+    // migration safety, not the creation path — and from the database, since
+    // the session's tenant dates from login.
+    const { tenantFuzzyOptIn, partner } = await prisma.tenant.findUniqueOrThrow({
+      where: { code_partnerId: { code: tenant.code, partnerId: tenant.partnerId } },
+      select: {
+        tenantFuzzyOptIn: true,
+        partner: { select: { idMatchingMode: true } },
+      },
     });
 
     const job = await prisma.job.create({
@@ -534,7 +305,7 @@ export class JobsService {
         template: toGetJobTemplateDto(bundle),
         inputParams: enrichedParams,
         configStatus: 'input_complete', // TODO: job config used to be a multi-step process, but not anymore and this col should probably be removed
-        idMatchingMode: partner.idMatchingMode,
+        idMatchingMode: tenantFuzzyOptIn ? 'fuzzy' : partner.idMatchingMode,
         tenantCode: tenant.code,
         partnerId: tenant.partnerId,
         apiIssuer: apiClient?.issuer,
@@ -623,66 +394,51 @@ export class JobsService {
     });
   }
 
-  async startJob(job: Job & { files: JobFile[] }, prisma: PrismaClient) {
+  async startJob(
+    job: Job & { files: JobFile[] },
+    prisma: PrismaClient
+  ): Promise<
+    | { status: 'SUCCESS' }
+    | {
+        status: 'ERROR';
+        code: 'job_config_incomplete' | 'job_already_started' | 'failed_to_start_executor';
+      }
+  > {
     if (
       job.configStatus !== 'input_complete' ||
       job.files.some((file) => file.status !== 'upload_complete')
     ) {
-      return { result: 'JOB_CONFIG_INCOMPLETE', job };
+      return { status: 'ERROR', code: 'job_config_incomplete' };
     }
 
-    const runs = await prisma.run.findMany({ where: { jobId: job.id } });
-    if (runs.some((run) => run.status === 'running' || run.status === 'new')) {
-      return { result: 'JOB_IN_PROGRESS', job };
-    }
+    const outcome = await prisma.$transaction(
+      async (tx) => {
+        // So two starts can't both find the job without a run.
+        await lockJobRow(tx, job.id, 'FOR NO KEY UPDATE');
 
-    const run = await prisma.run.create({
-      data: {
-        jobId: job.id,
-        status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
-      },
-      include: { job: { include: { schoolYear: true, files: true } } },
-    });
+        // A job is started once: re-running isn't supported.
+        if (await tx.run.findFirst({ where: { jobId: job.id }, select: { id: true } })) {
+          return { status: 'ERROR', code: 'job_already_started' } as const;
+        }
 
-    let startResult: ExecutorStartResult;
-    try {
-      startResult = await this.executor.start(run);
-    } catch (e) {
-      this.logger.error(`Failed to start run ${run.id}: ${e}`);
-
-      await prisma.run.update({
-        where: { id: run.id },
-        data: {
-          status: 'error',
-          runError: {
-            create: {
-              code: 'failed_to_start_executor',
-              payload: { stacktrace: 'stacktrace unavailable' },
-            },
+        const run = await tx.run.create({
+          data: {
+            jobId: job.id,
+            kind: 'full',
+            status: 'new', // it may take aws a few min to start the run, so we won't update this status as part of this function
           },
-          runUpdate: {
-            create: {
-              action: 'done',
-              status: 'failure',
-            },
-          },
-        },
-      });
-
-      return { result: 'JOB_START_FAILED', job, error: e };
-    }
-
-    if (startResult.ecsTaskArn || startResult.taskSize) {
-      try {
-        await prisma.run.update({
-          where: { id: run.id },
-          data: { ecsTaskArn: startResult.ecsTaskArn, taskSize: startResult.taskSize },
+          include: { job: { include: { schoolYear: true, files: true } } },
         });
-      } catch (e) {
-        this.logger.error(`Failed to record ECS task for run ${run.id}: ${e}`);
-      }
+        return { status: 'SUCCESS', run } as const;
+      },
+      // Each statement sees what committed before it, so reading the runs
+      // sees a run committed while this transaction waited at the lock.
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted }
+    );
+    if (outcome.status === 'ERROR') {
+      return outcome;
     }
 
-    return { result: 'JOB_STARTED', job, run };
+    return this.runService.launch(outcome.run, prisma);
   }
 }

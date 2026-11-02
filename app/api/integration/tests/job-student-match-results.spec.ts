@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { IdMatchingMode, Job, Run } from '@prisma/client';
+import { IdMatchingMode, Job, Run, RunStatus } from '@prisma/client';
 import { seedJob } from '../factories/job-factory';
 import { bundleA } from '../fixtures/em-bundle-fixtures';
 import { odsConfigA2425, odsConfigB2526 } from '../fixtures/context-fixtures/ods-fixture';
@@ -7,9 +7,12 @@ import { tenantA, tenantB, tenantDGlobal } from '../fixtures/context-fixtures/te
 import { userA, userB } from '../fixtures/user-fixtures';
 import { idpA } from '../fixtures/context-fixtures/idp-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
-import { GetJobDto } from '@edanalytics/models';
+import { GetJobDto, GetSendRunDto, GetStudentInputDetailsDto } from '@edanalytics/models';
 import { plainToInstance } from 'class-transformer';
-import { JobsService } from 'api/src/jobs/jobs.service';
+import {
+  noStudentsToMatch,
+  StudentMatchReviewService,
+} from '../../src/jobs/student-match-review.service';
 import { reportMatchResults as report } from '../helpers/report-match-results';
 import { withoutPrivilege } from '../helpers/without-privilege';
 
@@ -32,6 +35,28 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     expect(res.status).toBe(201);
   };
 
+  /** A send run of each student's latest decision, as submitting creates one. */
+  const seedSendRun = async (jobId: number, correlationIds: string[], status: RunStatus) => {
+    const run = await prisma.run.create({ data: { jobId, kind: 'send', status } });
+    const decisions = await Promise.all(
+      correlationIds.map((correlationId) =>
+        prisma.studentMatchDecision.findFirstOrThrow({
+          where: { jobId, correlationId },
+          orderBy: { seq: 'desc' },
+        })
+      )
+    );
+    await prisma.sendRunDecision.createMany({
+      data: decisions.map(({ correlationId, seq }) => ({
+        runId: run.id,
+        jobId,
+        correlationId,
+        seq,
+      })),
+    });
+    return run;
+  };
+
   const resultIdOf = async (correlationId: string, runId = runA.id, jobId = jobA.id) =>
     (
       await prisma.studentMatchResult.findUniqueOrThrow({
@@ -39,7 +64,19 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       })
     ).id.toString();
 
-  /** Students with one suggestion each, reported for the job's first run. */
+  /** Matches each student to their suggestion, as a reviewer does. */
+  const matchAll = async (cookies: string, correlationIds: string[]) => {
+    for (const correlationId of correlationIds) {
+      await decide(cookies, correlationId, {
+        replacesVersion: null,
+        kind: 'match',
+        resultId: await resultIdOf(correlationId),
+        ordinal: 0,
+      });
+    }
+  };
+
+  /** Students with one suggestion each, reported by the job's full run. */
   const reportStudents = (correlationIds: string[], runId = runA.id) =>
     report(
       runId,
@@ -56,6 +93,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       bundle: bundleA,
       tenant: tenantA,
       idMatchingMode: 'fuzzy',
+      runStatus: 'success',
     });
     jobA = seeded;
     runA = seeded.runs[0];
@@ -95,6 +133,64 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       ({ cookies } = await authHelper.login(idpA, userA, tenantA));
     });
 
+    it.each(['new', 'running', 'error'] as const)(
+      'hides reported students and job counts while the full run is %s',
+      async (status) => {
+        await reportStudents(['corr-1']);
+        await prisma.run.update({ where: { id: runA.id }, data: { status } });
+
+        const [review, job, list] = await Promise.all([
+          request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]),
+          request(app.getHttpServer()).get(`/jobs/${jobA.id}`).set('Cookie', [cookies]),
+          request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]),
+        ]);
+
+        expect(review.status).toBe(200);
+        expect(review.body).toEqual({ counts: noStudentsToMatch, students: [], sendRuns: [] });
+        expect(job.status).toBe(200);
+        expect(job.body.studentMatchCounts).toEqual(noStudentsToMatch);
+        expect(list.status).toBe(200);
+        expect(list.body.find((j: { id: number }) => j.id === jobA.id).studentMatchCounts).toEqual(
+          noStudentsToMatch
+        );
+        expect(await prisma.studentInputDetails.count({ where: { jobId: jobA.id } })).toBe(1);
+
+        if (status === 'running') {
+          await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+          const [visible, completedJob, completedList] = await Promise.all([
+            request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]),
+            request(app.getHttpServer()).get(`/jobs/${jobA.id}`).set('Cookie', [cookies]),
+            request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]),
+          ]);
+          const expectedCounts = { ...noStudentsToMatch, total: 1, toReview: 1 };
+          expect(visible.status).toBe(200);
+          expect(visible.body.counts).toEqual(expectedCounts);
+          expect(visible.body.students[0].correlationId).toBe('corr-1');
+          expect(completedJob.status).toBe(200);
+          expect(completedJob.body.studentMatchCounts).toEqual(expectedCounts);
+          expect(completedList.status).toBe(200);
+          expect(
+            completedList.body.find((j: { id: number }) => j.id === jobA.id).studentMatchCounts
+          ).toEqual(expectedCounts);
+        }
+      }
+    );
+
+    it('does not treat a successful send run as a successful full run', async () => {
+      await reportStudents(['corr-1']);
+      await prisma.run.update({ where: { id: runA.id }, data: { kind: 'send' } });
+
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+      const job = await request(app.getHttpServer())
+        .get(`/jobs/${jobA.id}`)
+        .set('Cookie', [cookies]);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ counts: noStudentsToMatch, students: [], sendRuns: [] });
+      expect(job.status).toBe(200);
+      expect(job.body.studentMatchCounts).toEqual(noStudentsToMatch);
+    });
+
     it('returns each student with its result and suggestions', async () => {
       await report(runA.id, [
         {
@@ -112,7 +208,15 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 2, toReview: 2, ready: 0, excluded: 0 },
+        counts: {
+          total: 2,
+          toReview: 2,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
         students: [
           {
             correlationId: 'corr-1',
@@ -120,6 +224,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             createdOn: expect.any(String),
             inputDetails: { first_name: 'Ada', last_name: 'Lovelace' },
             status: 'to-review',
+            sendRunId: null,
             decision: null,
             results: [
               {
@@ -149,6 +254,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             createdOn: expect.any(String),
             inputDetails: { first_name: 'Grace' },
             status: 'to-review',
+            sendRunId: null,
             decision: null,
             results: [
               {
@@ -160,6 +266,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             ],
           },
         ],
+        sendRuns: [],
       });
     });
 
@@ -168,7 +275,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       // search again, and its results are kept alongside.
       // Everything goes in out of order, so only the query's ordering can
       // put it right: the later run reports first, corr-2 before corr-1.
-      const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+      const runB = await prisma.run.create({
+        data: { jobId: jobA.id, kind: 'full', status: 'success' },
+      });
       const noMatches = (correlation_id: string) => ({
         correlation_id,
         candidate: { first_name: 'Ada' },
@@ -210,8 +319,17 @@ describe('GET /jobs/:jobId/student-match-results', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        counts: { total: 0, toReview: 0, ready: 0, excluded: 0 },
+        counts: {
+          total: 0,
+          toReview: 0,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
         students: [],
+        sendRuns: [],
       });
     });
 
@@ -245,8 +363,10 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             decision: {
               version: 1,
               kind: 'match',
+              studentUniqueId: 'SUID-corr-1',
               resultId,
               ordinal: 0,
+              search: null,
               decidedBy,
               decidedOn: expect.any(String),
             },
@@ -257,15 +377,208 @@ describe('GET /jobs/:jobId/student-match-results', () => {
             decision: {
               version: 1,
               kind: 'exclude',
+              studentUniqueId: null,
               resultId: null,
               ordinal: null,
+              search: null,
               decidedBy,
               decidedOn: expect.any(String),
             },
           },
           { correlationId: 'corr-3', status: 'to-review', decision: null },
         ]);
-        expect(res.body.counts).toEqual({ total: 3, toReview: 1, ready: 1, excluded: 1 });
+        expect(res.body.counts).toEqual({
+          total: 3,
+          toReview: 1,
+          ready: 1,
+          excluded: 1,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        });
+      });
+
+      /** Each student's status and the version of their decision. */
+      const statusesOf = (students: GetStudentInputDetailsDto[]) =>
+        students.map(({ correlationId, status, decision }) => ({
+          correlationId,
+          status,
+          version: decision?.version,
+        }));
+
+      it.each([
+        ['new', 'reprocessing', { reprocessing: 1, reprocessed: 0, runFailed: 0 }],
+        ['running', 'reprocessing', { reprocessing: 1, reprocessed: 0, runFailed: 0 }],
+        ['success', 'reprocessed', { reprocessing: 0, reprocessed: 1, runFailed: 0 }],
+        ['error', 'run-failed', { reprocessing: 0, reprocessed: 0, runFailed: 1 }],
+      ] as const)(
+        'returns a match whose send run is %s as %s, with its decision',
+        async (sendRunStatus, status, sendRunCounts) => {
+          await reportStudents(['corr-1', 'corr-2']);
+          await matchAll(cookies, ['corr-1', 'corr-2']);
+          await seedSendRun(jobA.id, ['corr-1'], sendRunStatus);
+
+          const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+          expect(statusesOf(res.body.students)).toEqual([
+            { correlationId: 'corr-1', status, version: 1 },
+            { correlationId: 'corr-2', status: 'ready', version: 1 },
+          ]);
+          expect(res.body.counts).toEqual({
+            total: 2,
+            toReview: 0,
+            ready: 1,
+            excluded: 0,
+            ...sendRunCounts,
+          });
+        }
+      );
+
+      it('lists the job’s send runs, newest first, each with its submitter, summary and student count', async () => {
+        await reportStudents(['corr-1', 'corr-2']);
+        await matchAll(cookies, ['corr-1', 'corr-2']);
+        const failed = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'error');
+        const resent = await seedSendRun(jobA.id, ['corr-1'], 'running');
+        const summary = {
+          studentAssessments: { records_processed: 4, records_skipped: 0, records_failed: 1 },
+        };
+        await prisma.run.update({ where: { id: failed.id }, data: { summary } });
+        // The submitter, as a submit records them: the audit trigger sets it on
+        // insert from the session, which the test client doesn't have.
+        await prisma.run.updateMany({
+          where: { id: { in: [failed.id, resent.id] } },
+          data: { createdById: userA.id },
+        });
+        // Another tenant's job, whose send run isn't listed.
+        const otherTenantJob = await seedJob({
+          odsConfig: odsConfigB2526,
+          bundle: bundleA,
+          tenant: tenantB,
+          idMatchingMode: 'fuzzy',
+        });
+        const otherTenantRun = otherTenantJob.runs[0];
+        await reportStudents(['corr-1'], otherTenantRun.id);
+        const { cookies: tenantBCookies } = await authHelper.login(idpA, userB, tenantB);
+        await decide(
+          tenantBCookies,
+          'corr-1',
+          {
+            replacesVersion: null,
+            kind: 'match',
+            resultId: await resultIdOf('corr-1', otherTenantRun.id, otherTenantJob.id),
+            ordinal: 0,
+          },
+          otherTenantJob.id
+        );
+        await seedSendRun(otherTenantJob.id, ['corr-1'], 'running');
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(
+          res.body.sendRuns.map(
+            ({ id, kind, status, summary, createdOn, createdBy, studentCount }: GetSendRunDto) => ({
+              id,
+              kind,
+              status,
+              summary,
+              createdOn,
+              submitterId: createdBy?.id,
+              studentCount,
+            })
+          )
+        ).toEqual([
+          {
+            id: resent.id,
+            kind: 'send',
+            createdOn: resent.createdOn.toISOString(),
+            status: 'running',
+            summary: null,
+            submitterId: userA.id,
+            studentCount: 1,
+          },
+          {
+            id: failed.id,
+            kind: 'send',
+            createdOn: failed.createdOn.toISOString(),
+            status: 'error',
+            summary,
+            submitterId: userA.id,
+            studentCount: 2,
+          },
+        ]);
+      });
+
+      // A resend delivers the same decision row as the failed send run before
+      // it, so the latest send run decides.
+      it('reads each submitted student by their latest send run, and gives its id', async () => {
+        await reportStudents(['corr-1', 'corr-2', 'corr-3']);
+        await matchAll(cookies, ['corr-1', 'corr-2', 'corr-3']);
+        const failed = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'error');
+        const resent = await seedSendRun(jobA.id, ['corr-1'], 'running');
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        expect(
+          res.body.students.map(
+            ({ correlationId, status, sendRunId }: GetStudentInputDetailsDto) => ({
+              correlationId,
+              status,
+              sendRunId,
+            })
+          )
+        ).toEqual([
+          { correlationId: 'corr-1', status: 'reprocessing', sendRunId: resent.id },
+          { correlationId: 'corr-2', status: 'run-failed', sendRunId: failed.id },
+          { correlationId: 'corr-3', status: 'ready', sendRunId: null },
+        ]);
+        expect(res.body.counts).toEqual({
+          total: 3,
+          toReview: 0,
+          ready: 1,
+          excluded: 0,
+          reprocessing: 1,
+          reprocessed: 0,
+          runFailed: 1,
+        });
+      });
+
+      // A suggestion pick's search is null: see the test above.
+      it('returns a match to a student found by searching, with the search and roster details, as ready', async () => {
+        await reportStudents(['corr-1', 'corr-2']);
+        const search = {
+          searchDetails: { first_name: 'Ada', last_name: 'Lovelace', birth_date: '2010-12-10' },
+          rosterDetails: { first_name: 'Ada', school_years: [2025], future_field: 'kept' },
+        };
+        await decide(cookies, 'corr-1', {
+          replacesVersion: null,
+          kind: 'match',
+          studentUniqueId: 'SUID-FOUND',
+          search,
+        });
+
+        const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
+
+        const [student] = res.body.students;
+        expect(student.status).toBe('ready');
+        expect(student.decision).toEqual({
+          version: 1,
+          kind: 'match',
+          studentUniqueId: 'SUID-FOUND',
+          resultId: null,
+          ordinal: null,
+          search,
+          decidedBy: expect.objectContaining({ id: userA.id }),
+          decidedOn: expect.any(String),
+        });
+        expect(res.body.counts).toEqual({
+          total: 2,
+          toReview: 1,
+          ready: 1,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        });
       });
 
       it('shows no one as the decider once their user is deleted', async () => {
@@ -295,7 +608,9 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           resultId: earlierResultId,
           ordinal: 0,
         });
-        const runB = await prisma.run.create({ data: { jobId: jobA.id, status: 'new' } });
+        const runB = await prisma.run.create({
+          data: { jobId: jobA.id, kind: 'full', status: 'success' },
+        });
         await reportStudents(['corr-1'], runB.id);
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
@@ -315,20 +630,35 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     describe('past the review limit', () => {
       let limit: jest.ReplaceProperty<number>;
       beforeEach(() => {
-        limit = jest.replaceProperty(app.get(JobsService), 'studentMatchReviewLimit', 2);
+        limit = jest.replaceProperty(
+          app.get(StudentMatchReviewService),
+          'studentMatchReviewLimit',
+          2
+        );
       });
       afterEach(() => limit.restore());
 
-      it('returns the counts without the students', async () => {
+      it('returns the counts and send runs without the students', async () => {
         await reportStudents(['corr-1', 'corr-2', 'corr-3']);
         await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
+        await matchAll(cookies, ['corr-2']);
+        const sendRun = await seedSendRun(jobA.id, ['corr-2'], 'success');
 
         const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [cookies]);
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
-          counts: { total: 3, toReview: 2, ready: 0, excluded: 1 },
+          counts: {
+            total: 3,
+            toReview: 1,
+            ready: 0,
+            excluded: 1,
+            reprocessing: 0,
+            reprocessed: 1,
+            runFailed: 0,
+          },
           students: null,
+          sendRuns: [expect.objectContaining({ id: sendRun.id, studentCount: 1 })],
         });
       });
 
@@ -355,6 +685,7 @@ describe('GET /jobs/:jobId/student-match-results', () => {
         bundle: bundleA,
         tenant: inTenantB ? tenantB : tenantA,
         idMatchingMode,
+        runStatus: 'success',
       });
       await report(job.runs[0].id, [
         { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
@@ -424,27 +755,46 @@ describe('GET /jobs/:jobId/student-match-results', () => {
     /** The counts, as the job read and the list each report them. */
     const countsOf = async (jobId: number) =>
       (await readJob(jobId)).map(({ studentMatchCounts }) => {
-        const { total, toReview, ready, excluded } = studentMatchCounts;
+        const { total, ...statuses } = studentMatchCounts;
         // Every student has exactly one status.
-        expect(toReview + ready + excluded).toBe(total);
+        expect(Object.values(statuses).reduce((sum, count) => sum + count, 0)).toBe(total);
         return studentMatchCounts;
       });
 
     it('counts each status beside the total', async () => {
       // Two students to review: one undecided, and one whose decision was cleared.
-      await reportStudents(['corr-undecided', 'corr-cleared', 'corr-matched', 'corr-excluded']);
+      await reportStudents([
+        'corr-undecided',
+        'corr-cleared',
+        'corr-matched',
+        'corr-excluded',
+        'corr-reprocessing',
+        'corr-reprocessed',
+        'corr-run-failed',
+      ]);
       await decide(cookies, 'corr-cleared', { replacesVersion: null, kind: 'exclude' });
       await decide(cookies, 'corr-cleared', { replacesVersion: 1, kind: 'clear' });
-      await decide(cookies, 'corr-matched', {
-        replacesVersion: null,
-        kind: 'match',
-        resultId: await resultIdOf('corr-matched'),
-        ordinal: 0,
-      });
       await decide(cookies, 'corr-excluded', { replacesVersion: null, kind: 'exclude' });
+      await matchAll(cookies, [
+        'corr-matched',
+        'corr-reprocessing',
+        'corr-reprocessed',
+        'corr-run-failed',
+      ]);
+      await seedSendRun(jobA.id, ['corr-reprocessing'], 'running');
+      await seedSendRun(jobA.id, ['corr-reprocessed'], 'success');
+      await seedSendRun(jobA.id, ['corr-run-failed'], 'error');
 
       expect(await countsOf(jobA.id)).toEqual(
-        Array(2).fill({ total: 4, toReview: 2, ready: 1, excluded: 1 })
+        Array(2).fill({
+          total: 7,
+          toReview: 2,
+          ready: 1,
+          excluded: 1,
+          reprocessing: 1,
+          reprocessed: 1,
+          runFailed: 1,
+        })
       );
     });
 
@@ -492,6 +842,132 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       expect(inList.status).toBe('complete with errors');
     });
 
+    describe('with send runs', () => {
+      // bundleA reports on studentAssessments.
+      const withFailedRecords = {
+        studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 2 },
+      };
+      const withoutFailedRecords = {
+        studentAssessments: { records_processed: 10, records_skipped: 0, records_failed: 0 },
+      };
+
+      beforeEach(async () => {
+        await prisma.run.update({ where: { id: runA.id }, data: { status: 'success' } });
+        await reportStudents(['corr-1', 'corr-2']);
+        await matchAll(cookies, ['corr-1', 'corr-2']);
+      });
+
+      // Reprocessing and run-failed students are outstanding; reprocessed ones are done.
+      it.each([
+        ['running', 'complete with errors'],
+        ['error', 'complete with errors'],
+        ['success', 'success'],
+      ] as const)(
+        'shows a fuzzy job whose students are all in a send run that is %s as %s',
+        async (sendRunStatus, jobStatus) => {
+          await seedSendRun(jobA.id, ['corr-1', 'corr-2'], sendRunStatus);
+
+          const jobs = await readJob(jobA.id);
+
+          expect(jobs.map(({ status }) => status)).toEqual(Array(2).fill(jobStatus));
+        }
+      );
+
+      it('shows a failed send run as complete with errors after a later send run of other students succeeds', async () => {
+        await seedSendRun(jobA.id, ['corr-1'], 'error');
+        await seedSendRun(jobA.id, ['corr-2'], 'success');
+
+        const jobs = await readJob(jobA.id);
+
+        expect(jobs.map(({ status }) => status)).toEqual(Array(2).fill('complete with errors'));
+      });
+
+      it('keeps the full run’s failed records as complete with errors after a successful send run', async () => {
+        await prisma.run.update({ where: { id: runA.id }, data: { summary: withFailedRecords } });
+        const sendRun = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'success');
+        await prisma.run.update({
+          where: { id: sendRun.id },
+          data: { summary: withoutFailedRecords },
+        });
+
+        const jobs = await readJob(jobA.id);
+
+        expect(
+          jobs.map(({ status, resourceErrors }) => ({
+            status,
+            failedResources: resourceErrors.map(({ resource }) => resource),
+          }))
+        ).toEqual(
+          Array(2).fill({ status: 'complete with errors', failedResources: ['studentAssessments'] })
+        );
+      });
+
+      // A send run's own failed records are how a partly failed send shows on the job.
+      it('shows a successful send run’s failed records as complete with errors, with no student outstanding', async () => {
+        await prisma.run.update({
+          where: { id: runA.id },
+          data: { summary: withoutFailedRecords },
+        });
+        const sendRun = await seedSendRun(jobA.id, ['corr-1', 'corr-2'], 'success');
+        await prisma.run.update({
+          where: { id: sendRun.id },
+          data: { summary: withFailedRecords },
+        });
+
+        const jobs = await readJob(jobA.id);
+
+        expect(
+          jobs.map(({ status, resourceErrors }) => ({
+            status,
+            failedResources: resourceErrors.map(({ resource }) => resource),
+          }))
+        ).toEqual(
+          Array(2).fill({ status: 'complete with errors', failedResources: ['studentAssessments'] })
+        );
+      });
+
+      it('sums the resource summaries of the full run and each successful send run, leaving out failed ones', async () => {
+        await prisma.run.update({
+          where: { id: runA.id },
+          data: { summary: withoutFailedRecords },
+        });
+        const sent = await seedSendRun(jobA.id, ['corr-1'], 'success');
+        const failed = await seedSendRun(jobA.id, ['corr-2'], 'error');
+        // A resend of the failed run's student, which reported no summary.
+        await seedSendRun(jobA.id, ['corr-2'], 'success');
+        await prisma.run.update({
+          where: { id: sent.id },
+          data: {
+            summary: {
+              studentAssessments: { records_processed: 3, records_skipped: 1, records_failed: 0 },
+              students: { records_processed: 2, records_skipped: 0, records_failed: 0 },
+            },
+          },
+        });
+        await prisma.run.update({
+          where: { id: failed.id },
+          data: {
+            summary: {
+              studentAssessments: {
+                records_processed: 100,
+                records_skipped: 0,
+                records_failed: 50,
+              },
+            },
+          },
+        });
+
+        const jobs = await readJob(jobA.id);
+
+        expect(jobs.map(({ resourceSummaries }) => resourceSummaries)).toEqual(
+          Array(2).fill({
+            studentAssessments: { success: 12, skipped: 1, failed: 0 },
+            students: { success: 2, skipped: 0, failed: 0 },
+          })
+        );
+      });
+    });
+
     it('counts each listed job’s own students', async () => {
       const seedFuzzyJob = () =>
         seedJob({
@@ -499,17 +975,33 @@ describe('GET /jobs/:jobId/student-match-results', () => {
           bundle: bundleA,
           tenant: tenantA,
           idMatchingMode: 'fuzzy',
+          runStatus: 'success',
         });
       const [jobB, jobC] = [await seedFuzzyJob(), await seedFuzzyJob()];
-      await report(runA.id, [
-        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
-        { correlation_id: 'corr-2', candidate: { first_name: 'Grace' }, matches: [] },
-      ]);
-      await report(jobB.runs[0].id, [
-        { correlation_id: 'corr-1', candidate: { first_name: 'Ada' }, matches: [] },
-      ]);
-      // Same correlation id in another job: only jobA's is excluded.
-      await decide(cookies, 'corr-1', { replacesVersion: null, kind: 'exclude' });
+      const runB = jobB.runs[0];
+      await reportStudents(['corr-1', 'corr-2']);
+      await reportStudents(['corr-1', 'corr-2'], runB.id);
+      // The same correlation ids in each job: jobA's corr-1 is matched and
+      // corr-2 excluded, and only jobB's corr-1 is in a send run.
+      await decide(cookies, 'corr-1', {
+        replacesVersion: null,
+        kind: 'match',
+        resultId: await resultIdOf('corr-1'),
+        ordinal: 0,
+      });
+      await decide(cookies, 'corr-2', { replacesVersion: null, kind: 'exclude' });
+      await decide(
+        cookies,
+        'corr-1',
+        {
+          replacesVersion: null,
+          kind: 'match',
+          resultId: await resultIdOf('corr-1', runB.id, jobB.id),
+          ordinal: 0,
+        },
+        jobB.id
+      );
+      await seedSendRun(jobB.id, ['corr-1'], 'running');
 
       const list = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookies]);
       const countsIn = (id: number) => {
@@ -518,9 +1010,33 @@ describe('GET /jobs/:jobId/student-match-results', () => {
       };
 
       expect([countsIn(jobA.id), countsIn(jobB.id), countsIn(jobC.id)]).toEqual([
-        { total: 2, toReview: 1, ready: 0, excluded: 1 },
-        { total: 1, toReview: 1, ready: 0, excluded: 0 },
-        { total: 0, toReview: 0, ready: 0, excluded: 0 },
+        {
+          total: 2,
+          toReview: 0,
+          ready: 1,
+          excluded: 1,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
+        {
+          total: 2,
+          toReview: 1,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 1,
+          reprocessed: 0,
+          runFailed: 0,
+        },
+        {
+          total: 0,
+          toReview: 0,
+          ready: 0,
+          excluded: 0,
+          reprocessing: 0,
+          reprocessed: 0,
+          runFailed: 0,
+        },
       ]);
     });
 

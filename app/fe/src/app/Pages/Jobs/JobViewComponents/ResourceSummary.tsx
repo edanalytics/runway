@@ -11,6 +11,18 @@ const countOfString = (
   return `${count} ${resource} ${count > 1 ? 'resources' : 'resource'}`;
 };
 
+type ResourceCounts = { skipped: number; failed: number; success: number };
+
+/** The resources a bundle reports on, in its order, or every resource when it names none. */
+export const reportedSummaries = (
+  summaries: Record<string, ResourceCounts>,
+  reportResources: string[] | null | undefined
+) =>
+  reportResources
+    ?.map((resource) => [resource, summaries[resource]])
+    .filter((entry): entry is [string, ResourceCounts] => entry[1] !== undefined) ??
+  Object.entries(summaries);
+
 export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
   if (!job.resourceSummaries) {
     return null;
@@ -28,13 +40,7 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
    * succeed, then we're good.
    */
 
-  const summariesToDisplay =
-    job.template.reportResources
-      ?.map((resource) => [resource, job.resourceSummaries?.[resource]])
-      .filter(
-        (entry): entry is [string, { skipped: number; failed: number; success: number }] =>
-          entry[1] !== undefined
-      ) ?? Object.entries(job.resourceSummaries);
+  const summariesToDisplay = reportedSummaries(job.resourceSummaries, job.template.reportResources);
 
   const failed = summariesToDisplay.filter(([_, summary]) => summary?.failed > 0);
   const failedSum = failed.reduce((acc, [_, summary]) => acc + summary?.failed, 0);

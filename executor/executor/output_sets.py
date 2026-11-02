@@ -25,24 +25,31 @@ class OutputSet:
         """Per-resource records-processed/skipped/failed counts contributed by this set.
 
         For ODS-bound sets, lightbeam's send-results are authoritative (they know
-        what the ODS actually accepted). For sideloaded sets, Earthmover row counts
-        are the best signal we have.
+        what the ODS actually accepted). For sideloaded sets, we count the number of lines in each resource's corresponding jsonl output.
         """
         if self.sent_to_ods:
             with open(self.lb_send_results_path) as f:
                 return json.load(f)["resources"]
 
-        with open(self.em_results_path) as f:
-            em_results = json.load(f)
-        dest_prefix = "$destinations."
         resources = {}
         # Earthmover produces a bunch of files; the summary must only contain
         # information about the data outputs, i.e. JSONL
-        for key, count in em_results.get("row_counts", {}).items():
-            if not key.startswith(dest_prefix):
+        for dir_entry in os.scandir(self.local_dir):
+            count = 0
+            if not (dir_entry.is_file() and dir_entry.name.endswith(".jsonl")):
                 continue
-            name = key[len(dest_prefix):]
-            if not os.path.exists(os.path.join(self.local_dir, name + ".jsonl")):
-                continue
+            with open(dir_entry.path) as file:
+                count += sum(1 for line in file if line.strip())
+            name = dir_entry.name.removesuffix(".jsonl")
             resources[name] = {"records_processed": count}
         return resources
+
+    def has_output(self) -> bool:
+        """Check whether an Output set has output to send. Returns a boolean. Used to determine whether lightbeam needs to run."""
+        output_check = any(
+            entry.is_file() and entry.name.endswith('.jsonl') and entry.stat().st_size > 0
+            for entry in os.scandir(self.local_dir)
+        )
+
+        return output_check
+    

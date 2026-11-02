@@ -137,6 +137,12 @@ npx nx test-unit api
 
 A unit test should assert behavior that can really break (e.g. "files over the threshold launch the large task"), not just that mocks were called.
 
+**Frontend tests** run with Jest, in `*.test.ts` or `*.test.tsx` files next to the code. They use Node by default; DOM tests opt into the existing jsdom environment with a `@jest-environment jsdom` file comment:
+
+```bash
+npm run fe:test
+```
+
 ## Package Supply Chain Safety
 
 The project `.npmrc` sets `min-release-age=14`, which prevents `npm install` from resolving any package version published less than 14 days ago. This reduces exposure to supply chain attacks via newly-published or compromised packages.
