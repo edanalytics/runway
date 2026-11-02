@@ -302,17 +302,8 @@ class IDRSMatchResultSet:
         auto_matches = {record.correlation_id: {"student_unique_id": max(record.matches, key=lambda m: m['score'])['student_unique_id'], "cross_year_flag": current_year not in (max(record.matches, key=lambda m: m['score']).get('school_years') or [])} for record in self.records.values() if record.match_type == 'auto'}
         return auto_matches
 
-    @staticmethod
-    def _csv_cell(v):
-        '''helper method to format list inputs of auto matches''' 
-        if isinstance(v, list):
-            return "|".join(f"{i.get('id_type') or 'unknown'}:{i['id_value']}" if isinstance(i, dict) else str(i) for i in v)
-        return v
-
     def auto_match_csv(self) -> list[dict]:
-        '''return a full set of the data associated with the auto matches in a result set. This is intended to be returned as a CSV downstream.'''
-
-        current_year = int(os.environ['API_YEAR'])
+        '''return a selected subset of the data associated with the auto matches in a result set. This is intended to be returned as a CSV downstream.'''
         
         auto_match_list = []
         for record in self.records.values():
@@ -320,11 +311,10 @@ class IDRSMatchResultSet:
                 continue
             match = max(record.matches, key=lambda m: m['score'])
             auto_match_list.append({
-                'correlation_id': record.correlation_id,
                 'student_unique_id': match['student_unique_id'],
-                'cross_year_flag': current_year not in (match.get('school_years') or []),
-                **{f'candidate_{k}': self._csv_cell(v) for k, v in record.candidate.items() if k != 'correlation_id'},
-                **{f'match_{k}': self._csv_cell(v) for k, v in match.items() if k != 'student_unique_id'},
+                **{k: "|".join(str(i) for i in v) if isinstance(v, list) else v for k, v in record.candidate.items() if k != 'correlation_id'},
+                'match_score': match['score'],
+                'correlation_id': record.correlation_id,
             })
 
         return auto_match_list
