@@ -304,9 +304,9 @@ class IDRSMatchResultSet:
 
     @staticmethod
     def _csv_cell(v):
-        '''helper method to format list inputs of auto matches''' 
+        '''helper method to format list inputs of auto matches'''
         if isinstance(v, list):
-            return "|".join(f"{i.get('id_type') or 'unknown'}:{i['id_value']}" if isinstance(i, dict) else str(i) for i in v)
+            return "|".join(f"{i.get('id_type') or 'unknown'}:{i.get('id_value')}" if isinstance(i, dict) else str(i) for i in v)
         return v
 
     def auto_match_csv(self) -> list[dict]:
