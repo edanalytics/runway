@@ -19,8 +19,12 @@ import { allBundles, bundleA, bundleX } from '../fixtures/em-bundle-fixtures';
 import { makePostJobDto } from '../factories/job-input-factory';
 import { makeJobTemplate } from '../factories/job-template-factory';
 import { EarthbeamBundlesService } from 'api/src/earthbeam/earthbeam-bundles.service';
-import { GetJobDto, PostJobDto, toGetJobDto } from 'models/src/dtos/job.dto';
-import { AUTO_MATCHES_FILE_NAME } from 'models/src/dtos/run.dto';
+import {
+  AUTO_MATCHES_FILE_NAME,
+  GetJobDto,
+  PostJobDto,
+  toGetJobDto,
+} from 'models/src/dtos/job.dto';
 import { withoutPrivilege } from '../helpers/without-privilege';
 import { FileService } from 'api/src/files/file.service';
 import { ExecutorAwsService } from 'api/src/earthbeam/executor/executor.aws.service';
@@ -89,9 +93,7 @@ describe('GET /jobs', () => {
         tenant: tenantA,
       });
 
-      const res = await request(app.getHttpServer())
-        .get(endpoint)
-        .set('Cookie', [sessionA.cookie]);
+      const res = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessionA.cookie]);
 
       const dto = res.body.find((j: GetJobDto) => j.id === noOdsJob.id);
       expect(dto).toBeDefined();
@@ -276,7 +278,7 @@ describe('GET /jobs/:id', () => {
       ]);
     });
 
-    it('says whether the full run recorded the auto-matches file', async () => {
+    it('says whether the job has an auto-matches file', async () => {
       const [withFile, withOtherFile] = await Promise.all(
         [AUTO_MATCHES_FILE_NAME, 'summary.csv'].map(async (name) => {
           const job = await seedJob({
@@ -300,14 +302,13 @@ describe('GET /jobs/:id', () => {
       );
 
       // Read as the frontend reads it, which re-runs the DTO's transforms.
-      expect(plainToInstance(GetJobDto, resWith.body).fullRun?.hasAutoMatches).toBe(true);
-      expect(plainToInstance(GetJobDto, resOther.body).fullRun?.hasAutoMatches).toBe(false);
+      expect(plainToInstance(GetJobDto, resWith.body).hasAutoMatches).toBe(true);
+      expect(plainToInstance(GetJobDto, resOther.body).hasAutoMatches).toBe(false);
 
       // The list says the same, rather than false for every run.
       const resList = await request(app.getHttpServer()).get('/jobs').set('Cookie', [cookieA]);
       const listed = plainToInstance(GetJobDto, resList.body as object[]);
-      const hasAutoMatches = (id: number) =>
-        listed.find((job) => job.id === id)?.fullRun?.hasAutoMatches;
+      const hasAutoMatches = (id: number) => listed.find((job) => job.id === id)?.hasAutoMatches;
       expect(hasAutoMatches(withFile.id)).toBe(true);
       expect(hasAutoMatches(withOtherFile.id)).toBe(false);
     });
@@ -493,10 +494,14 @@ describe('GET /jobs/:id/output-files', () => {
     });
 
     it('should return the output files for a job owned by the tenant, for a SupportUser', async () => {
-      const res = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieA]);
+      const res = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [cookieA]);
       expect(res.status).toBe(200);
 
-      const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobA.id } } });
+      const expectedFiles = await prisma.runOutputFile.findMany({
+        where: { run: { jobId: jobA.id } },
+      });
       expect(res.body.map((f: { name: string }) => f.name)).toEqual(
         expect.arrayContaining(expectedFiles.map((f) => f.name))
       );
@@ -510,8 +515,12 @@ describe('GET /jobs/:id/output-files', () => {
     });
 
     it('should reject requests for jobs that are not associated with the tenant', async () => {
-      const resA = await request(app.getHttpServer()).get(endpoint(jobA.id)).set('Cookie', [cookieB]);
-      const resB = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookieA]);
+      const resA = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [cookieB]);
+      const resB = await request(app.getHttpServer())
+        .get(endpoint(jobB.id))
+        .set('Cookie', [cookieA]);
       expect(resA.status).toBe(403);
       expect(resB.status).toBe(403);
     });
@@ -570,10 +579,14 @@ describe('GET /jobs/:id/output-files', () => {
       it('should return the output files for a job owned by a different tenant when the user is a SupportUser logged into a global tenant in the same partner', async () => {
         const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
 
-        const res = await request(app.getHttpServer()).get(endpoint(jobB.id)).set('Cookie', [cookie]);
+        const res = await request(app.getHttpServer())
+          .get(endpoint(jobB.id))
+          .set('Cookie', [cookie]);
 
         expect(res.status).toBe(200);
-        const expectedFiles = await prisma.runOutputFile.findMany({ where: { run: { jobId: jobB.id } } });
+        const expectedFiles = await prisma.runOutputFile.findMany({
+          where: { run: { jobId: jobB.id } },
+        });
         expect(res.body.map((f: { name: string }) => f.name)).toEqual(
           expect.arrayContaining(expectedFiles.map((f) => f.name))
         );
@@ -586,8 +599,10 @@ describe('GET /jobs/:id/output-files/*', () => {
   const USER_ROLE = 'runway.test.user';
   const SUPPORT_ROLES = ['runway.test.user', 'runway.test.supportuser'];
   const OTHER_FILE_NAME = 'summary.csv';
-  const unmatchedEndpoint = (id: number) => `/jobs/${id}/output-files/input_no_student_id_match.csv`;
-  const otherFileEndpoint = (id: number, fileName: string) => `/jobs/${id}/output-files/${fileName}`;
+  const unmatchedEndpoint = (id: number) =>
+    `/jobs/${id}/output-files/input_no_student_id_match.csv`;
+  const otherFileEndpoint = (id: number, fileName: string) =>
+    `/jobs/${id}/output-files/${fileName}`;
 
   // jobA belongs to tenantA, jobB to tenantB -- both non-global children of tenantDGlobal
   let jobA: SeededJob;
@@ -620,7 +635,9 @@ describe('GET /jobs/:id/output-files/*', () => {
 
   it('should reject unauthenticated requests', async () => {
     const resUnmatched = await request(app.getHttpServer()).get(unmatchedEndpoint(jobA.id));
-    const resOther = await request(app.getHttpServer()).get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME));
+    const resOther = await request(app.getHttpServer()).get(
+      otherFileEndpoint(jobA.id, OTHER_FILE_NAME)
+    );
     expect(resUnmatched.status).toBe(401);
     expect(resOther.status).toBe(401);
   });
@@ -632,7 +649,9 @@ describe('GET /jobs/:id/output-files/*', () => {
         .get(unmatchedEndpoint(jobA.id))
         .set('Cookie', [cookie]);
       expect(res.status).toBe(200);
-      expect(res.text).toBe(`s3-test-download-url://output/${jobA.id}/input_no_student_id_match.csv`);
+      expect(res.text).toBe(
+        `s3-test-download-url://output/${jobA.id}/input_no_student_id_match.csv`
+      );
     });
 
     it('is not downloadable by a User logged into a global tenant for a job in a child tenant', async () => {
@@ -649,7 +668,9 @@ describe('GET /jobs/:id/output-files/*', () => {
         .get(unmatchedEndpoint(jobB.id))
         .set('Cookie', [cookie]);
       expect(res.status).toBe(200);
-      expect(res.text).toBe(`s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`);
+      expect(res.text).toBe(
+        `s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`
+      );
     });
   });
 
@@ -1267,9 +1288,7 @@ describe('GET /jobs/:id/status-updates and /errors', () => {
       data: { runId: latest.id, action: 'done', status: 'success' },
     });
 
-    const read = await request(app.getHttpServer())
-      .get(`/jobs/${job.id}`)
-      .set('Cookie', [cookie]);
+    const read = await request(app.getHttpServer()).get(`/jobs/${job.id}`).set('Cookie', [cookie]);
     const readJob = plainToInstance(GetJobDto, read.body);
 
     expect({

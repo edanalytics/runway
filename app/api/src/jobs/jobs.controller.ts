@@ -88,7 +88,7 @@ const fuzzyJobOrThrow = (req: Request) => {
   return req.job;
 };
 
-/** A run's auto-matches output file, if it recorded one, for `GetRunDto.hasAutoMatches`. */
+/** A run's auto-matches output file, if it recorded one, for `GetJobDto.hasAutoMatches`. */
 const autoMatchesFile = {
   where: { name: AUTO_MATCHES_FILE_NAME },
   select: { name: true },

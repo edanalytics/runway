@@ -154,7 +154,7 @@ export const ResourceSummary = ({ job }: { job: GetJobDto }) => {
             </GridItem>,
           ])}
       </Grid>
-      {!!job.fullRun?.hasAutoMatches && <AutoMatchesDownload jobId={job.id} />}
+      {job.hasAutoMatches && <AutoMatchesDownload jobId={job.id} />}
     </>
   );
 };
