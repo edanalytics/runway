@@ -126,6 +126,8 @@ class JobExecutor:
                 self.modify_local_lightbeam()
 
             if self.run_type == 'send':
+                # Run deps to ensure we have the lightbeam.yaml we need to send current year results. Send runs are always fuzzy, so candidate wrapper is always what we need.
+                self.earthmover_deps(self.candidate_wrapper_earthmover)
                 self.send_manual_matches(artifact.FUZZY_MATCHING, self.send['students'])
 
             else:
