@@ -126,21 +126,23 @@ class JobExecutor:
                 self.modify_local_lightbeam()
 
             if self.run_type == 'send':
+                # Run deps to ensure we have the lightbeam.yaml we need to send current year results. Send runs are always fuzzy, so candidate wrapper is always what we need.
+                self.earthmover_deps(self.candidate_wrapper_earthmover)
                 self.send_manual_matches(artifact.FUZZY_MATCHING, self.send['students'])
 
             else:
-                self.earthmover_deps(self.student_id_wrapper_earthmover)
                 self.get_input_files()
-                self.map_descriptors()
 
                 # Conditionally run matching processes based on the job matching mode
                 # id_based is the default matching mode, set in unpack_job
                 if self.id_matching_mode in ['id_based', 'id_based_fuzzy_background']:
+                    self.earthmover_deps(self.student_id_wrapper_earthmover)
+                    self.map_descriptors()
                     self.get_student_roster()
                     # the orchestrate_earthmover method encompasses running earthmover with the deterministic, id_based matching wrapper
                     self.orchestrate_earthmover()
                 if self.id_matching_mode == 'fuzzy':
-                    # when the matching_mode is fuzzy, we run earthmover with a separate wrapper in the match_candidates method
+                    # when the matching_mode is fuzzy, we run earthmover with a separate wrapper (see the match_candidates method)
                     self.run_fuzzy_matching()
             
             self.lightbeam_send()
@@ -208,9 +210,9 @@ class JobExecutor:
             if self.cross_year_match_available and self.id_matching_mode != "fuzzy":
                 self.cross_year_roster_url = job["appUrls"]["roster"]
 
-            self.assessment_project = os.path.join(
-                self.student_id_wrapper_project, "packages", *job["bundle"]["path"].split("/")[1:]
-            )
+            wrapper = self.student_id_wrapper_project if self.id_matching_mode != 'fuzzy' else self.candidate_wrapper_project
+            self.assessment_project = os.path.join(wrapper, "packages", *job["bundle"]["path"].split("/")[1:])
+
             self.seeds_dir = os.path.join(
                 self.assessment_project, "seeds"
             )
@@ -661,6 +663,7 @@ class JobExecutor:
         # Run earthmover deps
         self.logger.info('installing earthmover deps...')
         self.earthmover_deps(self.candidate_wrapper_earthmover)
+        self.map_descriptors()
 
         # Run the wrapper
         self.logger.info('running match_candidates_wrapper...')
