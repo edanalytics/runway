@@ -47,13 +47,18 @@ describe('searchBlock', () => {
     expect(searchBlock(edit, file, terms({ student_ids: '789' }))).toBeNull();
   });
 
-  it('allows a retry when nothing is shown, as after a failed search', () => {
+  it('allows any edit before a search has returned results', () => {
     expect(searchBlock(edit, file, null)).toBeNull();
   });
 
-  it('blocks a date that is not a real YYYY-MM-DD date, ahead of any other reason', () => {
+  it('blocks a date that is not a real YYYY-MM-DD date', () => {
     expect(searchBlock(terms({ birth_date: '2012-02-30' }), file, null)).toBe('bad-date');
     expect(searchBlock(terms({ birth_date: '4/1/2012' }), file, null)).toBe('bad-date');
+  });
+
+  // So the date hint alone explains the disabled button: editing another
+  // field wouldn't enable it.
+  it("reports the bad date, not the file's values, when the file's own date is bad", () => {
     const fileWithBadDate = terms({ birth_date: '2012-4-1' });
     expect(searchBlock(fileWithBadDate, fileWithBadDate, null)).toBe('bad-date');
   });

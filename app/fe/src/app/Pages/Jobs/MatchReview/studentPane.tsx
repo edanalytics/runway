@@ -714,7 +714,11 @@ const Search = ({
       placeholder={placeholder}
       problem={problem}
       edited={edited.includes(key)}
-      onChange={(value) => setTerms({ ...terms, [key as string]: value })}
+      onChange={(value) => {
+        // An error is about the search that failed; editing moves on from it.
+        setError(null);
+        setTerms({ ...terms, [key as string]: value });
+      }}
       onEnter={run}
     />
   );
