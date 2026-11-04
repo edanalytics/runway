@@ -201,9 +201,9 @@ class IDRSCandidate:
         clean_name_parts = [part for part in name_parts if part.strip(".").lower() not in SUFFIXES]
         if not clean_name_parts:
             return None, None
-        # If the last piece of 3-length cleaned full name string is a single character, treat it as Last | First | MI.
-        if len(clean_name_parts) == 3 and len(clean_name_parts[-1].strip(".")) == 1:
-            first_name = clean_name_parts[1]
+        # If the last piece of minimum 3-length cleaned full name string is a single character, treat it as (roughly) Last | First | MI.
+        if len(clean_name_parts) >= 3 and len(clean_name_parts[-1].strip(".")) == 1:
+            first_name = clean_name_parts[-2]
             last_name = clean_name_parts[0]
         # Otherwise assume the string is First | MI | Last
         else:
