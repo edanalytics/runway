@@ -28,7 +28,7 @@ lightbeam==0.1.12
 llvmlite==0.47.0
 locket==1.0.0
 MarkupSafe==3.0.3
-multidict==6.7.1
+multidict==6.9.1
 networkx==3.6.1
 numba==0.65.1
 numexpr==2.14.1
