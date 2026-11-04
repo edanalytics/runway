@@ -38,25 +38,19 @@ import {
 import { valueText } from './values';
 import { useMe } from '../../../api/queries/me.queries';
 import { ContactSupport } from '../../../components/SupportButton';
-import { termsFrom, SearchTerms } from './search';
+import { changedFields, realDate, searchBlock, termsFrom, SearchTerms } from './search';
 import { Candidate, DecisionChoice, DecisionResult, useReviewSession } from './reviewSession';
 import { outcomeLabel, sendRunOutcome, submissionNumber, submissionReference } from './sendRun';
-
-const realDate = (value: string) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-};
 
 /** Missing or invalid values in the file: clues, not a diagnosis of IDRS. */
 const fileIssues = (student: GetStudentInputDetailsDto) => {
   const d = student.inputDetails;
   const issues: string[] = [];
-  if (!valueText(d.first_name)) issues.push('No first name in your file.');
-  if (!valueText(d.last_name)) issues.push('No last name in your file.');
-  if (!valueText(d.birth_date)) issues.push('No date of birth in your file.');
+  if (!valueText(d.first_name)) issues.push('No first name in the file.');
+  if (!valueText(d.last_name)) issues.push('No last name in the file.');
+  if (!valueText(d.birth_date)) issues.push('No date of birth in the file.');
   else if (typeof d.birth_date === 'string' && !realDate(d.birth_date))
-    issues.push(`Date of birth ${d.birth_date} isn't a valid date.`);
+    issues.push(`Date of birth ${d.birth_date} isn't a valid YYYY-MM-DD date.`);
   return issues;
 };
 
@@ -264,7 +258,7 @@ export const StudentPane = ({
       {/* The source record stays put while everything else changes. */}
       <VStack alignItems="flex-start" gap="100">
         <Box fontSize="0.8rem" opacity="0.8">
-          From your file
+          From the file
         </Box>
         <HStack gap="300" alignItems="baseline" flexWrap="wrap">
           <Box textStyle="h4">{name}</Box>
@@ -356,7 +350,7 @@ const DecisionState = ({ student }: { student: GetStudentInputDetailsDto }) => {
       matched.source === 'search' ? ', found by searching' : ''
     }. Not submitted yet.`;
   } else if (status === 'excluded') {
-    body = `Excluded from this job${by}. Its records won't be reprocessed.`;
+    body = `Excluded from this job${by}. This record won't be reprocessed.`;
   } else if (sendRun) {
     // No decision can follow a send, so the current one is what was sent.
     const chosen = matched?.studentUniqueId;
@@ -577,7 +571,7 @@ const EvidenceTable = ({
             <Tr>
               <Th {...labelCell} />
               <Th {...fileCell} color="blue.50" textTransform="none" fontSize="0.8rem">
-                In your file
+                In the file
               </Th>
               {shown.map((c) => (
                 <Th
@@ -699,8 +693,13 @@ const Search = ({
   const [searching, setSearching] = useState(false);
   const hits = remembered?.hits ?? null;
 
+  const fileTerms = termsFrom(student.inputDetails);
+  const edited = changedFields(terms, fileTerms);
+  const block = searchBlock(terms, fileTerms, remembered?.terms ?? null);
+
   const [error, setError] = useState<string | null>(null);
   const run = async () => {
+    if (block || searching) return;
     setSearching(true);
     setError(null);
     const result = await search(student.correlationId, terms);
@@ -708,12 +707,18 @@ const Search = ({
     else setError(result.message);
     setSearching(false);
   };
-  const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
+  const field = (key: keyof SearchTerms, label: string, placeholder?: string, problem?: string) => (
     <SearchField
       label={label}
       value={terms[key]}
       placeholder={placeholder}
-      onChange={(value) => setTerms({ ...terms, [key as string]: value })}
+      problem={problem}
+      edited={edited.includes(key)}
+      onChange={(value) => {
+        // An error is about the search that failed; editing moves on from it.
+        setError(null);
+        setTerms({ ...terms, [key as string]: value });
+      }}
       onEnter={run}
     />
   );
@@ -723,17 +728,36 @@ const Search = ({
       <SimpleGrid columns={{ base: 2, md: 4 }} gap="200">
         {field('first_name', 'First name')}
         {field('last_name', 'Last name')}
-        {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
-        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
+        {field(
+          'birth_date',
+          'Date of birth',
+          'YYYY-MM-DD',
+          block === 'bad-date' ? 'Use YYYY-MM-DD' : undefined
+        )}
+        {field('student_ids', 'Student IDs', 'e.g. state or local')}
       </SimpleGrid>
-      <SecondaryButton alignSelf="flex-start" onClick={run} isLoading={searching}>
-        Search
-      </SecondaryButton>
+      <HStack gap="300">
+        <SecondaryButton
+          onClick={run}
+          isLoading={searching}
+          loadingText="Searching…"
+          isDisabled={!!block}
+        >
+          Search
+        </SecondaryButton>
+        {(block === 'file' || block === 'shown') && !searching && (
+          <Box fontSize="0.8rem" opacity="0.7">
+            {block === 'file'
+              ? "Runway already searched with the file's values. Edit a field to search again."
+              : 'Edit a field to search again.'}
+          </Box>
+        )}
+      </HStack>
       {error && !searching && <Box color="pink.100">Couldn't search: {error}</Box>}
-      {hits && !searching && hits.length === 0 && (
-        <Box>No one in the roster matches those details.</Box>
+      {hits && !searching && !error && hits.length === 0 && (
+        <Box>No students match your last search.</Box>
       )}
-      {hits && !searching && hits.length > 0 && (
+      {hits && !searching && !error && hits.length > 0 && (
         <Box bg="blue.700" borderRadius="6px" padding="200">
           <EvidenceTable
             student={student}
