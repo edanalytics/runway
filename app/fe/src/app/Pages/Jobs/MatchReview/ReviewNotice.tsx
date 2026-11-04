@@ -23,6 +23,20 @@ export const ReviewNotice = () => {
   ]
     .filter(Boolean)
     .join(' · ');
+  const doneMessage =
+    excluded === 0
+      ? 'Every unmatched student has been matched and their assessments sent.'
+      : [
+          reprocessed > 0 &&
+            `${plural(
+              reprocessed,
+              'student has',
+              'students have'
+            )} been matched and their assessments sent.`,
+          `${plural(excluded, 'student has', 'students have')} been excluded.`,
+        ]
+          .filter(Boolean)
+          .join(' ');
 
   return (
     <Box padding="300" borderRadius="8px" backgroundColor="blue.600" width="100%">
@@ -43,7 +57,11 @@ export const ReviewNotice = () => {
           </Box>
           <Box textStyle="bodyLargeBold">
             {allDone
-              ? `${total === 1 ? '' : 'All '}${plural(total, 'student', 'students')} processed`
+              ? `${total === 1 ? '' : 'All '}${plural(
+                  total,
+                  'unmatched student',
+                  'unmatched students'
+                )} processed`
               : plural(total, 'unmatched student', 'unmatched students')}
           </Box>
         </HStack>
@@ -56,7 +74,7 @@ export const ReviewNotice = () => {
       {runFailed === 0 && (
         <Box textStyle="body" marginBottom="300">
           {allDone
-            ? 'Every student has been matched and processed, or excluded.'
+            ? doneMessage
             : started
             ? toReview > 0
               ? 'Review the remaining students, then submit your matches.'
