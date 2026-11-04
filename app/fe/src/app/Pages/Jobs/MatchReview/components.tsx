@@ -119,7 +119,7 @@ export const SearchField = ({
   // Pressing Enter shows the problem mid-typing; typing again hides it.
   const [entered, setEntered] = useState(false);
   return (
-    <FormControl>
+    <FormControl position="relative">
       <FormLabel
         display="flex"
         gap="200"
@@ -156,7 +156,16 @@ export const SearchField = ({
         onBlur={() => setFocused(false)}
       />
       {problem && (!focused || entered) && (
-        <Box fontSize="0.7rem" color="pink.100" marginTop="100">
+        // Out of the flow, so the row's other fields keep their height; it
+        // sits in the gap above the Search button.
+        <Box
+          position="absolute"
+          top="100%"
+          left="200"
+          fontSize="0.7rem"
+          color="pink.100"
+          marginTop="100"
+        >
           {problem}
         </Box>
       )}
