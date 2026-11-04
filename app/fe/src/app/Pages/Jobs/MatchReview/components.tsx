@@ -118,8 +118,6 @@ export const SearchField = ({
   const [focused, setFocused] = useState(false);
   // Pressing Enter shows the problem mid-typing; typing again hides it.
   const [entered, setEntered] = useState(false);
-  // The theme clears the border on hover and focus; an edit keeps it.
-  const editedBorder = { borderColor: 'blue.100' };
   return (
     <FormControl>
       <FormLabel
@@ -145,12 +143,6 @@ export const SearchField = ({
         autoComplete="off"
         value={value}
         placeholder={placeholder}
-        {...(edited && {
-          ...editedBorder,
-          _hover: editedBorder,
-          _focus: editedBorder,
-          _focusVisible: editedBorder,
-        })}
         onChange={(event) => {
           setEntered(false);
           onChange(event.target.value);
