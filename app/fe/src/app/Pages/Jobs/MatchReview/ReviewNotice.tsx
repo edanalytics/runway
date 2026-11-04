@@ -7,6 +7,24 @@ import { ContactSupport } from '../../../components/SupportButton';
 import { PrimaryButton, SecondaryButton, TooManyNote, USUAL_MAXIMUM } from './components';
 import { useReviewSession } from './reviewSession';
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** What a finished review did: matched and sent, or excluded. */
+export const doneMessage = (reprocessed: number, excluded: number) =>
+  excluded === 0
+    ? 'Every unmatched student has been matched and their assessments sent.'
+    : [
+        reprocessed > 0 &&
+          `${plural(
+            reprocessed,
+            'student has',
+            'students have'
+          )} been matched and their assessments sent.`,
+        `${plural(excluded, 'student has', 'students have')} been excluded.`,
+      ]
+        .filter(Boolean)
+        .join(' ');
+
 /** Introduce unmatched-student review and point to the next action. */
 export const ReviewNotice = () => {
   const { job, counts } = useReviewSession();
@@ -16,27 +34,12 @@ export const ReviewNotice = () => {
   const processed = reprocessed + excluded;
   const allDone = total > 0 && processed === total;
   const started = toReview < total;
-  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const progress = [
     ready > 0 && `${ready} ready to submit`,
     processed > 0 && `${processed} processed`,
   ]
     .filter(Boolean)
     .join(' · ');
-  const doneMessage =
-    excluded === 0
-      ? 'Every unmatched student has been matched and their assessments sent.'
-      : [
-          reprocessed > 0 &&
-            `${plural(
-              reprocessed,
-              'student has',
-              'students have'
-            )} been matched and their assessments sent.`,
-          `${plural(excluded, 'student has', 'students have')} been excluded.`,
-        ]
-          .filter(Boolean)
-          .join(' ');
 
   return (
     <Box padding="300" borderRadius="8px" backgroundColor="blue.600" width="100%">
@@ -74,7 +77,7 @@ export const ReviewNotice = () => {
       {runFailed === 0 && (
         <Box textStyle="body" marginBottom="300">
           {allDone
-            ? doneMessage
+            ? doneMessage(reprocessed, excluded)
             : started
             ? toReview > 0
               ? 'Review the remaining students, then submit your matches.'

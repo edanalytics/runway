@@ -33,14 +33,14 @@ import {
   CrossYearCue,
   deciderName,
   matchedCandidate,
+  userName,
   suggestionsOf,
 } from './components';
 import { valueText } from './values';
 import { useMe } from '../../../api/queries/me.queries';
-import { ContactSupport } from '../../../components/SupportButton';
 import { changedFields, realDate, searchBlock, termsFrom, SearchTerms } from './search';
 import { Candidate, DecisionChoice, DecisionResult, useReviewSession } from './reviewSession';
-import { outcomeLabel, sendRunOutcome, submissionNumber, submissionReference } from './sendRun';
+import { outcomeLabel, sendRunOutcome, submissionNumber } from './sendRun';
 
 /** Missing or invalid values in the file: clues, not a diagnosis of IDRS. */
 const fileIssues = (student: GetStudentInputDetailsDto) => {
@@ -381,12 +381,13 @@ export const StudentPane = ({
 const DecisionState = ({ student }: { student: GetStudentInputDetailsDto }) => {
   const { job, sendRuns } = useReviewSession();
   const { data: me } = useMe();
+  const meId = me?.user?.id;
   const { status, decision } = student;
   const matched = matchedCandidate(student);
   // The submission that decides the student's status, once they've been submitted.
   const sendRun = sendRuns.find(({ id }) => id === student.sendRunId);
   const by = decision
-    ? ` by ${deciderName(decision, me?.user?.id)} on ${dateTime(decision.decidedOn)}`
+    ? ` by ${deciderName(decision, meId)} on ${dateTime(decision.decidedOn)}`
     : '';
   let body: ReactNode = null;
   if (status === 'ready' && matched) {
@@ -395,32 +396,31 @@ const DecisionState = ({ student }: { student: GetStudentInputDetailsDto }) => {
     }. Not submitted yet.`;
   } else if (status === 'excluded') {
     body = `Excluded from this job${by}. This record won't be reprocessed.`;
-  } else if (sendRun) {
+  } else if (sendRun && decision) {
     // No decision can follow a send, so the current one is what was sent.
-    const chosen = matched?.studentUniqueId;
     const number = submissionNumber(sendRuns, sendRun);
     const outcome = sendRunOutcome(sendRun, job.template.reportResources);
+    const submitted = `submitted by ${userName(sendRun.createdBy, meId)} on ${dateTime(
+      sendRun.createdOn
+    )}`;
+    // One name when whoever saved the match also submitted it.
+    const sameUser = !!decision.decidedBy && decision.decidedBy.id === sendRun.createdBy?.id;
     body = (
       <VStack alignItems="flex-start" gap="100">
         <Box>
-          Sent in submission {number}
-          {chosen ? ` with ${chosen}` : ''} · {outcomeLabel[outcome]}.
+          Matched to {decision.studentUniqueId}
+          {sameUser ? ` and ${submitted}` : ` by ${deciderName(decision, meId)}, ${submitted}`}.
         </Box>
-        {status === 'run-failed' ? (
+        <Box fontSize="0.85rem" opacity="0.85">
+          Submission {number} · {outcomeLabel[outcome]}
+        </Box>
+        {(status === 'run-failed' || outcome === 'complete with errors') && (
           <Box fontSize="0.85rem" opacity="0.85">
-            Reprocessing failed for that submission. The match still stands. Submission {number},
-            above, is where to contact support or send its students again.
+            {status === 'run-failed'
+              ? 'The match is saved.'
+              : 'Some records in this submission couldn’t be sent.'}{' '}
+            Contact support from submission {number} above.
           </Box>
-        ) : (
-          <HStack fontSize="0.85rem" gap="300" flexWrap="wrap" justifyContent="space-between">
-            <Box flex="1" minWidth="16rem" opacity="0.85">
-              Correcting a submitted identity isn't supported here yet. To report a wrong match,
-              contact support.
-            </Box>
-            <ContactSupport
-              message={`${submissionReference(job.id, number, sendRun)}: reporting a wrong match`}
-            />
-          </HStack>
         )}
       </VStack>
     );
