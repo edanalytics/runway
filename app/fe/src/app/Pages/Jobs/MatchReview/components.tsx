@@ -2,6 +2,7 @@ import { Box, Button, FormControl, FormLabel, HStack, Input, VStack } from '@cha
 import {
   GetStudentInputDetailsDto,
   GetStudentMatchDecisionDto,
+  GetUserDto,
   StudentInputDetailsJson,
   StudentRosterDetailsJson,
   StudentSearchDetailsDto,
@@ -321,9 +322,13 @@ export const matchedCandidate = ({
 export const isOwnDecision = (decision: GetStudentMatchDecisionDto, meId: number | undefined) =>
   !!decision.decidedBy && decision.decidedBy.id === meId;
 
+/** A user as the page names them: "you" for the current user, "someone" once deleted. */
+export const userName = (user: GetUserDto | null, meId: number | undefined) =>
+  user && user.id === meId ? 'you' : user?.displayName ?? 'someone';
+
 /** Who saved a decision, as the page names them. */
 export const deciderName = (decision: GetStudentMatchDecisionDto, meId: number | undefined) =>
-  isOwnDecision(decision, meId) ? 'you' : decision.decidedBy?.displayName ?? 'someone';
+  userName(decision.decidedBy, meId);
 
 /** A second identifier beside the name, so similarly named records stay distinguishable. */
 export const secondId = (student: GetStudentInputDetailsDto) => {
