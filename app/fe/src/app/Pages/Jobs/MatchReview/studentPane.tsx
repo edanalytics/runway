@@ -144,10 +144,15 @@ export const StudentPane = ({
   // Once a student's match is in a send run, failed or not, they take no new
   // decision (Decisions Log #46): a failed one's remedy is its submission's.
   const isSubmitted = student.sendRunId !== null;
+  // An exclusion is cleared before anything else, so every excluded student
+  // returns to review the same way, with or without suggestions. The API
+  // doesn't require it.
+  const isExcluded = student.status === 'excluded';
   const suggestions = suggestionsOf(student);
 
   // Saying none fit stays on this student and opens search and exclude.
   const [noneFit, setNoneFit] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const matched = matchedCandidate(student);
   // A match found by searching stays in view beside the suggestions.
@@ -292,7 +297,37 @@ export const StudentPane = ({
         </Box>
       )}
 
-      {(noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
+      {isExcluded ? (
+        // The exclusion, above, is what this view is about, and what Clear
+        // undoes; any suggestions it passed over are background, a click away.
+        <VStack alignItems="stretch" gap="200">
+          <HStack gap="200">
+            <Box fontSize="0.9rem" opacity="0.85">
+              {suggestions.length === 0
+                ? 'No suggestions'
+                : suggestions.length === 1
+                ? '1 suggestion'
+                : `${suggestions.length} suggestions`}{' '}
+              for this student
+            </Box>
+            {suggestions.length > 0 && (
+              <QuietButton
+                size="xs"
+                onClick={() => setShowSuggestions(!showSuggestions)}
+                aria-expanded={showSuggestions}
+                aria-label={showSuggestions ? 'Hide suggestions' : 'Show suggestions'}
+              >
+                {showSuggestions ? 'Hide' : 'Show'}
+              </QuietButton>
+            )}
+            <Box flex="1" />
+            <QuietButton onClick={clearDecision}>Clear decision</QuietButton>
+          </HStack>
+          {showSuggestions && (
+            <EvidenceTable student={student} candidates={suggestions} matchedId={null} />
+          )}
+        </VStack>
+      ) : (noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
         <NoSuggestionFits
           suggestionCount={suggestions.length}
           onBack={candidates.length ? () => setNoneFit(false) : undefined}
@@ -323,14 +358,23 @@ export const StudentPane = ({
           />
           {!isSubmitted && (
             <HStack gap="300" paddingTop="100">
-              <SecondaryButton onClick={() => setNoneFit(true)}>
-                {candidates.length === 1 ? 'Not this student' : 'None of these'}
-              </SecondaryButton>
-              <Box fontSize="0.8rem" opacity="0.7">
-                Search the roster or exclude this record.
-              </Box>
-              <Box flex="1" />
-              {decision && <QuietButton onClick={clearDecision}>Clear decision</QuietButton>}
+              {decision ? (
+                // A saved match is the suggestion shown as chosen; clearing
+                // it is how to say it isn't this student.
+                <>
+                  <Box flex="1" />
+                  <QuietButton onClick={clearDecision}>Clear decision</QuietButton>
+                </>
+              ) : (
+                <>
+                  <SecondaryButton onClick={() => setNoneFit(true)}>
+                    {candidates.length === 1 ? 'Not this student' : 'None of these'}
+                  </SecondaryButton>
+                  <Box fontSize="0.8rem" opacity="0.7">
+                    Search the roster or exclude this record.
+                  </Box>
+                </>
+              )}
             </HStack>
           )}
         </VStack>
