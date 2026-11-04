@@ -730,7 +730,7 @@ const Search = ({
           'YYYY-MM-DD',
           block === 'bad-date' ? 'Use YYYY-MM-DD' : undefined
         )}
-        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
+        {field('student_ids', 'Student IDs', 'e.g. state or local')}
       </SimpleGrid>
       <HStack gap="300">
         <SecondaryButton
