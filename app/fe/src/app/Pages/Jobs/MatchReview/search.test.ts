@@ -51,14 +51,16 @@ describe('searchBlock', () => {
     expect(searchBlock(edit, file, null)).toBeNull();
   });
 
-  it('blocks a date that is not a real YYYY-MM-DD date', () => {
+  it('blocks a typed date that is not a real YYYY-MM-DD date', () => {
     expect(searchBlock(terms({ birth_date: '2012-02-30' }), file, null)).toBe('bad-date');
     expect(searchBlock(terms({ birth_date: '4/1/2012' }), file, null)).toBe('bad-date');
   });
 
-  // So the date hint alone explains the disabled button: editing another
-  // field wouldn't enable it.
-  it("reports the bad date, not the file's values, when the file's own date is bad", () => {
+  // An unedited form holds the file's values, so a bad date in the file is
+  // in the form too. Editing another field wouldn't enable Search, so the
+  // date is the reason to give.
+  it("blocks a bad date from the file as a bad date, ahead of the file's values", () => {
+    expect(searchBlock(file, file, null)).toBe('file');
     const fileWithBadDate = terms({ birth_date: '2012-4-1' });
     expect(searchBlock(fileWithBadDate, fileWithBadDate, null)).toBe('bad-date');
   });
