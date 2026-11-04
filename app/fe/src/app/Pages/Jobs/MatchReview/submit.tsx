@@ -191,7 +191,7 @@ export const SubmitReview = ({
             <Thead>
               <Tr>
                 <Th color="blue.50" textTransform="none">
-                  From your file
+                  From the file
                 </Th>
                 <Th color="blue.50" textTransform="none">
                   Matched to

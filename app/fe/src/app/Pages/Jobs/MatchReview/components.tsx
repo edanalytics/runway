@@ -100,36 +100,77 @@ export const SearchField = ({
   label,
   value,
   placeholder,
+  edited,
+  problem,
   onChange,
   onEnter,
 }: {
   label: string;
   value: string;
   placeholder?: string;
+  /** Whether the value differs from the file's. */
+  edited: boolean;
+  /** Why the value can't be searched, shown when the reviewer isn't typing in the field. */
+  problem?: string;
   onChange: (value: string) => void;
   onEnter: () => void;
-}) => (
-  <FormControl>
-    <FormLabel
-      textStyle="body"
-      fontSize="0.75rem"
-      fontWeight="normal"
-      color="blue.50"
-      opacity="0.7"
-      marginBottom="100"
-    >
-      {label}
-    </FormLabel>
-    <Input
-      size="sm"
-      autoComplete="off"
-      value={value}
-      placeholder={placeholder}
-      onChange={(event) => onChange(event.target.value)}
-      onKeyDown={(event) => event.key === 'Enter' && onEnter()}
-    />
-  </FormControl>
-);
+}) => {
+  const [focused, setFocused] = useState(false);
+  // Pressing Enter shows the problem mid-typing; typing again hides it.
+  const [entered, setEntered] = useState(false);
+  // The theme clears the border on hover and focus; an edit keeps it.
+  const editedBorder = { borderColor: 'blue.100' };
+  return (
+    <FormControl>
+      <FormLabel
+        display="flex"
+        gap="200"
+        textStyle="body"
+        fontSize="0.75rem"
+        fontWeight="normal"
+        color="blue.50"
+        marginBottom="100"
+      >
+        <Box as="span" opacity="0.7">
+          {label}
+        </Box>
+        {edited && (
+          <Box as="span" color="blue.100" fontWeight="bold">
+            edited
+          </Box>
+        )}
+      </FormLabel>
+      <Input
+        size="sm"
+        autoComplete="off"
+        value={value}
+        placeholder={placeholder}
+        {...(edited && {
+          ...editedBorder,
+          _hover: editedBorder,
+          _focus: editedBorder,
+          _focusVisible: editedBorder,
+        })}
+        onChange={(event) => {
+          setEntered(false);
+          onChange(event.target.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return;
+          setEntered(true);
+          onEnter();
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      />
+      {problem && (!focused || entered) && (
+        <Box fontSize="0.7rem" color="pink.100" marginTop="100">
+          {problem}
+        </Box>
+      )}
+    </FormControl>
+  );
+};
 
 /**
  * When no suggestion fits, or there were none: two ways forward, set apart
@@ -168,7 +209,7 @@ export const NoSuggestionFits = ({
     {children}
     <OptionBox
       title="Search the roster"
-      detail="Look them up with corrected details, and any IDs you have for them. Using a result matches them and moves on."
+      detail="Look the student up in your SIS. Add or correct their ID, and fix or clear any name or date of birth that differs."
     >
       {search}
     </OptionBox>
@@ -179,7 +220,7 @@ export const NoSuggestionFits = ({
     </HStack>
     <OptionBox
       title="Exclude this record from the job"
-      detail="For junk data, or a student who isn't in the roster. Their records won't be reprocessed. You can undo this."
+      detail="For a record that isn't a real student, or a student who isn't in the roster. This record won't be reprocessed. You can undo this."
       tone="caution"
     >
       <SecondaryButton
