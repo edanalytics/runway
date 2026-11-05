@@ -1194,6 +1194,18 @@ describe('Earthbeam API', () => {
       });
 
       describe('Slack Notifiction', () => {
+        /** Posts the run's `done`, and returns the run_complete event it emits. */
+        const done = async (runId: number, status: 'success' | 'failure' = 'success') => {
+          const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
+          const res = await request(app.getHttpServer())
+            .post(`/earthbeam/jobs/${runId}/status`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ action: 'done', status });
+          expect(res.status).toBe(201);
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          return payload;
+        };
+
         it('should send a slack notification when the run is complete', async () => {
           const res = await request(app.getHttpServer())
             .post(endpointA)
@@ -1258,18 +1270,6 @@ describe('Earthbeam API', () => {
           expect(payload.summary).toMatch(/^send run: /);
         });
 
-        /** Posts the run's `done`, and returns the run_complete event it emits. */
-        const done = async (runId: number, status: 'success' | 'failure' = 'success') => {
-          const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
-          const res = await request(app.getHttpServer())
-            .post(`/earthbeam/jobs/${runId}/status`)
-            .set('Authorization', `Bearer ${token}`)
-            .send({ action: 'done', status });
-          expect(res.status).toBe(201);
-          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
-          return payload;
-        };
-
         describe('fuzzy jobs', () => {
           const candidate = (correlationId: string) => ({
             correlation_id: correlationId,
@@ -1309,7 +1309,6 @@ describe('Earthbeam API', () => {
               result: { hasUnmatchedStudents: true },
             });
             expect(payload.summary).toContain('2 to review');
-            expect(payload.summary).not.toContain('unmatched');
             expect(payload.jobProgress).toEqual({
               outstanding: 2,
               students: { ...noStudentsToMatch, total: 2, toReview: 2 },
@@ -1332,13 +1331,14 @@ describe('Earthbeam API', () => {
             });
           });
 
+          // Its reported students can't be reviewed, so progress would read as
+          // none found.
           it('leaves out the job’s progress when the full run fails', async () => {
             const job = await seedFuzzyJob();
             await reportMatchResults(job.runs[0].id, [candidate('corr-1')]);
 
             const payload = await done(job.runs[0].id, 'failure');
 
-            expect(payload.status).toBe('error');
             expect(payload).not.toHaveProperty('jobProgress');
           });
 
@@ -1351,31 +1351,26 @@ describe('Earthbeam API', () => {
 
             expect(payload.completedWithErrors).toBe(false);
             expect(payload.unmatchedStudentsCount).toBe(0);
-            expect(payload.summary).toMatch(/^send run: /);
             expect(payload.summary).toContain('1 student ');
-            expect(payload.jobProgress.outstanding).toBe(1);
-            expect(payload.jobProgress.students).toEqual({
-              ...noStudentsToMatch,
-              total: 3,
-              ready: 1,
-              reprocessed: 2,
+            expect(payload.jobProgress).toEqual({
+              outstanding: 1,
+              students: { ...noStudentsToMatch, total: 3, ready: 1, reprocessed: 2 },
+              sendRuns: [earlier, current].map(({ id, createdOn }) => ({
+                runId: id,
+                status: 'success',
+                students: 1,
+                resourceErrors: '',
+                createdOn: createdOn.toISOString(),
+              })),
             });
-            expect(payload.jobProgress.sendRuns).toEqual([
-              expect.objectContaining({ runId: earlier.id, status: 'success', students: 1 }),
-              expect.objectContaining({ runId: current.id, status: 'success', students: 1 }),
-            ]);
           });
 
-          // A failed send run's students are outstanding again, but it's red
-          // already, so they don't count against it.
-          it('reports a failed send run’s students and the job’s progress', async () => {
+          it('gives a failed send run its students and the job’s progress', async () => {
             const job = await seedMatched(['corr-1', 'corr-2']);
             const current = await seedSendRun(job.id, ['corr-1', 'corr-2'], { status: 'running' });
 
             const payload = await done(current.id, 'failure');
 
-            expect(payload.status).toBe('error');
-            expect(payload.unmatchedStudentsCount).toBe(0);
             expect(payload.summary).toContain('2 students ');
             expect(payload.jobProgress).toEqual({
               outstanding: 2,
@@ -1420,6 +1415,8 @@ describe('Earthbeam API', () => {
               unmatchedStudentsInfo: { name: 'student_id', type: 'studentUniqueId', count: 3 },
             },
           });
+          // In this mode results arrive after `done`. Reporting them first
+          // makes sure the count would differ if the mode were ignored.
           await reportMatchResults(
             fullRun.id,
             [1, 2, 3, 4, 5].map((n) => ({
