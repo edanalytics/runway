@@ -33,30 +33,24 @@ import {
   CrossYearCue,
   deciderName,
   matchedCandidate,
+  userName,
   suggestionsOf,
 } from './components';
 import { valueText } from './values';
 import { useMe } from '../../../api/queries/me.queries';
-import { ContactSupport } from '../../../components/SupportButton';
-import { termsFrom, SearchTerms } from './search';
+import { changedFields, realDate, searchBlock, termsFrom, SearchTerms } from './search';
 import { Candidate, DecisionChoice, DecisionResult, useReviewSession } from './reviewSession';
-import { outcomeLabel, sendRunOutcome, submissionNumber, submissionReference } from './sendRun';
-
-const realDate = (value: string) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-};
+import { outcomeLabel, sendRunOutcome, submissionNumber } from './sendRun';
 
 /** Missing or invalid values in the file: clues, not a diagnosis of IDRS. */
 const fileIssues = (student: GetStudentInputDetailsDto) => {
   const d = student.inputDetails;
   const issues: string[] = [];
-  if (!valueText(d.first_name)) issues.push('No first name in your file.');
-  if (!valueText(d.last_name)) issues.push('No last name in your file.');
-  if (!valueText(d.birth_date)) issues.push('No date of birth in your file.');
+  if (!valueText(d.first_name)) issues.push('No first name in the file.');
+  if (!valueText(d.last_name)) issues.push('No last name in the file.');
+  if (!valueText(d.birth_date)) issues.push('No date of birth in the file.');
   else if (typeof d.birth_date === 'string' && !realDate(d.birth_date))
-    issues.push(`Date of birth ${d.birth_date} isn't a valid date.`);
+    issues.push(`Date of birth ${d.birth_date} isn't a valid YYYY-MM-DD date.`);
   return issues;
 };
 
@@ -144,10 +138,15 @@ export const StudentPane = ({
   // Once a student's match is in a send run, failed or not, they take no new
   // decision (Decisions Log #46): a failed one's remedy is its submission's.
   const isSubmitted = student.sendRunId !== null;
+  // An exclusion is cleared before anything else, so every excluded student
+  // returns to review the same way, with or without suggestions. The API
+  // doesn't require it.
+  const isExcluded = student.status === 'excluded';
   const suggestions = suggestionsOf(student);
 
   // Saying none fit stays on this student and opens search and exclude.
   const [noneFit, setNoneFit] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const matched = matchedCandidate(student);
   // A match found by searching stays in view beside the suggestions.
@@ -264,7 +263,7 @@ export const StudentPane = ({
       {/* The source record stays put while everything else changes. */}
       <VStack alignItems="flex-start" gap="100">
         <Box fontSize="0.8rem" opacity="0.8">
-          From your file
+          From the file
         </Box>
         <HStack gap="300" alignItems="baseline" flexWrap="wrap">
           <Box textStyle="h4">{name}</Box>
@@ -292,7 +291,37 @@ export const StudentPane = ({
         </Box>
       )}
 
-      {(noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
+      {isExcluded ? (
+        // The exclusion, above, is what this view is about, and what Clear
+        // undoes; any suggestions it passed over are background, a click away.
+        <VStack alignItems="stretch" gap="200">
+          <HStack gap="200">
+            <Box fontSize="0.9rem" opacity="0.85">
+              {suggestions.length === 0
+                ? 'No suggestions'
+                : suggestions.length === 1
+                ? '1 suggestion'
+                : `${suggestions.length} suggestions`}{' '}
+              for this student
+            </Box>
+            {suggestions.length > 0 && (
+              <QuietButton
+                size="xs"
+                onClick={() => setShowSuggestions(!showSuggestions)}
+                aria-expanded={showSuggestions}
+                aria-label={showSuggestions ? 'Hide suggestions' : 'Show suggestions'}
+              >
+                {showSuggestions ? 'Hide' : 'Show'}
+              </QuietButton>
+            )}
+            <Box flex="1" />
+            <QuietButton onClick={clearDecision}>Clear decision</QuietButton>
+          </HStack>
+          {showSuggestions && (
+            <EvidenceTable student={student} candidates={suggestions} matchedId={null} />
+          )}
+        </VStack>
+      ) : (noneFit || (!isSubmitted && candidates.length === 0)) && !isSubmitted ? (
         <NoSuggestionFits
           suggestionCount={suggestions.length}
           onBack={candidates.length ? () => setNoneFit(false) : undefined}
@@ -323,14 +352,23 @@ export const StudentPane = ({
           />
           {!isSubmitted && (
             <HStack gap="300" paddingTop="100">
-              <SecondaryButton onClick={() => setNoneFit(true)}>
-                {candidates.length === 1 ? 'Not this student' : 'None of these'}
-              </SecondaryButton>
-              <Box fontSize="0.8rem" opacity="0.7">
-                Search the roster or exclude this record.
-              </Box>
-              <Box flex="1" />
-              {decision && <QuietButton onClick={clearDecision}>Clear decision</QuietButton>}
+              {decision ? (
+                // A saved match is the suggestion shown as chosen; clearing
+                // it is how to say it isn't this student.
+                <>
+                  <Box flex="1" />
+                  <QuietButton onClick={clearDecision}>Clear decision</QuietButton>
+                </>
+              ) : (
+                <>
+                  <SecondaryButton onClick={() => setNoneFit(true)}>
+                    {candidates.length === 1 ? 'Not this student' : 'None of these'}
+                  </SecondaryButton>
+                  <Box fontSize="0.8rem" opacity="0.7">
+                    Search the roster or exclude this record.
+                  </Box>
+                </>
+              )}
             </HStack>
           )}
         </VStack>
@@ -343,12 +381,13 @@ export const StudentPane = ({
 const DecisionState = ({ student }: { student: GetStudentInputDetailsDto }) => {
   const { job, sendRuns } = useReviewSession();
   const { data: me } = useMe();
+  const meId = me?.user?.id;
   const { status, decision } = student;
   const matched = matchedCandidate(student);
   // The submission that decides the student's status, once they've been submitted.
   const sendRun = sendRuns.find(({ id }) => id === student.sendRunId);
   const by = decision
-    ? ` by ${deciderName(decision, me?.user?.id)} on ${dateTime(decision.decidedOn)}`
+    ? ` by ${deciderName(decision, meId)} on ${dateTime(decision.decidedOn)}`
     : '';
   let body: ReactNode = null;
   if (status === 'ready' && matched) {
@@ -356,33 +395,32 @@ const DecisionState = ({ student }: { student: GetStudentInputDetailsDto }) => {
       matched.source === 'search' ? ', found by searching' : ''
     }. Not submitted yet.`;
   } else if (status === 'excluded') {
-    body = `Excluded from this job${by}. Its records won't be reprocessed.`;
-  } else if (sendRun) {
+    body = `Excluded from this job${by}. This record won't be reprocessed.`;
+  } else if (sendRun && decision) {
     // No decision can follow a send, so the current one is what was sent.
-    const chosen = matched?.studentUniqueId;
     const number = submissionNumber(sendRuns, sendRun);
     const outcome = sendRunOutcome(sendRun, job.template.reportResources);
+    const submitted = `submitted by ${userName(sendRun.createdBy, meId)} on ${dateTime(
+      sendRun.createdOn
+    )}`;
+    // One name when whoever saved the match also submitted it.
+    const sameUser = !!decision.decidedBy && decision.decidedBy.id === sendRun.createdBy?.id;
     body = (
       <VStack alignItems="flex-start" gap="100">
         <Box>
-          Sent in submission {number}
-          {chosen ? ` with ${chosen}` : ''} · {outcomeLabel[outcome]}.
+          Matched to {decision.studentUniqueId}
+          {sameUser ? ` and ${submitted}` : ` by ${deciderName(decision, meId)}, ${submitted}`}.
         </Box>
-        {status === 'run-failed' ? (
+        <Box fontSize="0.85rem" opacity="0.85">
+          Submission {number} · {outcomeLabel[outcome]}
+        </Box>
+        {(status === 'run-failed' || outcome === 'complete with errors') && (
           <Box fontSize="0.85rem" opacity="0.85">
-            Reprocessing failed for that submission. The match still stands. Submission {number},
-            above, is where to contact support or send its students again.
+            {status === 'run-failed'
+              ? 'The match is saved.'
+              : 'Some records in this submission couldn’t be sent.'}{' '}
+            Contact support from submission {number} above.
           </Box>
-        ) : (
-          <HStack fontSize="0.85rem" gap="300" flexWrap="wrap" justifyContent="space-between">
-            <Box flex="1" minWidth="16rem" opacity="0.85">
-              Correcting a submitted identity isn't supported here yet. To report a wrong match,
-              contact support.
-            </Box>
-            <ContactSupport
-              message={`${submissionReference(job.id, number, sendRun)}: reporting a wrong match`}
-            />
-          </HStack>
         )}
       </VStack>
     );
@@ -577,7 +615,7 @@ const EvidenceTable = ({
             <Tr>
               <Th {...labelCell} />
               <Th {...fileCell} color="blue.50" textTransform="none" fontSize="0.8rem">
-                In your file
+                In the file
               </Th>
               {shown.map((c) => (
                 <Th
@@ -699,8 +737,13 @@ const Search = ({
   const [searching, setSearching] = useState(false);
   const hits = remembered?.hits ?? null;
 
+  const fileTerms = termsFrom(student.inputDetails);
+  const edited = changedFields(terms, fileTerms);
+  const block = searchBlock(terms, fileTerms, remembered?.terms ?? null);
+
   const [error, setError] = useState<string | null>(null);
   const run = async () => {
+    if (block || searching) return;
     setSearching(true);
     setError(null);
     const result = await search(student.correlationId, terms);
@@ -708,12 +751,18 @@ const Search = ({
     else setError(result.message);
     setSearching(false);
   };
-  const field = (key: keyof SearchTerms, label: string, placeholder?: string) => (
+  const field = (key: keyof SearchTerms, label: string, placeholder?: string, problem?: string) => (
     <SearchField
       label={label}
       value={terms[key]}
       placeholder={placeholder}
-      onChange={(value) => setTerms({ ...terms, [key as string]: value })}
+      problem={problem}
+      edited={edited.includes(key)}
+      onChange={(value) => {
+        // An error is about the search that failed; editing moves on from it.
+        setError(null);
+        setTerms({ ...terms, [key as string]: value });
+      }}
       onEnter={run}
     />
   );
@@ -723,17 +772,36 @@ const Search = ({
       <SimpleGrid columns={{ base: 2, md: 4 }} gap="200">
         {field('first_name', 'First name')}
         {field('last_name', 'Last name')}
-        {field('birth_date', 'Date of birth', 'YYYY-MM-DD')}
-        {field('student_ids', 'Student IDs', 'any IDs, e.g. state or local')}
+        {field(
+          'birth_date',
+          'Date of birth',
+          'YYYY-MM-DD',
+          block === 'bad-date' ? 'Use YYYY-MM-DD' : undefined
+        )}
+        {field('student_ids', 'Student IDs', 'e.g. state or local')}
       </SimpleGrid>
-      <SecondaryButton alignSelf="flex-start" onClick={run} isLoading={searching}>
-        Search
-      </SecondaryButton>
+      <HStack gap="300">
+        <SecondaryButton
+          onClick={run}
+          isLoading={searching}
+          loadingText="Searching…"
+          isDisabled={!!block}
+        >
+          Search
+        </SecondaryButton>
+        {(block === 'file' || block === 'shown') && !searching && (
+          <Box fontSize="0.8rem" opacity="0.7">
+            {block === 'file'
+              ? "Runway already searched with the file's values. Edit a field to search again."
+              : 'Edit a field to search again.'}
+          </Box>
+        )}
+      </HStack>
       {error && !searching && <Box color="pink.100">Couldn't search: {error}</Box>}
-      {hits && !searching && hits.length === 0 && (
-        <Box>No one in the roster matches those details.</Box>
+      {hits && !searching && !error && hits.length === 0 && (
+        <Box>No students match your last search.</Box>
       )}
-      {hits && !searching && hits.length > 0 && (
+      {hits && !searching && !error && hits.length > 0 && (
         <Box bg="blue.700" borderRadius="6px" padding="200">
           <EvidenceTable
             student={student}

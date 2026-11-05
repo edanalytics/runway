@@ -1,7 +1,8 @@
 import { Box, HStack, Spinner, VStack } from '@chakra-ui/react';
-import { GetStudentInputDetailsDto } from '@edanalytics/models';
+import { GetStudentInputDetailsDto, StudentMatchStatus } from '@edanalytics/models';
 import { useState } from 'react';
 import { CheckIcon } from '@chakra-ui/icons';
+import { IconExclamation } from '../../../../assets/icons';
 import { PrimaryButton, QuietButton, TooManyNote, USUAL_MAXIMUM } from './components';
 import { statusLabel, useReviewSession } from './reviewSession';
 import { Queue, useQueue } from './queue';
@@ -9,6 +10,8 @@ import { LastAction, LastActionBar, StudentPane } from './studentPane';
 import { SubmissionList } from './submissions';
 import { SubmitReview } from './submit';
 import { ReviewStatusSummary } from './ReviewStatusSummary';
+import { doneMessage } from './ReviewNotice';
+import { sendRunOutcome } from './sendRun';
 
 /*
  * The match review: one persistent queue and one focused student pane.
@@ -26,8 +29,8 @@ import { ReviewStatusSummary } from './ReviewStatusSummary';
 export const MatchReview = () => {
   const { students, counts, overLimit, isLoading, isError, submitBlocked } = useReviewSession();
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
-  // Set once the reviewer picks a student, so the prompt to submit gives way
-  // to the student they asked for. Cleared when they save a decision.
+  // Set once the reviewer picks a student, so a prompt gives way to the
+  // student they asked for. Cleared when they save a decision or submit.
   const [lookingBack, setLookingBack] = useState(false);
   // Show the introduction before starting and when Previous returns to it.
   const [showIntro, setShowIntro] = useState(true);
@@ -65,17 +68,18 @@ export const MatchReview = () => {
   const toReview = students.filter((student) => student.status === 'to-review');
   const reviewQueue = queue.filter((student) => student.status === 'to-review');
   const atStart = showIntro && toReview.length > 0;
-  // Every student has a decision, but saved matches haven't been submitted.
-  const awaitingSubmit = ready.length > 0 && !toReview.length;
-  // Then the pane says so rather than showing a student, until one is picked.
-  const atSubmitPrompt = awaitingSubmit && !lookingBack;
+  // Once every student has a decision, the pane says where things stand
+  // rather than showing a student, until one is picked.
+  const atPrompt = !toReview.length && !lookingBack;
   // The student the list marks as open; none when the pane isn't showing one.
-  const shownId = atStart || atSubmitPrompt ? null : selected.correlationId;
-  const submitPrompt = (
+  const shownId = atStart || atPrompt ? null : selected.correlationId;
+  const prompt = ready.length ? (
     <SubmitPrompt
       readyCount={ready.length}
       excludedCount={students.filter((student) => student.status === 'excluded').length}
     />
+  ) : (
+    <DonePrompt students={students} />
   );
 
   const advance = (from: string) => {
@@ -101,8 +105,8 @@ export const MatchReview = () => {
     (student) => student.correlationId === selected.correlationId
   );
 
-  // The review pane: one student at a time, or the start screen or the
-  // prompt to submit in its place.
+  // The review pane: one student at a time, or the start screen or a prompt
+  // in its place.
   const pane = (
     <Box flex="1" minWidth="0" layerStyle="contentBox" padding="400">
       {atStart ? (
@@ -114,7 +118,7 @@ export const MatchReview = () => {
         />
       ) : (
         <>
-          {!atSubmitPrompt && selected.status === 'to-review' && (
+          {!atPrompt && selected.status === 'to-review' && (
             <HStack
               justifyContent="space-between"
               marginBottom="300"
@@ -140,15 +144,14 @@ export const MatchReview = () => {
           {lastAction && (
             <LastActionBar action={lastAction} onDismiss={() => setLastAction(null)} />
           )}
-          {atSubmitPrompt ? (
-            submitPrompt
+          {atPrompt ? (
+            prompt
           ) : (
             <StudentPane
               key={selected.correlationId}
               student={selected}
               onSaved={(action) => {
-                // Undo goes back to the student it undoes, even past the
-                // prompt to submit.
+                // Undo goes back to the student it undoes, even past a prompt.
                 const id = selected.correlationId;
                 setLastAction({
                   ...action,
@@ -158,7 +161,7 @@ export const MatchReview = () => {
                   },
                 });
                 if (action.advance) advance(selected.correlationId);
-                // A decision brings back the prompt to submit, if it was the last one.
+                // A decision brings back the prompt, if it was the last one.
                 setLookingBack(false);
               }}
             />
@@ -191,6 +194,11 @@ export const MatchReview = () => {
         isOpen={reviewing}
         ready={ready}
         onClose={() => setReviewing(false)}
+        onSubmitted={() => {
+          setReviewing(false);
+          // Back to where things stand, even if a student was picked first.
+          setLookingBack(false);
+        }}
         onView={(id) => {
           setReviewing(false);
           setSelectedId(id);
@@ -261,6 +269,65 @@ const SubmitPrompt = ({
     </VStack>
   </HStack>
 );
+
+/**
+ * Shown in place of a student once there's nothing left to decide or
+ * submit, so a finished review doesn't open on a student who is done.
+ * While a submission is sending or has failed, it says so instead.
+ */
+const DonePrompt = ({ students }: { students: GetStudentInputDetailsDto[] }) => {
+  const { job, sendRuns } = useReviewSession();
+  const count = (status: StudentMatchStatus) =>
+    students.filter((student) => student.status === status).length;
+  const runFailed = count('run-failed');
+  const reprocessing = count('reprocessing');
+  // Its students count as sent, but the submission above says to contact support.
+  const sentWithErrors = sendRuns.some(
+    (sendRun) => sendRunOutcome(sendRun, job.template.reportResources) === 'complete with errors'
+  );
+  const warning = (
+    <Box bg="pink.400" padding="100" borderRadius="999px" aria-hidden="true">
+      <IconExclamation />
+    </Box>
+  );
+  const [icon, heading, body] = runFailed
+    ? [
+        warning,
+        `Sending failed for ${runFailed} ${runFailed === 1 ? 'student' : 'students'}`,
+        'Their matches are saved. Contact support from the failed submission above.',
+      ]
+    : reprocessing
+    ? [
+        <Spinner size="sm" color="blue.50" aria-hidden="true" />,
+        'Sending assessments',
+        'There’s nothing left to review. This page updates when sending finishes.',
+      ]
+    : sentWithErrors
+    ? [
+        warning,
+        'Complete with errors',
+        'Some records couldn’t be sent. Contact support from the submission above.',
+      ]
+    : [
+        <CheckIcon color="green.100" boxSize="1.1rem" />,
+        'All done',
+        doneMessage(count('reprocessed'), count('excluded')),
+      ];
+  return (
+    <HStack alignItems="flex-start" gap="300" paddingY="400" role="status">
+      <Box marginTop="0.3rem" flexShrink={0}>
+        {icon}
+      </Box>
+      <VStack alignItems="flex-start" gap="100">
+        <Box textStyle="h4">{heading}</Box>
+        <Box>{body}</Box>
+        <Box fontSize="0.85rem" opacity="0.75">
+          To look at a student again, pick them from the list.
+        </Box>
+      </VStack>
+    </HStack>
+  );
+};
 
 /** Progress that says what's left to do, with identity and processing kept apart. */
 const ReviewSummary = () => {

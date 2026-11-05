@@ -17,10 +17,89 @@ import { FileService } from 'api/src/files/file.service';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { StudentRosterDetailsJson } from '@edanalytics/models';
+import { noStudentsToMatch } from 'api/src/jobs/student-match-review.service';
 import { holdRunRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 describe('Earthbeam API', () => {
+  type SavedMatch = {
+    correlationId: string;
+    basis: 'suggestion' | 'search';
+    /** The basis's roster details' school_years, as IDRS returned them. */
+    schoolYears: StudentRosterDetailsJson['school_years'];
+  };
+
+  /**
+   * A fuzzy job whose full run succeeded, with a saved match for each
+   * student: to the one suggestion the full run reported for them, or,
+   * where it reported none, to a student the reviewer found by searching.
+   */
+  const seedMatchedJob = async (matches: SavedMatch[]) => {
+    const job = await seedJob({
+      odsConfig: odsConfigA2425,
+      bundle: bundleA,
+      tenant: tenantA,
+      idMatchingMode: 'fuzzy',
+      runStatus: 'success',
+    });
+    const fullRun = job.runs[0];
+    await reportMatchResults(
+      fullRun.id,
+      matches.map(({ correlationId, basis, schoolYears }) => ({
+        correlation_id: correlationId,
+        candidate: { first_name: 'Ada' },
+        matches:
+          basis === 'suggestion'
+            ? [
+                {
+                  student_unique_id: `SUID-${correlationId}`,
+                  score: 0.9,
+                  school_years: schoolYears,
+                },
+              ]
+            : [],
+      }))
+    );
+    for (const { correlationId, basis, schoolYears } of matches) {
+      const decision = { jobId: job.id, correlationId, seq: 1, kind: 'match' } as const;
+      if (basis === 'suggestion') {
+        const { id: resultId } = await prisma.studentMatchResult.findUniqueOrThrow({
+          where: {
+            jobId_correlationId_runId: { jobId: job.id, correlationId, runId: fullRun.id },
+          },
+        });
+        await prisma.studentMatchDecision.create({
+          data: { ...decision, resultId, ordinal: 0, studentUniqueId: `SUID-${correlationId}` },
+        });
+      } else {
+        await prisma.studentMatchDecision.create({
+          data: {
+            ...decision,
+            studentUniqueId: `SUID-FOUND-${correlationId}`,
+            searchDetails: { first_name: 'Ada' },
+            rosterDetails: { school_years: schoolYears },
+          },
+        });
+      }
+    }
+    return job;
+  };
+
+  /** A send run of these students' saved matches, recorded in the order given. */
+  const seedSendRun = async (
+    jobId: number,
+    correlationIds: string[],
+    { status = 'new', summary }: { status?: RunStatus; summary?: NonNullable<Run['summary']> } = {}
+  ) => {
+    const run = await prisma.run.create({ data: { jobId, kind: 'send', status, summary } });
+    for (const correlationId of correlationIds) {
+      await prisma.sendRunDecision.create({
+        data: { runId: run.id, jobId, correlationId, seq: 1 },
+      });
+    }
+    return run;
+  };
+
   describe('GET /:runId', () => {
     let runA: Run;
     let endpointA: string;
@@ -270,13 +349,6 @@ describe('Earthbeam API', () => {
       /** The job's school year, 2024–25, by its end year. */
       const JOB_YEAR = 2025;
 
-      type SavedMatch = {
-        correlationId: string;
-        basis: 'suggestion' | 'search';
-        /** The basis's roster details' school_years, as IDRS returned them. */
-        schoolYears: StudentRosterDetailsJson['school_years'];
-      };
-
       const payloadOf = async (runId: number) => {
         const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
         return request(app.getHttpServer())
@@ -297,73 +369,6 @@ describe('Earthbeam API', () => {
           unmatchedIds: `${base}/unmatched-ids`,
           outputFiles: `${base}/output-files`,
         };
-      };
-
-      /**
-       * A fuzzy job whose full run succeeded, with a saved match for each
-       * student: to the one suggestion the full run reported for them, or,
-       * where it reported none, to a student the reviewer found by searching.
-       */
-      const seedMatchedJob = async (matches: SavedMatch[]) => {
-        const job = await seedJob({
-          odsConfig: odsConfigA2425,
-          bundle: bundleA,
-          tenant: tenantA,
-          idMatchingMode: 'fuzzy',
-          runStatus: 'success',
-        });
-        const fullRun = job.runs[0];
-        await reportMatchResults(
-          fullRun.id,
-          matches.map(({ correlationId, basis, schoolYears }) => ({
-            correlation_id: correlationId,
-            candidate: { first_name: 'Ada' },
-            matches:
-              basis === 'suggestion'
-                ? [
-                    {
-                      student_unique_id: `SUID-${correlationId}`,
-                      score: 0.9,
-                      school_years: schoolYears,
-                    },
-                  ]
-                : [],
-          }))
-        );
-        for (const { correlationId, basis, schoolYears } of matches) {
-          const decision = { jobId: job.id, correlationId, seq: 1, kind: 'match' } as const;
-          if (basis === 'suggestion') {
-            const { id: resultId } = await prisma.studentMatchResult.findUniqueOrThrow({
-              where: {
-                jobId_correlationId_runId: { jobId: job.id, correlationId, runId: fullRun.id },
-              },
-            });
-            await prisma.studentMatchDecision.create({
-              data: { ...decision, resultId, ordinal: 0, studentUniqueId: `SUID-${correlationId}` },
-            });
-          } else {
-            await prisma.studentMatchDecision.create({
-              data: {
-                ...decision,
-                studentUniqueId: `SUID-FOUND-${correlationId}`,
-                searchDetails: { first_name: 'Ada' },
-                rosterDetails: { school_years: schoolYears },
-              },
-            });
-          }
-        }
-        return job;
-      };
-
-      /** A send run of these students' saved matches, recorded in the order given. */
-      const seedSendRun = async (jobId: number, correlationIds: string[]) => {
-        const run = await prisma.run.create({ data: { jobId, kind: 'send', status: 'new' } });
-        for (const correlationId of correlationIds) {
-          await prisma.sendRunDecision.create({
-            data: { runId: run.id, jobId, correlationId, seq: 1 },
-          });
-        }
-        return run;
       };
 
       it('gives a full run every step’s inputs, marked as a full run', async () => {
@@ -1189,6 +1194,18 @@ describe('Earthbeam API', () => {
       });
 
       describe('Slack Notifiction', () => {
+        /** Posts the run's `done`, and returns the run_complete event it emits. */
+        const done = async (runId: number, status: 'success' | 'failure' = 'success') => {
+          const token = await app.get(EarthbeamApiAuthService).createAccessToken({ runId });
+          const res = await request(app.getHttpServer())
+            .post(`/earthbeam/jobs/${runId}/status`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ action: 'done', status });
+          expect(res.status).toBe(201);
+          const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
+          return payload;
+        };
+
         it('should send a slack notification when the run is complete', async () => {
           const res = await request(app.getHttpServer())
             .post(endpointA)
@@ -1253,6 +1270,169 @@ describe('Earthbeam API', () => {
           expect(payload.summary).toMatch(/^send run: /);
         });
 
+        describe('fuzzy jobs', () => {
+          const candidate = (correlationId: string) => ({
+            correlation_id: correlationId,
+            candidate: { first_name: 'Ada' },
+            matches: [],
+          });
+
+          const seedFuzzyJob = () =>
+            seedJob({
+              odsConfig: odsConfigA2425,
+              bundle: bundleA,
+              tenant: tenantA,
+              idMatchingMode: 'fuzzy',
+              runStatus: 'running',
+            });
+
+          /** A fuzzy job with a saved match to a suggestion for each student. */
+          const seedMatched = (correlationIds: string[]) =>
+            seedMatchedJob(
+              correlationIds.map((correlationId) => ({
+                correlationId,
+                basis: 'suggestion',
+                schoolYears: [2025],
+              }))
+            );
+
+          it('is yellow when the full run has students to review, with the job’s progress last', async () => {
+            const job = await seedFuzzyJob();
+            await reportMatchResults(job.runs[0].id, [candidate('corr-1'), candidate('corr-2')]);
+
+            const payload = await done(job.runs[0].id);
+
+            expect(payload).toMatchObject({
+              idMatchingMode: 'fuzzy',
+              completedWithErrors: true,
+              unmatchedStudentsCount: 2,
+              result: { hasUnmatchedStudents: true },
+            });
+            expect(payload.summary).toContain('2 to review');
+            expect(payload.jobProgress).toEqual({
+              outstanding: 2,
+              students: { ...noStudentsToMatch, total: 2, toReview: 2 },
+              sendRuns: [],
+            });
+            expect(Object.keys(payload).at(-1)).toBe('jobProgress');
+          });
+
+          it('is green when the full run reported no students', async () => {
+            const job = await seedFuzzyJob();
+
+            const payload = await done(job.runs[0].id);
+
+            expect(payload.completedWithErrors).toBe(false);
+            expect(payload.unmatchedStudentsCount).toBe(0);
+            expect(payload.jobProgress).toEqual({
+              outstanding: 0,
+              students: noStudentsToMatch,
+              sendRuns: [],
+            });
+          });
+
+          // Its reported students can't be reviewed, so progress would read as
+          // none found.
+          it('leaves out the job’s progress when the full run fails', async () => {
+            const job = await seedFuzzyJob();
+            await reportMatchResults(job.runs[0].id, [candidate('corr-1')]);
+
+            const payload = await done(job.runs[0].id, 'failure');
+
+            expect(payload).not.toHaveProperty('jobProgress');
+          });
+
+          it('judges a send run only on itself, with the job’s progress alongside', async () => {
+            const job = await seedMatched(['corr-1', 'corr-2', 'corr-3']);
+            const earlier = await seedSendRun(job.id, ['corr-1'], { status: 'success' });
+            const current = await seedSendRun(job.id, ['corr-2'], { status: 'running' });
+
+            const payload = await done(current.id);
+
+            expect(payload.completedWithErrors).toBe(false);
+            expect(payload.unmatchedStudentsCount).toBe(0);
+            expect(payload.summary).toContain('1 student ');
+            expect(payload.jobProgress).toEqual({
+              outstanding: 1,
+              students: { ...noStudentsToMatch, total: 3, ready: 1, reprocessed: 2 },
+              sendRuns: [earlier, current].map(({ id, createdOn }) => ({
+                runId: id,
+                status: 'success',
+                students: 1,
+                resourceErrors: '',
+                createdOn: createdOn.toISOString(),
+              })),
+            });
+          });
+
+          it('gives a failed send run its students and the job’s progress', async () => {
+            const job = await seedMatched(['corr-1', 'corr-2']);
+            const current = await seedSendRun(job.id, ['corr-1', 'corr-2'], { status: 'running' });
+
+            const payload = await done(current.id, 'failure');
+
+            expect(payload.summary).toContain('2 students ');
+            expect(payload.jobProgress).toEqual({
+              outstanding: 2,
+              students: { ...noStudentsToMatch, total: 2, runFailed: 2 },
+              sendRuns: [
+                expect.objectContaining({ runId: current.id, status: 'error', students: 2 }),
+              ],
+            });
+          });
+
+          it('is yellow when a send run has resource errors', async () => {
+            const job = await seedMatched(['corr-1']);
+            const current = await seedSendRun(job.id, ['corr-1'], {
+              status: 'running',
+              summary: { studentAssessments: { records_processed: 10, records_failed: 2 } },
+            });
+
+            const payload = await done(current.id);
+
+            expect(payload.completedWithErrors).toBe(true);
+            expect(payload.jobProgress.sendRuns).toEqual([
+              expect.objectContaining({
+                runId: current.id,
+                resourceErrors: 'studentAssessments (2 of 10 failed)',
+              }),
+            ]);
+          });
+        });
+
+        it('keeps the Executor’s unmatched count in background fuzzy mode', async () => {
+          const job = await seedJob({
+            odsConfig: odsConfigA2425,
+            bundle: bundleA,
+            tenant: tenantA,
+            idMatchingMode: 'id_based_fuzzy_background',
+            runStatus: 'running',
+          });
+          const fullRun = job.runs[0];
+          await prisma.run.update({
+            where: { id: fullRun.id },
+            data: {
+              unmatchedStudentsInfo: { name: 'student_id', type: 'studentUniqueId', count: 3 },
+            },
+          });
+          // In this mode results arrive after `done`. Reporting them first
+          // makes sure the count would differ if the mode were ignored.
+          await reportMatchResults(
+            fullRun.id,
+            [1, 2, 3, 4, 5].map((n) => ({
+              correlation_id: `corr-${n}`,
+              candidate: { first_name: 'Ada' },
+              matches: [],
+            }))
+          );
+
+          const payload = await done(fullRun.id);
+
+          expect(payload.unmatchedStudentsCount).toBe(3);
+          expect(payload.summary).toContain('3 unmatched');
+          expect(payload.jobProgress).toBeUndefined();
+        });
+
         it('should report reportable resource errors and the input params', async () => {
           // bundleA reports studentAssessments only, so students' failures don't count.
           await prisma.run.update({
@@ -1278,7 +1458,7 @@ describe('Earthbeam API', () => {
           const [, payload] = eventEmitterMock.mock.calls.find(([name]) => name === 'run_complete');
           expect(payload.completedWithErrors).toBe(true);
           expect(payload.result.hasResourceErrors).toBe(true);
-          expect(payload.summary).toContain('studentAssessments (2/10)');
+          expect(payload.summary).toContain('studentAssessments (2 of 10 failed)');
           expect(payload.summary).not.toContain('students (');
           expect(payload.input.params).toEqual(
             inputParams?.map(({ name, value }) => ({ name, value }))

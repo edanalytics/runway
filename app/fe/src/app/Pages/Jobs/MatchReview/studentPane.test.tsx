@@ -11,7 +11,6 @@ jest.mock('./reviewSession', () => ({
   }),
 }));
 jest.mock('../../../api/queries/me.queries', () => ({ useMe: () => ({}) }));
-jest.mock('../../../components/SupportButton', () => ({ ContactSupport: () => null }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 

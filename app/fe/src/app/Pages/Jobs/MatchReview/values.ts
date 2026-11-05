@@ -2,7 +2,8 @@ import { JsonValue } from '@edanalytics/models';
 
 /**
  * A detail from a file record or a roster student as text, or null when
- * there's nothing to show. ID lists read as "type value".
+ * there's nothing to show. ID lists read as "type value", each once: some
+ * files repeat an ID across columns.
  */
 export const valueText = (value: JsonValue | undefined): string | null => {
   if (value === null || value === undefined || value === '') return null;
@@ -14,7 +15,7 @@ export const valueText = (value: JsonValue | undefined): string | null => {
           : valueText(v)
       )
       .filter(Boolean);
-    return parts.length ? parts.join(', ') : null;
+    return parts.length ? [...new Set(parts)].join(', ') : null;
   }
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
 };

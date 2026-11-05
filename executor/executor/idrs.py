@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, fields, asdict
 from typing import Literal
 from executor.config import IDRS_BATCH_SIZE
 
+SUFFIXES = {'jr', 'sr', 'ii', 'iii', 'iv'}
 
 class IDRSCandidateError(Exception):
     '''error raised when an IDRSCandidate object fails validation'''
@@ -196,8 +197,18 @@ class IDRSCandidate:
             given = rest.split()
             return (given[0] if given else None), (last.strip() or None)
         name_parts = full_name.split()
-        first_name = name_parts[0]
-        last_name = name_parts[-1]
+        # Remove some common suffixes
+        clean_name_parts = [part for part in name_parts if part.strip(".").lower() not in SUFFIXES]
+        if not clean_name_parts:
+            return None, None
+        # If the last piece of minimum 3-length cleaned full name string is a single character, treat it as (roughly) Last | First | MI.
+        if len(clean_name_parts) >= 3 and len(clean_name_parts[-1].strip(".")) == 1:
+            first_name = clean_name_parts[-2]
+            last_name = clean_name_parts[0]
+        # Otherwise assume the string is First | MI | Last
+        else:
+            first_name = clean_name_parts[0]
+            last_name = clean_name_parts[-1]
         return first_name, last_name
 
     @staticmethod
@@ -306,7 +317,7 @@ class IDRSMatchResultSet:
     def _csv_cell(v):
         '''helper method to format list inputs of auto matches'''
         if isinstance(v, list):
-            return "|".join(f"{i.get('id_type') or 'unknown'}:{i.get('id_value')}" if isinstance(i, dict) else str(i) for i in v)
+            return "|".join(str(i.get('id_value', '') or '').strip() if isinstance(i, dict) else str(i) for i in v)
         return v
 
     def auto_match_csv(self) -> list[dict]:

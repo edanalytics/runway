@@ -87,11 +87,14 @@ export const SubmitReview = ({
   isOpen,
   ready,
   onClose,
+  onSubmitted,
   onView,
 }: {
   isOpen: boolean;
   ready: GetStudentInputDetailsDto[];
   onClose: () => void;
+  /** After a submit that stands; the dialog is done. */
+  onSubmitted: () => void;
   onView: (correlationId: string) => void;
 }) => {
   const { submit, submitBlocked, students } = useReviewSession();
@@ -126,7 +129,7 @@ export const SubmitReview = ({
     setSending(true);
     const result = await submit(correlationIds);
     setSending(false);
-    if (result.ok) onClose();
+    if (result.ok) onSubmitted();
     else setFailure({ result, submitted: correlationIds });
   };
   const excluded = students.filter((student) => student.status === 'excluded');
@@ -191,7 +194,7 @@ export const SubmitReview = ({
             <Thead>
               <Tr>
                 <Th color="blue.50" textTransform="none">
-                  From your file
+                  From the file
                 </Th>
                 <Th color="blue.50" textTransform="none">
                   Matched to

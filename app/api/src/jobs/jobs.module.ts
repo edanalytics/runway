@@ -12,7 +12,7 @@ import { IdrsModule } from '../idrs/idrs.module';
 @Module({
   imports: [EarthbeamModule, FileModule, IdrsModule],
   providers: [JobsService, RunsService, StudentMatchReviewService, StudentMatchSubmitService],
-  exports: [JobsService],
+  exports: [JobsService, StudentMatchReviewService],
   controllers: [JobsController],
 })
 export class JobsModule implements NestModule {
