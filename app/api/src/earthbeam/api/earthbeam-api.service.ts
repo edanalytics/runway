@@ -487,7 +487,7 @@ export class EarthbeamApiService {
 }
 
 function formatResourceErrors(errors: { resource: string; failed: number; total: number }[]) {
-  return errors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',');
+  return errors.map((e) => `${e.resource} (${e.failed} of ${e.total} failed)`).join(', ');
 }
 
 function formatCustomDescriptorMappings(
