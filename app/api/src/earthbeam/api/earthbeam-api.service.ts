@@ -5,6 +5,7 @@ import {
   getResourceErrors,
   hasSchoolYears,
   isInJobYear,
+  outstandingStudents,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
@@ -32,6 +33,10 @@ import { rosterFileKey } from 'api/src/earthbeam/roster-path';
 import { AppConfigService } from 'api/src/config/app-config.service';
 import { groupBy, mapValues } from 'lodash';
 import {
+  StudentMatchReviewService,
+  noStudentsToMatch,
+} from 'api/src/jobs/student-match-review.service';
+import {
   EventEmitterService,
   EVENT_EMITTER_SERVICE,
 } from 'api/src/event-emitter/event-emitter.service';
@@ -45,7 +50,8 @@ export class EarthbeamApiService {
     private readonly encryptionService: EncryptionService,
     private readonly fileService: FileService,
     private readonly configService: AppConfigService,
-    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService
+    @Inject(EVENT_EMITTER_SERVICE) private readonly eventEmitter: EventEmitterService,
+    private readonly studentMatchReviewService: StudentMatchReviewService
   ) {}
 
   async earthbeamInputForRun(runId: Run['id']) {
@@ -273,6 +279,40 @@ export class EarthbeamApiService {
     return students;
   }
 
+  /** A fuzzy job's students and send runs so far, for the run_complete event. */
+  private async fuzzyJobProgress(job: {
+    id: number;
+    template: { reportResources?: string[] | null };
+  }) {
+    const students =
+      (await this.studentMatchReviewService.getStudentMatchCounts([job.id])).get(job.id) ??
+      noStudentsToMatch;
+    const sendRuns = await this.prisma.run.findMany({
+      where: { jobId: job.id, kind: 'send' },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        status: true,
+        summary: true,
+        createdOn: true,
+        _count: { select: { sendRunDecision: true } },
+      },
+    });
+    return {
+      outstanding: outstandingStudents(students),
+      students,
+      sendRuns: sendRuns.map((sendRun) => ({
+        runId: sendRun.id,
+        status: sendRun.status,
+        students: sendRun._count.sendRunDecision,
+        resourceErrors: formatResourceErrors(
+          getResourceErrors(sendRun.summary, job.template.reportResources)
+        ),
+        createdOn: sendRun.createdOn.toISOString(),
+      })),
+    };
+  }
+
   /** Completes a run on its `done`, with the status the Executor reported. */
   async completeRun(
     runId: Run['id'],
@@ -351,18 +391,34 @@ export class EarthbeamApiService {
       const unmatchedStudentsInfo = run.unmatchedStudentsInfo;
       const resourceErrors = getResourceErrors(run.summary, run.job.template.reportResources);
       const hasResourceErrors = resourceErrors.length > 0;
-      const resourceErrorString = hasResourceErrors
-        ? resourceErrors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',')
-        : '';
+      const resourceErrorString = formatResourceErrors(resourceErrors);
 
       const odsUrl = run.job.odsConfig?.activeConnection?.host;
       const assessmentType = run.job.name;
       const assessmentFiles = run.job.files.map((file) => file.nameFromUser);
       const tenantCode = run.job.tenantCode;
       const partnerId = run.job.partnerId;
-      const unmatchedStudentCount = unmatchedStudentsInfo?.count ?? 0;
+      // Until the full run succeeds, the job has no students to review. A send
+      // run exists only once it has.
+      const jobProgress =
+        run.job.idMatchingMode === 'fuzzy' && (run.kind === 'send' || run.status === 'success')
+          ? await this.fuzzyJobProgress(run.job)
+          : undefined;
+      // A send run is judged only on itself.
+      const unmatchedStudentCount =
+        run.kind === 'send'
+          ? 0
+          : jobProgress
+          ? jobProgress.outstanding
+          : unmatchedStudentsInfo?.count ?? 0;
+      const sendRunStudentCount =
+        jobProgress?.sendRuns.find(({ runId }) => runId === run.id)?.students ?? 0;
       const unmatchedStudentsMessage =
-        unmatchedStudentCount === 0 ? '' : `${unmatchedStudentCount} unmatched`;
+        run.kind === 'send'
+          ? `${sendRunStudentCount} ${sendRunStudentCount === 1 ? 'student' : 'students'}`
+          : unmatchedStudentCount === 0
+          ? ''
+          : `${unmatchedStudentCount} ${jobProgress ? 'to review' : 'unmatched'}`;
       const errorCode = run.status !== 'success' ? run.runError?.[0]?.code : null;
       const errorString = errorCode ? `ERROR: ${errorCode}` : '';
 
@@ -379,6 +435,7 @@ export class EarthbeamApiService {
         summary: summaryString,
         runId: run.id,
         runType: run.kind,
+        idMatchingMode: run.job.idMatchingMode,
         jobId: run.job.id,
         status: run.status,
         completedWithErrors:
@@ -420,12 +477,17 @@ export class EarthbeamApiService {
           createdOn: run.createdOn.toISOString(),
           completedOn: run.modifiedOn.toISOString(),
         },
+        ...(jobProgress ? { jobProgress } : {}),
       });
     } catch (error) {
       this.logger.error(`Error emitting event: ${error} for run ${run.id}`);
     }
     return { status: 'SUCCESS' };
   }
+}
+
+function formatResourceErrors(errors: { resource: string; failed: number; total: number }[]) {
+  return errors.map((e) => `${e.resource} (${e.failed}/${e.total})`).join(',');
 }
 
 function formatCustomDescriptorMappings(
