@@ -8,7 +8,8 @@ import {
   Input,
   VisuallyHidden,
 } from '@chakra-ui/react';
-import { IconExclamation, IconPlus } from '../../../assets/icons';
+import { InfoOutlineIcon } from '@chakra-ui/icons';
+import { IconPlus } from '../../../assets/icons';
 import {
   Control,
   FieldPath,
@@ -162,9 +163,7 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
           borderColor="blue.500"
           borderRadius="8px"
         >
-          <Box bg="pink.400" padding="100" borderRadius="21px" flexShrink={0} aria-hidden="true">
-            <IconExclamation height={12} width={12} />
-          </Box>
+          <InfoOutlineIcon boxSize="16px" mt="2px" color="blue.50" flexShrink={0} aria-hidden />
           <FormHelperText mt="0" textStyle="body" color="blue.50" wordBreak="break-word">
             {description}
           </FormHelperText>
