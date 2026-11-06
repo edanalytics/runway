@@ -154,7 +154,6 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
       {description && (
         <HStack
           mt="200"
-          mb="200"
           padding="200"
           gap="200"
           alignItems="flex-start"

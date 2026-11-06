@@ -262,46 +262,48 @@ export const JobCreatePage = () => {
                     />
                   ))}
                 </FormSection>
-                <HStack
-                  justifyContent="space-between"
-                  alignItems="flex-start"
-                  width="100%"
-                  gap="800"
-                >
-                  <FormSection heading="required files" width="24rem">
-                    {requiredFileFields.fields.map((field, ix) => (
+                <VStack width="100%" gap="400" alignItems="flex-start">
+                  <HStack
+                    justifyContent="space-between"
+                    alignItems="flex-start"
+                    width="100%"
+                    gap="800"
+                  >
+                    <FormSection heading="required files" width="24rem" gap="200">
+                      {requiredFileFields.fields.map((field, ix) => (
+                        <RunwayFileInput
+                          key={field.id}
+                          label={field.name}
+                          description={field.description}
+                          accept={field.fileType}
+                          name={`requiredFiles.${ix}.fileInput`}
+                          control={control}
+                          rules={{ required: `${field.name} is required` }}
+                        />
+                      ))}
+                    </FormSection>
+                    {!!requiredFileFields.fields.length && (
+                      <Flex maxW="45%" justifyContent="flex-end">
+                        <Fade in>
+                          <FileFormatWarning />
+                        </Fade>
+                      </Flex>
+                    )}
+                  </HStack>
+
+                  <FormSection heading="supplementary files" width="24rem" gap="200">
+                    {supplementaryFileFields.fields.map((field, ix) => (
                       <RunwayFileInput
                         key={field.id}
                         label={field.name}
                         description={field.description}
                         accept={field.fileType}
-                        name={`requiredFiles.${ix}.fileInput`}
+                        name={`supplementaryFiles.${ix}.fileInput`}
                         control={control}
-                        rules={{ required: `${field.name} is required` }}
                       />
                     ))}
                   </FormSection>
-                  {!!requiredFileFields.fields.length && (
-                    <Flex maxW="45%" justifyContent="flex-end">
-                      <Fade in>
-                        <FileFormatWarning />
-                      </Fade>
-                    </Flex>
-                  )}
-                </HStack>
-
-                <FormSection heading="supplementary files" width="24rem">
-                  {supplementaryFileFields.fields.map((field, ix) => (
-                    <RunwayFileInput
-                      key={field.id}
-                      label={field.name}
-                      description={field.description}
-                      accept={field.fileType}
-                      name={`supplementaryFiles.${ix}.fileInput`}
-                      control={control}
-                    />
-                  ))}
-                </FormSection>
+                </VStack>
               </VStack>
             </Box>
           </VStack>
