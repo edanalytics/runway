@@ -165,7 +165,7 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
           <Box bg="pink.400" padding="100" borderRadius="21px" flexShrink={0} aria-hidden="true">
             <IconExclamation height={12} width={12} />
           </Box>
-          <FormHelperText mt="0" textStyle="body" color="blue.50">
+          <FormHelperText mt="0" textStyle="body" color="blue.50" wordBreak="break-word">
             {description}
           </FormHelperText>
         </HStack>
