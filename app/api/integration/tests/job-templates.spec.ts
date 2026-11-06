@@ -95,28 +95,17 @@ describe('GET /job-templates', () => {
       expect(resA.body).toHaveLength(partnerABundles.length);
     });
 
-    it('should return each input file description from the registry', async () => {
+    // A file without a description, and the rest of the file mapping, are pinned by
+    // jobs.spec's "stores the template from the bundle", which uses the same mapping
+    it("should return an input file's description from the registry", async () => {
       const description =
         'Upload the combination file, or add a student data file under supplementary files.';
       getBundlesMock.mockResolvedValue([
-        {
-          ...bundleA,
-          input_files: [
-            { ...bundleA.input_files[0], description },
-            {
-              display_name: 'Student data',
-              env_var: 'STUDENT_FILE',
-              is_required: false,
-              file_type: ['csv'],
-            },
-          ],
-        },
+        { ...bundleA, input_files: [{ ...bundleA.input_files[0], description }] },
       ]);
       const resA = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessA.cookie]);
       expect(resA.status).toBe(200);
-      const [assessmentFile, studentFile] = resA.body[0].files;
-      expect(assessmentFile.description).toBe(description);
-      expect(studentFile).not.toHaveProperty('description');
+      expect(map(resA.body[0].files, 'description')).toEqual([description]);
     });
   });
 });
