@@ -8,7 +8,7 @@ import {
   Input,
   VisuallyHidden,
 } from '@chakra-ui/react';
-import { IconPlus } from '../../../assets/icons';
+import { IconExclamation, IconPlus } from '../../../assets/icons';
 import {
   Control,
   FieldPath,
@@ -104,11 +104,6 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
           {label}
         </Box>
       </FormLabel>
-      {description && (
-        <FormHelperText mt="0" textStyle="body" color="blue.50">
-          {description}
-        </FormHelperText>
-      )}
       <VisuallyHidden>
         <Input type="file" accept={acceptedFileTypes} ref={inputRef} onChange={handleFileChange} />
       </VisuallyHidden>
@@ -155,6 +150,26 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
           </Button>
         )}
       </HStack>
+      {description && (
+        <HStack
+          mt="200"
+          mb="200"
+          padding="200"
+          gap="200"
+          alignItems="flex-start"
+          bg="blue.600"
+          borderLeft="4px solid"
+          borderColor="blue.500"
+          borderRadius="8px"
+        >
+          <Box bg="pink.400" padding="100" borderRadius="21px" flexShrink={0} aria-hidden="true">
+            <IconExclamation height={12} width={12} />
+          </Box>
+          <FormHelperText mt="0" textStyle="body" color="blue.50">
+            {description}
+          </FormHelperText>
+        </HStack>
+      )}
     </FormControl>
   );
 };
