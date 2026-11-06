@@ -2,6 +2,7 @@ import {
   Box,
   Button,
   FormControl,
+  FormHelperText,
   FormLabel,
   HStack,
   Input,
@@ -19,6 +20,7 @@ import { useRef, useState } from 'react';
 
 type FileInputProps<T extends FieldValues, K extends FieldPath<T>> = {
   label: string;
+  description?: string;
   accept?: string | string[];
   name: K;
   control: Control<T>;
@@ -49,6 +51,7 @@ const formatFileType = (fileType: string | undefined) =>
 
 export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   label,
+  description,
   accept,
   name,
   control,
@@ -101,6 +104,11 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
           {label}
         </Box>
       </FormLabel>
+      {description && (
+        <FormHelperText mt="0" textStyle="body" color="blue.50">
+          {description}
+        </FormHelperText>
+      )}
       <VisuallyHidden>
         <Input type="file" accept={acceptedFileTypes} ref={inputRef} onChange={handleFileChange} />
       </VisuallyHidden>

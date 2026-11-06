@@ -38,6 +38,7 @@ interface IJobFile {
   templateKey: string;
   isRequired: boolean;
   fileType: string | string[];
+  description?: string;
   fileInput: FileList | null;
 }
 
@@ -272,6 +273,7 @@ export const JobCreatePage = () => {
                       <RunwayFileInput
                         key={field.id}
                         label={field.name}
+                        description={field.description}
                         accept={field.fileType}
                         name={`requiredFiles.${ix}.fileInput`}
                         control={control}
@@ -293,6 +295,7 @@ export const JobCreatePage = () => {
                     <RunwayFileInput
                       key={field.id}
                       label={field.name}
+                      description={field.description}
                       accept={field.fileType}
                       name={`supplementaryFiles.${ix}.fileInput`}
                       control={control}
