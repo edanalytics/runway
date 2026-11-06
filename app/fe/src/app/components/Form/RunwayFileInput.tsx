@@ -61,15 +61,17 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   const { field, fieldState } = useController({ name, control, rules });
   const [forbiddenError, setForbiddenError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  // The visible button is the file's only Tab stop, so it carries the label and
-  // description. The ids follow Chakra's FormControl scheme (`${id}-label`,
-  // `${id}-helptext`), which the hidden input's own links also use.
+  // The visible button is the file's only Tab stop, so it carries the label, the
+  // status line (the file name or error) and the description. The ids follow
+  // Chakra's FormControl scheme (`${id}-label`, `${id}-helptext`), which the
+  // hidden input's own links also use.
   const id = useId();
   const buttonId = `${id}-button`;
+  const statusId = `${id}-status`;
   const buttonA11yProps = {
     id: buttonId,
     'aria-labelledby': `${id}-label ${buttonId}`,
-    'aria-describedby': description ? `${id}-helptext` : undefined,
+    'aria-describedby': description ? `${statusId} ${id}-helptext` : statusId,
   };
 
   const acceptedFileTypes = Array.isArray(accept)
@@ -125,7 +127,7 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
         />
       </VisuallyHidden>
       <HStack gap="200" alignItems="baseline">
-        <Box textStyle="body" wordBreak="break-word" flex={1}>
+        <Box id={statusId} role="status" textStyle="body" wordBreak="break-word" flex={1}>
           {errorMessage ? (
             <Box as="span" textColor="pink.100">
               {errorMessage}
