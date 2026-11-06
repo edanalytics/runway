@@ -17,7 +17,7 @@ import {
   useController,
   UseControllerProps,
 } from 'react-hook-form';
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 
 type FileInputProps<T extends FieldValues, K extends FieldPath<T>> = {
   label: string;
@@ -61,6 +61,16 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   const { field, fieldState } = useController({ name, control, rules });
   const [forbiddenError, setForbiddenError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // The visible button is the file's only Tab stop, so it carries the label and
+  // description. The ids follow Chakra's FormControl scheme (`${id}-label`,
+  // `${id}-helptext`), which the hidden input's own links also use.
+  const id = useId();
+  const buttonId = `${id}-button`;
+  const buttonA11yProps = {
+    id: buttonId,
+    'aria-labelledby': `${id}-label ${buttonId}`,
+    'aria-describedby': description ? `${id}-helptext` : undefined,
+  };
 
   const acceptedFileTypes = Array.isArray(accept)
     ? accept.map(formatFileType).join(',')
@@ -99,14 +109,20 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   const errorMessage = forbiddenError || fieldState.error?.message;
 
   return (
-    <FormControl variant="file" width="100%" paddingX="0px">
+    <FormControl id={id} variant="file" width="100%" paddingX="0px">
       <FormLabel textColor="blue.50">
         <Box as="span" textStyle="bodyLargeBold">
           {label}
         </Box>
       </FormLabel>
       <VisuallyHidden>
-        <Input type="file" accept={acceptedFileTypes} ref={inputRef} onChange={handleFileChange} />
+        <Input
+          type="file"
+          tabIndex={-1}
+          accept={acceptedFileTypes}
+          ref={inputRef}
+          onChange={handleFileChange}
+        />
       </VisuallyHidden>
       <HStack gap="200" alignItems="baseline">
         <Box textStyle="body" wordBreak="break-word" flex={1}>
@@ -126,6 +142,7 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
         </Box>
         {fileName ? (
           <Button
+            {...buttonA11yProps}
             variant="unstyled"
             textStyle="button"
             textColor="green.100"
@@ -137,13 +154,20 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
               if (inputRef.current) inputRef.current.value = '';
             }}
           >
-            <Box as="span">&mdash;</Box>
+            <Box as="span" aria-hidden>
+              &mdash;
+            </Box>
             <Box as="span" ml="200">
               remove file
             </Box>
           </Button>
         ) : (
-          <Button variant="unstyled" flexShrink={0} onClick={() => inputRef.current?.click()}>
+          <Button
+            {...buttonA11yProps}
+            variant="unstyled"
+            flexShrink={0}
+            onClick={() => inputRef.current?.click()}
+          >
             <HStack as="span" padding="200" gap="200" textStyle="button" layerStyle="buttonPrimary">
               <IconPlus height={12} width={12} />
               <Box as="span">select file</Box>
