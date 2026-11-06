@@ -6,6 +6,7 @@ import {
   partnerXBundles,
   allBundles,
   bundleM,
+  bundleA,
 } from '../fixtures/em-bundle-fixtures';
 import { sessionCookie } from '../helpers/session/session-cookie';
 import sessionStore from '../helpers/session/session-store';
@@ -92,6 +93,30 @@ describe('GET /job-templates', () => {
       const resA = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessA.cookie]);
       expect(resA.status).toBe(200);
       expect(resA.body).toHaveLength(partnerABundles.length);
+    });
+
+    it('should return each input file description from the registry', async () => {
+      const description =
+        'Upload the combination file, or add a student data file under supplementary files.';
+      getBundlesMock.mockResolvedValue([
+        {
+          ...bundleA,
+          input_files: [
+            { ...bundleA.input_files[0], description },
+            {
+              display_name: 'Student data',
+              env_var: 'STUDENT_FILE',
+              is_required: false,
+              file_type: ['csv'],
+            },
+          ],
+        },
+      ]);
+      const resA = await request(app.getHttpServer()).get(endpoint).set('Cookie', [sessA.cookie]);
+      expect(resA.status).toBe(200);
+      const [assessmentFile, studentFile] = resA.body[0].files;
+      expect(assessmentFile.description).toBe(description);
+      expect(studentFile).not.toHaveProperty('description');
     });
   });
 });
