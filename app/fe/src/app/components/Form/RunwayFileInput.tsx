@@ -62,16 +62,17 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   const [forbiddenError, setForbiddenError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   // The visible button is the file's only Tab stop, so it carries the label, the
-  // status line (the file name or error) and the description. The ids follow
-  // Chakra's FormControl scheme (`${id}-label`, `${id}-helptext`), which the
-  // hidden input's own links also use.
+  // status line (the file name or error) and the description. FormControl links
+  // these only to the hidden input, so the button points at ids set here.
   const id = useId();
+  const labelId = `${id}-label`;
+  const descriptionId = `${id}-description`;
   const buttonId = `${id}-button`;
   const statusId = `${id}-status`;
   const buttonA11yProps = {
     id: buttonId,
-    'aria-labelledby': `${id}-label ${buttonId}`,
-    'aria-describedby': description ? `${statusId} ${id}-helptext` : statusId,
+    'aria-labelledby': `${labelId} ${buttonId}`,
+    'aria-describedby': description ? `${statusId} ${descriptionId}` : statusId,
   };
 
   const acceptedFileTypes = Array.isArray(accept)
@@ -111,9 +112,9 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   const errorMessage = forbiddenError || fieldState.error?.message;
 
   return (
-    <FormControl id={id} variant="file" width="100%" paddingX="0px">
+    <FormControl variant="file" width="100%" paddingX="0px">
       <FormLabel textColor="blue.50">
-        <Box as="span" textStyle="bodyLargeBold">
+        <Box as="span" id={labelId} textStyle="bodyLargeBold">
           {label}
         </Box>
       </FormLabel>
@@ -179,6 +180,7 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
       </HStack>
       {description && (
         <HStack
+          id={descriptionId}
           mt="200"
           padding="200"
           gap="200"
