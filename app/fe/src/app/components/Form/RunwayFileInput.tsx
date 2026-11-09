@@ -2,11 +2,13 @@ import {
   Box,
   Button,
   FormControl,
+  FormHelperText,
   FormLabel,
   HStack,
   Input,
   VisuallyHidden,
 } from '@chakra-ui/react';
+import { InfoOutlineIcon } from '@chakra-ui/icons';
 import { IconPlus } from '../../../assets/icons';
 import {
   Control,
@@ -15,10 +17,11 @@ import {
   useController,
   UseControllerProps,
 } from 'react-hook-form';
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 
 type FileInputProps<T extends FieldValues, K extends FieldPath<T>> = {
   label: string;
+  description?: string;
   accept?: string | string[];
   name: K;
   control: Control<T>;
@@ -49,6 +52,7 @@ const formatFileType = (fileType: string | undefined) =>
 
 export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   label,
+  description,
   accept,
   name,
   control,
@@ -57,6 +61,19 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   const { field, fieldState } = useController({ name, control, rules });
   const [forbiddenError, setForbiddenError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // The visible button is the file's only Tab stop, so it carries the label, the
+  // status line (the file name or error) and the description. FormControl links
+  // these only to the hidden input, so the button points at ids set here.
+  const id = useId();
+  const labelId = `${id}-label`;
+  const descriptionId = `${id}-description`;
+  const buttonId = `${id}-button`;
+  const statusId = `${id}-status`;
+  const buttonA11yProps = {
+    id: buttonId,
+    'aria-labelledby': `${labelId} ${buttonId}`,
+    'aria-describedby': description ? `${statusId} ${descriptionId}` : statusId,
+  };
 
   const acceptedFileTypes = Array.isArray(accept)
     ? accept.map(formatFileType).join(',')
@@ -97,15 +114,21 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
   return (
     <FormControl variant="file" width="100%" paddingX="0px">
       <FormLabel textColor="blue.50">
-        <Box as="span" textStyle="bodyLargeBold">
+        <Box as="span" id={labelId} textStyle="bodyLargeBold">
           {label}
         </Box>
       </FormLabel>
       <VisuallyHidden>
-        <Input type="file" accept={acceptedFileTypes} ref={inputRef} onChange={handleFileChange} />
+        <Input
+          type="file"
+          tabIndex={-1}
+          accept={acceptedFileTypes}
+          ref={inputRef}
+          onChange={handleFileChange}
+        />
       </VisuallyHidden>
       <HStack gap="200" alignItems="baseline">
-        <Box textStyle="body" wordBreak="break-word" flex={1}>
+        <Box id={statusId} role="status" textStyle="body" wordBreak="break-word" flex={1}>
           {errorMessage ? (
             <Box as="span" textColor="pink.100">
               {errorMessage}
@@ -122,6 +145,7 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
         </Box>
         {fileName ? (
           <Button
+            {...buttonA11yProps}
             variant="unstyled"
             textStyle="button"
             textColor="green.100"
@@ -133,13 +157,20 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
               if (inputRef.current) inputRef.current.value = '';
             }}
           >
-            <Box as="span">&mdash;</Box>
+            <Box as="span" aria-hidden>
+              &mdash;
+            </Box>
             <Box as="span" ml="200">
               remove file
             </Box>
           </Button>
         ) : (
-          <Button variant="unstyled" flexShrink={0} onClick={() => inputRef.current?.click()}>
+          <Button
+            {...buttonA11yProps}
+            variant="unstyled"
+            flexShrink={0}
+            onClick={() => inputRef.current?.click()}
+          >
             <HStack as="span" padding="200" gap="200" textStyle="button" layerStyle="buttonPrimary">
               <IconPlus height={12} width={12} />
               <Box as="span">select file</Box>
@@ -147,6 +178,24 @@ export const RunwayFileInput = <T extends FieldValues, K extends FieldPath<T>>({
           </Button>
         )}
       </HStack>
+      {description && (
+        <HStack
+          id={descriptionId}
+          mt="200"
+          padding="200"
+          gap="200"
+          alignItems="flex-start"
+          bg="blue.600"
+          borderLeft="4px solid"
+          borderColor="blue.500"
+          borderRadius="8px"
+        >
+          <InfoOutlineIcon boxSize="16px" mt="2px" color="blue.50" flexShrink={0} aria-hidden />
+          <FormHelperText mt="0" textStyle="body" color="blue.50" wordBreak="break-word">
+            {description}
+          </FormHelperText>
+        </HStack>
+      )}
     </FormControl>
   );
 };

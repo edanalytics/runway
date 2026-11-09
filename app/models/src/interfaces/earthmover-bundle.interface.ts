@@ -13,6 +13,7 @@ export interface IEarthmoverBundle {
     env_var: string;
     is_required: boolean;
     file_type: string[];
+    description?: string;
   }>;
 
   input_params?: Array<{

@@ -30,8 +30,6 @@ const FormControl = formControlHelper.defineMultiStyleConfig({
     file: formControlHelper.definePartsStyle({
       container: {
         bg: 'transparent',
-        _focusVisible: noOutline,
-        _focus: noOutline,
         _hover: { ...noOutline, ...pointer },
       },
     }),
