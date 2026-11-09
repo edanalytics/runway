@@ -94,11 +94,6 @@ Resources:
     Properties: 
       Family: !Sub '${EnvLabel}-JobExecutorSmall'
       ContainerDefinitions:
-        # The root filesystem is read-only (Security Hub ECS.5). The executor
-        # creates its job files in the working directory and git-updates the
-        # bundles clone there, so this container copies that clone onto the
-        # writable volume and gives it to the executor user. The program stays
-        # at /executor in the image, outside this mount.
         - Name: tmp-permissions
           Image: !Sub '${JobExecutorEcrRepoUri}:latest'
           Essential: false
