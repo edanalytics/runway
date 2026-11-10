@@ -19,6 +19,9 @@ import { GetUserDto } from './user.dto';
 import { GetJobNoteDto } from './job-note.dto';
 import { GetStudentMatchCountsDto, outstandingStudents } from './student-match-results.dto';
 
+/** The Executor's file of the students a fuzzy full run matched without review. */
+export const AUTO_MATCHES_FILE_NAME = 'auto_matches.csv';
+
 interface IBaseJobDto {
   id: number;
   uid: string;
@@ -37,7 +40,7 @@ export class JobInputParamDto extends GetJobTemplateInputParamDto {
 
 export type DtoableJob = Job & {
   files: JobFile[];
-  runs?: Array<Run & { runError?: RunError[]; }>;
+  runs?: Array<Run & { runError?: RunError[] }>;
   studentMatchCounts: GetStudentMatchCountsDto;
 };
 export type TJobDisplayStatus =
@@ -108,6 +111,20 @@ export class GetJobDto
   @Expose()
   idMatchingMode: $Enums.IdMatchingMode;
 
+  /**
+   * Whether one of the job's runs recorded an `AUTO_MATCHES_FILE_NAME` output
+   * file, which its download route serves. The API sets it from each run's
+   * `runOutputFile` rows for that name, which aren't exposed; afterwards, as in
+   * the frontend, the serialized value is kept.
+   */
+  @Expose()
+  @Transform(
+    ({ obj, value }) =>
+      value ??
+      (obj.runs ?? []).some((run: { runOutputFile?: unknown[] }) => !!run.runOutputFile?.length)
+  )
+  hasAutoMatches: boolean;
+
   @Expose()
   apiClientName: string | null;
 
@@ -135,9 +152,7 @@ export class GetJobDto
    * combined summary.
    */
   get fullRun(): GetRunDto | undefined {
-    return this.runs
-      ?.filter((run) => run.kind === 'full')
-      .sort((a, b) => b.id - a.id)[0];
+    return this.runs?.filter((run) => run.kind === 'full').sort((a, b) => b.id - a.id)[0];
   }
 
   get displayName() {

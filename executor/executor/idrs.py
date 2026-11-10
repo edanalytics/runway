@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, fields, asdict
 from typing import Literal
 from executor.config import IDRS_BATCH_SIZE
 
+SUFFIXES = {'jr', 'sr', 'ii', 'iii', 'iv'}
 
 class IDRSCandidateError(Exception):
     '''error raised when an IDRSCandidate object fails validation'''
@@ -196,8 +197,18 @@ class IDRSCandidate:
             given = rest.split()
             return (given[0] if given else None), (last.strip() or None)
         name_parts = full_name.split()
-        first_name = name_parts[0]
-        last_name = name_parts[-1]
+        # Remove some common suffixes
+        clean_name_parts = [part for part in name_parts if part.strip(".").lower() not in SUFFIXES]
+        if not clean_name_parts:
+            return None, None
+        # If the last piece of minimum 3-length cleaned full name string is a single character, treat it as (roughly) Last | First | MI.
+        if len(clean_name_parts) >= 3 and len(clean_name_parts[-1].strip(".")) == 1:
+            first_name = clean_name_parts[-2]
+            last_name = clean_name_parts[0]
+        # Otherwise assume the string is First | MI | Last
+        else:
+            first_name = clean_name_parts[0]
+            last_name = clean_name_parts[-1]
         return first_name, last_name
 
     @staticmethod
@@ -300,7 +311,31 @@ class IDRSMatchResultSet:
         '''return a correlation_id <-> student_unique_id lookup for auto-matched records'''
         current_year = int(os.environ['API_YEAR'])
         auto_matches = {record.correlation_id: {"student_unique_id": max(record.matches, key=lambda m: m['score'])['student_unique_id'], "cross_year_flag": current_year not in (max(record.matches, key=lambda m: m['score']).get('school_years') or [])} for record in self.records.values() if record.match_type == 'auto'}
-        return auto_matches    
+        return auto_matches
+
+    @staticmethod
+    def _csv_cell(v):
+        '''helper method to format list inputs of auto matches'''
+        if isinstance(v, list):
+            return "|".join(str(i.get('id_value', '') or '').strip() if isinstance(i, dict) else str(i) for i in v)
+        return v
+
+    def auto_match_csv(self) -> list[dict]:
+        '''return the matched student id, candidate info and matched candidate info associated with the auto matches in a result set. This will be returned as a CSV downstream.'''
+        
+        auto_match_list = []
+        for record in self.records.values():
+            if record.match_type != 'auto':
+                continue
+            match = max(record.matches, key=lambda m: m['score'])
+            auto_match_list.append({
+                **{k: self._csv_cell(v) for k, v in record.candidate.items() if k != 'correlation_id'},
+                'student_unique_id': match['student_unique_id'],
+                **{f'matched_{k}': self._csv_cell(v) for k, v in match.items() if k != 'student_unique_id'},
+                'correlation_id': record.correlation_id,
+            })
+
+        return auto_match_list
 
     def needs_review(self) -> list[dict]:
         '''return a subset of the IDRSMatchResultSet containing records that need review (user input or 'none')'''
