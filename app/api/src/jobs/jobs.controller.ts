@@ -219,11 +219,20 @@ export class JobsController {
     @Param('fileName') fileName: string
   ) {
     const decodedFilename = decodeURIComponent(fileName);
-    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, decodedFilename);
-    if (!url) {
-      return new NotFoundException(`File not found for job ${jobId} and file ${decodedFilename}`);
+    const { fileBasePath } = await this.prisma.job.findUniqueOrThrow({
+      where: { id: jobId },
+      select: { fileBasePath: true },
+    });
+    // Presigns only a key the listing returned, so nothing built from the name reaches S3
+    const outputFiles = await this.fileService.listFilesAtPath(`${fileBasePath}/output/`);
+    const outputFile = outputFiles.find((f) => f.name === decodedFilename);
+    if (!outputFile) {
+      throw new NotFoundException(`File not found for job ${jobId} and file ${decodedFilename}`);
     }
-    return url;
+    return this.fileService.getPresignedDownloadUrl({
+      fullPath: outputFile.key,
+      nameForDownload: outputFile.name,
+    });
   }
 
   @Get(':jobId/status-updates')
