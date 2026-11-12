@@ -1570,6 +1570,7 @@ describe('Earthbeam API', () => {
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
       fileBasePath = jobA.fileBasePath!;
+      fileServiceMock.listFilesAtPath.mockClear();
     });
 
     it('should reject unauthenticated requests', async () => {
@@ -1627,6 +1628,42 @@ describe('Earthbeam API', () => {
         .set('Authorization', `Bearer ${tokenA}`)
         .send({ path: `${fileBasePath}/`, sentToOds: true });
       expect(res.status).toBe(400);
+    });
+
+    it.each([
+      ['dot-dot back into input', '/output/../input'],
+      [
+        'dot-dot into another job',
+        '/output/ods/../../../other-partner/other-tenant/other-year/other-job/output/ods',
+      ],
+      ['input directory', '/input/x'],
+      ['bare output directory', '/output'],
+      ['dot segment', '/output/./ods'],
+      ['empty segment', '/output//ods'],
+    ])('should reject a path with %s and not list S3', async (_name, suffix) => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}${suffix}`, sentToOds: true });
+
+      expect(res.status).toBe(400);
+      expect(fileServiceMock.listFilesAtPath).not.toHaveBeenCalled();
+      expect(await prisma.runOutputFileSet.count({ where: { runId: runA.id } })).toBe(0);
+    });
+
+    it('should accept a send run path', async () => {
+      const subfolder = `${fileBasePath}/output/send_run_12/ods/`;
+      fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
+        { key: `${subfolder}output1.jsonl`, name: 'output1.jsonl' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/output/send_run_12/ods`, sentToOds: true });
+
+      expect(res.status).toBe(201);
+      expect(fileServiceMock.listFilesAtPath).toHaveBeenCalledWith(subfolder);
     });
 
     it('should reject when no files are found at the given path', async () => {
