@@ -354,8 +354,8 @@ export class EarthbeamApiService {
 
     // A full run records the two output files the app reads by name; the job
     // page lists the output directory live, so nothing else needs a row. A send
-    // run records none, since its output sets are already recorded by their own
-    // callback.
+    // run records none: the files directly under output/ are the full run's, and
+    // its own go under send_run_{runId}/.
     if (run.kind === 'full') {
       const bucket = this.configService.s3Bucket();
       const outputDirectory = `${run.job.fileBasePath}/output`;

@@ -478,7 +478,7 @@ describe('GET /jobs/:id/output-files', () => {
       }),
     ]);
 
-    // A row for a name the listings below never return: the routes list S3, not rows
+    // A row for a name the listings below never return: the route lists S3, not rows
     await prisma.runOutputFile.create({
       data: {
         runId: jobA.runs![0].id,

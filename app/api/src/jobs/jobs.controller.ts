@@ -208,7 +208,7 @@ export class JobsController {
     return this.presignListedOutputFile(jobId, decodeURIComponent(fileName), req);
   }
 
-  /** Listed live rather than read from run_output_file, so it includes the files send runs write */
+  /** Lists S3, since run_output_file has rows only for the two files the app reads by name */
   private async listOutputFiles(req: Request) {
     if (!req.job) {
       // Set by the job middleware; fail closed if it ever isn't.
