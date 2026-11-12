@@ -24,6 +24,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { JobsService } from './jobs.service';
+import { FileService } from '../files/file.service';
 import { noStudentsToMatch, StudentMatchReviewService } from './student-match-review.service';
 import { StudentMatchSubmitService } from './student-match-submit.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
@@ -103,6 +104,7 @@ export class JobsController {
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
     private jobService: JobsService,
+    private fileService: FileService,
     private studentMatchReview: StudentMatchReviewService,
     private studentMatchSubmit: StudentMatchSubmitService
   ) {}
@@ -169,11 +171,12 @@ export class JobsController {
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
   async getOutputFiles(@Param('jobId', new ParseIntPipe()) jobId: number) {
-    const files = await this.prisma.runOutputFile.findMany({
-      where: { run: { jobId } },
-      orderBy: { runId: 'desc' },
+    const { fileBasePath } = await this.prisma.job.findUniqueOrThrow({
+      where: { id: jobId },
+      select: { fileBasePath: true },
     });
-    return toGetOutputFileDto(files);
+    // Listed live rather than read from run_output_file, so it includes the files send runs write
+    return toGetOutputFileDto(await this.fileService.listFilesAtPath(`${fileBasePath}/output/`));
   }
 
   @Get(':jobId/output-files/input_no_student_id_match.csv')
@@ -193,7 +196,7 @@ export class JobsController {
     return url;
   }
 
-  // Like the review read, this is under the match-results privileges 
+  // Like the review read, this is under the match-results privileges
   // rather than job.output-files.read, since it holds students' details
   @Get(`:jobId/output-files/${AUTO_MATCHES_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.match-results.read')
