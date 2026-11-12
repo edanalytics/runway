@@ -93,110 +93,212 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties: 
       Family: !Sub '${EnvLabel}-JobExecutorSmall'
-      ContainerDefinitions: 
-        - 
+      ContainerDefinitions:
+        - Name: tmp-permissions
+          Image: !Sub '${JobExecutorEcrRepoUri}:latest'
+          Essential: false
+          User: '0'
+          EntryPoint:
+            - /bin/sh
+          Command:
+            - '-c'
+            - 'if mkdir -p /tmp/executor && cp -a /executor/bundles /tmp/executor/bundles && chown -R executor:executor /tmp; then echo "tmp-permissions succeeded"; else echo "tmp-permissions exited with errors" >&2; exit 1; fi'
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - SourceVolume: tmp
+              ContainerPath: /tmp
+              ReadOnly: false
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: true
+              awslogs-group: !Sub '/ecs/JobExecutorSmall-${EnvLabel}'
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: 'ecs-tmp-permissions'
+        - Name: !Sub '${EnvLabel}-JobExecutorSmall'
           Cpu: 0
-          Environment: 
+          Environment:
             - Name: targetName
               Value: defaultTarget
             - Name: sourceName
               Value: defaultSource
+            - Name: HOME
+              Value: /tmp/executor
+            - Name: PYTHONDONTWRITEBYTECODE
+              Value: '1'
           Ulimits:
             - Name: 'nofile'
               SoftLimit: 10240
               HardLimit: 65535
           Essential: true
           Image: !Sub '${JobExecutorEcrRepoUri}:latest'
-          LogConfiguration: 
+          LogConfiguration:
             LogDriver: 'awslogs'
             Options:
               awslogs-create-group: true
               awslogs-group: !Sub '/ecs/JobExecutorSmall-${EnvLabel}'
               awslogs-region: !Ref 'AWS::Region'
               awslogs-stream-prefix: 'ecs'
-          Name: !Sub '${EnvLabel}-JobExecutorSmall'
-          WorkingDirectory: '/executor'
+          WorkingDirectory: '/tmp/executor'
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - SourceVolume: tmp
+              ContainerPath: /tmp
+              ReadOnly: false
+          DependsOn:
+            - ContainerName: tmp-permissions
+              Condition: SUCCESS
       Cpu: '2048'
       Memory: '4096'
       NetworkMode: 'awsvpc'
-      RequiresCompatibilities: 
+      RequiresCompatibilities:
         - FARGATE
-      Tags: 
+      Tags:
         - Key: 'Environment'
           Value: !Ref 'EnvLabel'
       ExecutionRoleArn: !GetAtt 'EcsTaskExecutionRole.Arn'
+      Volumes:
+        - Name: tmp
   EcsTaskDefinitionMedium: 
     Type: AWS::ECS::TaskDefinition
     Properties: 
       Family: !Sub '${EnvLabel}-JobExecutorMedium'
-      ContainerDefinitions: 
-        - 
+      ContainerDefinitions:
+        - Name: tmp-permissions
+          Image: !Sub '${JobExecutorEcrRepoUri}:latest'
+          Essential: false
+          User: '0'
+          EntryPoint:
+            - /bin/sh
+          Command:
+            - '-c'
+            - 'if mkdir -p /tmp/executor && cp -a /executor/bundles /tmp/executor/bundles && chown -R executor:executor /tmp; then echo "tmp-permissions succeeded"; else echo "tmp-permissions exited with errors" >&2; exit 1; fi'
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - SourceVolume: tmp
+              ContainerPath: /tmp
+              ReadOnly: false
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: true
+              awslogs-group: !Sub '/ecs/JobExecutorMedium-${EnvLabel}'
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: 'ecs-tmp-permissions'
+        - Name: !Sub '${EnvLabel}-JobExecutorMedium'
           Cpu: 0
-          Environment: 
+          Environment:
             - Name: targetName
               Value: defaultTarget
             - Name: sourceName
               Value: defaultSource
+            - Name: HOME
+              Value: /tmp/executor
+            - Name: PYTHONDONTWRITEBYTECODE
+              Value: '1'
           Ulimits:
             - Name: 'nofile'
               SoftLimit: 20480
               HardLimit: 65535
           Essential: true
           Image: !Sub '${JobExecutorEcrRepoUri}:latest'
-          LogConfiguration: 
+          LogConfiguration:
             LogDriver: 'awslogs'
             Options:
               awslogs-create-group: true
               awslogs-group: !Sub '/ecs/JobExecutorMedium-${EnvLabel}'
               awslogs-region: !Ref 'AWS::Region'
               awslogs-stream-prefix: 'ecs'
-          Name: !Sub '${EnvLabel}-JobExecutorMedium'
-          WorkingDirectory: '/executor'
+          WorkingDirectory: '/tmp/executor'
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - SourceVolume: tmp
+              ContainerPath: /tmp
+              ReadOnly: false
+          DependsOn:
+            - ContainerName: tmp-permissions
+              Condition: SUCCESS
       Cpu: '4096'
       Memory: '8192'
       NetworkMode: 'awsvpc'
-      RequiresCompatibilities: 
+      RequiresCompatibilities:
         - FARGATE
-      Tags: 
+      Tags:
         - Key: 'Environment'
           Value: !Ref 'EnvLabel'
       ExecutionRoleArn: !GetAtt 'EcsTaskExecutionRole.Arn'
+      Volumes:
+        - Name: tmp
   EcsTaskDefinitionLarge: 
     Type: AWS::ECS::TaskDefinition
     Properties: 
       Family: !Sub '${EnvLabel}-JobExecutorLarge'
-      ContainerDefinitions: 
-        - 
+      ContainerDefinitions:
+        - Name: tmp-permissions
+          Image: !Sub '${JobExecutorEcrRepoUri}:latest'
+          Essential: false
+          User: '0'
+          EntryPoint:
+            - /bin/sh
+          Command:
+            - '-c'
+            - 'if mkdir -p /tmp/executor && cp -a /executor/bundles /tmp/executor/bundles && chown -R executor:executor /tmp; then echo "tmp-permissions succeeded"; else echo "tmp-permissions exited with errors" >&2; exit 1; fi'
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - SourceVolume: tmp
+              ContainerPath: /tmp
+              ReadOnly: false
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: true
+              awslogs-group: !Sub '/ecs/JobExecutorLarge-${EnvLabel}'
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: 'ecs-tmp-permissions'
+        - Name: !Sub '${EnvLabel}-JobExecutorLarge'
           Cpu: 0
-          Environment: 
+          Environment:
             - Name: targetName
               Value: defaultTarget
             - Name: sourceName
               Value: defaultSource
+            - Name: HOME
+              Value: /tmp/executor
+            - Name: PYTHONDONTWRITEBYTECODE
+              Value: '1'
           Ulimits:
             - Name: 'nofile'
               SoftLimit: 40960
               HardLimit: 65535
           Essential: true
           Image: !Sub '${JobExecutorEcrRepoUri}:latest'
-          LogConfiguration: 
+          LogConfiguration:
             LogDriver: 'awslogs'
             Options:
               awslogs-create-group: true
               awslogs-group: !Sub '/ecs/JobExecutorLarge-${EnvLabel}'
               awslogs-region: !Ref 'AWS::Region'
               awslogs-stream-prefix: 'ecs'
-          Name: !Sub '${EnvLabel}-JobExecutorLarge'
-          WorkingDirectory: '/executor'
+          WorkingDirectory: '/tmp/executor'
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - SourceVolume: tmp
+              ContainerPath: /tmp
+              ReadOnly: false
+          DependsOn:
+            - ContainerName: tmp-permissions
+              Condition: SUCCESS
       Cpu: '8192'
       Memory: '32768'
       NetworkMode: 'awsvpc'
-      RequiresCompatibilities: 
+      RequiresCompatibilities:
         - FARGATE
-      Tags: 
+      Tags:
         - Key: 'Environment'
           Value: !Ref 'EnvLabel'
       ExecutionRoleArn: !GetAtt 'EcsTaskExecutionRole.Arn'
+      Volumes:
+        - Name: tmp
   EcsServiceLinkedRole:
     Condition: DoCreateEcsServiceLinkedRole
     UpdateReplacePolicy: Retain
