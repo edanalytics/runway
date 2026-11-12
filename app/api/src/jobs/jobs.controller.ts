@@ -171,7 +171,7 @@ export class JobsController {
   @Get(':jobId/output-files')
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
-  async getOutputFiles(@Param('jobId', new ParseIntPipe()) _jobId: number, @Req() req: Request) {
+  async getOutputFiles(@Req() req: Request) {
     const fileBasePath = req.job?.fileBasePath;
     if (!fileBasePath) {
       // Set by the job middleware; fail closed if it ever isn't.
