@@ -32,6 +32,7 @@ import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership
 import type { Tenant as TTenant, User } from '@prisma/client';
 import {
   AUTO_MATCHES_FILE_NAME,
+  UNMATCHED_STUDENTS_FILE_NAME,
   GetJobDto,
   GetSessionDataDto,
   IPassportSession,
@@ -179,18 +180,18 @@ export class JobsController {
     return toGetOutputFileDto(await this.fileService.listFilesAtPath(`${fileBasePath}/output/`));
   }
 
-  @Get(':jobId/output-files/input_no_student_id_match.csv')
+  @Get(`:jobId/output-files/${UNMATCHED_STUDENTS_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForUnmatchedStudentsOutputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number
   ) {
     const url = await this.jobService.getDownloadUrlForOutputFile(
       jobId,
-      'input_no_student_id_match.csv'
+      UNMATCHED_STUDENTS_FILE_NAME
     );
     if (!url) {
       return new NotFoundException(
-        `File not found for job ${jobId} and file input_no_student_id_match.csv`
+        `File not found for job ${jobId} and file ${UNMATCHED_STUDENTS_FILE_NAME}`
       );
     }
     return url;

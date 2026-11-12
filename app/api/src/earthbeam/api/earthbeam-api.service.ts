@@ -1,4 +1,5 @@
 import {
+  AUTO_MATCHES_FILE_NAME,
   EarthbeamApiJobResponseDto,
   GetJobTemplateDto,
   JobInputParamDto,
@@ -6,6 +7,7 @@ import {
   hasSchoolYears,
   isInJobYear,
   outstandingStudents,
+  UNMATCHED_STUDENTS_FILE_NAME,
 } from '@edanalytics/models';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
@@ -350,20 +352,26 @@ export class EarthbeamApiService {
       },
     });
 
-    // A full run records the job's output directory. A send run records none,
-    // since its output sets are already recorded by their own callback.
-    const outputFiles =
-      run.kind === 'full'
-        ? await this.fileService.listFilesAtPath(`${run.job.fileBasePath}/output/`)
-        : [];
-    if (outputFiles.length > 0) {
-      await prisma.runOutputFile.createMany({
-        data: outputFiles.map((file) => ({
-          runId: run.id,
-          name: file.name,
-          path: file.key,
-        })),
-      });
+    // A full run records the two output files the app reads by name; the job
+    // page lists the output directory live, so nothing else needs a row. A send
+    // run records none, since its output sets are already recorded by their own
+    // callback.
+    if (run.kind === 'full') {
+      const bucket = this.configService.s3Bucket();
+      const outputDirectory = `${run.job.fileBasePath}/output`;
+      const expectedFiles = [UNMATCHED_STUDENTS_FILE_NAME, AUTO_MATCHES_FILE_NAME].map((name) => ({
+        name,
+        path: `${outputDirectory}/${name}`,
+      }));
+      const exists = await Promise.all(
+        expectedFiles.map((file) => this.fileService.doesFileExist(file.path, bucket))
+      );
+      const writtenFiles = expectedFiles.filter((_file, i) => exists[i]);
+      if (writtenFiles.length > 0) {
+        await prisma.runOutputFile.createMany({
+          data: writtenFiles.map((file) => ({ runId: run.id, ...file })),
+        });
+      }
     }
 
     try {
