@@ -11,7 +11,10 @@ import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { Run, RunStatus } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
-import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
+import {
+  EventEmitterLogService,
+  EVENT_EMITTER_SERVICE,
+} from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
@@ -118,7 +121,6 @@ describe('Earthbeam API', () => {
         bundle: bundleA,
         tenant: tenantA,
       });
-
 
       runA = jobA.runs[0];
       endpointA = `/earthbeam/jobs/${runA.id}`;
@@ -613,7 +615,6 @@ describe('Earthbeam API', () => {
         expect(descriptorNamespaceX).toBeUndefined(); // not included in seed for partner X
       });
     });
-
   });
 
   describe('GET auth/:runId/init', () => {
@@ -710,9 +711,7 @@ describe('Earthbeam API', () => {
       // controller's headersSent check should convert that to a clean 500
       // rather than tearing the socket.
       const configService = app.get(AppConfigService);
-      const getInfoSpy = jest
-        .spyOn(configService, 'getEduConnectionInfo')
-        .mockResolvedValue(null);
+      const getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue(null);
 
       const res = await request(app.getHttpServer())
         .get(endpointA)
@@ -1015,7 +1014,6 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
-
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/status`;
@@ -1038,78 +1036,83 @@ describe('Earthbeam API', () => {
       beforeEach(async () => {
         eventEmitterMock = jest.spyOn(EventEmitterLogService.prototype, 'emit');
         fileServiceMock = app.get(FileService) as unknown as Record<string, jest.Mock>;
+        // The file service mock is shared across tests, so start each from its defaults.
+        fileServiceMock.listFilesAtPath.mockClear();
+        fileServiceMock.doesFileExist.mockReset().mockResolvedValue(true);
       });
 
       afterEach(() => {
         eventEmitterMock.mockRestore();
       });
 
-      it('should save output files from S3 listing', async () => {
-        fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
-          { key: 'partner/tenant/2025/1/output/results.jsonl', name: 'results.jsonl' },
-          { key: 'partner/tenant/2025/1/output/summary.csv', name: 'summary.csv' },
-        ]);
+      /** Makes exactly the given keys exist in S3. */
+      const mockExistingFiles = (keys: string[]) =>
+        fileServiceMock.doesFileExist.mockImplementation(async (key: string) => keys.includes(key));
 
-        const res = await request(app.getHttpServer())
-          .post(endpointA)
-          .set('Authorization', `Bearer ${tokenA}`)
+      const postDone = (runId: number, token: string) =>
+        request(app.getHttpServer())
+          .post(`/earthbeam/jobs/${runId}/status`)
+          .set('Authorization', `Bearer ${token}`)
           .send({ action: 'done', status: 'success' });
+
+      it.each([
+        ['both', ['input_no_student_id_match.csv', 'auto_matches.csv']],
+        ['only the unmatched file', ['input_no_student_id_match.csv']],
+        ['only the auto matches file', ['auto_matches.csv']],
+        ['neither', []],
+      ])('records the expected output files a full run wrote: %s', async (_title, writtenNames) => {
+        mockExistingFiles(writtenNames.map((name) => `test-base-path/output/${name}`));
+
+        const res = await postDone(runA.id, tokenA);
         expect(res.status).toBe(201);
 
         const outputFiles = await prisma.runOutputFile.findMany({
           where: { runId: runA.id },
           orderBy: { name: 'asc' },
         });
-        expect(outputFiles).toHaveLength(2);
-        expect(outputFiles[0]).toMatchObject({
-          name: 'results.jsonl',
-          path: 'partner/tenant/2025/1/output/results.jsonl',
-        });
-        expect(outputFiles[1]).toMatchObject({
-          name: 'summary.csv',
-          path: 'partner/tenant/2025/1/output/summary.csv',
-        });
+        expect(outputFiles.map(({ name, path }) => ({ name, path }))).toEqual(
+          [...writtenNames].sort().map((name) => ({
+            name,
+            path: `test-base-path/output/${name}`,
+          }))
+        );
+        expect(fileServiceMock.listFilesAtPath).not.toHaveBeenCalled();
       });
 
-      it('records the files in output/ for a full run, and none for a send run', async () => {
+      it('checks the expected files in the job output directory, in the app bucket', async () => {
+        const res = await postDone(runA.id, tokenA);
+        expect(res.status).toBe(201);
+
+        const bucket = app.get(AppConfigService).s3Bucket();
+        expect(fileServiceMock.doesFileExist.mock.calls.sort()).toEqual([
+          ['test-base-path/output/auto_matches.csv', bucket],
+          ['test-base-path/output/input_no_student_id_match.csv', bucket],
+        ]);
+      });
+
+      it('records no output files for a send run, and checks for none', async () => {
         const sendRun = await prisma.run.create({
           data: { jobId: runA.jobId, kind: 'send', status: 'running' },
         });
         const sendToken = await app
           .get(EarthbeamApiAuthService)
           .createAccessToken({ runId: sendRun.id });
-        fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
-          { key: 'test-base-path/output/results.jsonl', name: 'results.jsonl' },
-        ]);
 
-        // The send run completes first, so if it listed output/ it would take these files.
-        const sendRes = await request(app.getHttpServer())
-          .post(`/earthbeam/jobs/${sendRun.id}/status`)
-          .set('Authorization', `Bearer ${sendToken}`)
-          .send({ action: 'done', status: 'success' });
-        expect(sendRes.status).toBe(201);
-        const fullRes = await request(app.getHttpServer())
-          .post(endpointA)
-          .set('Authorization', `Bearer ${tokenA}`)
-          .send({ action: 'done', status: 'success' });
-        expect(fullRes.status).toBe(201);
+        const res = await postDone(sendRun.id, sendToken);
+        expect(res.status).toBe(201);
 
-        expect(await prisma.runOutputFile.findMany({ where: { runId: runA.id } })).toMatchObject([
-          { name: 'results.jsonl', path: 'test-base-path/output/results.jsonl' },
-        ]);
         expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
+        expect(fileServiceMock.doesFileExist).not.toHaveBeenCalled();
+        expect(fileServiceMock.listFilesAtPath).not.toHaveBeenCalled();
       });
 
       // The job page polls until the run's `done` update appears, and a retried
       // `done` is refused once the run is final, so the update must be
       // recorded with the status, before anything that can fail.
-      it('records a done with its status even when listing the output files fails', async () => {
-        fileServiceMock.listFilesAtPath.mockRejectedValueOnce(new Error('S3 is unavailable'));
+      it('records a done with its status even when checking for the output files fails', async () => {
+        fileServiceMock.doesFileExist.mockRejectedValue(new Error('S3 is unavailable'));
 
-        const res = await request(app.getHttpServer())
-          .post(endpointA)
-          .set('Authorization', `Bearer ${tokenA}`)
-          .send({ action: 'done', status: 'success' });
+        const res = await postDone(runA.id, tokenA);
 
         expect(res.status).toBe(500);
         expect(await prisma.run.findUniqueOrThrow({ where: { id: runA.id } })).toMatchObject({
@@ -1129,7 +1132,7 @@ describe('Earthbeam API', () => {
         ['failure', 'error', 'success'],
         ['success', 'success', 'failure'],
       ])(
-        'refuses a done after done/%s, leaving the run %s, with no event, listing or update',
+        'refuses a done after done/%s, leaving the run %s, with no event, file check or update',
         async (first, runStatus, second) => {
           const done = (status: string) =>
             request(app.getHttpServer())
@@ -1137,11 +1140,10 @@ describe('Earthbeam API', () => {
               .set('Authorization', `Bearer ${tokenA}`)
               .send({ action: 'done', status });
 
-          // The file service mock is shared, so its calls accumulate across tests.
-          const listings = () => fileServiceMock.listFilesAtPath.mock.calls.length;
+          const fileChecks = () => fileServiceMock.doesFileExist.mock.calls.length;
 
           expect((await done(first)).status).toBe(201);
-          const listingsAfterFirst = listings();
+          const fileChecksAfterFirst = fileChecks();
           const res = await done(second);
 
           expect(res.status).toBe(409);
@@ -1152,7 +1154,7 @@ describe('Earthbeam API', () => {
           expect(
             eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete')
           ).toHaveLength(1);
-          expect(listings()).toBe(listingsAfterFirst);
+          expect(fileChecks()).toBe(fileChecksAfterFirst);
           expect(
             (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
               ({ action, status }) => [action, status]
@@ -1564,7 +1566,6 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
-
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
@@ -1597,7 +1598,10 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: 'other-partner/other-tenant/other-year/other-job/output/evil', sentToOds: true });
+        .send({
+          path: 'other-partner/other-tenant/other-year/other-job/output/evil',
+          sentToOds: true,
+        });
       expect(res.status).toBe(400);
     });
 
@@ -1701,5 +1705,4 @@ describe('Earthbeam API', () => {
       expect(second.status).toBe(409);
     });
   });
-
 });
