@@ -1607,6 +1607,30 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(400);
     });
 
+    it('should reject sibling paths that share the fileBasePath prefix', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}-evil`, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject the bare base path (must be a child)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: fileBasePath, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject the bare base path with trailing slash', async () => {
+      const res = await request(app.getHttpServer())
+        .post(endpointA)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ path: `${fileBasePath}/`, sentToOds: true });
+      expect(res.status).toBe(400);
+    });
+
     it.each([
       ['sibling of the output directory', '/output-evil/ods'],
       [

@@ -601,6 +601,18 @@ describe('GET /jobs/:id/output-files', () => {
 
         expect(res.status).toBe(expectedStatus);
       });
+
+      it('should return the output files for a job owned by a different tenant when the user is a SupportUser logged into a global tenant in the same partner', async () => {
+        const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+        listFilesAtPath.mockResolvedValueOnce([]);
+
+        const res = await request(app.getHttpServer())
+          .get(endpoint(jobB.id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(200);
+        expect(listFilesAtPath).toHaveBeenCalledWith(`${jobB.fileBasePath}/output/`);
+      });
     });
   });
 });
