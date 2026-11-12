@@ -454,26 +454,26 @@ describe('GET /jobs/:id/output-files', () => {
   let jobA: SeededJob;
   let jobB: SeededJob;
   let jobEGlobal: SeededJob;
+  let listFilesAtPath: jest.Mock;
 
   beforeEach(async () => {
+    listFilesAtPath = app.get(FileService).listFilesAtPath as jest.Mock;
+    listFilesAtPath.mockClear();
     [jobA, jobB, jobEGlobal] = await Promise.all([
       seedJob({
         odsConfig: odsConfigA2425,
         bundle: bundleA,
         tenant: tenantA,
-        outputFiles: true,
       }),
       seedJob({
         odsConfig: odsConfigB2526,
         bundle: bundleA,
         tenant: tenantB,
-        outputFiles: true,
       }),
       seedJob({
         odsConfig: odsConfigA2425, // same partner as tenantA/tenantB is fine
         bundle: bundleA,
         tenant: tenantEGlobal,
-        outputFiles: true,
       }),
     ]);
   });
@@ -494,17 +494,36 @@ describe('GET /jobs/:id/output-files', () => {
     });
 
     it('should return the output files for a job owned by the tenant, for a SupportUser', async () => {
+      listFilesAtPath.mockResolvedValueOnce([
+        { key: `${jobA.fileBasePath}/output/listed-file-1`, name: 'listed-file-1' },
+        { key: `${jobA.fileBasePath}/output/listed-file-2`, name: 'listed-file-2' },
+      ]);
       const res = await request(app.getHttpServer())
         .get(endpoint(jobA.id))
         .set('Cookie', [cookieA]);
       expect(res.status).toBe(200);
+      expect(res.body).toEqual([{ name: 'listed-file-1' }, { name: 'listed-file-2' }]);
+      expect(listFilesAtPath).toHaveBeenCalledWith(`${jobA.fileBasePath}/output/`);
+    });
 
-      const expectedFiles = await prisma.runOutputFile.findMany({
-        where: { run: { jobId: jobA.id } },
-      });
-      expect(res.body.map((f: { name: string }) => f.name)).toEqual(
-        expect.arrayContaining(expectedFiles.map((f) => f.name))
-      );
+    it('should list a send run file that has no run_output_file row', async () => {
+      listFilesAtPath.mockResolvedValueOnce([
+        { key: `${jobA.fileBasePath}/output/auto_matches.csv`, name: 'auto_matches.csv' },
+        {
+          key: `${jobA.fileBasePath}/output/send_run_12/lightbeam_results.json`,
+          name: 'send_run_12/lightbeam_results.json',
+        },
+      ]);
+      expect(await prisma.runOutputFile.count({ where: { run: { jobId: jobA.id } } })).toBe(0);
+
+      const res = await request(app.getHttpServer())
+        .get(endpoint(jobA.id))
+        .set('Cookie', [cookieA]);
+
+      expect(res.body).toEqual([
+        { name: 'auto_matches.csv' },
+        { name: 'send_run_12/lightbeam_results.json' },
+      ]);
     });
 
     it('should reject requests from a user without the SupportUser role, even for their own tenant', async () => {
@@ -578,18 +597,14 @@ describe('GET /jobs/:id/output-files', () => {
 
       it('should return the output files for a job owned by a different tenant when the user is a SupportUser logged into a global tenant in the same partner', async () => {
         const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+        listFilesAtPath.mockResolvedValueOnce([]);
 
         const res = await request(app.getHttpServer())
           .get(endpoint(jobB.id))
           .set('Cookie', [cookie]);
 
         expect(res.status).toBe(200);
-        const expectedFiles = await prisma.runOutputFile.findMany({
-          where: { run: { jobId: jobB.id } },
-        });
-        expect(res.body.map((f: { name: string }) => f.name)).toEqual(
-          expect.arrayContaining(expectedFiles.map((f) => f.name))
-        );
+        expect(listFilesAtPath).toHaveBeenCalledWith(`${jobB.fileBasePath}/output/`);
       });
     });
   });
