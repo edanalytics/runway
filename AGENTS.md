@@ -356,7 +356,7 @@ The mode decides who reads the results and whether they affect the status:
 
 ### S3 Path Structure
 
-The job page's Output Files lists the job's `output/` live from S3, including the `send_run_{runId}/` folders, and downloads only names that listing returns. It needs `job.output-files.read`. The two named files' routes (`input_no_student_id_match.csv`, `auto_matches.csv`) serve their `run_output_file` row; with no row, a caller who has `job.output-files.read` (and across tenants `job.metatenant.output-files.read`) gets the listed file instead, and anyone else gets a 404.
+The job page's Output Files lists the job's `output/` live from S3, including the `send_run_{runId}/` folders, and downloads only names that listing returns. It needs `job.output-files.read`. The two named files' routes (`input_no_student_id_match.csv`, `auto_matches.csv`) serve their `run_output_file` row; with no row, a caller who has `job.output-files.read` (and across tenants `job.metatenant.output-files.read`) gets the listed file instead, and anyone else gets a 404. `job.output-files.read` reaches every file under `output/`, including students' details from match results, so a role given it should also hold the match-results privileges.
 
 ```
 {partnerId}/{tenantCode}/{schoolYearId}/{jobId}/input/{templateKey}__{fileName}

@@ -723,6 +723,20 @@ describe('GET /jobs/:id/output-files/*', () => {
         expect(listFilesAtPath).toHaveBeenCalledWith(`${job.fileBasePath}/output/`);
       });
 
+      it('is downloadable from the listing in their login tenant by a SupportUser without job.metatenant.output-files.read', async () => {
+        const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+        const key = `${job.fileBasePath}/output/input_no_student_id_match.csv`;
+        listFilesAtPath.mockResolvedValueOnce([{ key, name: 'input_no_student_id_match.csv' }]);
+        const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+        const res = await withoutPrivilege('job.metatenant.output-files.read', () =>
+          request(app.getHttpServer()).get(unmatchedEndpoint(job.id)).set('Cookie', [cookie])
+        );
+
+        expect(res.status).toBe(200);
+        expect(res.text).toBe(`s3-test-download-url://${key}`);
+      });
+
       it('is downloadable from the listing by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
         const job = await seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB });
         const key = `${job.fileBasePath}/output/input_no_student_id_match.csv`;
@@ -848,6 +862,20 @@ describe('GET /jobs/:id/output-files/*', () => {
         expect(res.status).toBe(200);
         expect(res.text).toBe(`s3-test-download-url://${key}`);
         expect(listFilesAtPath).toHaveBeenCalledWith(`${job.fileBasePath}/output/`);
+      });
+
+      it('is downloadable from the listing in their login tenant by a SupportUser without job.metatenant.output-files.read', async () => {
+        const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+        const key = `${job.fileBasePath}/output/${AUTO_MATCHES_FILE_NAME}`;
+        listFilesAtPath.mockResolvedValueOnce([{ key, name: AUTO_MATCHES_FILE_NAME }]);
+        const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+        const res = await withoutPrivilege('job.metatenant.output-files.read', () =>
+          request(app.getHttpServer()).get(autoMatchesEndpoint(job.id)).set('Cookie', [cookie])
+        );
+
+        expect(res.status).toBe(200);
+        expect(res.text).toBe(`s3-test-download-url://${key}`);
       });
 
       it('is downloadable from the listing by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
