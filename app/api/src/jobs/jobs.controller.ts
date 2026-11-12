@@ -172,7 +172,12 @@ export class JobsController {
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
   async getOutputFiles(@Param('jobId', new ParseIntPipe()) _jobId: number, @Req() req: Request) {
-    return toGetOutputFileDto(await this.listOutputFiles(req));
+    const fileBasePath = req.job?.fileBasePath;
+    if (!fileBasePath) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    return toGetOutputFileDto(await this.fileService.listFilesAtPath(`${fileBasePath}/output/`));
   }
 
   @Get(`:jobId/output-files/${UNMATCHED_STUDENTS_FILE_NAME}`)
@@ -205,21 +210,18 @@ export class JobsController {
     @Param('fileName') fileName: string,
     @Req() req: Request
   ) {
-    return this.presignListedOutputFile(jobId, decodeURIComponent(fileName), req);
-  }
-
-  /** Lists S3, since run_output_file has rows only for the two files the app reads by name */
-  private async listOutputFiles(req: Request) {
-    if (!req.job) {
+    const fileBasePath = req.job?.fileBasePath;
+    if (!fileBasePath) {
       // Set by the job middleware; fail closed if it ever isn't.
       throw new InternalServerErrorException('No job on the request');
     }
-    return this.fileService.listFilesAtPath(`${req.job.fileBasePath}/output/`);
+    return this.presignListedOutputFile(jobId, decodeURIComponent(fileName), fileBasePath);
   }
 
   /** Presigns only a key the live listing returned, so nothing built from the name reaches S3 */
-  private async presignListedOutputFile(jobId: number, fileName: string, req: Request) {
-    const outputFiles = await this.listOutputFiles(req);
+  private async presignListedOutputFile(jobId: number, fileName: string, fileBasePath: string) {
+    // Lists S3, since run_output_file has rows only for the two files the app reads by name
+    const outputFiles = await this.fileService.listFilesAtPath(`${fileBasePath}/output/`);
     const outputFile = outputFiles.find((f) => f.name === fileName);
     if (!outputFile) {
       throw new NotFoundException(`File not found for job ${jobId} and file ${fileName}`);
@@ -239,19 +241,23 @@ export class JobsController {
     if (url) {
       return url;
     }
+    const job = req.job;
+    if (!job?.fileBasePath) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
     // Mirrors the generic route's @Authorize and @AllowMetatenant; the tenant ownership guard
     // has already checked the job's tenant is the session's or a descendant of it
     const session = plainToInstance(GetSessionDataDto, req.user);
     const isSessionTenant =
-      req.job?.tenantCode === session.tenant?.code &&
-      req.job?.partnerId === session.tenant?.partnerId;
+      job.tenantCode === session.tenant?.code && job.partnerId === session.tenant?.partnerId;
     const mayListOutputFiles =
       session.privileges.has('job.output-files.read') &&
       (isSessionTenant || session.privileges.has('job.metatenant.output-files.read'));
     if (!mayListOutputFiles) {
       throw new NotFoundException(`File not found for job ${jobId} and file ${fileName}`);
     }
-    return this.presignListedOutputFile(jobId, fileName, req);
+    return this.presignListedOutputFile(jobId, fileName, job.fileBasePath);
   }
 
   @Get(':jobId/status-updates')
