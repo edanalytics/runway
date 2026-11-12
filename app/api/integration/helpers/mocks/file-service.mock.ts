@@ -1,4 +1,4 @@
-import { FileService } from 'api/src/files/file.service';
+import { FileService } from '../../../src/files/file.service';
 
 /** Sets the S3 mock's methods to their defaults, so no test inherits another's stubs. */
 export const resetFileServiceMock = (fileService: FileService) => {
