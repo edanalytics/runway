@@ -18,17 +18,9 @@ import { stubIdrsConfig } from '../helpers/stub-idrs';
 import { reportMatchResults } from '../helpers/report-match-results';
 import { StudentRosterDetailsJson } from '@edanalytics/models';
 import { noStudentsToMatch } from 'api/src/jobs/student-match-review.service';
+import { resetFileServiceMock } from '../helpers/mocks/file-service.mock';
 import { holdRunRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
-
-/** Resets the shared file service mock to the defaults from init-app, so no test inherits another's. */
-const resetFileServiceMock = (fileServiceMock: Record<string, jest.Mock>) => {
-  fileServiceMock.listFilesAtPath.mockReset().mockResolvedValue([
-    { key: 'test-path/test-file-1', name: 'test-file-1' },
-    { key: 'test-path/test-file-2', name: 'test-file-2' },
-  ]);
-  fileServiceMock.doesFileExist.mockReset().mockResolvedValue(true);
-};
 
 describe('Earthbeam API', () => {
   type SavedMatch = {
@@ -1049,12 +1041,12 @@ describe('Earthbeam API', () => {
       beforeEach(async () => {
         eventEmitterMock = jest.spyOn(EventEmitterLogService.prototype, 'emit');
         fileServiceMock = app.get(FileService) as unknown as Record<string, jest.Mock>;
-        resetFileServiceMock(fileServiceMock);
+        resetFileServiceMock(app.get(FileService));
       });
 
       afterEach(() => {
         eventEmitterMock.mockRestore();
-        resetFileServiceMock(fileServiceMock);
+        resetFileServiceMock(app.get(FileService));
       });
 
       /** Makes exactly the given keys exist in S3. */
@@ -1583,11 +1575,11 @@ describe('Earthbeam API', () => {
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
       fileBasePath = jobA.fileBasePath!;
-      resetFileServiceMock(fileServiceMock);
+      resetFileServiceMock(app.get(FileService));
     });
 
     afterEach(() => {
-      resetFileServiceMock(fileServiceMock);
+      resetFileServiceMock(app.get(FileService));
     });
 
     it('should reject unauthenticated requests', async () => {

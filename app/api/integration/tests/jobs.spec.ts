@@ -38,22 +38,11 @@ import { schoolYear2425 } from '../fixtures/context-fixtures/school-year-fixture
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
 import { authHelper } from '../helpers/oidc/auth-flow';
 import { NOTE_CHAR_LIMIT } from 'models/src/constants';
+import { resetFileServiceMock } from '../helpers/mocks/file-service.mock';
 import { holdJobRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 type SeededJob = Awaited<ReturnType<typeof seedJob>>;
-
-/** Resets the shared file service mock's listing and download URL to their defaults from init-app. */
-const resetFileServiceMock = () => {
-  const fileService = app.get(FileService);
-  (fileService.listFilesAtPath as jest.Mock).mockReset().mockResolvedValue([
-    { key: 'test-path/test-file-1', name: 'test-file-1' },
-    { key: 'test-path/test-file-2', name: 'test-file-2' },
-  ]);
-  (fileService.getPresignedDownloadUrl as jest.Mock)
-    .mockReset()
-    .mockImplementation((f) => Promise.resolve(`s3-test-download-url://${f.fullPath}`));
-};
 
 describe('GET /jobs', () => {
   const endpoint = '/jobs';
@@ -469,7 +458,7 @@ describe('GET /jobs/:id/output-files', () => {
   let listFilesAtPath: jest.Mock;
 
   beforeEach(async () => {
-    resetFileServiceMock();
+    resetFileServiceMock(app.get(FileService));
     listFilesAtPath = app.get(FileService).listFilesAtPath as jest.Mock;
     [jobA, jobB, jobEGlobal] = await Promise.all([
       seedJob({
@@ -662,7 +651,7 @@ describe('GET /jobs/:id/output-files/*', () => {
       )
     );
 
-    resetFileServiceMock();
+    resetFileServiceMock(app.get(FileService));
     listFilesAtPath = app.get(FileService).listFilesAtPath as jest.Mock;
     getPresignedDownloadUrl = app.get(FileService).getPresignedDownloadUrl as jest.Mock;
   });

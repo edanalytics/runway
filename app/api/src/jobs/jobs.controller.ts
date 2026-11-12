@@ -172,13 +172,7 @@ export class JobsController {
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
   async getOutputFiles(@Param('jobId', new ParseIntPipe()) _jobId: number, @Req() req: Request) {
-    if (!req.job) {
-      // Set by the job middleware; fail closed if it ever isn't.
-      throw new InternalServerErrorException('No job on the request');
-    }
-    const { fileBasePath } = req.job;
-    // Listed live rather than read from run_output_file, so it includes the files send runs write
-    return toGetOutputFileDto(await this.fileService.listFilesAtPath(`${fileBasePath}/output/`));
+    return toGetOutputFileDto(await this.listOutputFiles(req));
   }
 
   @Get(`:jobId/output-files/${UNMATCHED_STUDENTS_FILE_NAME}`)
@@ -190,7 +184,7 @@ export class JobsController {
     return this.downloadUrlForNamedOutputFile(jobId, UNMATCHED_STUDENTS_FILE_NAME, req);
   }
 
-  // Like the review read, this is under the match-results privileges
+  // Like the review read, this is under the match-results privileges 
   // rather than job.output-files.read, since it holds students' details
   @Get(`:jobId/output-files/${AUTO_MATCHES_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.match-results.read')
@@ -202,6 +196,7 @@ export class JobsController {
     return this.downloadUrlForNamedOutputFile(jobId, AUTO_MATCHES_FILE_NAME, req);
   }
 
+  // downloadUrlForNamedOutputFile mirrors these privileges: narrow one, narrow the other
   @Get(':jobId/output-files/:fileName')
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
@@ -213,14 +208,18 @@ export class JobsController {
     return this.presignListedOutputFile(jobId, decodeURIComponent(fileName), req);
   }
 
-  /** Presigns only a key the live listing returned, so nothing built from the name reaches S3 */
-  private async presignListedOutputFile(jobId: number, fileName: string, req: Request) {
+  /** Listed live rather than read from run_output_file, so it includes the files send runs write */
+  private async listOutputFiles(req: Request) {
     if (!req.job) {
       // Set by the job middleware; fail closed if it ever isn't.
       throw new InternalServerErrorException('No job on the request');
     }
-    const { fileBasePath } = req.job;
-    const outputFiles = await this.fileService.listFilesAtPath(`${fileBasePath}/output/`);
+    return this.fileService.listFilesAtPath(`${req.job.fileBasePath}/output/`);
+  }
+
+  /** Presigns only a key the live listing returned, so nothing built from the name reaches S3 */
+  private async presignListedOutputFile(jobId: number, fileName: string, req: Request) {
+    const outputFiles = await this.listOutputFiles(req);
     const outputFile = outputFiles.find((f) => f.name === fileName);
     if (!outputFile) {
       throw new NotFoundException(`File not found for job ${jobId} and file ${fileName}`);
