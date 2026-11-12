@@ -706,6 +706,63 @@ describe('GET /jobs/:id/output-files/*', () => {
         `s3-test-download-url://output/${jobB.id}/input_no_student_id_match.csv`
       );
     });
+
+    describe('with no run_output_file row, for a file the listing holds', () => {
+      it('is downloadable from the listing by a SupportUser in their login tenant', async () => {
+        const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+        const key = `${job.fileBasePath}/output/input_no_student_id_match.csv`;
+        listFilesAtPath.mockResolvedValueOnce([{ key, name: 'input_no_student_id_match.csv' }]);
+        const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(unmatchedEndpoint(job.id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(200);
+        expect(res.text).toBe(`s3-test-download-url://${key}`);
+        expect(listFilesAtPath).toHaveBeenCalledWith(`${job.fileBasePath}/output/`);
+      });
+
+      it('is downloadable from the listing by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
+        const job = await seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB });
+        const key = `${job.fileBasePath}/output/input_no_student_id_match.csv`;
+        listFilesAtPath.mockResolvedValueOnce([{ key, name: 'input_no_student_id_match.csv' }]);
+        const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(unmatchedEndpoint(job.id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(200);
+        expect(res.text).toBe(`s3-test-download-url://${key}`);
+      });
+
+      it('is a 404, listing and presigning nothing, for a User without job.output-files.read', async () => {
+        const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+        const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(unmatchedEndpoint(job.id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(404);
+        expect(listFilesAtPath).not.toHaveBeenCalled();
+        expect(getPresignedDownloadUrl).not.toHaveBeenCalled();
+      });
+
+      it('is a 404, listing and presigning nothing, across tenants without job.metatenant.output-files.read', async () => {
+        const job = await seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB });
+        const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+
+        const res = await withoutPrivilege('job.metatenant.output-files.read', () =>
+          request(app.getHttpServer()).get(unmatchedEndpoint(job.id)).set('Cookie', [cookie])
+        );
+
+        expect(res.status).toBe(404);
+        expect(listFilesAtPath).not.toHaveBeenCalled();
+        expect(getPresignedDownloadUrl).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('the auto-matches file', () => {
@@ -775,6 +832,63 @@ describe('GET /jobs/:id/output-files/*', () => {
         .get(autoMatchesEndpoint(job.id))
         .set('Cookie', [cookie]);
       expect(res.status).toBe(404);
+    });
+
+    describe('with no run_output_file row, for a file the listing holds', () => {
+      it('is downloadable from the listing by a SupportUser in their login tenant', async () => {
+        const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+        const key = `${job.fileBasePath}/output/${AUTO_MATCHES_FILE_NAME}`;
+        listFilesAtPath.mockResolvedValueOnce([{ key, name: AUTO_MATCHES_FILE_NAME }]);
+        const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(autoMatchesEndpoint(job.id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(200);
+        expect(res.text).toBe(`s3-test-download-url://${key}`);
+        expect(listFilesAtPath).toHaveBeenCalledWith(`${job.fileBasePath}/output/`);
+      });
+
+      it('is downloadable from the listing by a SupportUser logged into a global tenant for a job in a child tenant', async () => {
+        const job = await seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB });
+        const key = `${job.fileBasePath}/output/${AUTO_MATCHES_FILE_NAME}`;
+        listFilesAtPath.mockResolvedValueOnce([{ key, name: AUTO_MATCHES_FILE_NAME }]);
+        const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(autoMatchesEndpoint(job.id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(200);
+        expect(res.text).toBe(`s3-test-download-url://${key}`);
+      });
+
+      it('is a 404, listing and presigning nothing, for a User without job.output-files.read', async () => {
+        const job = await seedJob({ odsConfig: odsConfigA2425, bundle: bundleA, tenant: tenantA });
+        const cookie = (await authHelper.login(idpA, userA, tenantA, USER_ROLE)).cookies;
+
+        const res = await request(app.getHttpServer())
+          .get(autoMatchesEndpoint(job.id))
+          .set('Cookie', [cookie]);
+
+        expect(res.status).toBe(404);
+        expect(listFilesAtPath).not.toHaveBeenCalled();
+        expect(getPresignedDownloadUrl).not.toHaveBeenCalled();
+      });
+
+      it('is a 404, listing and presigning nothing, across tenants without job.metatenant.output-files.read', async () => {
+        const job = await seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB });
+        const cookie = (await authHelper.login(idpA, userA, tenantDGlobal, SUPPORT_ROLES)).cookies;
+
+        const res = await withoutPrivilege('job.metatenant.output-files.read', () =>
+          request(app.getHttpServer()).get(autoMatchesEndpoint(job.id)).set('Cookie', [cookie])
+        );
+
+        expect(res.status).toBe(404);
+        expect(listFilesAtPath).not.toHaveBeenCalled();
+        expect(getPresignedDownloadUrl).not.toHaveBeenCalled();
+      });
     });
   });
 
