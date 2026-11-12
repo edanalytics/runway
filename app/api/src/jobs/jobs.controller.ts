@@ -184,18 +184,10 @@ export class JobsController {
   @Get(`:jobId/output-files/${UNMATCHED_STUDENTS_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForUnmatchedStudentsOutputFile(
-    @Param('jobId', new ParseIntPipe()) jobId: number
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Req() req: Request
   ) {
-    const url = await this.jobService.getDownloadUrlForOutputFile(
-      jobId,
-      UNMATCHED_STUDENTS_FILE_NAME
-    );
-    if (!url) {
-      return new NotFoundException(
-        `File not found for job ${jobId} and file ${UNMATCHED_STUDENTS_FILE_NAME}`
-      );
-    }
-    return url;
+    return this.downloadUrlForNamedOutputFile(jobId, UNMATCHED_STUDENTS_FILE_NAME, req);
   }
 
   // Like the review read, this is under the match-results privileges 
@@ -203,14 +195,11 @@ export class JobsController {
   @Get(`:jobId/output-files/${AUTO_MATCHES_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.match-results.read')
   @Authorize('job.match-results.read')
-  async downloadUrlForAutoMatchesOutputFile(@Param('jobId', new ParseIntPipe()) jobId: number) {
-    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, AUTO_MATCHES_FILE_NAME);
-    if (!url) {
-      throw new NotFoundException(
-        `File not found for job ${jobId} and file ${AUTO_MATCHES_FILE_NAME}`
-      );
-    }
-    return url;
+  async downloadUrlForAutoMatchesOutputFile(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Req() req: Request
+  ) {
+    return this.downloadUrlForNamedOutputFile(jobId, AUTO_MATCHES_FILE_NAME, req);
   }
 
   @Get(':jobId/output-files/:fileName')
@@ -221,22 +210,49 @@ export class JobsController {
     @Param('fileName') fileName: string,
     @Req() req: Request
   ) {
-    const decodedFilename = decodeURIComponent(fileName);
+    return this.presignListedOutputFile(jobId, decodeURIComponent(fileName), req);
+  }
+
+  /** Presigns only a key the live listing returned, so nothing built from the name reaches S3 */
+  private async presignListedOutputFile(jobId: number, fileName: string, req: Request) {
     if (!req.job) {
       // Set by the job middleware; fail closed if it ever isn't.
       throw new InternalServerErrorException('No job on the request');
     }
     const { fileBasePath } = req.job;
-    // Presigns only a key the listing returned, so nothing built from the name reaches S3
     const outputFiles = await this.fileService.listFilesAtPath(`${fileBasePath}/output/`);
-    const outputFile = outputFiles.find((f) => f.name === decodedFilename);
+    const outputFile = outputFiles.find((f) => f.name === fileName);
     if (!outputFile) {
-      throw new NotFoundException(`File not found for job ${jobId} and file ${decodedFilename}`);
+      throw new NotFoundException(`File not found for job ${jobId} and file ${fileName}`);
     }
     return this.fileService.getPresignedDownloadUrl({
       fullPath: outputFile.key,
       nameForDownload: outputFile.name,
     });
+  }
+
+  /**
+   * Serves the file's run_output_file row. With no row, such as an auto-matches file the Executor
+   * wrote after `done`, a caller the generic route would serve gets the live listing's file instead.
+   */
+  private async downloadUrlForNamedOutputFile(jobId: number, fileName: string, req: Request) {
+    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, fileName);
+    if (url) {
+      return url;
+    }
+    // Mirrors the generic route's @Authorize and @AllowMetatenant; the tenant ownership guard
+    // has already checked the job's tenant is the session's or a descendant of it
+    const session = plainToInstance(GetSessionDataDto, req.user);
+    const isSessionTenant =
+      req.job?.tenantCode === session.tenant?.code &&
+      req.job?.partnerId === session.tenant?.partnerId;
+    const mayListOutputFiles =
+      session.privileges.has('job.output-files.read') &&
+      (isSessionTenant || session.privileges.has('job.metatenant.output-files.read'));
+    if (!mayListOutputFiles) {
+      throw new NotFoundException(`File not found for job ${jobId} and file ${fileName}`);
+    }
+    return this.presignListedOutputFile(jobId, fileName, req);
   }
 
   @Get(':jobId/status-updates')
