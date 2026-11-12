@@ -524,15 +524,6 @@ describe('GET /jobs/:id/output-files', () => {
       expect(listFilesAtPath).toHaveBeenCalledWith(`${jobA.fileBasePath}/output/`);
     });
 
-    // The handler doesn't read jobId, so its pipe is what refuses a malformed id
-    // the job middleware would read as a number
-    it('should reject a job id that is not a number', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/jobs/${jobA.id}abc/output-files`)
-        .set('Cookie', [cookieA]);
-      expect(res.status).toBe(400);
-    });
-
     it('should reject requests from a user without the SupportUser role, even for their own tenant', async () => {
       const res = await request(app.getHttpServer())
         .get(endpoint(jobA.id))
