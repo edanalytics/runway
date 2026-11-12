@@ -11,10 +11,7 @@ import { odsConfigA2425, odsConfigX2425 } from '../fixtures/context-fixtures/ods
 import { tenantA, tenantX } from '../fixtures/context-fixtures/tenant-fixtures';
 import { Run, RunStatus } from '@prisma/client';
 import { partnerA } from '../fixtures/context-fixtures/partner-fixtures';
-import {
-  EventEmitterLogService,
-  EVENT_EMITTER_SERVICE,
-} from 'api/src/event-emitter/event-emitter.service';
+import { EventEmitterLogService, EVENT_EMITTER_SERVICE } from 'api/src/event-emitter/event-emitter.service';
 import { userA } from '../fixtures/user-fixtures';
 import { FileService } from 'api/src/files/file.service';
 import { stubIdrsConfig } from '../helpers/stub-idrs';
@@ -23,6 +20,15 @@ import { StudentRosterDetailsJson } from '@edanalytics/models';
 import { noStudentsToMatch } from 'api/src/jobs/student-match-review.service';
 import { holdRunRow } from '../helpers/db/hold-job-row';
 import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
+
+/** Resets the shared file service mock to the defaults from init-app, so no test inherits another's. */
+const resetFileServiceMock = (fileServiceMock: Record<string, jest.Mock>) => {
+  fileServiceMock.listFilesAtPath.mockReset().mockResolvedValue([
+    { key: 'test-path/test-file-1', name: 'test-file-1' },
+    { key: 'test-path/test-file-2', name: 'test-file-2' },
+  ]);
+  fileServiceMock.doesFileExist.mockReset().mockResolvedValue(true);
+};
 
 describe('Earthbeam API', () => {
   type SavedMatch = {
@@ -121,6 +127,7 @@ describe('Earthbeam API', () => {
         bundle: bundleA,
         tenant: tenantA,
       });
+
 
       runA = jobA.runs[0];
       endpointA = `/earthbeam/jobs/${runA.id}`;
@@ -615,6 +622,7 @@ describe('Earthbeam API', () => {
         expect(descriptorNamespaceX).toBeUndefined(); // not included in seed for partner X
       });
     });
+
   });
 
   describe('GET auth/:runId/init', () => {
@@ -711,7 +719,9 @@ describe('Earthbeam API', () => {
       // controller's headersSent check should convert that to a clean 500
       // rather than tearing the socket.
       const configService = app.get(AppConfigService);
-      const getInfoSpy = jest.spyOn(configService, 'getEduConnectionInfo').mockResolvedValue(null);
+      const getInfoSpy = jest
+        .spyOn(configService, 'getEduConnectionInfo')
+        .mockResolvedValue(null);
 
       const res = await request(app.getHttpServer())
         .get(endpointA)
@@ -1005,6 +1015,7 @@ describe('Earthbeam API', () => {
     let runA: Run;
     let tokenA: string;
     let endpointA: string;
+    let fileBasePath: string;
 
     beforeEach(async () => {
       const authService = app.get(EarthbeamApiAuthService);
@@ -1014,9 +1025,11 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
+
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/status`;
+      fileBasePath = jobA.fileBasePath!;
     });
 
     it('should reject unauthenticated requests', async () => {
@@ -1036,13 +1049,12 @@ describe('Earthbeam API', () => {
       beforeEach(async () => {
         eventEmitterMock = jest.spyOn(EventEmitterLogService.prototype, 'emit');
         fileServiceMock = app.get(FileService) as unknown as Record<string, jest.Mock>;
-        // The file service mock is shared across tests, so start each from its defaults.
-        fileServiceMock.listFilesAtPath.mockClear();
-        fileServiceMock.doesFileExist.mockReset().mockResolvedValue(true);
+        resetFileServiceMock(fileServiceMock);
       });
 
       afterEach(() => {
         eventEmitterMock.mockRestore();
+        resetFileServiceMock(fileServiceMock);
       });
 
       /** Makes exactly the given keys exist in S3. */
@@ -1061,7 +1073,7 @@ describe('Earthbeam API', () => {
         ['only the auto matches file', ['auto_matches.csv']],
         ['neither', []],
       ])('records the expected output files a full run wrote: %s', async (_title, writtenNames) => {
-        mockExistingFiles(writtenNames.map((name) => `test-base-path/output/${name}`));
+        mockExistingFiles(writtenNames.map((name) => `${fileBasePath}/output/${name}`));
 
         const res = await postDone(runA.id, tokenA);
         expect(res.status).toBe(201);
@@ -1073,7 +1085,7 @@ describe('Earthbeam API', () => {
         expect(outputFiles.map(({ name, path }) => ({ name, path }))).toEqual(
           [...writtenNames].sort().map((name) => ({
             name,
-            path: `test-base-path/output/${name}`,
+            path: `${fileBasePath}/output/${name}`,
           }))
         );
         expect(fileServiceMock.listFilesAtPath).not.toHaveBeenCalled();
@@ -1085,8 +1097,8 @@ describe('Earthbeam API', () => {
 
         const bucket = app.get(AppConfigService).s3Bucket();
         expect(fileServiceMock.doesFileExist.mock.calls.sort()).toEqual([
-          ['test-base-path/output/auto_matches.csv', bucket],
-          ['test-base-path/output/input_no_student_id_match.csv', bucket],
+          [`${fileBasePath}/output/auto_matches.csv`, bucket],
+          [`${fileBasePath}/output/input_no_student_id_match.csv`, bucket],
         ]);
       });
 
@@ -1566,11 +1578,16 @@ describe('Earthbeam API', () => {
         tenant: tenantA,
       });
 
+
       runA = jobA.runs[0];
       tokenA = await authService.createAccessToken({ runId: runA.id });
       endpointA = `/earthbeam/jobs/${runA.id}/output-files`;
       fileBasePath = jobA.fileBasePath!;
-      fileServiceMock.listFilesAtPath.mockClear();
+      resetFileServiceMock(fileServiceMock);
+    });
+
+    afterEach(() => {
+      resetFileServiceMock(fileServiceMock);
     });
 
     it('should reject unauthenticated requests', async () => {
@@ -1599,10 +1616,7 @@ describe('Earthbeam API', () => {
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({
-          path: 'other-partner/other-tenant/other-year/other-job/output/evil',
-          sentToOds: true,
-        });
+        .send({ path: 'other-partner/other-tenant/other-year/other-job/output/evil', sentToOds: true });
       expect(res.status).toBe(400);
     });
 
@@ -1742,4 +1756,5 @@ describe('Earthbeam API', () => {
       expect(second.status).toBe(409);
     });
   });
+
 });

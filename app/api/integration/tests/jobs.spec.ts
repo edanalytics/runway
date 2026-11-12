@@ -43,6 +43,18 @@ import { waitUntilBlockedBy } from '../helpers/db/wait-until-blocked-by';
 
 type SeededJob = Awaited<ReturnType<typeof seedJob>>;
 
+/** Resets the shared file service mock's listing and download URL to their defaults from init-app. */
+const resetFileServiceMock = () => {
+  const fileService = app.get(FileService);
+  (fileService.listFilesAtPath as jest.Mock).mockReset().mockResolvedValue([
+    { key: 'test-path/test-file-1', name: 'test-file-1' },
+    { key: 'test-path/test-file-2', name: 'test-file-2' },
+  ]);
+  (fileService.getPresignedDownloadUrl as jest.Mock)
+    .mockReset()
+    .mockImplementation((f) => Promise.resolve(`s3-test-download-url://${f.fullPath}`));
+};
+
 describe('GET /jobs', () => {
   const endpoint = '/jobs';
   it('should reject unauthenticated requests', async () => {
@@ -457,8 +469,8 @@ describe('GET /jobs/:id/output-files', () => {
   let listFilesAtPath: jest.Mock;
 
   beforeEach(async () => {
+    resetFileServiceMock();
     listFilesAtPath = app.get(FileService).listFilesAtPath as jest.Mock;
-    listFilesAtPath.mockClear();
     [jobA, jobB, jobEGlobal] = await Promise.all([
       seedJob({
         odsConfig: odsConfigA2425,
@@ -476,6 +488,15 @@ describe('GET /jobs/:id/output-files', () => {
         tenant: tenantEGlobal,
       }),
     ]);
+
+    // A row for a name the listings below never return: the routes list S3, not rows
+    await prisma.runOutputFile.create({
+      data: {
+        runId: jobA.runs![0].id,
+        name: 'stale.csv',
+        path: `${jobA.fileBasePath}/output/stale.csv`,
+      },
+    });
   });
 
   it('should reject unauthenticated requests', async () => {
@@ -506,7 +527,7 @@ describe('GET /jobs/:id/output-files', () => {
       expect(listFilesAtPath).toHaveBeenCalledWith(`${jobA.fileBasePath}/output/`);
     });
 
-    it('should list a send run file that has no run_output_file row', async () => {
+    it('should list the files in S3, including a send run folder, not the run_output_file rows', async () => {
       listFilesAtPath.mockResolvedValueOnce([
         { key: `${jobA.fileBasePath}/output/auto_matches.csv`, name: 'auto_matches.csv' },
         {
@@ -514,7 +535,6 @@ describe('GET /jobs/:id/output-files', () => {
           name: 'send_run_12/lightbeam_results.json',
         },
       ]);
-      expect(await prisma.runOutputFile.count({ where: { run: { jobId: jobA.id } } })).toBe(0);
 
       const res = await request(app.getHttpServer())
         .get(endpoint(jobA.id))
@@ -631,22 +651,20 @@ describe('GET /jobs/:id/output-files/*', () => {
       seedJob({ odsConfig: odsConfigB2526, bundle: bundleA, tenant: tenantB }),
     ]);
 
+    // The generic route ignores these rows, so the summary row must not make summary.csv downloadable
     await Promise.all(
-      [jobA, jobB].map((job) =>
-        prisma.runOutputFile.create({
-          data: {
-            runId: job.runs![0].id,
-            name: 'input_no_student_id_match.csv',
-            path: `output/${job.id}/input_no_student_id_match.csv`,
-          },
-        })
+      [jobA, jobB].flatMap((job) =>
+        ['input_no_student_id_match.csv', OTHER_FILE_NAME].map((name) =>
+          prisma.runOutputFile.create({
+            data: { runId: job.runs![0].id, name, path: `output/${job.id}/${name}` },
+          })
+        )
       )
     );
 
+    resetFileServiceMock();
     listFilesAtPath = app.get(FileService).listFilesAtPath as jest.Mock;
     getPresignedDownloadUrl = app.get(FileService).getPresignedDownloadUrl as jest.Mock;
-    listFilesAtPath.mockClear();
-    getPresignedDownloadUrl.mockClear();
   });
 
   it('should reject unauthenticated requests', async () => {
@@ -837,6 +855,18 @@ describe('GET /jobs/:id/output-files/*', () => {
 
       const res = await request(app.getHttpServer())
         .get(otherFileEndpoint(jobA.id, 'not-listed.csv'))
+        .set('Cookie', [cookie]);
+
+      expect(res.status).toBe(404);
+      expect(getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('is a 404, presigning nothing, for a name with a run_output_file row that the listing does not hold', async () => {
+      const cookie = (await authHelper.login(idpA, userA, tenantA, SUPPORT_ROLES)).cookies;
+      listFilesAtPath.mockResolvedValueOnce([]);
+
+      const res = await request(app.getHttpServer())
+        .get(otherFileEndpoint(jobA.id, OTHER_FILE_NAME))
         .set('Cookie', [cookie]);
 
       expect(res.status).toBe(404);
