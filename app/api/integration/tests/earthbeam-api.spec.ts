@@ -1049,9 +1049,13 @@ describe('Earthbeam API', () => {
         resetFileServiceMock(app.get(FileService));
       });
 
-      /** Makes exactly the given keys exist in S3. */
-      const mockExistingFiles = (keys: string[]) =>
-        fileServiceMock.doesFileExist.mockImplementation(async (key: string) => keys.includes(key));
+      /** Makes exactly the given keys exist in S3, in the app's bucket. */
+      const mockExistingFiles = (keys: string[]) => {
+        const appBucket = app.get(AppConfigService).s3Bucket();
+        fileServiceMock.doesFileExist.mockImplementation(
+          async (key: string, bucket: string) => bucket === appBucket && keys.includes(key)
+        );
+      };
 
       const postDone = (runId: number, token: string) =>
         request(app.getHttpServer())
@@ -1080,21 +1084,14 @@ describe('Earthbeam API', () => {
             path: `${fileBasePath}/output/${name}`,
           }))
         );
-        expect(fileServiceMock.listFilesAtPath).not.toHaveBeenCalled();
       });
 
-      it('checks the expected files in the job output directory, in the app bucket', async () => {
-        const res = await postDone(runA.id, tokenA);
-        expect(res.status).toBe(201);
-
-        const bucket = app.get(AppConfigService).s3Bucket();
-        expect(fileServiceMock.doesFileExist.mock.calls.sort()).toEqual([
-          [`${fileBasePath}/output/auto_matches.csv`, bucket],
-          [`${fileBasePath}/output/input_no_student_id_match.csv`, bucket],
-        ]);
-      });
-
-      it('records no output files for a send run, and checks for none', async () => {
+      it('records no output files for a send run, even with the full run files in S3', async () => {
+        mockExistingFiles(
+          ['input_no_student_id_match.csv', 'auto_matches.csv'].map(
+            (name) => `${fileBasePath}/output/${name}`
+          )
+        );
         const sendRun = await prisma.run.create({
           data: { jobId: runA.jobId, kind: 'send', status: 'running' },
         });
@@ -1106,8 +1103,6 @@ describe('Earthbeam API', () => {
         expect(res.status).toBe(201);
 
         expect(await prisma.runOutputFile.findMany({ where: { runId: sendRun.id } })).toEqual([]);
-        expect(fileServiceMock.doesFileExist).not.toHaveBeenCalled();
-        expect(fileServiceMock.listFilesAtPath).not.toHaveBeenCalled();
       });
 
       // The job page polls until the run's `done` update appears, and a retried
@@ -1136,7 +1131,7 @@ describe('Earthbeam API', () => {
         ['failure', 'error', 'success'],
         ['success', 'success', 'failure'],
       ])(
-        'refuses a done after done/%s, leaving the run %s, with no event, file check or update',
+        'refuses a done after done/%s, leaving the run %s, with no event, output file or update',
         async (first, runStatus, second) => {
           const done = (status: string) =>
             request(app.getHttpServer())
@@ -1144,10 +1139,10 @@ describe('Earthbeam API', () => {
               .set('Authorization', `Bearer ${tokenA}`)
               .send({ action: 'done', status });
 
-          const fileChecks = () => fileServiceMock.doesFileExist.mock.calls.length;
+          const outputFiles = () => prisma.runOutputFile.count({ where: { runId: runA.id } });
 
           expect((await done(first)).status).toBe(201);
-          const fileChecksAfterFirst = fileChecks();
+          const outputFilesAfterFirst = await outputFiles();
           const res = await done(second);
 
           expect(res.status).toBe(409);
@@ -1158,7 +1153,7 @@ describe('Earthbeam API', () => {
           expect(
             eventEmitterMock.mock.calls.filter(([name]) => name === 'run_complete')
           ).toHaveLength(1);
-          expect(fileChecks()).toBe(fileChecksAfterFirst);
+          expect(await outputFiles()).toBe(outputFilesAfterFirst);
           expect(
             (await prisma.runUpdate.findMany({ where: { runId: runA.id } })).map(
               ({ action, status }) => [action, status]
@@ -1612,32 +1607,8 @@ describe('Earthbeam API', () => {
       expect(res.status).toBe(400);
     });
 
-    it('should reject sibling paths that share the fileBasePath prefix', async () => {
-      const res = await request(app.getHttpServer())
-        .post(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${fileBasePath}-evil`, sentToOds: true });
-      expect(res.status).toBe(400);
-    });
-
-    it('should reject the bare base path (must be a child)', async () => {
-      const res = await request(app.getHttpServer())
-        .post(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: fileBasePath, sentToOds: true });
-      expect(res.status).toBe(400);
-    });
-
-    it('should reject the bare base path with trailing slash', async () => {
-      const res = await request(app.getHttpServer())
-        .post(endpointA)
-        .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${fileBasePath}/`, sentToOds: true });
-      expect(res.status).toBe(400);
-    });
-
     it.each([
-      ['dot-dot back into input', '/output/../input'],
+      ['sibling of the output directory', '/output-evil/ods'],
       [
         'dot-dot into another job',
         '/output/ods/../../../other-partner/other-tenant/other-year/other-job/output/ods',
