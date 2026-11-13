@@ -138,10 +138,14 @@ sequenceDiagram
     Exec->>App: POST /status, /error, /summary, /unmatched-ids
     Exec->>App: POST /status {action: done}
 
-    App->>S3: List output files → create RunOutputFile records
+    App->>S3: Check for the two files it reads → create RunOutputFile records
+
+    User->>App: GET /jobs/{id}/output-files
+    App->>S3: List output/ (live)
+    App-->>User: File names
 
     User->>App: GET /jobs/{id}/output-files/{name}
-    App->>S3: Generate presigned download URL
+    App->>S3: List output/ → presigned download URL for the listed key
 ```
 
 ### AWS Dependencies
@@ -182,14 +186,20 @@ sequenceDiagram
 7. **Cross-year retry** (when `crossYearMatchAvailable` and the first pass produced unmatched students): GET `appUrls.roster` for the cross-year NDJSON roster, write to a `.jsonl` file, and re-run `earthmover` against it using the same ID type.
 8. **Load**: `lightbeam send` to Ed-Fi ODS
 9. **Report**: POST summary, unmatched IDs, errors to app via callback URLs
-10. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app validates path, lists S3, saves `run_output_file_set`
+10. **Output files**: POST output file path + `sentToOds` flag to `/output-files` callback; app requires a path under the job's `output/` (no `.`, `..` or empty segment), lists S3, saves `run_output_file_set`
 11. **Done**: POST status `{action: DONE, status: success|failure}`. `completeRun` records the `done` update in the same transaction as the run's new status, before anything that can fail. A run's status only moves forward, each step one conditional update: init moves it from `new` to `running` (anything else is a 401), a failed launch from `new` to `error`, and `done` from `new` or `running` to its outcome. A launch that fails once the task has initialized changes nothing and counts as launched; that would need ECS to report a failure tens of seconds after accepting the task, so it's a guard rather than an expected path. So `success` and `error` are final: a `done` for a run that is already either gets a 409 that records nothing, changes nothing and emits no event. The Executor ignores the response
 
 In the fuzzy matching modes the executor also calls `appUrls.identityService` immediately before using IDRS, exchanging its run-scoped bearer token for `{ token, url }`. See ID matching modes below. (Executor-side IDRS use is EDFIAL-481.)
 
 **Run kinds.** Every run has a `kind`, sent in the payload as `runType`. A `full` run does the steps above. A job is started once, so it has one full run: starting a job that already has a run, of any kind or status, is a 400, "Job already started", from both start routes. Re-running isn't supported. A `send` run, created by submitting matches (see **Submitting** below), only delivers given match decisions, from the files the job's full run left in `output/`. Its payload adds `send: { runId, students: [{ correlationId, studentUniqueId, isCrossYear }] }`, read from its `send_run_decision` rows and sorted by correlation id, and has no `identityService` or `studentMatchResults` URL (nor a roster source, since only `fuzzy` jobs have send runs). `studentUniqueId` is the decision's answer. `isCrossYear` is whether its basis's roster `school_years` exclude the job's end year, whatever the partner's cross-year setting; the Executor keeps those students out of the ODS. Missing or malformed `school_years` fail the payload with a 500.
 
-On `done`, `completeRun` records a run's `run_output_file` rows. A full run records everything under the job's `output/`. A send run records no output files: its output sets are recorded by the output-sets callback, as for any run. For each `done` it accepts, `completeRun` also emits the `run_complete` event, with the run's `kind` as `runType` and the job's `idMatchingMode`. A send run's summary string starts with "send run: " and says how many students it was sent. Its `completedWithErrors` reflects only its own resource errors. A `fuzzy` full run's unmatched count is the job's outstanding students (at that point, every student it reported); other full runs use the unmatched IDs the Executor sent. Once a `fuzzy` job's full run has succeeded, its events end with `jobProgress`: the job's student counts, outstanding total and send runs so far, oldest first.
+On `done`, `completeRun` records a full run's named output files (see **Output Files** below). For each `done` it accepts, it also emits the `run_complete` event, with the run's `kind` as `runType` and the job's `idMatchingMode`. A send run's summary string starts with "send run: " and says how many students it was sent. Its `completedWithErrors` reflects only its own resource errors. A `fuzzy` full run's unmatched count is the job's outstanding students (at that point, every student it reported); other full runs use the unmatched IDs the Executor sent. Once a `fuzzy` job's full run has succeeded, its events end with `jobProgress`: the job's student counts, outstanding total and send runs so far, oldest first.
+
+### Output Files
+
+The job page's Output Files lists the job's `output/` live from S3, including each send run's `send_run_{runId}/` folder, and its download route presigns only a key that listing returns. Both need `job.output-files.read` (and across tenants `job.metatenant.output-files.read`). That privilege reaches every file under `output/`, including students' details, so a role given it should also hold the match-results privileges.
+
+The app reads two files by name, each through its own route and privileges: `input_no_student_id_match.csv` and `auto_matches.csv` (see **Student match results**). On a full run's `done`, `completeRun` records a `run_output_file` row for each that exists directly under `output/`, and the route serves that row. A send run records none. With no row, such as for an `auto_matches.csv` written after `done`, a caller the route admits gets the listed file if they also hold the Output Files privileges, and a 404 otherwise. The app relies on nothing else the Executor writes under `output/`.
 
 ### Cross-Year Matching Flow
 
@@ -278,7 +288,7 @@ This endpoint never changes run state; acting on a failure is the Executor's job
 
 **Body limit.** This route alone has its own JSON parser, limited to 1 MiB (`json-body-parsers.ts`); every other route keeps the parser's 100kb default. Elastic Beanstalk's nginx proxy sets no `client_max_body_size`, so its 1 MiB default also applies: a higher limit would need it raised too. The WAF's `SizeRestrictions_BODY` rule only counts (`cloudformation/templates/0-waf.yml`).
 
-Auto-matched students reach users only as a file. When IDRS resolves any students in a `fuzzy` full run, the Executor writes `auto_matches.csv` to the job's `output/`, which `completeRun` records like any other output file. When the full run succeeded and recorded it (`GetJobDto.hasAutoMatches`), the job page's Summary offers it through `GET /api/jobs/:jobId/output-files/auto_matches.csv`. Since the file holds students' details, it needs the match-results privileges, `job.match-results.read` and across tenants `job.metatenant.match-results.read`, rather than `job.output-files.read`, which most roles lack. `id_based_fuzzy_background` runs IDRS after `done`, once the output files are recorded, so those jobs never offer it.
+Auto-matched students reach users only as a file. When IDRS resolves any students in a `fuzzy` full run, the Executor writes `auto_matches.csv` to the job's `output/`, which `completeRun` records. When the full run succeeded and recorded it (`GetJobDto.hasAutoMatches`), the job page's Summary offers it through `GET /api/jobs/:jobId/output-files/auto_matches.csv`. Since the file holds students' details, it needs the match-results privileges, `job.match-results.read` and across tenants `job.metatenant.match-results.read`, rather than `job.output-files.read`, which most roles lack. `id_based_fuzzy_background` runs IDRS after `done`, once the output files are recorded, so their Summary never offers it; support users can download it from Output Files (see **Output Files**).
 
 `GET /api/jobs/:jobId/student-match-results` (`StudentMatchReviewService.getStudentMatchResults`) returns a job's students to match, for review. The job page's Unmatched Students tab reads it, for `fuzzy` jobs only, and uses the decision, search and submit routes below. It is tenant-scoped like the job's other reads, and needs `job.match-results.read`, which every role has. Across tenants it also needs `job.metatenant.match-results.read`, which only support users have: each match-results route pairs its privilege with a `job.metatenant` one of the same name, as the output-file routes do, since the results expose students' details. It returns `{ counts, students, sendRuns }`, where `counts` is `{ total, toReview, ready, excluded, reprocessing, reprocessed, runFailed }`: every student has exactly one status, so the statuses add up to the total. Each student carries its input details, its `status` and `decision` (see **Decisions**), its `sendRunId`, the send run that decides its status (null before it is submitted), and every run's result for it, ordered by run, with each result's suggestions in ordinal order. `sendRuns` is the job's send runs, newest first, each a run (`status`, raw `summary`) with its submitter, `createdBy`, and `studentCount`, how many students it delivered; the page can turn each summary into counts as the job does its total. `sendRunId` is a student's latest send run, so grouping students by it shows where each stands now, while `studentCount` counts everyone a run delivered, including students since resent. Students are ordered by correlation id for a stable order (the ids are opaque hashes, so it isn't file order). Result ids come back as strings because they are `BIGINT`, and scores as numbers. The details and roster JSON come back as stored, in snake_case. The counts, the students and the send runs are read in one snapshot, so they agree.
 
@@ -359,6 +369,7 @@ The mode decides who reads the results and whether they affect the status:
 ```
 {partnerId}/{tenantCode}/{schoolYearId}/{jobId}/input/{templateKey}__{fileName}
 {partnerId}/{tenantCode}/{schoolYearId}/{jobId}/output/{artifactFileName}
+{partnerId}/{tenantCode}/{schoolYearId}/{jobId}/output/send_run_{runId}/{artifactFileName}
 __rosters/{partnerId}/{tenantCode}/{schoolYearEndYear}/*
 ```
 

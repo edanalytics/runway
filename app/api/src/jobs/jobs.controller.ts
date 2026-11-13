@@ -24,6 +24,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { PRISMA_APP_USER } from '../database';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { JobsService } from './jobs.service';
+import { FileService } from '../files/file.service';
 import { noStudentsToMatch, StudentMatchReviewService } from './student-match-review.service';
 import { StudentMatchSubmitService } from './student-match-submit.service';
 import { Tenant } from '../auth/helpers/tenant.decorator';
@@ -31,6 +32,7 @@ import { SkipTenantOwnership } from '../auth/authorization/skip-tenant-ownership
 import type { Tenant as TTenant, User } from '@prisma/client';
 import {
   AUTO_MATCHES_FILE_NAME,
+  UNMATCHED_STUDENTS_FILE_NAME,
   GetJobDto,
   GetSessionDataDto,
   IPassportSession,
@@ -103,6 +105,7 @@ export class JobsController {
   constructor(
     @Inject(PRISMA_APP_USER) private prisma: PrismaClient,
     private jobService: JobsService,
+    private fileService: FileService,
     private studentMatchReview: StudentMatchReviewService,
     private studentMatchSubmit: StudentMatchSubmitService
   ) {}
@@ -168,59 +171,113 @@ export class JobsController {
   @Get(':jobId/output-files')
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
-  async getOutputFiles(@Param('jobId', new ParseIntPipe()) jobId: number) {
-    const files = await this.prisma.runOutputFile.findMany({
-      where: { run: { jobId } },
-      orderBy: { runId: 'desc' },
-    });
-    return toGetOutputFileDto(files);
+  async getOutputFiles(@Req() req: Request) {
+    const fileBasePath = req.job?.fileBasePath;
+    if (!fileBasePath) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    return toGetOutputFileDto(await this.fileService.listFilesAtPath(`${fileBasePath}/output/`));
   }
 
-  @Get(':jobId/output-files/input_no_student_id_match.csv')
+  @Get(`:jobId/output-files/${UNMATCHED_STUDENTS_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.read')
   async downloadUrlForUnmatchedStudentsOutputFile(
-    @Param('jobId', new ParseIntPipe()) jobId: number
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Req() req: Request
   ) {
-    const url = await this.jobService.getDownloadUrlForOutputFile(
-      jobId,
-      'input_no_student_id_match.csv'
-    );
-    if (!url) {
-      return new NotFoundException(
-        `File not found for job ${jobId} and file input_no_student_id_match.csv`
-      );
-    }
-    return url;
+    return this.downloadUrlForNamedOutputFile(jobId, UNMATCHED_STUDENTS_FILE_NAME, req);
   }
 
-  // Like the review read, this is under the match-results privileges 
+  // Like the review read, this is under the match-results privileges
   // rather than job.output-files.read, since it holds students' details
   @Get(`:jobId/output-files/${AUTO_MATCHES_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.match-results.read')
   @Authorize('job.match-results.read')
-  async downloadUrlForAutoMatchesOutputFile(@Param('jobId', new ParseIntPipe()) jobId: number) {
-    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, AUTO_MATCHES_FILE_NAME);
-    if (!url) {
-      throw new NotFoundException(
-        `File not found for job ${jobId} and file ${AUTO_MATCHES_FILE_NAME}`
-      );
-    }
-    return url;
+  async downloadUrlForAutoMatchesOutputFile(
+    @Param('jobId', new ParseIntPipe()) jobId: number,
+    @Req() req: Request
+  ) {
+    return this.downloadUrlForNamedOutputFile(jobId, AUTO_MATCHES_FILE_NAME, req);
   }
 
+  // downloadUrlForNamedOutputFile mirrors these privileges: narrow one, narrow the other
   @Get(':jobId/output-files/:fileName')
   @AllowMetatenant('job.metatenant.output-files.read')
   @Authorize('job.output-files.read')
   async downloadUrlForOutputFile(
     @Param('jobId', new ParseIntPipe()) jobId: number,
-    @Param('fileName') fileName: string
+    @Param('fileName') fileName: string,
+    @Req() req: Request
   ) {
-    const decodedFilename = decodeURIComponent(fileName);
-    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, decodedFilename);
-    if (!url) {
-      return new NotFoundException(`File not found for job ${jobId} and file ${decodedFilename}`);
+    const fileBasePath = req.job?.fileBasePath;
+    if (!fileBasePath) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
     }
-    return url;
+    return this.presignListedOutputFile(jobId, decodeURIComponent(fileName), fileBasePath);
+  }
+
+  /**
+   * Presigns a key only if the live listing of output/ returned it. The file name comes from the
+   * URL, so checking a key built from it (doesFileExist) would need its own guard against `..`,
+   * leading slashes and the like; the listing needs none, and serves exactly the files the list
+   * shows. Lists S3 rather than reading run_output_file, which has rows only for the two files the
+   * app reads by name.
+   */
+  private async presignListedOutputFile(jobId: number, fileName: string, fileBasePath: string) {
+    const outputFiles = await this.fileService.listFilesAtPath(`${fileBasePath}/output/`);
+    const outputFile = outputFiles.find((f) => f.name === fileName);
+    if (!outputFile) {
+      throw new NotFoundException(`File not found for job ${jobId} and file ${fileName}`);
+    }
+    return this.fileService.getPresignedDownloadUrl({
+      fullPath: outputFile.key,
+      nameForDownload: outputFile.name,
+    });
+  }
+
+  /**
+   * The download URL for one of the two output files the app reads by name.
+   *
+   * Normally completeRun recorded the file in run_output_file when the full run reported done,
+   * and the route's own privileges decide who gets it.
+   *
+   * With no row, the file can still be in output/: the Executor may have written it after done,
+   * as it always does a background job's auto_matches.csv. Then only a caller the generic
+   * output-file route would serve gets it, from the live listing. Anyone else gets the 404 they
+   * would get without this fallback.
+   */
+  private async downloadUrlForNamedOutputFile(jobId: number, fileName: string, req: Request) {
+    // The recorded file. The route's decorators have already authorized the caller.
+    const recordedFileUrl = await this.jobService.getDownloadUrlForOutputFile(jobId, fileName);
+    if (recordedFileUrl) {
+      return recordedFileUrl;
+    }
+
+    // No row, so fall back to the live listing, for callers who hold the generic route's
+    // privileges (its @Authorize and @AllowMetatenant): narrow one, narrow the other.
+    const job = req.job;
+    if (!job?.fileBasePath) {
+      // Set by the job middleware; fail closed if it ever isn't.
+      throw new InternalServerErrorException('No job on the request');
+    }
+    const session = plainToInstance(GetSessionDataDto, req.user);
+
+    // Every caller needs job.output-files.read.
+    const mayReadOutputFiles = session.privileges.has('job.output-files.read');
+
+    // A job in another tenant also needs job.metatenant.output-files.read. The tenant ownership
+    // guard has already checked that tenant is the session's or a descendant of it.
+    const isSessionTenantJob =
+      job.tenantCode === session.tenant?.code && job.partnerId === session.tenant?.partnerId;
+    const mayReadThisTenantsOutputFiles =
+      isSessionTenantJob || session.privileges.has('job.metatenant.output-files.read');
+
+    if (!mayReadOutputFiles || !mayReadThisTenantsOutputFiles) {
+      throw new NotFoundException(`File not found for job ${jobId} and file ${fileName}`);
+    }
+    return this.presignListedOutputFile(jobId, fileName, job.fileBasePath);
   }
 
   @Get(':jobId/status-updates')
