@@ -189,7 +189,7 @@ export class JobsController {
     return this.downloadUrlForNamedOutputFile(jobId, UNMATCHED_STUDENTS_FILE_NAME, req);
   }
 
-  // Like the review read, this is under the match-results privileges 
+  // Like the review read, this is under the match-results privileges
   // rather than job.output-files.read, since it holds students' details
   @Get(`:jobId/output-files/${AUTO_MATCHES_FILE_NAME}`)
   @AllowMetatenant('job.metatenant.match-results.read')
