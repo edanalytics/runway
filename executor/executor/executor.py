@@ -122,8 +122,10 @@ class JobExecutor:
 
             self.unpack_job(job)
             self.refresh_bundle_code()
+            self.earthmover_deps(self.student_id_wrapper_earthmover)
+
             if self.send_to_ods and self.local_mode:
-                self.modify_local_lightbeam()
+                self.modify_local_lightbeam() # LightbeamRunner
 
             if self.run_type == 'send':
                 # Run deps to ensure we have the lightbeam.yaml we need to send current year results. Send runs are always fuzzy, so candidate wrapper is always what we need.
