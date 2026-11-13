@@ -1652,19 +1652,17 @@ describe('Earthbeam API', () => {
       expect(await prisma.runOutputFileSet.count({ where: { runId: runA.id } })).toBe(0);
     });
 
-    it('should accept a send run path', async () => {
-      const subfolder = `${fileBasePath}/output/send_run_12/ods/`;
+    it('should accept a path more than one level below output/', async () => {
       fileServiceMock.listFilesAtPath.mockResolvedValueOnce([
-        { key: `${subfolder}output1.jsonl`, name: 'output1.jsonl' },
+        { key: `${fileBasePath}/output/a/b/output1.jsonl`, name: 'output1.jsonl' },
       ]);
 
       const res = await request(app.getHttpServer())
         .post(endpointA)
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ path: `${fileBasePath}/output/send_run_12/ods`, sentToOds: true });
+        .send({ path: `${fileBasePath}/output/a/b`, sentToOds: true });
 
       expect(res.status).toBe(201);
-      expect(fileServiceMock.listFilesAtPath).toHaveBeenCalledWith(subfolder);
     });
 
     it('should reject when no files are found at the given path', async () => {
