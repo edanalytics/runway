@@ -238,28 +238,43 @@ export class JobsController {
   }
 
   /**
-   * Serves the file's run_output_file row. With no row, such as an auto-matches file the Executor
-   * wrote after `done`, a caller the generic route would serve gets the live listing's file instead.
+   * The download URL for one of the two output files the app reads by name.
+   *
+   * Normally completeRun recorded the file in run_output_file when the full run reported done,
+   * and the route's own privileges decide who gets it.
+   *
+   * With no row, the file can still be in output/: the Executor may have written it after done,
+   * as it always does a background job's auto_matches.csv. Then only a caller the generic
+   * output-file route would serve gets it, from the live listing. Anyone else gets the 404 they
+   * would get without this fallback.
    */
   private async downloadUrlForNamedOutputFile(jobId: number, fileName: string, req: Request) {
-    const url = await this.jobService.getDownloadUrlForOutputFile(jobId, fileName);
-    if (url) {
-      return url;
+    // The recorded file. The route's decorators have already authorized the caller.
+    const recordedFileUrl = await this.jobService.getDownloadUrlForOutputFile(jobId, fileName);
+    if (recordedFileUrl) {
+      return recordedFileUrl;
     }
+
+    // No row, so fall back to the live listing, for callers who hold the generic route's
+    // privileges (its @Authorize and @AllowMetatenant): narrow one, narrow the other.
     const job = req.job;
     if (!job?.fileBasePath) {
       // Set by the job middleware; fail closed if it ever isn't.
       throw new InternalServerErrorException('No job on the request');
     }
-    // Mirrors the generic route's @Authorize and @AllowMetatenant; the tenant ownership guard
-    // has already checked the job's tenant is the session's or a descendant of it
     const session = plainToInstance(GetSessionDataDto, req.user);
-    const isSessionTenant =
+
+    // Every caller needs job.output-files.read.
+    const mayReadOutputFiles = session.privileges.has('job.output-files.read');
+
+    // A job in another tenant also needs job.metatenant.output-files.read. The tenant ownership
+    // guard has already checked that tenant is the session's or a descendant of it.
+    const isSessionTenantJob =
       job.tenantCode === session.tenant?.code && job.partnerId === session.tenant?.partnerId;
-    const mayListOutputFiles =
-      session.privileges.has('job.output-files.read') &&
-      (isSessionTenant || session.privileges.has('job.metatenant.output-files.read'));
-    if (!mayListOutputFiles) {
+    const mayReadThisTenantsOutputFiles =
+      isSessionTenantJob || session.privileges.has('job.metatenant.output-files.read');
+
+    if (!mayReadOutputFiles || !mayReadThisTenantsOutputFiles) {
       throw new NotFoundException(`File not found for job ${jobId} and file ${fileName}`);
     }
     return this.presignListedOutputFile(jobId, fileName, job.fileBasePath);
