@@ -218,9 +218,14 @@ export class JobsController {
     return this.presignListedOutputFile(jobId, decodeURIComponent(fileName), fileBasePath);
   }
 
-  /** Presigns only a key the live listing returned, so nothing built from the name reaches S3 */
+  /**
+   * Presigns a key only if the live listing of output/ returned it. The file name comes from the
+   * URL, so checking a key built from it (doesFileExist) would need its own guard against `..`,
+   * leading slashes and the like; the listing needs none, and serves exactly the files the list
+   * shows. Lists S3 rather than reading run_output_file, which has rows only for the two files the
+   * app reads by name.
+   */
   private async presignListedOutputFile(jobId: number, fileName: string, fileBasePath: string) {
-    // Lists S3, since run_output_file has rows only for the two files the app reads by name
     const outputFiles = await this.fileService.listFilesAtPath(`${fileBasePath}/output/`);
     const outputFile = outputFiles.find((f) => f.name === fileName);
     if (!outputFile) {
