@@ -10,6 +10,7 @@ import sessionStore from '../../session/session-store';
 import { Reflector } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { FileService } from 'api/src/files/file.service';
+import { createFileServiceMock } from '../../mocks/file-service.mock';
 import { prepareMockOIDC } from '../../oidc/openid-client-mock';
 import { initExternalApiTokenMock, getLocalJWKS } from '../../external-api/token-helper';
 import { ExternalApiAuthService } from '../../../../src/external-api/auth/external-api.auth.service';
@@ -27,20 +28,7 @@ export const initApp = async function () {
       imports: [ConfigModule.forRoot({ ignoreEnvFile: true, isGlobal: true }), AppModule],
     })
       .overrideProvider(FileService) // S3 mock
-      .useValue({
-        getPresignedUploadUrl: jest
-          .fn()
-          .mockImplementation((f) => Promise.resolve(`s3-test-upload-url://${f.fullPath}`)),
-        getPresignedDownloadUrl: jest
-          .fn()
-          .mockImplementation((f) => Promise.resolve(`s3-test-download-url://${f.fullPath}`)),
-        listFilesAtPath: jest.fn().mockResolvedValue([
-          { key: 'test-path/test-file-1', name: 'test-file-1' },
-          { key: 'test-path/test-file-2', name: 'test-file-2' },
-        ]),
-        doesFileExist: jest.fn().mockResolvedValue(true),
-        doFilesExist: jest.fn().mockResolvedValue(true),
-      })
+      .useValue(createFileServiceMock())
       .compile();
 
     prepareMockOIDC(); // mock openid-client, must be called before app is created

@@ -3,9 +3,6 @@ import { makeSerializer } from '../utils';
 
 export class GetOutputFileDto {
   @Expose()
-  runId: number;
-
-  @Expose()
   name: string;
 }
 
