@@ -310,9 +310,14 @@ export class EarthbeamApiController {
     // Canonicalize: strip trailing slashes for consistent storage and uniqueness checks
     const canonicalPath = body.path.replace(/\/+$/, '');
 
-    if (!canonicalPath.startsWith(`${run.job.fileBasePath}/`)) {
+    const outputPrefix = `${run.job.fileBasePath}/output/`;
+    const relativeSegments = canonicalPath.slice(outputPrefix.length).split('/');
+    if (
+      !canonicalPath.startsWith(outputPrefix) ||
+      relativeSegments.some((segment) => ['', '.', '..'].includes(segment))
+    ) {
       throw new BadRequestException(
-        "Invalid output files path: must be within the job's data directory"
+        "Invalid output files path: must be within the job's output directory"
       );
     }
 

@@ -14,6 +14,7 @@ export class GetJobTemplateDto {
     templateKey: string;
     isRequired: boolean;
     fileType: string[];
+    description?: string;
   }>;
 
   @Expose()
@@ -49,6 +50,7 @@ const toDtoable = (bundle: IEarthmoverBundle): GetJobTemplateDto => ({
     templateKey: file.env_var,
     isRequired: file.is_required,
     fileType: file.file_type,
+    description: file.description,
   })),
   params:
     bundle.input_params?.map((field) => ({

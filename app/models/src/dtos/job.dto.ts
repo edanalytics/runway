@@ -22,6 +22,9 @@ import { GetStudentMatchCountsDto, outstandingStudents } from './student-match-r
 /** The Executor's file of the students a fuzzy full run matched without review. */
 export const AUTO_MATCHES_FILE_NAME = 'auto_matches.csv';
 
+/** The Executor's file of the input rows an ID-based full run couldn't match to a student. */
+export const UNMATCHED_STUDENTS_FILE_NAME = 'input_no_student_id_match.csv';
+
 interface IBaseJobDto {
   id: number;
   uid: string;
